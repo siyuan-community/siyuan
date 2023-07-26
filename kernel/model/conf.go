@@ -711,7 +711,8 @@ func InitBoxes() {
 }
 
 func IsSubscriber() bool {
-	return nil != Conf.User && (-1 == Conf.User.UserSiYuanProExpireTime || 0 < Conf.User.UserSiYuanProExpireTime) && 0 == Conf.User.UserSiYuanSubscriptionStatus
+	return true
+	// return nil != Conf.User && (-1 == Conf.User.UserSiYuanProExpireTime || 0 < Conf.User.UserSiYuanProExpireTime) && 0 == Conf.User.UserSiYuanSubscriptionStatus
 }
 
 func IsOneTimePaid() bool {
