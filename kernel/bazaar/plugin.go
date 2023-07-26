@@ -55,7 +55,22 @@ func Plugins(frontend string) (plugins []*Plugin) {
 		repoURL := repo.URL
 
 		plugin := &Plugin{}
-		innerU := util.BazaarOSSServer + "/package/" + repoURL + "/plugin.json"
+		// innerU := util.BazaarOSSServer + "/package/" + repoURL + "/plugin.json"
+		// innerU (official):  https://oss.b3logfile.com/package/<urername>/<reponame>@<git-commit-hash>/plugin.json
+
+		// repoURL: <urername>/<reponame>@<git-commit-hash>
+		owner, repoName, hash, innerErr := parseRepoInfo(repoURL)
+		if nil != innerErr {
+			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
+			return
+		}
+
+		url := "https://github.com/" + owner + "/" + repoName + "/raw/" + hash
+		// url (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>
+
+		innerU := url + "/plugin.json"
+		// innerU (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>/plugin.json"
+
 		innerResp, innerErr := httpclient.NewBrowserRequest().SetSuccessResult(plugin).Get(innerU)
 		if nil != innerErr {
 			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
@@ -76,9 +91,14 @@ func Plugins(frontend string) (plugins []*Plugin) {
 		repoURLHash := strings.Split(repoURL, "@")
 		plugin.RepoURL = "https://github.com/" + repoURLHash[0]
 		plugin.RepoHash = repoURLHash[1]
-		plugin.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
-		plugin.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
-		plugin.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+
+		// plugin.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
+		plugin.PreviewURL = url + "/preview.png"
+		// plugin.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
+		plugin.PreviewURLThumb = url + "/preview.png"
+		// plugin.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+		plugin.IconURL = url + "/icon.png"
+
 		plugin.Funding = repo.Package.Funding
 		plugin.PreferredFunding = getPreferredFunding(plugin.Funding)
 		plugin.PreferredName = getPreferredName(plugin.Package)

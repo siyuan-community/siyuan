@@ -18,8 +18,8 @@ package bazaar
 
 import (
 	"bytes"
+	"context"
 	"errors"
-	"golang.org/x/mod/semver"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,11 +29,13 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/araddon/dateparse"
+	"github.com/google/go-github/v53/github"
 	"github.com/imroc/req/v3"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/util"
+	"golang.org/x/mod/semver"
 	textUnicode "golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
@@ -130,6 +132,11 @@ type StageRepo struct {
 type StageIndex struct {
 	Repos []*StageRepo `json:"repos"`
 }
+
+var (
+	githubContext = context.Background()
+	githubClient  = github.NewClientWithEnvProxy()
+)
 
 func getPreferredReadme(readme *Readme) string {
 	if nil == readme {
@@ -362,7 +369,12 @@ func getStageIndex(pkgType string) (ret *StageIndex, err error) {
 	bazaarHash := rhyRet["bazaar"].(string)
 	ret = &StageIndex{}
 	request := httpclient.NewBrowserRequest()
-	u := util.BazaarOSSServer + "/bazaar@" + bazaarHash + "/stage/" + pkgType + ".json"
+
+	// u := util.BazaarOSSServer + "/bazaar@" + bazaarHash + "/stage/" + pkgType + ".json"
+	// u (official) : https://oss.b3logfile.com/bazaar@<git-commit-hash>/state/<package-type>.json
+
+	u := util.BazaarRepo + "/raw/" + bazaarHash + "/stage/" + pkgType + ".json"
+	// u (community): https://github.com/siyuan-note/bazaar/raw/<git-commit-hash>/stage/<package-type>.json
 	resp, reqErr := request.SetSuccessResult(ret).Get(u)
 	if nil != reqErr {
 		logging.LogErrorf("get community stage index [%s] failed: %s", u, reqErr)
@@ -480,6 +492,8 @@ func isOutdatedTemplate(template *Template, bazaarTemplates []*Template) bool {
 
 func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {
 	repoURLHash := repoURL + "@" + repoHash
+	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
+	// repoURLHash: https://github.com/<urername>/<reponame>@<git-commit-hash>
 
 	stageIndex := cachedStageIndex[packageType]
 	if nil == stageIndex {
@@ -487,6 +501,8 @@ func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {
 	}
 
 	url := strings.TrimPrefix(repoURLHash, "https://github.com/")
+	// url: <urername>/<reponame>@<git-commit-hash>
+
 	var repo *StageRepo
 	for _, r := range stageIndex.Repos {
 		if r.URL == url {
@@ -499,7 +515,6 @@ func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {
 	}
 
 	readme := getPreferredReadme(repo.Package.Readme)
-
 	data, err := downloadPackage(repoURLHash+"/"+readme, false, "")
 	if nil != err {
 		ret = "Load bazaar package's README.md failed: " + err.Error()
@@ -529,11 +544,109 @@ func renderREADME(repoURL string, mdData []byte) (ret string, err error) {
 	return
 }
 
+func parseRepoInfo(repoURLHash string) (
+	owner string,
+	repo string,
+	hash string,
+	err error,
+) {
+	// 获取仓库信息
+	info := strings.FieldsFunc(repoURLHash, func(r rune) bool {
+		if r == '/' || r == '@' {
+			return true
+		} else {
+			return false
+		}
+	})
+	if len(info) < 3 {
+		err = errors.New("parse repository information failed: " + repoURLHash)
+	} else {
+		owner = info[0] // 仓库所有者
+		repo = info[1]  // 仓库名称
+		hash = info[2]  // commit hash
+	}
+	return
+}
+
+func getPackageDownloadURL(owner, repo, hash string) (url string, err error) {
+	// 获取标签名称
+	page := 1
+	for {
+		// 获取标签列表
+		// REF: https://docs.github.com/en/rest/repos/repos?apiVersion=2022-11-28#list-repository-tags
+		// REF: https://pkg.go.dev/github.com/google/go-github/v53@v53.2.0/github#RepositoriesService.ListTags
+		tags, _, innerErr := githubClient.Repositories.ListTags(
+			githubContext,
+			owner,
+			repo,
+			&github.ListOptions{
+				Page:    page,
+				PerPage: 32,
+			},
+		)
+		if nil != innerErr {
+			err = innerErr
+			return
+		}
+		if len(tags) > 0 {
+			// 获取 hash 匹配的标签
+			for _, tag := range tags {
+				if tag.GetCommit().GetSHA() == hash {
+					var builder strings.Builder
+					builder.WriteString("https://github.com/")
+					builder.WriteString(owner)
+					builder.WriteString("/")
+					builder.WriteString(repo)
+					builder.WriteString("/releases/download/")
+					builder.WriteString(tag.GetName())
+					builder.WriteString("/package.zip")
+					url = builder.String()
+					return
+				}
+			}
+			page++
+		} else {
+			err = errors.New("get bazaar package failed, please check package's repository")
+			return
+		}
+	}
+}
+
 func downloadPackage(repoURLHash string, pushProgress bool, systemID string) (data []byte, err error) {
 	// repoURLHash: https://github.com/88250/Comfortably-Numb@6286912c381ef3f83e455d06ba4d369c498238dc
+	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
+	// repoURLHash: <urername>/<reponame>@<git-commit-hash>/README.md
+
 	pushID := repoURLHash[:strings.LastIndex(repoURLHash, "@")]
 	repoURLHash = strings.TrimPrefix(repoURLHash, "https://github.com/")
-	u := util.BazaarOSSServer + "/package/" + repoURLHash
+	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
+	// repoURLHash: <urername>/<reponame>@<git-commit-hash>/README.md
+
+	// u := util.BazaarOSSServer + "/package/" + repoURLHash
+	// u (official)  : https://oss.b3logfile.com/<urername>/<reponame>@<git-commit-hash>
+	// u (official)  : https://oss.b3logfile.com/<urername>/<reponame>@<git-commit-hash>/README.md
+
+	// TODO: 判断是包还是自述文件
+	owner, repo, hash, err := parseRepoInfo(repoURLHash)
+	if nil != err {
+		return
+	}
+	repoURL := owner + "/" + repo + "@" + hash
+	var u string
+	path := strings.TrimPrefix(repoURLHash, repoURL)
+	if path != "" { // 其他资源文件
+		u = "https://github.com/" + owner + "/" + repo + "/raw/" + hash + path
+		// u (community) : https://github.com/<urername>/<reponame>/raw/<git-commit-hash>/README.md
+	} else { // package.zip 文件
+		u, err = getPackageDownloadURL(owner, repo, hash)
+		// u (community) : https://github.com/<urername>/<reponame>/releases/download/<tag>/package.zip
+
+		if nil != err {
+			logging.LogErrorf(err.Error())
+			return nil, err
+		}
+	}
+
 	buf := &bytes.Buffer{}
 	resp, err := httpclient.NewBrowserRequest().SetOutput(buf).SetDownloadCallback(func(info req.DownloadInfo) {
 		if pushProgress {

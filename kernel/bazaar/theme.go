@@ -54,7 +54,22 @@ func Themes() (ret []*Theme) {
 		repoURL := repo.URL
 
 		theme := &Theme{}
-		innerU := util.BazaarOSSServer + "/package/" + repoURL + "/theme.json"
+		// innerU := util.BazaarOSSServer + "/package/" + repoURL + "/theme.json"
+		// innerU (official):  https://oss.b3logfile.com/package/<urername>/<reponame>@<git-commit-hash>/theme.json
+
+		// repoURL: <urername>/<reponame>@<git-commit-hash>
+		owner, repoName, hash, innerErr := parseRepoInfo(repoURL)
+		if nil != innerErr {
+			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
+			return
+		}
+
+		url := "https://github.com/" + owner + "/" + repoName + "/raw/" + hash
+		// url (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>
+
+		innerU := url + "/theme.json"
+		// innerU (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>/theme.json"
+
 		innerResp, innerErr := httpclient.NewBrowserRequest().SetSuccessResult(theme).Get(innerU)
 		if nil != innerErr {
 			logging.LogErrorf("get bazaar package [%s] failed: %s", innerU, innerErr)
@@ -73,9 +88,14 @@ func Themes() (ret []*Theme) {
 		repoURLHash := strings.Split(repoURL, "@")
 		theme.RepoURL = "https://github.com/" + repoURLHash[0]
 		theme.RepoHash = repoURLHash[1]
-		theme.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
-		theme.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
-		theme.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+
+		// theme.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
+		theme.PreviewURL = url + "/preview.png"
+		// theme.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
+		theme.PreviewURLThumb = url + "/preview.png"
+		// theme.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+		theme.IconURL = url + "/icon.png"
+
 		theme.Funding = repo.Package.Funding
 		theme.PreferredFunding = getPreferredFunding(theme.Funding)
 		theme.PreferredName = getPreferredName(theme.Package)

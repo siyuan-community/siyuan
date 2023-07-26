@@ -53,7 +53,22 @@ func Templates() (templates []*Template) {
 		repoURL := repo.URL
 
 		template := &Template{}
-		innerU := util.BazaarOSSServer + "/package/" + repoURL + "/template.json"
+		// innerU := util.BazaarOSSServer + "/package/" + repoURL + "/template.json"
+		// innerU (official):  https://oss.b3logfile.com/package/<urername>/<reponame>@<git-commit-hash>/template.json
+
+		// repoURL: <urername>/<reponame>@<git-commit-hash>
+		owner, repoName, hash, innerErr := parseRepoInfo(repoURL)
+		if nil != innerErr {
+			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
+			return
+		}
+
+		url := "https://github.com/" + owner + "/" + repoName + "/raw/" + hash
+		// url (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>
+
+		innerU := url + "/template.json"
+		// innerU (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>/template.json"
+
 		innerResp, innerErr := httpclient.NewBrowserRequest().SetSuccessResult(template).Get(innerU)
 		if nil != innerErr {
 			logging.LogErrorf("get community template [%s] failed: %s", repoURL, innerErr)
@@ -72,9 +87,14 @@ func Templates() (templates []*Template) {
 		repoURLHash := strings.Split(repoURL, "@")
 		template.RepoURL = "https://github.com/" + repoURLHash[0]
 		template.RepoHash = repoURLHash[1]
-		template.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
-		template.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
-		template.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+
+		// template.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
+		template.PreviewURL = url + "/preview.png"
+		// template.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
+		template.PreviewURLThumb = url + "/preview.png"
+		// template.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+		template.IconURL = url + "/icon.png"
+
 		template.Funding = repo.Package.Funding
 		template.PreferredFunding = getPreferredFunding(template.Funding)
 		template.PreferredName = getPreferredName(template.Package)

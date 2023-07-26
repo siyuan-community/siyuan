@@ -53,7 +53,22 @@ func Widgets() (widgets []*Widget) {
 		repoURL := repo.URL
 
 		widget := &Widget{}
-		innerU := util.BazaarOSSServer + "/package/" + repoURL + "/widget.json"
+		// innerU := util.BazaarOSSServer + "/package/" + repoURL + "/widget.json"
+		// innerU (official):  https://oss.b3logfile.com/package/<urername>/<reponame>@<git-commit-hash>/widget.json
+
+		// repoURL: <urername>/<reponame>@<git-commit-hash>
+		owner, repoName, hash, innerErr := parseRepoInfo(repoURL)
+		if nil != innerErr {
+			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
+			return
+		}
+
+		url := "https://github.com/" + owner + "/" + repoName + "/raw/" + hash
+		// url (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>
+
+		innerU := url + "/widget.json"
+		// innerU (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>/widget.json"
+
 		innerResp, innerErr := httpclient.NewBrowserRequest().SetSuccessResult(widget).Get(innerU)
 		if nil != innerErr {
 			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
@@ -72,9 +87,14 @@ func Widgets() (widgets []*Widget) {
 		repoURLHash := strings.Split(repoURL, "@")
 		widget.RepoURL = "https://github.com/" + repoURLHash[0]
 		widget.RepoHash = repoURLHash[1]
-		widget.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
-		widget.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
-		widget.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+
+		// widget.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
+		widget.PreviewURL = url + "/preview.png"
+		// widget.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
+		widget.PreviewURLThumb = url + "/preview.png"
+		// widget.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+		widget.IconURL = url + "/icon.png"
+
 		widget.Funding = repo.Package.Funding
 		widget.PreferredFunding = getPreferredFunding(widget.Funding)
 		widget.PreferredName = getPreferredName(widget.Package)
