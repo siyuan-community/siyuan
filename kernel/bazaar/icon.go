@@ -52,7 +52,22 @@ func Icons() (icons []*Icon) {
 		repoURL := repo.URL
 
 		icon := &Icon{}
-		innerU := util.BazaarOSSServer + "/package/" + repoURL + "/icon.json"
+		// innerU := util.BazaarOSSServer + "/package/" + repoURL + "/icon.json"
+		// innerU (official):  https://oss.b3logfile.com/package/<urername>/<reponame>@<git-commit-hash>/icon.json
+
+		// repoURL: <urername>/<reponame>@<git-commit-hash>
+		owner, repoName, hash, innerErr := parseRepoInfo(repoURL)
+		if nil != innerErr {
+			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
+			return
+		}
+
+		url := "https://github.com/" + owner + "/" + repoName + "/raw/" + hash
+		// url (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>
+
+		innerU := url + "/icon.json"
+		// innerU (community): https://github.com/<urername>/<reponame>/raw/<git-commit-hash>/icon.json"
+
 		innerResp, innerErr := httpclient.NewBrowserRequest().SetSuccessResult(icon).Get(innerU)
 		if nil != innerErr {
 			logging.LogErrorf("get bazaar package [%s] failed: %s", repoURL, innerErr)
@@ -71,9 +86,14 @@ func Icons() (icons []*Icon) {
 		repoURLHash := strings.Split(repoURL, "@")
 		icon.RepoURL = "https://github.com/" + repoURLHash[0]
 		icon.RepoHash = repoURLHash[1]
-		icon.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
-		icon.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
-		icon.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+
+		// icon.PreviewURL = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageslim"
+		icon.PreviewURL = url + "/preview.png"
+		// icon.PreviewURLThumb = util.BazaarOSSServer + "/package/" + repoURL + "/preview.png?imageView2/2/w/436/h/232"
+		icon.PreviewURLThumb = url + "/preview.png"
+		// icon.IconURL = util.BazaarOSSServer + "/package/" + repoURL + "/icon.png"
+		icon.IconURL = url + "/icon.png"
+
 		icon.Funding = repo.Package.Funding
 		icon.PreferredFunding = getPreferredFunding(icon.Funding)
 		icon.PreferredName = getPreferredName(icon.Package)

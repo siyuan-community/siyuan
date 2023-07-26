@@ -34,6 +34,7 @@ require (
 	github.com/go-ole/go-ole v1.3.0
 	github.com/goccy/go-json v0.10.2
 	github.com/gofrs/flock v0.8.1
+	github.com/google/go-github/v53 v53.2.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/imroc/req/v3 v3.41.9
 	github.com/jinzhu/copier v0.4.0
@@ -65,6 +66,15 @@ require (
 	golang.org/x/mobile v0.0.0-20230901161150-52620a4a7557
 	golang.org/x/mod v0.12.0
 	golang.org/x/text v0.12.0
+)
+
+require (
+	github.com/ProtonMail/go-crypto v0.0.0-20230217124315-7d5c6f04bbb8 // indirect
+	github.com/cloudflare/circl v1.3.3 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
+	golang.org/x/oauth2 v0.8.0 // indirect
+	google.golang.org/appengine v1.6.7 // indirect
 )
 
 require (

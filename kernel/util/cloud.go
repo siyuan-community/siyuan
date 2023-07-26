@@ -77,4 +77,7 @@ const (
 
 	BazaarStatServer = "http://bazaar.b3logfile.com" // 集市包统计服务地址，直接对接 Bucket 没有 CDN
 	BazaarOSSServer  = "https://oss.b3logfile.com"   // 云端对象存储地址，七牛云，仅用于读取集市包，全球 CDN
+
+	BazaarRepo    = "https://github.com/siyuan-note/bazaar"      // 集市仓库，用于集市资源更新
+	CommunityRepo = "https://github.com/siyuan-community/siyuan" // 社区版仓库，用于更新
 )
