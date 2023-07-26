@@ -2,6 +2,7 @@ import {showMessage} from "../dialog/message";
 import {getCloudURL} from "../config/util/about";
 
 export const needLogin = (tip = window.siyuan.languages.needLogin) => {
+    return false;
     if (window.siyuan.user) {
         return false;
     }
@@ -12,6 +13,7 @@ export const needLogin = (tip = window.siyuan.languages.needLogin) => {
 };
 
 export const needSubscribe = (tip = window.siyuan.languages._kernel[29]) => {
+    return false;
     if (window.siyuan.user && (window.siyuan.user.userSiYuanProExpireTime === -1 || window.siyuan.user.userSiYuanProExpireTime > 0)) {
         return false;
     }
