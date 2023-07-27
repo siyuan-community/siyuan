@@ -61,7 +61,7 @@ def find_milestone(repo, title, lastestRelease):
     version = pat.group(1)
     print(f'''
 <p>
-<a href="https://github.com/siyuan-community/siyuan/actions/workflows/cd.yml"><img src="https://img.shields.io/github/actions/workflow/status/siyuan-community/siyuan/cd.yml?event=push&label=cd.yml%20Action&logo=github" style="cursor:pointer;height: 30px;margin: 3px auto;"/></a>
+<a href="https://github.com/siyuan-community/siyuan/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/siyuan-community/siyuan/release.yml?event=push&label=release.yml%20Action&logo=github" style="cursor:pointer;height: 30px;margin: 3px auto;"/></a>
 <a href="https://github.com/siyuan-community/siyuan/releases/{thisRelease}/"><img src="https://img.shields.io/github/downloads/siyuan-community/siyuan/{thisRelease}/total?logo=github" style="cursor:pointer;height: 30px;margin: 3px auto;"/></a>
 <img alt="GitHub commits difference between two branches/tags/commits" src="https://img.shields.io/github/commits-difference/siyuan-community/siyuan?base={lastestRelease}&head={thisRelease}&logo=git" style="cursor:pointer;height: 30px;margin: 3px auto;"/>
 </p>
