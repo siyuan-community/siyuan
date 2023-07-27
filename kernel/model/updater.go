@@ -131,7 +131,7 @@ func getUpdatePkg() (downloadPkgURLs []string, checksum string, err error) {
 			suffix = "mac.dmg"
 		}
 	}
-	pkg := "siyuan-" + ver + "-" + suffix
+	pkg := "siyuan-CE-v" + ver + "-" + suffix
 
 	// b3logURL := "https://release.b3log.org/siyuan/" + pkg
 	// downloadPkgURLs = append(downloadPkgURLs, b3logURL)
