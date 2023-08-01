@@ -3,7 +3,6 @@
     background-color: var(--b3-theme-background);
     position: absolute;
     box-shadow: var(--b3-dialog-shadow);
-    z-index: 205;
     width: 60vw;
     word-break: break-word;
     border-radius: var(--b3-border-radius-b);
@@ -13,13 +12,15 @@
     display: flex;
     flex-direction: column;
     min-height: 197px;
+    z-index: -1;
     border: 1px solid var(--b3-theme-surface-lighter);
 
     &--open {
       opacity: 1;
+      z-index: 205;
     }
 
-    &--top {
+    &--top.block__popover--open {
       z-index: 206;
     }
 

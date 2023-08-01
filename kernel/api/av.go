@@ -35,7 +35,8 @@ func renderAttributeView(c *gin.Context) {
 	}
 
 	id := arg["id"].(string)
-	view, attrView, err := model.RenderAttributeView(id)
+	nodeID := arg["nodeID"].(string)
+	view, attrView, err := model.RenderAttributeView(id, nodeID)
 	if nil != err {
 		ret.Code = -1
 		ret.Msg = err.Error()
@@ -61,4 +62,37 @@ func renderAttributeView(c *gin.Context) {
 		"views":    views,
 		"view":     view,
 	}
+}
+
+func getAttributeViewKeys(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	id := arg["id"].(string)
+	blockAttributeViewKeys := model.GetBlockAttributeViewKeys(id)
+	ret.Data = blockAttributeViewKeys
+}
+
+func setAttributeViewBlockAttr(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	avID := arg["avID"].(string)
+	keyID := arg["keyID"].(string)
+	rowID := arg["rowID"].(string)
+	cellID := arg["cellID"].(string)
+	value := arg["value"].(interface{})
+	blockAttributeViewKeys := model.UpdateAttributeViewCell(avID, keyID, rowID, cellID, value)
+	util.BroadcastByType("protyle", "refreshAttributeView", 0, "", map[string]interface{}{"id": avID})
+	ret.Data = blockAttributeViewKeys
 }

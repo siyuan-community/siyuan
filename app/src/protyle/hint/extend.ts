@@ -46,7 +46,7 @@ export const hintSlash = (key: string, protyle: IProtyle) => {
         filter: ["ai chat"],
         value: Constants.ZWSP + 5,
         html: '<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconSparkles"></use></svg><span class="b3-list-item__text">AI Chat</span></div>',
-    }, /*{
+    },/* {
         filter: ["数据库", "属性视图", "shujuku", "shuxingshitu", "sjk", "sxst", "database", "attribute view"],
         value: '<div data-type="NodeAttributeView" data-av-type="table"></div>',
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconDatabase"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.database}</span></div>`,
@@ -311,13 +311,42 @@ export const hintTag = (key: string, protyle: IProtyle): IHintData[] => {
                 dataList[1].focus = true;
             }
         }
-        protyle.hint.genHTML(dataList, protyle, true);
+        protyle.hint.genHTML(dataList, protyle, true, "hint");
     });
 
     return [];
 };
 
-export const hintRef = (key: string, protyle: IProtyle, isQuick = false): IHintData[] => {
+export const genHintItemHTML = (item: IBlock) => {
+    let iconHTML;
+    if (item.type === "NodeDocument" && item.ial.icon) {
+        iconHTML = unicode2Emoji(item.ial.icon, "b3-list-item__graphic popover__block", true);
+        iconHTML = iconHTML.replace('popover__block"', `popover__block" data-id="${item.id}"`);
+    } else {
+        iconHTML = `<svg class="b3-list-item__graphic popover__block" data-id="${item.id}"><use xlink:href="#${getIconByType(item.type)}"></use></svg>`;
+    }
+    let attrHTML = "";
+    if (item.name) {
+        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconN"></use></svg><span>${item.name}</span></span><span class="fn__space"></span>`;
+    }
+    if (item.alias) {
+        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconA"></use></svg><span>${item.alias}</span></span><span class="fn__space"></span>`;
+    }
+    if (item.memo) {
+        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconM"></use></svg><span>${item.memo}</span></span>`;
+    }
+    if (attrHTML) {
+        attrHTML = `<div class="fn__flex b3-list-item__meta b3-list-item__showall">${attrHTML}</div>`;
+    }
+
+    return `${attrHTML}<div class="b3-list-item__first">
+    ${iconHTML}
+    <span class="b3-list-item__text">${item.content}</span>
+</div>
+<div class="b3-list-item__meta b3-list-item__showall" style="margin-bottom: 4px">${item.hPath}</div>`;
+};
+
+export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IHintData[] => {
     const nodeElement = hasClosestBlock(getEditorRange(protyle.wysiwyg.element).startContainer);
     protyle.hint.genLoading(protyle);
     fetchPost("/api/search/searchRefBlock", {
@@ -331,46 +360,22 @@ export const hintRef = (key: string, protyle: IProtyle, isQuick = false): IHintD
         if (response.data.newDoc) {
             const newFileName = Lute.UnEscapeHTMLStr(replaceFileName(response.data.k));
             dataList.push({
-                value: isQuick ? `((newFile "${newFileName}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))` : `((newFile '${newFileName}${Lute.Caret}'))`,
+                value: source === "search" ? `((newFile "${newFileName}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))` : `((newFile '${newFileName}${Lute.Caret}'))`,
                 html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFile"></use></svg>
 <span class="b3-list-item__text">${window.siyuan.languages.newFile} <mark>${response.data.k}</mark></span></div>`,
             });
         }
         response.data.blocks.forEach((item: IBlock) => {
-            let iconHTML;
-            if (item.type === "NodeDocument" && item.ial.icon) {
-                iconHTML = unicode2Emoji(item.ial.icon, "b3-list-item__graphic popover__block", true);
-                iconHTML = iconHTML.replace('popover__block"', `popover__block" data-id="${item.id}"`);
-            } else {
-                iconHTML = `<svg class="b3-list-item__graphic popover__block" data-id="${item.id}"><use xlink:href="#${getIconByType(item.type)}"></use></svg>`;
-            }
-            let attrHTML = "";
-            if (item.name) {
-                attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconN"></use></svg><span>${item.name}</span></span><span class="fn__space"></span>`;
-            }
-            if (item.alias) {
-                attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconA"></use></svg><span>${item.alias}</span></span><span class="fn__space"></span>`;
-            }
-            if (item.memo) {
-                attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconM"></use></svg><span>${item.memo}</span></span>`;
-            }
-            if (attrHTML) {
-                attrHTML = `<div class="fn__flex b3-list-item__meta b3-list-item__showall">${attrHTML}</div>`;
-            }
             let value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="d">${item.name || item.refText}</span>`;
-            if (isQuick) {
+            if (source === "search") {
                 value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${key}</span>`;
             }
             dataList.push({
                 value,
-                html: `${attrHTML}<div class="b3-list-item__first">
-    ${iconHTML}
-    <span class="b3-list-item__text">${item.content}</span>
-</div>
-<div class="b3-list-item__meta b3-list-item__showall" style="margin-bottom: 4px">${item.hPath}</div>`,
+                html: genHintItemHTML(item),
             });
         });
-        if (isQuick) {
+        if (source === "search") {
             protyle.hint.splitChar = "((";
             protyle.hint.lastIndex = -1;
         }
@@ -382,7 +387,7 @@ export const hintRef = (key: string, protyle: IProtyle, isQuick = false): IHintD
         } else if (response.data.newDoc && dataList.length > 1) {
             dataList[1].focus = true;
         }
-        protyle.hint.genHTML(dataList, protyle, true, isQuick);
+        protyle.hint.genHTML(dataList, protyle, true, source);
     });
     return [];
 };
@@ -401,33 +406,9 @@ export const hintEmbed = (key: string, protyle: IProtyle): IHintData[] => {
     }, (response) => {
         const dataList: IHintData[] = [];
         response.data.blocks.forEach((item: IBlock) => {
-            let iconHTML;
-            if (item.type === "NodeDocument" && item.ial.icon) {
-                iconHTML = unicode2Emoji(item.ial.icon, "b3-list-item__graphic popover__block", true);
-                iconHTML = iconHTML.replace('popover__block"', `popover__block" data-id="${item.id}"`);
-            } else {
-                iconHTML = `<svg class="b3-list-item__graphic popover__block" data-id="${item.id}"><use xlink:href="#${getIconByType(item.type)}"></use></svg>`;
-            }
-            let attrHTML = "";
-            if (item.name) {
-                attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconN"></use></svg>${item.name}</span><span class="fn__space"></span>`;
-            }
-            if (item.alias) {
-                attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconA"></use></svg>${item.alias}</span><span class="fn__space"></span>`;
-            }
-            if (item.memo) {
-                attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconM"></use></svg>${item.memo}</span>`;
-            }
-            if (attrHTML) {
-                attrHTML = `<div class="fn__flex b3-list-item__meta b3-list-item__showall">${attrHTML}</div>`;
-            }
             dataList.push({
                 value: `{{select * from blocks where id='${item.id}'}}`,
-                html: `${attrHTML}<div class="b3-list-item__first">
-    ${iconHTML}
-    <span class="b3-list-item__text">${item.content}</span>
-</div>
-<div class="b3-list-item__meta b3-list-item__showall" style="margin-bottom: 4px">${item.hPath}</div>`,
+                html: genHintItemHTML(item),
             });
         });
         if (dataList.length === 0) {
@@ -436,7 +417,7 @@ export const hintEmbed = (key: string, protyle: IProtyle): IHintData[] => {
                 html: window.siyuan.languages.emptyContent,
             });
         }
-        protyle.hint.genHTML(dataList, protyle, true);
+        protyle.hint.genHTML(dataList, protyle, true, "hint");
     });
     return [];
 };

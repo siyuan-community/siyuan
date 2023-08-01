@@ -1,4 +1,5 @@
 {
+  "builtIn": "內置",
   "endDate": "結束日期",
   "needLogin": "該功能需要登錄賬號後才能使用",
   "calcResultCountAll": "行計數",
@@ -41,6 +42,11 @@
   "filterOperatorEndsWith": "結尾為",
   "filterOperatorIsEmpty": "為空",
   "filterOperatorIsNotEmpty": "不為空",
+  "filterOperatorIsBetween": "介於",
+  "filterOperatorIsBefore": "早於",
+  "filterOperatorIsAfter": "晚於",
+  "filterOperatorIsOnOrBefore": "早於或等於",
+  "filterOperatorIsOnOrAfter": "晚於或等於",
   "asc": "升序",
   "desc": "降序",
   "hideCol": "隱藏列",
@@ -1236,6 +1242,7 @@
     "211": "校驗雲端數據完畢",
     "212": "當前版本雲端數據同步存在一些缺陷，請升級到最新版，帶來不便，敬請諒解",
     "213": "雲端校驗失敗，請嘗試升級到最新版並重新登錄後再進行同步",
-    "214": "該功能需要登錄賬號後才能使用"
+    "214": "該功能需要登錄賬號後才能使用",
+    "215": "保存失敗：目標文件正在被其他程序佔用"
   }
 }

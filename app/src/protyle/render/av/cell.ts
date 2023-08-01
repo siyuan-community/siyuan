@@ -66,7 +66,7 @@ export const getCalcValue = (column: IAVColumn) => {
 export const genCellValue = (colType: TAVCol, value: string | {
     content: string,
     color: string
-}[]) => {
+}[] | { content?: number, content2?: number, hasEndDate?: boolean }) => {
     let cellValue: IAVCellValue;
     if (typeof value === "string") {
         if (colType === "number") {
@@ -94,22 +94,40 @@ export const genCellValue = (colType: TAVCol, value: string | {
                 }
             };
         } else if (colType === "mSelect" || colType === "select") {
-            return {
+            cellValue = {
                 type: colType,
                 mSelect: [{
                     content: value,
                     color: ""
                 }]
             };
+        } else if (colType === "date" && value === "") {
+            cellValue = {
+                type: colType,
+                date: {
+                    content: null,
+                    content2: null,
+                    hasEndDate: false,
+                }
+            };
         }
-        return cellValue;
+    } else {
+        if (colType === "mSelect" || colType === "select") {
+            cellValue = {
+                type: colType,
+                mSelect: value as {
+                    content: string,
+                    color: string
+                }[]
+            };
+        } else if (colType === "date") {
+            cellValue = {
+                type: colType,
+                date: value as { content?: number, content2?: number, hasEndDate?: boolean }
+            };
+        }
     }
-    if (colType === "mSelect" || colType === "select") {
-        return {
-            type: colType,
-            mSelect: value
-        };
-    }
+    return cellValue;
 };
 
 const calcItem = (options: {
@@ -325,8 +343,8 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[]) => {
     let html = "";
     const style = `style="position:absolute;left: ${cellRect.left}px;top: ${cellRect.top}px;width:${Math.max(cellRect.width, 200)}px;height: ${cellRect.height}px"`;
     const blockElement = hasClosestBlock(cellElements[0]);
-    if (type === "block" || type === "text") {
-        html = `<textarea ${style} class="b3-text-field">${cellElements[0].textContent}</textarea>`;
+    if (["block", "text", "url"].includes(type)) {
+        html = `<textarea ${style} class="b3-text-field">${cellElements[0].firstElementChild.textContent}</textarea>`;
     } else if (type === "number") {
         html = `<input type="number" value="${cellElements[0].textContent}" ${style} class="b3-text-field">`;
     } else if (["select", "mSelect"].includes(type) && blockElement) {

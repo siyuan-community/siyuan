@@ -10,6 +10,10 @@
   &__header {
     top: -43px;
     z-index: 2;
+
+    .layout-tab-bar {
+      background-color: transparent;
+    }
   }
 
   &__title {
@@ -28,6 +32,7 @@
     position: absolute;
     bottom: 0;
     height: 30px;
+    padding: 0 5px;
     background-color: var(--b3-theme-background);
   }
 
@@ -178,11 +183,20 @@
       flex-shrink: 0;
     }
 
-    [data-type="block-ref"] {
+    [data-type="block-ref"],
+    [data-type="a"] {
       display: none;
       position: absolute;
       right: 5px;
       font-size: 10px;
+    }
+
+    &:hover [data-type="a"] {
+      display: block;
+
+      &:hover {
+        border-bottom: 0 !important;
+      }
     }
   }
 
@@ -200,6 +214,10 @@
 
     .b3-chip {
       margin: 1px 2px;
+    }
+
+    &--url {
+      text-decoration: underline var(--b3-border-color);
     }
   }
 
@@ -238,7 +256,6 @@
     position: relative;
 
     .b3-menu {
-      max-height: 70vh;
       min-width: 200px;
 
       &__item .b3-chip {
@@ -305,7 +322,6 @@
 
   &.protyle-wysiwyg--select,
   &.protyle-wysiwyg--hl {
-    .layout-tab-bar,
     .av__row--header,
     .av__row--footer {
       background-color: transparent;

@@ -151,6 +151,9 @@ func FlushQueue() {
 	if 7000 < elapsed {
 		logging.LogInfof("database op tx [%dms]", elapsed)
 	}
+
+	// Push database index commit event https://github.com/siyuan-note/siyuan/issues/8814
+	util.BroadcastByType("main", "databaseIndexCommit", 0, "", nil)
 }
 
 func execOp(op *dbQueueOperation, tx *sql.Tx, context map[string]interface{}) (err error) {

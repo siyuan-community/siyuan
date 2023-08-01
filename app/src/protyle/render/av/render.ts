@@ -3,6 +3,8 @@ import {getColIconByType, showColMenu} from "./col";
 import {Constants} from "../../../constants";
 import {getCalcValue} from "./cell";
 import * as dayjs from "dayjs";
+import {hasClosestByAttribute} from "../../util/hasClosest";
+import {Menu} from "../../../plugin/Menu";
 
 export const avRender = (element: Element, cb?: () => void) => {
     let avElements: Element[] = [];
@@ -20,7 +22,10 @@ export const avRender = (element: Element, cb?: () => void) => {
             if (e.getAttribute("data-render") === "true") {
                 return;
             }
-            fetchPost("/api/av/renderAttributeView", {id: e.getAttribute("data-av-id")}, (response) => {
+            fetchPost("/api/av/renderAttributeView", {
+                id: e.getAttribute("data-av-id"),
+                nodeID: e.getAttribute("data-node-id")
+            }, (response) => {
                 const data = response.data.view as IAVTable;
                 // header
                 let tableHTML = '<div class="av__row av__row--header"><div class="av__firstcol"><svg style="height: 32px"><use xlink:href="#iconUncheck"></use></svg></div>';
@@ -61,10 +66,15 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                         let text = "";
                         if (cell.valueType === "text") {
                             text = `<span class="av__celltext">${cell.value?.text.content || ""}</span>`;
+                        } else if (cell.valueType === "url") {
+                            text = `<span class="av__celltext av__celltext--url">${cell.value?.url.content || ""}</span>`;
+                            if (cell.value?.url.content) {
+                                text += `<span class="b3-chip b3-chip--info b3-chip--small" data-type="a" data-href="${cell.value.url.content}">${window.siyuan.languages.openBy}</span>`;
+                            }
                         } else if (cell.valueType === "block") {
                             text = `<span class="av__celltext">${cell.value?.block.content || ""}</span>`;
                             if (cell.value?.block.id) {
-                                text += `<span class="b3-chip b3-chip--small" data-type="block-ref" data-id="${cell.value.block.id}" data-subtype="s">${window.siyuan.languages.openBy}</span>`;
+                                text += `<span class="b3-chip b3-chip--info b3-chip--small" data-type="block-ref" data-id="${cell.value.block.id}" data-subtype="s">${window.siyuan.languages.openBy}</span>`;
                             }
                         } else if (cell.valueType === "number") {
                             text = `<span class="av__celltext">${cell.value?.number.content || ""}</span>`;
@@ -85,7 +95,7 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                             if (cell.value?.date.hasEndDate) {
                                 text += `<svg style="margin-left: 5px"><use xlink:href="#iconForward"></use></svg>${dayjs(cell.value.date.content2).format("YYYY-MM-DD HH:mm")}</span>`;
                             }
-                            text += "</span>"
+                            text += "</span>";
                         }
                         tableHTML += `<div class="av__cell" data-id="${cell.id}" data-col-id="${data.columns[index].id}"
 ${cell.valueType === "block" ? 'data-block-id="' + (cell.value.block.id || "") + '"' : ""}  
@@ -192,4 +202,120 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
     setTimeout(() => {
         lastParentID = null;
     }, Constants.TIMEOUT_TRANSITION);
+};
+
+const genAVValueHTML = (value: IAVCellValue) => {
+    let html = "";
+    switch (value.type) {
+        case "text":
+            html = `<input value="${value.text.content}" class="b3-text-field b3-text-field--text fn__flex-1">`;
+            break;
+        case "number":
+            html = `<input value="${value.number.content}" type="number" class="b3-text-field b3-text-field--text fn__flex-1">`;
+            break;
+        case "mSelect":
+        case "select":
+            value.mSelect?.forEach(item => {
+                html += `<span class="b3-chip b3-chip--middle" style="background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})">${item.content}</span>`;
+            });
+            break;
+        case "date":
+            html = `${dayjs(value.date.content).format("YYYY-MM-DD HH:mm")}`;
+            if (value.date.hasEndDate) {
+                html += `<svg class="custom-attr__avarrow"><use xlink:href="#iconForward"></use></svg>${dayjs(value.date.content2).format("YYYY-MM-DD HH:mm")}`;
+            }
+            break;
+        case "url":
+            html = `<input value="${value.url.content}" class="b3-text-field b3-text-field--text fn__flex-1">`;
+            break;
+    }
+    return html;
+};
+
+export const renderAVAttribute = (element: HTMLElement, id: string) => {
+    fetchPost("/api/av/getAttributeViewKeys", {id}, (response) => {
+        let html = "";
+        response.data.forEach((table: {
+            keyValues: {
+                key: {
+                    type: TAVCol,
+                    name: string
+                },
+                values: { keyID: string, id: string, blockID: string, type?: TAVCol & IAVCellValue }  []
+            }[],
+            avID: string
+            avName: string
+        }) => {
+            html += `<div class="block__logo custom-attr__avheader">
+    <svg><use xlink:href="#iconDatabase"></use></svg>
+    <span>${table.avName || window.siyuan.languages.database}</span>
+</div>`;
+            table.keyValues?.forEach(item => {
+                html += `<div class="block__icons">
+    <div class="block__logo">
+        <svg><use xlink:href="#${getColIconByType(item.key.type)}"></use></svg>
+        <span>${item.key.name}</span>
+    </div>
+    <div data-av-id="${table.avID}" data-key-id="${item.values[0].keyID}" data-block-id="${item.values[0].blockID}" data-id="${item.values[0].id}" data-type="${item.values[0].type}"  
+    class="fn__flex-1 fn__flex${["url", "text", "number"].includes(item.values[0].type) ? "" : " custom-attr__avvalue"}">
+        ${genAVValueHTML(item.values[0])}
+    </div>
+</div>`;
+            });
+        });
+        element.innerHTML = html;
+        // TODO
+        // element.addEventListener("click", (event) => {
+        //     const target = event.target as HTMLElement
+        //     const dateElement = hasClosestByAttribute(target, "data-type", "date")
+        //     if (dateElement) {
+        //         const dateMenu = new Menu("custom-attr-av-date", () => {
+        //
+        //         })
+        //         if (dateMenu.isOpen) {
+        //             return;
+        //         }
+        //         dateMenu.addItem({
+        //             iconHTML:"",
+        //             label:`<input>`
+        //         })
+        //         return;
+        //     }
+        //     const mSelectElement = hasClosestByAttribute(target, "data-type", "select")||hasClosestByAttribute(target, "data-type", "mSelect")
+        //     if (mSelectElement) {
+        //         return
+        //     }
+        // })
+        element.querySelectorAll(".b3-text-field--text").forEach((item: HTMLInputElement) => {
+            item.addEventListener("change", () => {
+                let value;
+                if (item.parentElement.dataset.type === "url") {
+                    value = {
+                        url: {
+                            content: item.value
+                        }
+                    };
+                } else if (item.parentElement.dataset.type === "text") {
+                    value = {
+                        text: {
+                            content: item.value
+                        }
+                    };
+                } else if (item.parentElement.dataset.type === "number") {
+                    value = {
+                        number: {
+                            content: parseFloat(item.value)
+                        }
+                    };
+                }
+                fetchPost("/api/av/setAttributeViewBlockAttr", {
+                    avID: item.parentElement.dataset.avId,
+                    keyID: item.parentElement.dataset.keyId,
+                    rowID: item.parentElement.dataset.blockId,
+                    cellID: item.parentElement.dataset.id,
+                    value
+                });
+            });
+        });
+    });
 };

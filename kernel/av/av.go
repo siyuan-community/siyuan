@@ -38,6 +38,7 @@ import (
 type AttributeView struct {
 	Spec      int          `json:"spec"`      // 格式版本
 	ID        string       `json:"id"`        // 属性视图 ID
+	NodeID    string       `json:"nodeID"`    // 属性视图所在节点 ID
 	Name      string       `json:"name"`      // 属性视图名称
 	KeyValues []*KeyValues `json:"keyValues"` // 属性视图属性列值
 	ViewID    string       `json:"viewID"`    // 当前视图 ID
@@ -59,6 +60,7 @@ const (
 	KeyTypeDate    KeyType = "date"
 	KeyTypeSelect  KeyType = "select"
 	KeyTypeMSelect KeyType = "mSelect"
+	KeyTypeURL     KeyType = "url"
 )
 
 // Key 描述了属性视图属性列的基础结构。
@@ -97,6 +99,7 @@ type Value struct {
 	Number  *ValueNumber   `json:"number,omitempty"`
 	Date    *ValueDate     `json:"date,omitempty"`
 	MSelect []*ValueSelect `json:"mSelect,omitempty"`
+	URL     *ValueURL      `json:"url,omitempty"`
 }
 
 func (value *Value) ToJSONString() string {
@@ -222,6 +225,10 @@ type ValueSelect struct {
 	Color   string `json:"color"`
 }
 
+type ValueURL struct {
+	Content string `json:"content"`
+}
+
 // View 描述了视图的结构。
 type View struct {
 	ID   string `json:"id"`   // 视图 ID
@@ -263,7 +270,7 @@ type Viewable interface {
 	GetID() string
 }
 
-func NewAttributeView(id string) (ret *AttributeView) {
+func NewAttributeView(id, nodeID string) (ret *AttributeView) {
 	view := NewView()
 	key := NewKey(ast.NewNodeID(), "Block", KeyTypeBlock)
 	ret = &AttributeView{
@@ -272,36 +279,29 @@ func NewAttributeView(id string) (ret *AttributeView) {
 		KeyValues: []*KeyValues{{Key: key}},
 		ViewID:    view.ID,
 		Views:     []*View{view},
+		NodeID:    nodeID,
 	}
 	view.Table.Columns = []*ViewTableColumn{{ID: key.ID}}
 	return
 }
 
 func ParseAttributeView(avID string) (ret *AttributeView, err error) {
-	avJSONPath := getAttributeViewDataPath(avID)
-	toCreate := false
+	avJSONPath := GetAttributeViewDataPath(avID)
 	if !gulu.File.IsExist(avJSONPath) {
-		ret = NewAttributeView(avID)
-		toCreate = true
+		err = ErrViewNotFound
+		return
 	}
 
-	if !toCreate {
-		data, readErr := filelock.ReadFile(avJSONPath)
-		if nil != readErr {
-			logging.LogErrorf("read attribute view [%s] failed: %s", avID, readErr)
-			return
-		}
+	data, readErr := filelock.ReadFile(avJSONPath)
+	if nil != readErr {
+		logging.LogErrorf("read attribute view [%s] failed: %s", avID, readErr)
+		return
+	}
 
-		ret = &AttributeView{}
-		if err = gulu.JSON.UnmarshalJSON(data, ret); nil != err {
-			logging.LogErrorf("unmarshal attribute view [%s] failed: %s", avID, err)
-			return
-		}
-	} else {
-		if err = SaveAttributeView(ret); nil != err {
-			logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
-			return
-		}
+	ret = &AttributeView{}
+	if err = gulu.JSON.UnmarshalJSON(data, ret); nil != err {
+		logging.LogErrorf("unmarshal attribute view [%s] failed: %s", avID, err)
+		return
 	}
 	return
 }
@@ -313,7 +313,7 @@ func SaveAttributeView(av *AttributeView) (err error) {
 		return
 	}
 
-	avJSONPath := getAttributeViewDataPath(av.ID)
+	avJSONPath := GetAttributeViewDataPath(av.ID)
 	if err = filelock.WriteFile(avJSONPath, data); nil != err {
 		logging.LogErrorf("save attribute view [%s] failed: %s", av.ID, err)
 		return
@@ -353,7 +353,7 @@ func (av *AttributeView) GetBlockKeyValues() (ret *KeyValues) {
 	return
 }
 
-func getAttributeViewDataPath(avID string) (ret string) {
+func GetAttributeViewDataPath(avID string) (ret string) {
 	av := filepath.Join(util.DataDir, "storage", "av")
 	ret = filepath.Join(av, avID+".json")
 	if !gulu.File.IsDir(av) {

@@ -1,4 +1,5 @@
 {
+  "builtIn": "Built-in",
   "endDate": "End date",
   "needLogin": "This function needs to be logged in to use",
   "calcResultCountAll": "COUNT",
@@ -41,6 +42,11 @@
   "filterOperatorEndsWith": "Ends with",
   "filterOperatorIsEmpty": "Is empty",
   "filterOperatorIsNotEmpty": "Is not empty",
+  "filterOperatorIsBetween": "Is between",
+  "filterOperatorIsBefore": "Is before",
+  "filterOperatorIsAfter": "Is after",
+  "filterOperatorIsOnOrBefore": "Is on or before",
+  "filterOperatorIsOnOrAfter": "Is on or after",
   "asc": "Ascending",
   "desc": "Descending",
   "hideCol": "Hide column",
@@ -1236,6 +1242,7 @@
     "211": "Cloud data verification complete",
     "212": "There are some defects in the current version of cloud data sync, please upgrade to the latest version. Sorry for the inconvenience",
     "213": "Cloud verification failed, please try to upgrade to the latest version and log in again before syncing",
-    "214": "This function needs to be logged in to use"
+    "214": "This function needs to be signed in to use",
+    "215": "Save failed: The target file is being used by another program"
   }
 }

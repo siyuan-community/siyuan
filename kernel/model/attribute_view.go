@@ -30,13 +30,85 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
-func RenderAttributeView(avID string) (viewable av.Viewable, attrView *av.AttributeView, err error) {
+type BlockAttributeViewKeys struct {
+	AvID      string          `json:"avID"`
+	AvName    string          `json:"avName"`
+	KeyValues []*av.KeyValues `json:"keyValues"`
+}
+
+func GetBlockAttributeViewKeys(blockID string) (ret []*BlockAttributeViewKeys) {
 	waitForSyncingStorages()
+
+	ret = []*BlockAttributeViewKeys{}
+	attrs := GetBlockAttrs(blockID)
+	avs := attrs[NodeAttrNameAvs]
+	if "" == avs {
+		return
+	}
+
+	avIDs := strings.Split(avs, ",")
+	for _, avID := range avIDs {
+		attrView, err := av.ParseAttributeView(avID)
+		if nil != err {
+			logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
+			return
+		}
+
+		if 1 > len(attrView.Views) {
+			err = av.ErrViewNotFound
+			return
+		}
+
+		var keyValues []*av.KeyValues
+		for _, kv := range attrView.KeyValues {
+			if av.KeyTypeBlock == kv.Key.Type {
+				continue
+			}
+
+			kValues := &av.KeyValues{Key: kv.Key}
+			for _, v := range kv.Values {
+				if v.BlockID == blockID {
+					kValues.Values = append(kValues.Values, v)
+				}
+			}
+
+			if 0 < len(kValues.Values) {
+				keyValues = append(keyValues, kValues)
+			}
+		}
+
+		ret = append(ret, &BlockAttributeViewKeys{
+			AvID:      avID,
+			AvName:    attrView.Name,
+			KeyValues: keyValues,
+		})
+	}
+	return
+}
+
+func RenderAttributeView(avID, nodeID string) (viewable av.Viewable, attrView *av.AttributeView, err error) {
+	waitForSyncingStorages()
+
+	if avJSONPath := av.GetAttributeViewDataPath(avID); !gulu.File.IsExist(avJSONPath) {
+		attrView = av.NewAttributeView(avID, nodeID)
+		if err = av.SaveAttributeView(attrView); nil != err {
+			logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
+			return
+		}
+	}
 
 	attrView, err = av.ParseAttributeView(avID)
 	if nil != err {
 		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
 		return
+	}
+
+	if "" == attrView.NodeID {
+		attrView.NodeID = nodeID
+		if err = av.SaveAttributeView(attrView); nil != err {
+			logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
+			return
+		}
 	}
 
 	if 1 > len(attrView.Views) {
@@ -314,14 +386,13 @@ func setAttributeViewColumnCalc(operation *Operation) (err error) {
 }
 
 func (tx *Transaction) doInsertAttrViewBlock(operation *Operation) (ret *TxErr) {
-	firstSrcID := operation.SrcIDs[0]
-	tree, err := tx.loadTree(firstSrcID)
-	if nil != err {
-		logging.LogErrorf("load tree [%s] failed: %s", firstSrcID, err)
-		return &TxErr{code: TxErrCodeBlockNotFound, id: firstSrcID, msg: err.Error()}
-	}
-
 	for _, id := range operation.SrcIDs {
+		tree, err := tx.loadTree(id)
+		if nil != err {
+			logging.LogErrorf("load tree [%s] failed: %s", id, err)
+			return &TxErr{code: TxErrCodeBlockNotFound, id: id, msg: err.Error()}
+		}
+
 		var avErr error
 		if avErr = addAttributeViewBlock(id, operation, tree, tx); nil != avErr {
 			return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID, msg: avErr.Error()}
@@ -372,13 +443,13 @@ func addAttributeViewBlock(blockID string, operation *Operation, tree *parse.Tre
 	attrs := parse.IAL2Map(node.KramdownIAL)
 	attrs[NodeAttrNamePrefixAvKey+operation.AvID+"-"+blockValues.Key.ID] = "" // 将列作为属性添加到块中
 
-	if "" == attrs[NodeAttrNameAVs] {
-		attrs[NodeAttrNameAVs] = operation.AvID
+	if "" == attrs[NodeAttrNameAvs] {
+		attrs[NodeAttrNameAvs] = operation.AvID
 	} else {
-		avIDs := strings.Split(attrs[NodeAttrNameAVs], ",")
+		avIDs := strings.Split(attrs[NodeAttrNameAvs], ",")
 		avIDs = append(avIDs, operation.AvID)
 		avIDs = gulu.Str.RemoveDuplicatedElem(avIDs)
-		attrs[NodeAttrNameAVs] = strings.Join(avIDs, ",")
+		attrs[NodeAttrNameAvs] = strings.Join(avIDs, ",")
 	}
 
 	if err = setNodeAttrsWithTx(tx, node, tree, attrs); nil != err {
@@ -655,7 +726,7 @@ func addAttributeViewColumn(operation *Operation) (err error) {
 
 	keyType := av.KeyType(operation.Typ)
 	switch keyType {
-	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect:
+	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL:
 		key := av.NewKey(operation.ID, operation.Name, keyType)
 		attrView.KeyValues = append(attrView.KeyValues, &av.KeyValues{Key: key})
 
@@ -685,7 +756,7 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 
 	colType := av.KeyType(operation.Typ)
 	switch colType {
-	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect:
+	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL:
 		for _, keyValues := range attrView.KeyValues {
 			if keyValues.Key.ID == operation.ID {
 				keyValues.Key.Name = operation.Name
@@ -745,19 +816,24 @@ func (tx *Transaction) doUpdateAttrViewCell(operation *Operation) (ret *TxErr) {
 }
 
 func updateAttributeViewCell(operation *Operation, tx *Transaction) (err error) {
-	attrView, err := av.ParseAttributeView(operation.AvID)
+	err = UpdateAttributeViewCell(operation.AvID, operation.KeyID, operation.RowID, operation.ID, operation.Data)
+	return
+}
+
+func UpdateAttributeViewCell(avID, keyID, rowID, cellID string, valueData interface{}) (err error) {
+	attrView, err := av.ParseAttributeView(avID)
 	if nil != err {
 		return
 	}
 
 	var val *av.Value
 	for _, keyValues := range attrView.KeyValues {
-		if operation.KeyID != keyValues.Key.ID {
+		if keyID != keyValues.Key.ID {
 			continue
 		}
 
 		for _, value := range keyValues.Values {
-			if operation.ID == value.ID {
+			if cellID == value.ID {
 				val = value
 				val.Type = keyValues.Key.Type
 				break
@@ -765,13 +841,13 @@ func updateAttributeViewCell(operation *Operation, tx *Transaction) (err error) 
 		}
 
 		if nil == val {
-			val = &av.Value{ID: operation.ID, KeyID: keyValues.Key.ID, BlockID: operation.RowID, Type: keyValues.Key.Type}
+			val = &av.Value{ID: cellID, KeyID: keyValues.Key.ID, BlockID: rowID, Type: keyValues.Key.Type}
 			keyValues.Values = append(keyValues.Values, val)
 		}
 		break
 	}
 
-	tree, err := tx.loadTree(val.BlockID)
+	tree, err := loadTreeByBlockID(val.BlockID)
 	if nil != err {
 		return
 	}
@@ -781,7 +857,7 @@ func updateAttributeViewCell(operation *Operation, tx *Transaction) (err error) 
 		return
 	}
 
-	data, err := gulu.JSON.MarshalJSON(operation.Data)
+	data, err := gulu.JSON.MarshalJSON(valueData)
 	if nil != err {
 		return
 	}
@@ -790,8 +866,9 @@ func updateAttributeViewCell(operation *Operation, tx *Transaction) (err error) 
 	}
 
 	attrs := parse.IAL2Map(node.KramdownIAL)
-	attrs[NodeAttrNamePrefixAvKey+operation.AvID+"-"+val.KeyID] = val.ToJSONString()
-	if err = setNodeAttrsWithTx(tx, node, tree, attrs); nil != err {
+	attrs[NodeAttrNamePrefixAvKey+avID+"-"+val.KeyID] = val.ToJSONString()
+
+	if err = setNodeAttrs(node, tree, attrs); nil != err {
 		return
 	}
 
@@ -946,6 +1023,6 @@ func updateAttributeViewColumnOption(operation *Operation) (err error) {
 }
 
 const (
-	NodeAttrNameAVs         = "custom-avs"
-	NodeAttrNamePrefixAvKey = "custom-av-key-"
+	NodeAttrNameAvs         = "custom-avs"     // 用于标记块所属的属性视图，逗号分隔 av id
+	NodeAttrNamePrefixAvKey = "custom-av-key-" // 用于标记列
 )

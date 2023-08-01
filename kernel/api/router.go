@@ -246,6 +246,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/export/exportDocx", model.CheckAuth, exportDocx)
 	ginServer.Handle("POST", "/api/export/processPDF", model.CheckAuth, processPDF)
 	ginServer.Handle("POST", "/api/export/preview", model.CheckAuth, exportPreview)
+	ginServer.Handle("POST", "/api/export/exportResources", model.CheckAuth, exportResources)
 	ginServer.Handle("POST", "/api/export/exportAsFile", model.CheckAuth, exportAsFile)
 	ginServer.Handle("POST", "/api/export/exportData", model.CheckAuth, exportData)
 	ginServer.Handle("POST", "/api/export/exportDataInFolder", model.CheckAuth, exportDataInFolder)
@@ -358,6 +359,8 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("GET", "/snippets/*filepath", serveSnippets)
 
 	ginServer.Handle("POST", "/api/av/renderAttributeView", model.CheckAuth, renderAttributeView)
+	ginServer.Handle("POST", "/api/av/getAttributeViewKeys", model.CheckAuth, getAttributeViewKeys)
+	ginServer.Handle("POST", "/api/av/setAttributeViewBlockAttr", model.CheckAuth, setAttributeViewBlockAttr)
 
 	ginServer.Handle("POST", "/api/ai/chatGPT", model.CheckAuth, model.CheckReadonly, chatGPT)
 	ginServer.Handle("POST", "/api/ai/chatGPTWithAction", model.CheckAuth, model.CheckReadonly, chatGPTWithAction)

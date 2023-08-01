@@ -8,6 +8,8 @@ import {getColIconByType, showColMenu, updateHeader} from "./col";
 import {emitOpenMenu} from "../../../plugin/EventBus";
 import {addCol} from "./addCol";
 import {openMenuPanel} from "./openMenuPanel";
+import {hintRef} from "../../hint/extend";
+import {hideElements} from "../../ui/hideElements";
 
 export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLElement }) => {
     const blockElement = hasClosestBlock(event.target);
@@ -123,6 +125,20 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
     const calcElement = hasClosestByClassName(event.target, "av__calc");
     if (calcElement) {
         openCalcMenu(protyle, calcElement);
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+    }
+
+    const addRowElement = hasClosestByClassName(event.target, "av__row--add");
+    if (addRowElement) {
+        if (protyle.hint.element.classList.contains("fn__none")) {
+            protyle.toolbar.range = document.createRange();
+            protyle.toolbar.range.selectNodeContents(blockElement.querySelector(".av__title"));
+            hintRef("", protyle, "av");
+        } else {
+            hideElements(["hint"], protyle);
+        }
         event.preventDefault();
         event.stopPropagation();
         return true;
