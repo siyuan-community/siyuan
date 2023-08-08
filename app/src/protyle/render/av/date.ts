@@ -3,7 +3,7 @@ import * as dayjs from "dayjs";
 
 export const getDateHTML = (data: IAVTable, cellElements: HTMLElement[]) => {
     let hasEndDate = true;
-    let cellValue:IAVCell;
+    let cellValue: IAVCell;
     cellElements.forEach((cellElement) => {
         data.rows.find(row => {
             if (cellElement.parentElement.dataset.id === row.id) {
@@ -24,11 +24,11 @@ export const getDateHTML = (data: IAVTable, cellElements: HTMLElement[]) => {
         hasEndDate = false;
     }
     let value = "";
-    if (cellValue?.value?.date?.content) {
+    if (cellValue?.value?.date?.isNotEmpty) {
         value = dayjs(cellValue.value.date.content).format("YYYY-MM-DDTHH:mm");
     }
     let value2 = "";
-    if (cellValue?.value?.date?.content2) {
+    if (cellValue?.value?.date?.isNotEmpty2) {
         value2 = dayjs(cellValue.value.date.content2).format("YYYY-MM-DDTHH:mm");
     }
     return `<div class="b3-menu__items">
@@ -36,11 +36,11 @@ export const getDateHTML = (data: IAVTable, cellElements: HTMLElement[]) => {
     <input type="datetime-local" value="${value}" class="b3-text-field fn__size200"><br>
     <input type="datetime-local" value="${value2}" style="margin-top: 8px" class="b3-text-field fn__size200${hasEndDate ? "" : " fn__none"}">
     <button class="b3-menu__separator"></button>
-    <button class="b3-menu__item">
+    <label class="b3-menu__item">
         <span>${window.siyuan.languages.endDate}</span>
         <span class="fn__space fn__flex-1"></span>
         <input type="checkbox" class="b3-switch fn__flex-center"${hasEndDate ? " checked" : ""}>
-    </button>
+    </label>
     <button class="b3-menu__separator"></button>
     <button class="b3-menu__item" data-type="clearDate">
         <svg class="b3-menu__icon"><use xlink:href="#iconTrashcan"></use></svg>
@@ -63,6 +63,7 @@ export const bindDateEvent = (options: {
             data: options.data,
             protyle: options.protyle,
             value: {
+                isNotEmpty: inputElements[0].value !== "",
                 content: new Date(inputElements[0].value).getTime()
             }
         });
@@ -73,6 +74,7 @@ export const bindDateEvent = (options: {
             data: options.data,
             protyle: options.protyle,
             value: {
+                isNotEmpty2: inputElements[1].value !== "",
                 content2: new Date(inputElements[1].value).getTime()
             }
         });
@@ -99,11 +101,7 @@ export const setDateValue = (options: {
     cellElements: HTMLElement[],
     data: IAV
     protyle: IProtyle,
-    value: {
-        content?: number,
-        content2?: number,
-        hasEndDate?: boolean
-    }
+    value: IAVCellDateValue
 }) => {
     let cellIndex = 0;
     Array.from(options.cellElements[0].parentElement.querySelectorAll(".av__cell")).find((item: HTMLElement, index) => {
@@ -128,7 +126,10 @@ export const setDateValue = (options: {
                     cellData.value = {};
                 }
                 oldValue = Object.assign({}, cellData.value.date);
-                cellData.value.date = Object.assign(cellData.value.date || {}, options.value);
+                cellData.value.date = Object.assign(cellData.value.date || {
+                    isNotEmpty2: false,
+                    isNotEmpty: false
+                }, options.value);
                 return true;
             }
         });

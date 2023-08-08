@@ -55,8 +55,8 @@ func FlushHistoryQueue() {
 		return
 	}
 
-	txLock.Lock()
-	defer txLock.Unlock()
+	historyTxLock.Lock()
+	defer historyTxLock.Unlock()
 	start := time.Now()
 
 	groupOpsTotal := map[string]int{}
@@ -144,28 +144,4 @@ func getHistoryOperations() (ops []*historyDBQueueOperation) {
 	ops = historyOperationQueue
 	historyOperationQueue = nil
 	return
-}
-
-func WaitForWritingHistoryDatabase() {
-	var printLog bool
-	var lastPrintLog bool
-	for i := 0; isWritingHistoryDatabase(); i++ {
-		time.Sleep(50 * time.Millisecond)
-		if 200 < i && !printLog { // 10s 后打日志
-			logging.LogWarnf("history database is writing: \n%s", logging.ShortStack())
-			printLog = true
-		}
-		if 1200 < i && !lastPrintLog { // 60s 后打日志
-			logging.LogWarnf("history database is still writing")
-			lastPrintLog = true
-		}
-	}
-}
-
-func isWritingHistoryDatabase() bool {
-	time.Sleep(util.SQLFlushInterval + 50*time.Millisecond)
-	if 0 < len(historyOperationQueue) || util.IsMutexLocked(&historyTxLock) {
-		return true
-	}
-	return false
 }

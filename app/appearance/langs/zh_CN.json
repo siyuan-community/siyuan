@@ -1,4 +1,23 @@
 {
+  "searchOverwrite": "查询名称重复，是否进行覆盖？",
+  "onepay": "功能特性",
+  "format": "格式化",
+  "numberFormatNone": "数字",
+  "numberFormatCommas": "千分位",
+  "numberFormatPercent": "百分比",
+  "numberFormatUSDollar": "美元",
+  "numberFormatYuan": "人民币",
+  "numberFormatEuro": "欧元",
+  "numberFormatPound": "英镑",
+  "numberFormatYen": "日元",
+  "numberFormatRuble": "卢布",
+  "numberFormatRupee": "卢比",
+  "numberFormatWon": "韩元",
+  "numberFormatCanadianDollar": "加元",
+  "numberFormatFranc": "法郎",
+  "email": "邮箱",
+  "phone": "电话",
+  "inboxTip": "打开用户指南搜索 <code class='fn__code'>收集箱</code> 查看使用说明",
   "builtIn": "内置",
   "endDate": "结束时间",
   "needLogin": "该功能需要登录账号后才能使用",
@@ -1243,6 +1262,8 @@
     "212": "当前版本云端数据同步存在一些缺陷，请升级到最新版，带来不便，敬请谅解",
     "213": "云端校验失败，请尝试升级到最新版并重新登录后再进行同步",
     "214": "该功能需要登录账号后才能使用",
-    "215": "保存失败：目标文件并且正在被其他程序占用"
+    "215": "保存失败：目标文件并且正在被其他程序占用",
+    "216": "正在重建资源文件内容数据索引，请稍等...",
+    "217": "[%d/%d] 已经建立条资源文件内容数据索引"
   }
 }

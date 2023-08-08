@@ -140,7 +140,7 @@ export class Title {
                 fetchPost("/api/block/getDocInfo", {
                     id: protyle.block.rootID
                 }, (response) => {
-                    openFileAttr(response.data.ial, protyle.block.rootID);
+                    openFileAttr(response.data.ial);
                 });
                 event.preventDefault();
                 event.stopPropagation();
@@ -179,7 +179,7 @@ export class Title {
                 fetchPost("/api/block/getDocInfo", {
                     id: protyle.block.rootID
                 }, (response) => {
-                    openFileAttr(response.data.ial, protyle.block.rootID);
+                    openFileAttr(response.data.ial);
                 });
             } else {
                 const iconRect = iconElement.getBoundingClientRect();
@@ -187,6 +187,9 @@ export class Title {
             }
         });
         this.element.addEventListener("contextmenu", (event) => {
+            if (event.shiftKey) {
+                return;
+            }
             if (getSelection().rangeCount === 0) {
                 openTitleMenu(protyle, {x: event.clientX, y: event.clientY});
                 return;

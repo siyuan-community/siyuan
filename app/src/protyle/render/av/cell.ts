@@ -66,7 +66,7 @@ export const getCalcValue = (column: IAVColumn) => {
 export const genCellValue = (colType: TAVCol, value: string | {
     content: string,
     color: string
-}[] | { content?: number, content2?: number, hasEndDate?: boolean }) => {
+}[] | IAVCellDateValue) => {
     let cellValue: IAVCellValue;
     if (typeof value === "string") {
         if (colType === "number") {
@@ -86,10 +86,10 @@ export const genCellValue = (colType: TAVCol, value: string | {
                     }
                 };
             }
-        } else if (colType === "text") {
+        } else if (["text", "block", "url", "phone", "email"].includes(colType)) {
             cellValue = {
                 type: colType,
-                text: {
+                [colType]: {
                     content: value
                 }
             };
@@ -106,7 +106,9 @@ export const genCellValue = (colType: TAVCol, value: string | {
                 type: colType,
                 date: {
                     content: null,
+                    isNotEmpty: false,
                     content2: null,
+                    isNotEmpty2: false,
                     hasEndDate: false,
                 }
             };
@@ -123,7 +125,7 @@ export const genCellValue = (colType: TAVCol, value: string | {
         } else if (colType === "date") {
             cellValue = {
                 type: colType,
-                date: value as { content?: number, content2?: number, hasEndDate?: boolean }
+                date: value as IAVCellDateValue
             };
         }
     }
@@ -339,14 +341,17 @@ export const openCalcMenu = (protyle: IProtyle, calcElement: HTMLElement) => {
 
 export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[]) => {
     const type = cellElements[0].parentElement.parentElement.firstElementChild.querySelector(`[data-col-id="${cellElements[0].getAttribute("data-col-id")}"]`).getAttribute("data-dtype") as TAVCol;
+    if (type === "block") {
+        return;
+    }
     const cellRect = cellElements[0].getBoundingClientRect();
     let html = "";
     const style = `style="position:absolute;left: ${cellRect.left}px;top: ${cellRect.top}px;width:${Math.max(cellRect.width, 200)}px;height: ${cellRect.height}px"`;
     const blockElement = hasClosestBlock(cellElements[0]);
-    if (["block", "text", "url"].includes(type)) {
+    if (["text", "url", "email", "phone"].includes(type)) {
         html = `<textarea ${style} class="b3-text-field">${cellElements[0].firstElementChild.textContent}</textarea>`;
     } else if (type === "number") {
-        html = `<input type="number" value="${cellElements[0].textContent}" ${style} class="b3-text-field">`;
+        html = `<input type="number" value="${cellElements[0].firstElementChild.getAttribute("data-content")}" ${style} class="b3-text-field">`;
     } else if (["select", "mSelect"].includes(type) && blockElement) {
         openMenuPanel({protyle, blockElement, type: "select", cellElements});
         return;

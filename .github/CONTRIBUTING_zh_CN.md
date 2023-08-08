@@ -16,11 +16,11 @@
 
 * macOS/Linux: 
  ```
- ELECTRON_MIRROR=https://cnpmjs.org/mirrors/electron/ pnpm install electron@25.3.1 -D
+ ELECTRON_MIRROR=https://cnpmjs.org/mirrors/electron/ pnpm install electron@25.4.0 -D
  ```
 * Windows:
     * `SET ELECTRON_MIRROR=https://cnpmjs.org/mirrors/electron/`
-    * `pnpm install electron@25.3.1 -D`
+    * `pnpm install electron@25.4.0 -D`
 
 NPM 镜像：
 
@@ -30,13 +30,16 @@ NPM 镜像：
 
 桌面端进入 app 文件夹运行：
 
-* `pnpm install electron@25.3.1 -D`
+* `pnpm install electron@25.4.0 -D`
 * `pnpm run dev`
 * `pnpm run start`
 
 注意：在开发环境下不会自动拉起内核进程，需要先手动拉起内核进程。
 
 ## 内核
+
+1. 安装最新版 [golang](https://go.dev/)
+2. 打开 CGO 支持，即配置环境变量 `CGO_ENABLED=1`
 
 ### 桌面端
 

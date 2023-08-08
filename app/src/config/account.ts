@@ -42,7 +42,7 @@ export const account = {
                 });
                 userTitlesHTML += "</div>";
             }
-            let subscriptionHTML = payHTML;
+            let subscriptionHTML = "";
             let activeSubscriptionHTML = `<div class="b3-form__icon fn__block">
    <svg class="ft__secondary b3-form__icon-icon"><use xlink:href="#iconVIP"></use></svg>
    <input class="b3-text-field fn__block b3-form__icon-input" style="padding-right: 44px;" placeholder="${window.siyuan.languages.activationCodePlaceholder}">
@@ -59,14 +59,19 @@ export const account = {
     ${window.siyuan.languages.day} 
     <a href="${getCloudURL("subscribe/siyuan")}" target="_blank">${window.siyuan.languages.clickMeToRenew}</a>
 </div>`;
-                if (window.siyuan.user.userSiYuanSubscriptionPlan === 2) {
-                    subscriptionHTML = `<div class="b3-chip b3-chip--primary"><svg><use xlink:href="#iconVIP"></use></svg>${window.siyuan.languages.account3}</div>
-${renewHTML}
-<div class="fn__hr--b"></div>
-`;
-                } else {
-                    subscriptionHTML = `<div class="b3-chip b3-chip--primary"><svg class="ft__secondary"><use xlink:href="#iconVIP"></use></svg>${window.siyuan.languages.account10}</div>${renewHTML}`;
+                if (window.siyuan.user.userSiYuanOneTimePayStatus === 1) {
+                    subscriptionHTML = `<div class="b3-chip"><svg><use xlink:href="#iconVIP"></use></svg>${window.siyuan.languages.onepay}</div>
+<div class="fn__hr--b"></div>`;
                 }
+                if (window.siyuan.user.userSiYuanSubscriptionPlan === 2) {
+                    subscriptionHTML += `<div class="b3-chip b3-chip--primary"><svg><use xlink:href="#iconVIP"></use></svg>${window.siyuan.languages.account3}</div>
+${renewHTML}
+<div class="fn__hr--b"></div>`;
+                } else {
+                    subscriptionHTML += `<div class="b3-chip b3-chip--primary"><svg class="ft__secondary"><use xlink:href="#iconVIP"></use></svg>${window.siyuan.languages.account10}</div>${renewHTML}`;
+                }
+            } else {
+                subscriptionHTML = payHTML;
             }
             return `<div class="fn__flex config-account">
 <div class="config-account__center">
@@ -413,6 +418,9 @@ ${renewHTML}
                 } else {
                     html = `<div class="toolbar__item b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.account10}"><svg class="ft__secondary"><use xlink:href="#iconVIP"></use></svg></div>`;
                 }
+            }
+            if (window.siyuan.user.userSiYuanOneTimePayStatus === 1) {
+                html += `<div class="toolbar__item b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.onepay}"><svg><use xlink:href="#iconVIP"></use></svg></div>`;
             }
         }
         if (!window.siyuan.user || (window.siyuan.user && window.siyuan.user.userSiYuanSubscriptionStatus === -1)) {

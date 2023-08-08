@@ -1,4 +1,23 @@
 {
+  "searchOverwrite": "The query name is duplicated, do you want to overwrite it?",
+  "onepay": "PRO",
+  "format": "Number format",
+  "numberFormatNone": "Number",
+  "numberFormatCommas": "Number with commas",
+  "numberFormatPercent": "Percent",
+  "numberFormatUSDollar": "US Dollar",
+  "numberFormatYuan": "Yuan",
+  "numberFormatEuro": "Euro",
+  "numberFormatPound": "Pound",
+  "numberFormatYen": "Yen",
+  "numberFormatRuble": "Ruble",
+  "numberFormatRupee": "Rupee",
+  "numberFormatWon": "Won",
+  "numberFormatCanadianDollar": "Canadian Dollar",
+  "numberFormatFranc": "Franc",
+  "email": "Email",
+  "phone": "Phone",
+  "inboxTip": "Open the user guide to search the <code class='fn__code'>inbox</code> to view the instructions",
   "builtIn": "Built-in",
   "endDate": "End date",
   "needLogin": "This function needs to be logged in to use",
@@ -1243,6 +1262,8 @@
     "212": "There are some defects in the current version of cloud data sync, please upgrade to the latest version. Sorry for the inconvenience",
     "213": "Cloud verification failed, please try to upgrade to the latest version and log in again before syncing",
     "214": "This function needs to be signed in to use",
-    "215": "Save failed: The target file is being used by another program"
+    "215": "Save failed: The target file is being used by another program",
+    "216": "Rebuilding asset content data index, please wait...",
+    "217": "[%d/%d] Created asset content data index"
   }
 }

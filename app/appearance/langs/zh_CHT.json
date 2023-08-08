@@ -1,4 +1,23 @@
 {
+  "searchOverwrite": "查詢名稱重複，是否進行覆蓋？",
+  "onepay": "功能特性",
+  "format": "格式化",
+  "numberFormatNone": "數字",
+  "numberFormatCommas": "千分位",
+  "numberFormatPercent": "百分比",
+  "numberFormatUSDollar": "美元",
+  "numberFormatYuan": "人民幣",
+  "numberFormatEuro": "歐元",
+  "numberFormatPound": "英鎊",
+  "numberFormatYen": "日元",
+  "numberFormatRuble": "盧布",
+  "numberFormatRupee": "盧比",
+  "numberFormatWon": "韓元",
+  "numberFormatCanadianDollar": "加元",
+  "numberFormatFranc": "法郎",
+  "email": "郵箱",
+  "phone": "電話",
+  "inboxTip": "打開用戶指南搜索 <code class='fn__code'>收集箱</code> 查看使用說明",
   "builtIn": "內置",
   "endDate": "結束日期",
   "needLogin": "該功能需要登錄賬號後才能使用",
@@ -1243,6 +1262,8 @@
     "212": "當前版本雲端數據同步存在一些缺陷，請升級到最新版，帶來不便，敬請諒解",
     "213": "雲端校驗失敗，請嘗試升級到最新版並重新登錄後再進行同步",
     "214": "該功能需要登錄賬號後才能使用",
-    "215": "保存失敗：目標文件正在被其他程序佔用"
+    "215": "保存失敗：目標文件正在被其他程序佔用",
+    "216": "正在重建資源文件內容數據索引，請稍等...",
+    "217": "[%d/%d] 已經建立條資源文件內容數據索引"
   }
 }

@@ -11,7 +11,7 @@ export const getDefaultOperatorByType = (type: TAVCol) => {
     if (type === "number" || type === "select") {
         return "=";
     }
-    if (type === "text" || type === "mSelect" || type === "url") {
+    if (["text", "mSelect", "url", "block", "email", "phone"].includes(type)) {
         return "Contains";
     }
 };
@@ -52,7 +52,10 @@ export const setFilter = (options: {
     data: IAV,
     target: HTMLElement,
 }) => {
-    const rectTarget = options.target.getBoundingClientRect();
+    let rectTarget = options.target.getBoundingClientRect();
+    if (rectTarget.height === 0) {
+        rectTarget = options.protyle.wysiwyg.element.querySelector(`[data-col-id="${options.target.dataset.colId}"]`).getBoundingClientRect();
+    }
     const menu = new Menu("set-filter-" + options.filter.column, () => {
         const oldFilters = JSON.parse(JSON.stringify(options.data.view.filters));
         const operator = (window.siyuan.menus.menu.element.querySelector(".b3-select") as HTMLSelectElement).value as TAVFilterOperator;
@@ -61,6 +64,8 @@ export const setFilter = (options: {
         if (textElements.length > 0) {
             if (colData.type === "date") {
                 cellValue = genCellValue(colData.type, {
+                    isNotEmpty2: textElements[1].value !== "",
+                    isNotEmpty: textElements[0].value !== "",
                     content: new Date(textElements[0].value).getTime(),
                     content2: new Date(textElements[1].value).getTime(),
                     hasEndDate: operator === "Is between"
@@ -131,8 +136,11 @@ export const setFilter = (options: {
         }
     });
     switch (colData.type) {
+        case "block":
         case "text":
         case "url":
+        case "phone":
+        case "email":
             selectHTML = `<option ${"=" === options.filter.operator ? "selected" : ""} value="=">${window.siyuan.languages.filterOperatorIs}</option>
 <option ${"!=" === options.filter.operator ? "selected" : ""} value="!=">${window.siyuan.languages.filterOperatorIsNot}</option>
 <option ${"Contains" === options.filter.operator ? "selected" : ""} value="Contains">${window.siyuan.languages.filterOperatorContains}</option>
@@ -206,10 +214,10 @@ export const setFilter = (options: {
                 }
             });
         });
-    } else if (colData.type === "text" || colData.type === "url") {
+    } else if (["text", "url", "block", "email", "phone"].includes(colData.type)) {
         menu.addItem({
             iconHTML: "",
-            label: `<input style="margin: 4px 0" value="${options.filter.value?.text.content || ""}" class="b3-text-field fn__size200">`
+            label: `<input style="margin: 4px 0" value="${options.filter.value ? options.filter.value[colData.type as "text"].content : ""}" class="b3-text-field fn__size200">`
         });
     } else if (colData.type === "number") {
         menu.addItem({
@@ -219,11 +227,11 @@ export const setFilter = (options: {
     } else if (colData.type === "date") {
         menu.addItem({
             iconHTML: "",
-            label: `<input style="margin: 4px 0" value="${options.filter.value?.date.content ? dayjs(options.filter.value.date.content).format("YYYY-MM-DDTHH:mm") : ""}" type="datetime-local" class="b3-text-field fn__size200">`
+            label: `<input style="margin: 4px 0" value="${options.filter.value?.date.isNotEmpty ? dayjs(options.filter.value.date.content).format("YYYY-MM-DDTHH:mm") : ""}" type="datetime-local" class="b3-text-field fn__size200">`
         });
         menu.addItem({
             iconHTML: "",
-            label: `<input style="margin: 4px 0" value="${options.filter.value?.date.content2 ? dayjs(options.filter.value.date.content2).format("YYYY-MM-DDTHH:mm") : ""}" type="datetime-local" class="b3-text-field fn__size200">`
+            label: `<input style="margin: 4px 0" value="${options.filter.value?.date.isNotEmpty2 ? dayjs(options.filter.value.date.content2).format("YYYY-MM-DDTHH:mm") : ""}" type="datetime-local" class="b3-text-field fn__size200">`
         });
     }
     menu.addItem({
@@ -349,16 +357,54 @@ export const getFiltersHTML = (data: IAVTable) => {
                     filterValue = ": " + window.siyuan.languages.filterOperatorIsEmpty;
                 } else if (filter.operator === "Is not empty") {
                     filterValue = ": " + window.siyuan.languages.filterOperatorIsNotEmpty;
-                } else if (filter.value?.number?.content && ["=", "!=", ">", "<", ">=", "<="].includes(filter.operator)) {
-                    filterValue = ` ${filter.operator} ${filter.value.number.content}`;
-                } else if (filter.value?.text?.content && ["=", "Contains"].includes(filter.operator)) {
-                    filterValue = `: ${filter.value.text.content}`;
-                } else if (filter.value?.text?.content && ["!=", "Does not contains"].includes(filter.operator)) {
-                    filterValue = `Not ${filter.value.text.content}`;
-                } else if (filter.value?.text?.content && "Starts with" === filter.operator) {
-                    filterValue = `: ${window.siyuan.languages.filterOperatorStartsWith} ${filter.value.text.content}`;
-                } else if (filter.value?.text?.content && "Ends with" === filter.operator) {
-                    filterValue = `: ${window.siyuan.languages.filterOperatorEndsWith} ${filter.value.text.content}`;
+                } else if (filter.value?.date?.content) {
+                    if (filter.value?.date?.content2 && filter.operator === "Is between") {
+                        filterValue = ` ${window.siyuan.languages.filterOperatorIsBetween} ${dayjs(filter.value.date.content).format("YYYY-MM-DD HH:mm")} ${dayjs(filter.value.date.content2).format("YYYY-MM-DD HH:mm")}`;
+                    } else if ("=" === filter.operator) {
+                        filterValue = `: ${dayjs(filter.value.date.content).format("YYYY-MM-DD HH:mm")}`;
+                    } else if ([">", "<"].includes(filter.operator)) {
+                        filterValue = ` ${filter.operator} ${dayjs(filter.value.date.content).format("YYYY-MM-DD HH:mm")}`;
+                    } else if (">=" === filter.operator) {
+                        filterValue = ` ≥ ${dayjs(filter.value.date.content).format("YYYY-MM-DD HH:mm")}`;
+                    } else if ("<=" === filter.operator) {
+                        filterValue = ` ≤ ${dayjs(filter.value.date.content).format("YYYY-MM-DD HH:mm")}`;
+                    }
+                } else if (filter.value?.mSelect?.length > 0) {
+                    let selectContent = "";
+                    filter.value.mSelect.forEach((item, index) => {
+                        selectContent += item.content;
+                        if (index !== filter.value.mSelect.length - 1) {
+                            selectContent += ", ";
+                        }
+                    });
+                    if ("Contains" === filter.operator) {
+                        filterValue = `: ${selectContent}`;
+                    } else if (filter.operator === "Does not contains") {
+                        filterValue = ` ${window.siyuan.languages.filterOperatorDoesNotContain} ${selectContent}`;
+                    }
+                } else if (filter.value?.number?.content) {
+                    if (["=", "!=", ">", "<"].includes(filter.operator)) {
+                        filterValue = ` ${filter.operator} ${filter.value.number.content}`;
+                    } else if (">=" === filter.operator) {
+                        filterValue = ` ≥ ${filter.value.number.content}`;
+                    } else if ("<=" === filter.operator) {
+                        filterValue = ` ≤ ${filter.value.number.content}`;
+                    }
+                } else if (filter.value?.text?.content || filter.value?.block?.content || filter.value?.url?.content ||
+                    filter.value?.phone?.content || filter.value?.email?.content) {
+                    const content = filter.value?.text?.content || filter.value?.block?.content ||
+                        filter.value?.url?.content || filter.value?.phone?.content || filter.value?.email?.content;
+                    if (["=", "Contains"].includes(filter.operator)) {
+                        filterValue = `: ${content}`;
+                    } else if (filter.operator === "Does not contains") {
+                        filterValue = ` ${window.siyuan.languages.filterOperatorDoesNotContain} ${content}`;
+                    } else if (filter.operator === "!=") {
+                        filterValue = ` ${window.siyuan.languages.filterOperatorIsNot} ${content}`;
+                    } else if ("Starts with" === filter.operator) {
+                        filterValue = ` ${window.siyuan.languages.filterOperatorStartsWith} ${content}`;
+                    } else if ("Ends with" === filter.operator) {
+                        filterValue = ` ${window.siyuan.languages.filterOperatorEndsWith} ${content}`;
+                    }
                 }
                 filterHTML += `<span data-type="setFilter" class="b3-chip${filterValue ? " b3-chip--primary" : ""}">
     <svg><use xlink:href="#${getColIconByType(item.type)}"></use></svg>

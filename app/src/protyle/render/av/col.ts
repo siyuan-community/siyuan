@@ -5,6 +5,7 @@ import {fetchPost} from "../../../util/fetch";
 import {getDefaultOperatorByType, setFilter} from "./filter";
 import {genCellValue} from "./cell";
 import {openMenuPanel} from "./openMenuPanel";
+import {getLabelByNumberFormat} from "./number";
 
 export const duplicateCol = (options: {
     protyle: IProtyle,
@@ -115,6 +116,14 @@ export const getEditHTML = (options: {
 </button>`;
         });
     }
+    if (colData.type === "number") {
+        html += `<button class="b3-menu__separator"></button>
+<button class="b3-menu__item" data-type="numberFormat" data-format="${colData.numberFormat}">
+    <svg class="b3-menu__icon"><use xlink:href="#iconFormat"></use></svg>
+    <span class="b3-menu__label">${window.siyuan.languages.format}</span>
+    <span class="b3-menu__accelerator">${getLabelByNumberFormat(colData.numberFormat)}</span>
+</button>`;
+    }
     return `<div class="b3-menu__items">
 ${html}
 <button class="b3-menu__separator"></button>
@@ -135,7 +144,7 @@ ${html}
 
 export const bindEditEvent = (options: { protyle: IProtyle, data: IAV, menuElement: HTMLElement }) => {
     const avID = options.data.id;
-    const colId = options.menuElement.firstElementChild.getAttribute("data-col-id");
+    const colId = options.menuElement.querySelector(".b3-menu__item").getAttribute("data-col-id");
     const colData = options.data.view.columns.find((item: IAVColumn) => item.id === colId);
     const nameElement = options.menuElement.querySelector('[data-type="name"]') as HTMLInputElement;
     nameElement.addEventListener("blur", () => {
@@ -163,6 +172,9 @@ export const bindEditEvent = (options: { protyle: IProtyle, data: IAV, menuEleme
             return;
         }
         if (event.key === "Escape") {
+            options.menuElement.parentElement.remove();
+        } else if (event.key === "Enter") {
+            nameElement.dispatchEvent(new CustomEvent("blur"));
             options.menuElement.parentElement.remove();
         }
     });
@@ -226,6 +238,10 @@ export const getColIconByType = (type: TAVCol) => {
             return "iconCalendar";
         case "url":
             return "iconLink";
+        case "email":
+            return "iconEmail";
+        case "phone":
+            return "iconPhone";
     }
 };
 
@@ -240,7 +256,7 @@ export const updateHeader = (rowElement: HTMLElement) => {
     const headUseElement = headElement.querySelector("use");
     const counterElement = blockElement.querySelector(".av__counter");
     const avHeadElement = blockElement.querySelector(".av__header") as HTMLElement;
-    if (diffCount === 0) {
+    if (diffCount === 0 && rowElement.parentElement.childElementCount - 3 !== 0) {
         headElement.classList.add("av__row--select");
         headUseElement.setAttribute("xlink:href", "#iconCheck");
     } else if (diffCount === rowElement.parentElement.childElementCount - 3) {
@@ -285,6 +301,16 @@ export const showColMenu = (protyle: IProtyle, blockElement: HTMLElement, cellEl
     menu.addItem({
         icon: getColIconByType(type),
         label: `<input style="margin: 4px 0" class="b3-text-field" type="text" value="${cellElement.innerText.trim()}">`,
+        bind(element) {
+            element.querySelector("input").addEventListener("keydown", (event: KeyboardEvent) => {
+                if (event.isComposing) {
+                    return;
+                }
+                if (event.key === "Enter") {
+                    menu.close();
+                }
+            });
+        }
     });
     if (type !== "block") {
         menu.addItem({

@@ -6,7 +6,7 @@
 		"icon": "2753",
 		"id": "20211226115227-r1rty9v",
 		"title": "常見問題",
-		"updated": "20230630143055"
+		"updated": "20230806004418"
 	},
 	"Children": [
 		{
@@ -466,173 +466,23 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20221112205526-ivjea9z",
-				"updated": "20221112205543"
+				"updated": "20230805233124"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "雖然不支持第三方同步硬碟，但是支持第三方雲端存儲服務，可在 "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "設置"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ - "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "雲端"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ - "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "雲端存儲服務提供商"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ 中進行選擇和配置，目前已經支持："
-				}
-			]
-		},
-		{
-			"ID": "20221112205526-okog56a",
-			"Type": "NodeList",
-			"ListData": {},
-			"Properties": {
-				"id": "20221112205526-okog56a",
-				"updated": "20221112205526"
-			},
-			"Children": [
-				{
-					"ID": "20221112205526-o89il8c",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20221112205526-o89il8c",
-						"updated": "20221112205526"
-					},
-					"Children": [
-						{
-							"ID": "20221112205526-jx8kzaj",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20221112205526-jx8kzaj",
-								"updated": "20221112210234"
-							},
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "S3 兼容的對象存儲服務，比如"
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://s.qiniu.com/VbQfeu",
-									"TextMarkTextContent": "七牛雲"
-								},
-								{
-									"Type": "NodeText",
-									"Data": "、"
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://www.aliyun.com/product/oss?userCode=yqovuas2",
-									"TextMarkTextContent": "阿里雲 OSS"
-								},
-								{
-									"Type": "NodeText",
-									"Data": "、"
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://www.cloudflare.com/",
-									"TextMarkTextContent": "Cloudflare R2"
-								}
-							]
-						}
-					]
-				},
-				{
-					"ID": "20221112205526-iohj6gm",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20221112205526-iohj6gm",
-						"updated": "20221112205526"
-					},
-					"Children": [
-						{
-							"ID": "20221112205526-bqz0iaq",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20221112205526-bqz0iaq",
-								"updated": "20221112210150"
-							},
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "WebDAV 協議，比如 "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://infini-cloud.net/",
-									"TextMarkTextContent": "InfiniCLOUD"
-								},
-								{
-									"Type": "NodeText",
-									"Data": ", "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://koofr.eu/",
-									"TextMarkTextContent": "Koofr"
-								}
-							]
-						}
-					]
-				}
-			]
-		},
-		{
-			"ID": "20221112205526-ns2npu8",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20221112205526-ns2npu8",
-				"updated": "20221112211107"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "通過第三方雲端存儲服務同步資料同樣是"
+					"Data": "雖然不支持第三方同步硬碟，但是支持"
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "block-ref",
-					"TextMarkBlockRefID": "20211227210109-0f92zh2",
+					"TextMarkBlockRefID": "20230805232903-erdoerp",
 					"TextMarkBlockRefSubtype": "s",
-					"TextMarkTextContent": "端到端加密"
+					"TextMarkTextContent": "對接第三方雲端存儲"
 				},
 				{
 					"Type": "NodeText",
-					"Data": "的，第三方雲端存儲服務提供商無法獲得我們的明文資料。"
+					"Data": "。"
 				}
 			]
 		},
@@ -824,7 +674,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20220526112905-4lumsx2",
-				"updated": "20220808132844"
+				"updated": "20230806002258"
 			},
 			"Children": [
 				{
@@ -865,7 +715,8 @@
 						"Marker": "Kg=="
 					},
 					"Properties": {
-						"id": "20221202214433-gt06q1x"
+						"id": "20221202214433-gt06q1x",
+						"updated": "20230806002258"
 					},
 					"Children": [
 						{
@@ -873,7 +724,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20221202214433-gyqo6sf",
-								"updated": "20221202214435"
+								"updated": "20230806002258"
 							},
 							"Children": [
 								{
@@ -1112,7 +963,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20220909100912-rvyxrtl",
-				"updated": "20230617085423"
+				"updated": "20230806002102"
 			},
 			"Children": [
 				{
@@ -1126,7 +977,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": "​​ - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1135,7 +986,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": "​​ - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1144,7 +995,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ 中 "
+					"Data": "​​ 中 "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1153,7 +1004,17 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​，也可以通過關注 "
+					"Data": "​​，也可以通過關注"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "a",
+					"TextMarkAHref": "https://b3log.org/siyuan/",
+					"TextMarkTextContent": "官方網站"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "或者 "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1164,25 +1025,6 @@
 				{
 					"Type": "NodeText",
 					"Data": " 來獲取新版本。"
-				}
-			]
-		},
-		{
-			"ID": "20220909100912-ng52828",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20220909100912-ng52828",
-				"updated": "20220909100912"
-			},
-			"Children": [
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "tag",
-					"TextMarkTextContent": "注意"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "：切勿將工作空間放置於安裝目錄下，因為更新版本會清空安裝目錄下的所有文件"
 				}
 			]
 		},
@@ -1845,12 +1687,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20230406111448-cuahrpa",
-				"updated": "20230406111448"
+				"updated": "20230802131043"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "所有本地功能都是免費的，即使是在商業環境下使用。"
+					"Data": "大部分功能是免費的，即使是在商業環境下使用。"
 				}
 			]
 		},
@@ -1859,19 +1701,29 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20230406111448-rqncida",
-				"updated": "20230627214818"
+				"updated": "20230806004418"
 			},
 			"Children": [
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "block-ref",
-					"TextMarkBlockRefID": "20211226121232-23s79xr",
+					"TextMarkBlockRefID": "20230805232636-zh0adz2",
 					"TextMarkBlockRefSubtype": "s",
-					"TextMarkTextContent": "雲端服務"
+					"TextMarkTextContent": "會員特權"
 				},
 				{
 					"Type": "NodeText",
-					"Data": "需要付費訂閱後才能使用。"
+					"Data": "需要付費後才能使用，請參考"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "a",
+					"TextMarkAHref": "https://b3log.org/siyuan/pricing.html",
+					"TextMarkTextContent": "定價"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。"
 				}
 			]
 		},

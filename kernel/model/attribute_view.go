@@ -149,6 +149,7 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 		Sorts:   view.Table.Sorts,
 	}
 
+	// 组装列
 	for _, col := range view.Table.Columns {
 		key, getErr := attrView.GetKey(col.ID)
 		if nil != getErr {
@@ -157,18 +158,20 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 		}
 
 		ret.Columns = append(ret.Columns, &av.TableColumn{
-			ID:      key.ID,
-			Name:    key.Name,
-			Type:    key.Type,
-			Icon:    key.Icon,
-			Options: key.Options,
-			Wrap:    col.Wrap,
-			Hidden:  col.Hidden,
-			Width:   col.Width,
-			Calc:    col.Calc,
+			ID:           key.ID,
+			Name:         key.Name,
+			Type:         key.Type,
+			Icon:         key.Icon,
+			Options:      key.Options,
+			NumberFormat: key.NumberFormat,
+			Wrap:         col.Wrap,
+			Hidden:       col.Hidden,
+			Width:        col.Width,
+			Calc:         col.Calc,
 		})
 	}
 
+	// 生成行
 	rows := map[string][]*av.Value{}
 	for _, keyValues := range attrView.KeyValues {
 		for _, val := range keyValues.Values {
@@ -176,6 +179,7 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 		}
 	}
 
+	// 过滤掉不存在的行
 	notFound := []string{}
 	for blockID, _ := range rows {
 		if treenode.GetBlockTree(blockID) == nil {
@@ -186,6 +190,7 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 		delete(rows, blockID)
 	}
 
+	// 生成行单元格
 	for rowID, row := range rows {
 		var tableRow av.TableRow
 		for _, col := range ret.Columns {
@@ -207,11 +212,19 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 				}
 			}
 			tableRow.ID = rowID
+
+			// 格式化数字
+			if av.KeyTypeNumber == tableCell.ValueType && nil != tableCell.Value && nil != tableCell.Value.Number {
+				tableCell.Value.Number.Format = col.NumberFormat
+				tableCell.Value.Number.FormatNumber()
+			}
+
 			tableRow.Cells = append(tableRow.Cells, tableCell)
 		}
 		ret.Rows = append(ret.Rows, &tableRow)
 	}
 
+	// 自定义排序
 	sortRowIDs := map[string]int{}
 	if 0 < len(view.Table.RowIDs) {
 		for i, rowID := range view.Table.RowIDs {
@@ -475,16 +488,14 @@ func addAttributeViewBlock(blockID string, operation *Operation, tree *parse.Tre
 }
 
 func (tx *Transaction) doRemoveAttrViewBlock(operation *Operation) (ret *TxErr) {
-	for _, id := range operation.SrcIDs {
-		var avErr error
-		if avErr = removeAttributeViewBlock(id, operation); nil != avErr {
-			return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID}
-		}
+	err := removeAttributeViewBlock(operation)
+	if nil != err {
+		return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID}
 	}
 	return
 }
 
-func removeAttributeViewBlock(blockID string, operation *Operation) (err error) {
+func removeAttributeViewBlock(operation *Operation) (err error) {
 	attrView, err := av.ParseAttributeView(operation.AvID)
 	if nil != err {
 		return
@@ -496,15 +507,18 @@ func removeAttributeViewBlock(blockID string, operation *Operation) (err error) 
 	}
 
 	for _, keyValues := range attrView.KeyValues {
+		tmp := keyValues.Values[:0]
 		for i, values := range keyValues.Values {
-			if values.BlockID == blockID {
-				keyValues.Values = append(keyValues.Values[:i], keyValues.Values[i+1:]...)
-				break
+			if !gulu.Str.Contains(values.BlockID, operation.SrcIDs) {
+				tmp = append(tmp, keyValues.Values[i])
 			}
 		}
+		keyValues.Values = tmp
 	}
 
-	view.Table.RowIDs = gulu.Str.RemoveElem(view.Table.RowIDs, blockID)
+	for _, blockID := range operation.SrcIDs {
+		view.Table.RowIDs = gulu.Str.RemoveElem(view.Table.RowIDs, blockID)
+	}
 
 	err = av.SaveAttributeView(attrView)
 	return
@@ -726,13 +740,42 @@ func addAttributeViewColumn(operation *Operation) (err error) {
 
 	keyType := av.KeyType(operation.Typ)
 	switch keyType {
-	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL:
+	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL, av.KeyTypeEmail, av.KeyTypePhone:
 		key := av.NewKey(operation.ID, operation.Name, keyType)
 		attrView.KeyValues = append(attrView.KeyValues, &av.KeyValues{Key: key})
 
 		switch view.LayoutType {
 		case av.LayoutTypeTable:
 			view.Table.Columns = append(view.Table.Columns, &av.ViewTableColumn{ID: key.ID})
+		}
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func (tx *Transaction) doUpdateAttrViewColNumberFormat(operation *Operation) (ret *TxErr) {
+	err := updateAttributeViewColNumberFormat(operation)
+	if nil != err {
+		return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func updateAttributeViewColNumberFormat(operation *Operation) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if nil != err {
+		return
+	}
+
+	colType := av.KeyType(operation.Typ)
+	switch colType {
+	case av.KeyTypeNumber:
+		for _, keyValues := range attrView.KeyValues {
+			if keyValues.Key.ID == operation.ID && av.KeyTypeNumber == keyValues.Key.Type {
+				keyValues.Key.NumberFormat = av.NumberFormat(operation.Format)
+				break
+			}
 		}
 	}
 
@@ -756,7 +799,7 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 
 	colType := av.KeyType(operation.Typ)
 	switch colType {
-	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL:
+	case av.KeyTypeBlock, av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL, av.KeyTypeEmail, av.KeyTypePhone:
 		for _, keyValues := range attrView.KeyValues {
 			if keyValues.Key.ID == operation.ID {
 				keyValues.Key.Name = operation.Name

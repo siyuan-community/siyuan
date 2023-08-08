@@ -14,10 +14,10 @@ Install pnpm: `npm install -g pnpm`
 
 Set the Electron mirror environment variable and install Electron:
 
-* macOS/Linux: `ELECTRON_MIRROR=https://cnpmjs.org/mirrors/electron/ pnpm install electron@25.3.1 -D`
+* macOS/Linux: `ELECTRON_MIRROR=https://cnpmjs.org/mirrors/electron/ pnpm install electron@25.4.0 -D`
 * Windows:
     * `SET ELECTRON_MIRROR=https://cnpmjs.org/mirrors/electron/`
-    * `pnpm install electron@25.3.1 -D`
+    * `pnpm install electron@25.4.0 -D`
 
 NPM mirror:
 
@@ -28,13 +28,16 @@ NPM mirror:
 
 On the desktop, go to the app folder to run:
 
-* `pnpm install electron@25.3.1 -D`
+* `pnpm install electron@25.4.0 -D`
 * `pnpm run dev`
 * `pnpm run start`
 
 Note: In the development environment, the kernel process will not be automatically started, and you need to manually start the kernel process first.
 
 ## Kernel
+
+1. Install the latest version of [golang](https://go.dev/)
+2. Open CGO support, that is, configure the environment variable `CGO_ENABLED=1`
 
 ### Desktop
 

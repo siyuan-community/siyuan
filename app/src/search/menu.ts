@@ -1,11 +1,12 @@
 import {Dialog} from "../dialog";
-import {isMobile} from "../util/functions";
+import {isMobile, objEquals} from "../util/functions";
 import {MenuItem} from "../menus/Menu";
 import {Constants} from "../constants";
 import {showMessage} from "../dialog/message";
 import {fetchPost} from "../util/fetch";
 import {escapeHtml} from "../util/escape";
 import {setStorageVal} from "../protyle/util/compatibility";
+import {confirmDialog} from "../dialog/confirmDialog";
 
 export const filterMenu = (config: ISearchOption, cb: () => void) => {
     const filterDialog = new Dialog({
@@ -186,9 +187,35 @@ export const queryMenu = (config: ISearchOption, cb: () => void) => {
     }).element);
 };
 
+const saveCriterionData = (config: ISearchOption,
+                           criteriaData: ISearchOption[],
+                           element: Element,
+                           value: string,
+                           saveDialog: Dialog) => {
+    if (isMobile()) {
+        config.k = (document.querySelector("#toolbarSearch") as HTMLInputElement).value;
+        config.r = (element.querySelector("#toolbarReplace") as HTMLInputElement).value;
+    } else {
+        config.k = (element.querySelector("#searchInput") as HTMLInputElement).value;
+        config.r = (element.querySelector("#replaceInput") as HTMLInputElement).value;
+    }
+    config.removed = false;
+    const criterion = config;
+    criterion.name = value;
+    criteriaData.push(Object.assign({}, criterion));
+    window.siyuan.storage[Constants.LOCAL_SEARCHDATA] = Object.assign({}, config);
+    setStorageVal(Constants.LOCAL_SEARCHDATA, window.siyuan.storage[Constants.LOCAL_SEARCHDATA]);
+    fetchPost("/api/storage/setCriterion", {criterion}, () => {
+        saveDialog.destroy();
+        const criteriaElement = element.querySelector("#criteria").firstElementChild;
+        criteriaElement.querySelector(".b3-chip--current")?.classList.remove("b3-chip--current");
+        criteriaElement.insertAdjacentHTML("beforeend", `<div data-type="set-criteria" class="b3-chip b3-chip--current b3-chip--middle b3-chip--pointer b3-chip--${["secondary", "primary", "info", "success", "warning", "error", ""][(criteriaElement.childElementCount) % 7]}">${criterion.name}<svg class="b3-chip__close" data-type="remove-criteria"><use xlink:href="#iconCloseRound"></use></svg></div>`);
+    });
+};
+
 export const saveCriterion = (config: ISearchOption,
                               criteriaData: ISearchOption[],
-                              element: Element,) => {
+                              element: Element) => {
     const saveDialog = new Dialog({
         title: window.siyuan.languages.saveCriterion,
         content: `<div class="b3-dialog__content">
@@ -213,25 +240,30 @@ export const saveCriterion = (config: ISearchOption,
             showMessage(window.siyuan.languages["_kernel"]["142"]);
             return;
         }
-        if (isMobile()) {
-            config.k = (document.querySelector("#toolbarSearch") as HTMLInputElement).value;
-            config.r = (element.querySelector("#toolbarReplace") as HTMLInputElement).value;
-        } else {
-            config.k = (element.querySelector("#searchInput") as HTMLInputElement).value;
-            config.r = (element.querySelector("#replaceInput") as HTMLInputElement).value;
-        }
-        config.removed = false;
-        const criterion = config;
-        criterion.name = value;
-        criteriaData.push(Object.assign({}, criterion));
-        window.siyuan.storage[Constants.LOCAL_SEARCHDATA] = Object.assign({}, config);
-        setStorageVal(Constants.LOCAL_SEARCHDATA, window.siyuan.storage[Constants.LOCAL_SEARCHDATA]);
-        fetchPost("/api/storage/setCriterion", {criterion}, () => {
-            saveDialog.destroy();
-            const criteriaElement = element.querySelector("#criteria");
-            criteriaElement.classList.remove("fn__none");
-            criteriaElement.firstElementChild.insertAdjacentHTML("beforeend", `<div data-type="set-criteria" class="b3-chip b3-chip--middle b3-chip--pointer b3-chip--${["secondary", "primary", "info", "success", "warning", "error", ""][(criteriaElement.firstElementChild.childElementCount) % 7]}">${criterion.name}<svg class="b3-chip__close" data-type="remove-criteria"><use xlink:href="#iconCloseRound"></use></svg></div>`);
+        const hasSame = criteriaData.find(item => {
+            if (item.name === value) {
+                return true;
+            }
         });
+        if (hasSame) {
+            confirmDialog(window.siyuan.languages.confirm, window.siyuan.languages.searchOverwrite, () => {
+                const criteriaElement = element.querySelector("#criteria").firstElementChild;
+                Array.from(criteriaElement.children).forEach(item => {
+                    if (item.textContent === value) {
+                        item.remove();
+                    }
+                });
+                criteriaData.find((item, index) => {
+                    if (item.name === value) {
+                        criteriaData.splice(index, 1);
+                        return true;
+                    }
+                });
+                saveCriterionData(config, criteriaData, element, value, saveDialog);
+            });
+        } else {
+            saveCriterionData(config, criteriaData, element, value, saveDialog);
+        }
     });
 };
 
@@ -379,12 +411,18 @@ export const moreMenu = async (config: ISearchOption,
     }).element);
 };
 
-export const initCriteriaMenu = (element: HTMLElement, data: ISearchOption[]) => {
+export const initCriteriaMenu = (element: HTMLElement, data: ISearchOption[], config: ISearchOption) => {
     fetchPost("/api/storage/getCriteria", {}, (response) => {
         let html = "";
         response.data.forEach((item: ISearchOption, index: number) => {
             data.push(item);
-            html += `<div data-type="set-criteria" class="b3-chip b3-chip--middle b3-chip--pointer b3-chip--${["secondary", "primary", "info", "success", "warning", "error", ""][index % 7]}">${escapeHtml(item.name)}<svg class="b3-chip__close" data-type="remove-criteria"><use xlink:href="#iconCloseRound"></use></svg></div>`;
+            let isSame = false;
+            if (item.group === config.group && item.hPath === config.hPath && item.hasReplace === config.hasReplace &&
+                item.k === config.k && item.method === config.method && item.r === config.r &&
+                item.sort === config.sort && objEquals(item.types, config.types) && objEquals(item.idPath, config.idPath)) {
+                isSame = true;
+            }
+            html += `<div data-type="set-criteria" class="${isSame ? "b3-chip--current " : ""}b3-chip b3-chip--middle b3-chip--pointer b3-chip--${["secondary", "primary", "info", "success", "warning", "error", ""][index % 7]}">${escapeHtml(item.name)}<svg class="b3-chip__close" data-type="remove-criteria"><use xlink:href="#iconCloseRound"></use></svg></div>`;
         });
         /// #if MOBILE
         element.innerHTML = `<div class="b3-chips">

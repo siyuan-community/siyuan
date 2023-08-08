@@ -93,11 +93,14 @@
 
       &__title {
         border-bottom: .5px solid var(--b3-theme-background-light);
-        line-height: 48px;
         padding: 0 8px;
         display: flex;
         background-color: var(--b3-theme-background);
         height: 48.5px;
+
+        & > .b3-menu__label {
+          line-height: 32.5px;
+        }
       }
 
       &__separator {
@@ -109,7 +112,9 @@
 
       &__label {
         font-size: 17px;
-        overflow: auto;
+        white-space: break-spaces;
+        line-height: 26px;
+        margin: 8px 0;
       }
 
       &__icon {

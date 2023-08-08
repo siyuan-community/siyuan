@@ -36,6 +36,7 @@ type TOperation =
     | "setAttrViewFilters"
     | "setAttrViewSorts"
     | "setAttrViewColCalc"
+    | "updateAttrViewColNumberFormat"
 type TBazaarType = "templates" | "icons" | "widgets" | "themes" | "plugins"
 type TCardType = "doc" | "notebook" | "all"
 type TEventBus = "ws-main" |
@@ -45,7 +46,18 @@ type TEventBus = "ws-main" |
     "open-menu-av" | "open-menu-content" | "open-menu-breadcrumbmore" |
     "input-search" |
     "loaded-protyle"
-type TAVCol = "text" | "date" | "number" | "relation" | "rollup" | "select" | "block" | "mSelect" | "url"
+type TAVCol =
+    "text"
+    | "date"
+    | "number"
+    | "relation"
+    | "rollup"
+    | "select"
+    | "block"
+    | "mSelect"
+    | "url"
+    | "email"
+    | "phone"
 type THintSource = "search" | "av" | "hint";
 type TAVFilterOperator =
     "="
@@ -261,6 +273,7 @@ interface ISiyuan {
         userHomeBImgURL: string
         userIntro: string
         userNickname: string
+        userSiYuanOneTimePayStatus: number  // 0 未付费；1 已付费
         userSiYuanProExpireTime: number // -1 终身会员；0 普通用户；> 0 过期时间
         userSiYuanSubscriptionPlan: number // 0 年付订阅/终生；1 教育优惠；2 订阅试用
         userSiYuanSubscriptionType: number // 0 年付；1 终生；2 月付
@@ -318,6 +331,7 @@ interface IOperation {
     action: TOperation, // move， delete 不需要传 data
     id?: string,
     avID?: string,  // av
+    format?: string // updateAttrViewColNumberFormat 专享
     keyID?: string // updateAttrViewCell 专享
     rowID?: string // updateAttrViewCell 专享
     data?: any, // updateAttr 时为  { old: IObject, new: IObject }, updateAttrViewCell 时为 {TAVCol: {content: string}}
@@ -812,7 +826,7 @@ interface IModels {
 
 interface IMenu {
     label?: string,
-    click?: (element: HTMLElement) => boolean | void | Promise<boolean | void>
+    click?: (element: HTMLElement, event: MouseEvent) => boolean | void | Promise<boolean | void>
     type?: "separator" | "submenu" | "readonly",
     accelerator?: string,
     action?: string,
@@ -901,6 +915,7 @@ interface IAVColumn {
     wrap: boolean,
     hidden: boolean,
     type: TAVCol,
+    numberFormat: string,
     calc: {
         operator: string,
         result: IAVCellValue
@@ -930,7 +945,17 @@ interface IAVCellValue {
     text?: { content: string },
     number?: { content?: number, isNotEmpty: boolean, format?: string, formattedContent?: string },
     mSelect?: { content: string, color: string }[]
-    block?: { content: string, id: string }
+    block?: { content: string, id?: string }
     url?: { content: string }
-    date?: { content?: number, content2?: number, hasEndDate?: boolean }
+    phone?: { content: string }
+    email?: { content: string }
+    date?: IAVCellDateValue
+}
+
+interface IAVCellDateValue {
+    content?: number,
+    isNotEmpty?: boolean
+    content2?: number,
+    isNotEmpty2?: boolean
+    hasEndDate?: boolean
 }

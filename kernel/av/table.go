@@ -123,6 +123,15 @@ func (value *Value) Compare(other *Value) int {
 		}
 		return strings.Compare(v1, v2)
 	}
+	if nil != value.URL && nil != other.URL {
+		return strings.Compare(value.URL.Content, other.URL.Content)
+	}
+	if nil != value.Email && nil != other.Email {
+		return strings.Compare(value.Email.Content, other.Email.Content)
+	}
+	if nil != value.Phone && nil != other.Phone {
+		return strings.Compare(value.Phone.Content, other.Phone.Content)
+	}
 	return 0
 }
 
@@ -132,7 +141,24 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 	}
 
 	if nil != value.Block && nil != other.Block {
-		return strings.Contains(value.Block.Content, other.Block.Content)
+		switch operator {
+		case FilterOperatorIsEqual:
+			return value.Block.Content == other.Block.Content
+		case FilterOperatorIsNotEqual:
+			return value.Block.Content != other.Block.Content
+		case FilterOperatorContains:
+			return strings.Contains(value.Block.Content, other.Block.Content)
+		case FilterOperatorDoesNotContain:
+			return !strings.Contains(value.Block.Content, other.Block.Content)
+		case FilterOperatorStartsWith:
+			return strings.HasPrefix(value.Block.Content, other.Block.Content)
+		case FilterOperatorEndsWith:
+			return strings.HasSuffix(value.Block.Content, other.Block.Content)
+		case FilterOperatorIsEmpty:
+			return "" == strings.TrimSpace(value.Block.Content)
+		case FilterOperatorIsNotEmpty:
+			return "" != strings.TrimSpace(value.Block.Content)
+		}
 	}
 
 	if nil != value.Text && nil != other.Text {
@@ -199,9 +225,9 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 			}
 			return start && end
 		case FilterOperatorIsEmpty:
-			return 0 == value.Date.Content
+			return !value.Date.IsNotEmpty
 		case FilterOperatorIsNotEmpty:
-			return 0 != value.Date.Content
+			return value.Date.IsNotEmpty
 		case FilterOperatorIsRelativeToToday:
 			// TODO: date filter (relative to today)
 			return value.Date.Content >= other.Date.Content && value.Date.Content <= other.Date.Content2
@@ -238,6 +264,70 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 			return 0 != len(value.MSelect) && !(1 == len(value.MSelect) && "" == value.MSelect[0].Content)
 		}
 	}
+
+	if nil != value.URL && nil != other.URL {
+		switch operator {
+		case FilterOperatorIsEqual:
+			return value.URL.Content == other.URL.Content
+		case FilterOperatorIsNotEqual:
+			return value.URL.Content != other.URL.Content
+		case FilterOperatorContains:
+			return strings.Contains(value.URL.Content, other.URL.Content)
+		case FilterOperatorDoesNotContain:
+			return !strings.Contains(value.URL.Content, other.URL.Content)
+		case FilterOperatorStartsWith:
+			return strings.HasPrefix(value.URL.Content, other.URL.Content)
+		case FilterOperatorEndsWith:
+			return strings.HasSuffix(value.URL.Content, other.URL.Content)
+		case FilterOperatorIsEmpty:
+			return "" == strings.TrimSpace(value.URL.Content)
+		case FilterOperatorIsNotEmpty:
+			return "" != strings.TrimSpace(value.URL.Content)
+		}
+	}
+
+	if nil != value.Email && nil != other.Email {
+		switch operator {
+		case FilterOperatorIsEqual:
+			return value.Email.Content == other.Email.Content
+		case FilterOperatorIsNotEqual:
+			return value.Email.Content != other.Email.Content
+		case FilterOperatorContains:
+			return strings.Contains(value.Email.Content, other.Email.Content)
+		case FilterOperatorDoesNotContain:
+			return !strings.Contains(value.Email.Content, other.Email.Content)
+		case FilterOperatorStartsWith:
+			return strings.HasPrefix(value.Email.Content, other.Email.Content)
+		case FilterOperatorEndsWith:
+			return strings.HasSuffix(value.Email.Content, other.Email.Content)
+		case FilterOperatorIsEmpty:
+			return "" == strings.TrimSpace(value.Email.Content)
+		case FilterOperatorIsNotEmpty:
+			return "" != strings.TrimSpace(value.Email.Content)
+		}
+	}
+
+	if nil != value.Phone && nil != other.Phone {
+		switch operator {
+		case FilterOperatorIsEqual:
+			return value.Phone.Content == other.Phone.Content
+		case FilterOperatorIsNotEqual:
+			return value.Phone.Content != other.Phone.Content
+		case FilterOperatorContains:
+			return strings.Contains(value.Phone.Content, other.Phone.Content)
+		case FilterOperatorDoesNotContain:
+			return !strings.Contains(value.Phone.Content, other.Phone.Content)
+		case FilterOperatorStartsWith:
+			return strings.HasPrefix(value.Phone.Content, other.Phone.Content)
+		case FilterOperatorEndsWith:
+			return strings.HasSuffix(value.Phone.Content, other.Phone.Content)
+		case FilterOperatorIsEmpty:
+			return "" == strings.TrimSpace(value.Phone.Content)
+		case FilterOperatorIsNotEmpty:
+			return "" != strings.TrimSpace(value.Phone.Content)
+		}
+	}
+
 	return true
 }
 
@@ -263,7 +353,8 @@ type TableColumn struct {
 
 	// 以下是某些列类型的特有属性
 
-	Options []*KeySelectOption `json:"options,omitempty"` // 选项列表
+	Options      []*KeySelectOption `json:"options,omitempty"` // 选项列表
+	NumberFormat NumberFormat       `json:"numberFormat"`      // 列数字格式化
 }
 
 type TableRow struct {
@@ -301,11 +392,6 @@ func (table *Table) SortRows() {
 
 	sort.Slice(table.Rows, func(i, j int) bool {
 		for _, colIndexSort := range colIndexSorts {
-			c := table.Columns[colIndexSort.Index]
-			if c.Type == KeyTypeBlock {
-				continue
-			}
-
 			result := table.Rows[i].Cells[colIndexSort.Index].Value.Compare(table.Rows[j].Cells[colIndexSort.Index].Value)
 			if 0 == result {
 				continue
@@ -339,11 +425,6 @@ func (table *Table) FilterRows() {
 	for _, row := range table.Rows {
 		pass := true
 		for j, index := range colIndexes {
-			c := table.Columns[index]
-			if c.Type == KeyTypeBlock {
-				continue
-			}
-
 			if !row.Cells[index].Value.CompareOperator(table.Filters[j].Value, table.Filters[j].Operator) {
 				pass = false
 				break
@@ -381,6 +462,10 @@ func (table *Table) CalcCols() {
 			table.calcColMSelect(col, i)
 		case KeyTypeURL:
 			table.calcColURL(col, i)
+		case KeyTypeEmail:
+			table.calcColEmail(col, i)
+		case KeyTypePhone:
+			table.calcColPhone(col, i)
 		}
 	}
 }
@@ -518,7 +603,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 	case CalcOperatorCountValues:
 		countValues := 0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && 0 != row.Cells[colIndex].Value.Date.Content {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && row.Cells[colIndex].Value.Date.IsNotEmpty {
 				countValues++
 			}
 		}
@@ -527,7 +612,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 		countUniqueValues := 0
 		uniqueValues := map[int64]bool{}
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && 0 != row.Cells[colIndex].Value.Date.Content {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && row.Cells[colIndex].Value.Date.IsNotEmpty {
 				if _, ok := uniqueValues[row.Cells[colIndex].Value.Date.Content]; !ok {
 					countUniqueValues++
 					uniqueValues[row.Cells[colIndex].Value.Date.Content] = true
@@ -538,7 +623,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 	case CalcOperatorCountEmpty:
 		countEmpty := 0
 		for _, row := range table.Rows {
-			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Date || 0 == row.Cells[colIndex].Value.Date.Content {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Date || !row.Cells[colIndex].Value.Date.IsNotEmpty {
 				countEmpty++
 			}
 		}
@@ -546,7 +631,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 	case CalcOperatorCountNotEmpty:
 		countNotEmpty := 0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && 0 != row.Cells[colIndex].Value.Date.Content {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && row.Cells[colIndex].Value.Date.IsNotEmpty {
 				countNotEmpty++
 			}
 		}
@@ -554,7 +639,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 	case CalcOperatorPercentEmpty:
 		countEmpty := 0
 		for _, row := range table.Rows {
-			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Date || 0 == row.Cells[colIndex].Value.Date.Content {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Date || !row.Cells[colIndex].Value.Date.IsNotEmpty {
 				countEmpty++
 			}
 		}
@@ -564,7 +649,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 	case CalcOperatorPercentNotEmpty:
 		countNotEmpty := 0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && 0 != row.Cells[colIndex].Value.Date.Content {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && row.Cells[colIndex].Value.Date.IsNotEmpty {
 				countNotEmpty++
 			}
 		}
@@ -574,7 +659,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 	case CalcOperatorEarliest:
 		earliest := int64(0)
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && 0 != row.Cells[colIndex].Value.Date.Content {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && row.Cells[colIndex].Value.Date.IsNotEmpty {
 				if 0 == earliest || earliest > row.Cells[colIndex].Value.Date.Content {
 					earliest = row.Cells[colIndex].Value.Date.Content
 				}
@@ -586,7 +671,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 	case CalcOperatorLatest:
 		latest := int64(0)
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && 0 != row.Cells[colIndex].Value.Date.Content {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && row.Cells[colIndex].Value.Date.IsNotEmpty {
 				if 0 == latest || latest < row.Cells[colIndex].Value.Date.Content {
 					latest = row.Cells[colIndex].Value.Date.Content
 				}
@@ -599,7 +684,7 @@ func (table *Table) calcColDate(col *TableColumn, colIndex int) {
 		earliest := int64(0)
 		latest := int64(0)
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && 0 != row.Cells[colIndex].Value.Date.Content {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Date && row.Cells[colIndex].Value.Date.IsNotEmpty {
 				if 0 == earliest || earliest > row.Cells[colIndex].Value.Date.Content {
 					earliest = row.Cells[colIndex].Value.Date.Content
 				}
@@ -621,7 +706,7 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 	case CalcOperatorCountValues:
 		countValues := 0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				countValues++
 			}
 		}
@@ -630,7 +715,7 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 		countUniqueValues := 0
 		uniqueValues := map[float64]bool{}
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				if !uniqueValues[row.Cells[colIndex].Value.Number.Content] {
 					uniqueValues[row.Cells[colIndex].Value.Number.Content] = true
 					countUniqueValues++
@@ -641,7 +726,7 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 	case CalcOperatorCountEmpty:
 		countEmpty := 0
 		for _, row := range table.Rows {
-			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Number && !row.Cells[colIndex].Value.Number.IsNotEmpty {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Number || !row.Cells[colIndex].Value.Number.IsNotEmpty {
 				countEmpty++
 			}
 		}
@@ -649,7 +734,7 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 	case CalcOperatorCountNotEmpty:
 		countNotEmpty := 0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				countNotEmpty++
 			}
 		}
@@ -657,7 +742,7 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 	case CalcOperatorPercentEmpty:
 		countEmpty := 0
 		for _, row := range table.Rows {
-			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Number && !row.Cells[colIndex].Value.Number.IsNotEmpty {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Number || !row.Cells[colIndex].Value.Number.IsNotEmpty {
 				countEmpty++
 			}
 		}
@@ -667,7 +752,7 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 	case CalcOperatorPercentNotEmpty:
 		countNotEmpty := 0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				countNotEmpty++
 			}
 		}
@@ -677,67 +762,67 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 	case CalcOperatorSum:
 		sum := 0.0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				sum += row.Cells[colIndex].Value.Number.Content
 			}
 		}
-		col.Calc.Result = &Value{Number: NewFormattedValueNumber(sum, NumberFormatNone)}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(sum, col.NumberFormat)}
 	case CalcOperatorAverage:
 		sum := 0.0
 		count := 0
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				sum += row.Cells[colIndex].Value.Number.Content
 				count++
 			}
 		}
 		if 0 != count {
-			col.Calc.Result = &Value{Number: NewFormattedValueNumber(sum/float64(count), NumberFormatNone)}
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(sum/float64(count), col.NumberFormat)}
 		}
 	case CalcOperatorMedian:
 		values := []float64{}
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				values = append(values, row.Cells[colIndex].Value.Number.Content)
 			}
 		}
 		sort.Float64s(values)
 		if len(values) > 0 {
 			if len(values)%2 == 0 {
-				col.Calc.Result = &Value{Number: NewFormattedValueNumber((values[len(values)/2-1]+values[len(values)/2])/2, NumberFormatNone)}
+				col.Calc.Result = &Value{Number: NewFormattedValueNumber((values[len(values)/2-1]+values[len(values)/2])/2, col.NumberFormat)}
 			} else {
-				col.Calc.Result = &Value{Number: NewFormattedValueNumber(values[len(values)/2], NumberFormatNone)}
+				col.Calc.Result = &Value{Number: NewFormattedValueNumber(values[len(values)/2], col.NumberFormat)}
 			}
 		}
 	case CalcOperatorMin:
 		min := math.MaxFloat64
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				if row.Cells[colIndex].Value.Number.Content < min {
 					min = row.Cells[colIndex].Value.Number.Content
 				}
 			}
 		}
 		if math.MaxFloat64 != min {
-			col.Calc.Result = &Value{Number: NewFormattedValueNumber(min, NumberFormatNone)}
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(min, col.NumberFormat)}
 		}
 	case CalcOperatorMax:
 		max := -math.MaxFloat64
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				if row.Cells[colIndex].Value.Number.Content > max {
 					max = row.Cells[colIndex].Value.Number.Content
 				}
 			}
 		}
 		if -math.MaxFloat64 != max {
-			col.Calc.Result = &Value{Number: NewFormattedValueNumber(max, NumberFormatNone)}
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(max, col.NumberFormat)}
 		}
 	case CalcOperatorRange:
 		min := math.MaxFloat64
 		max := -math.MaxFloat64
 		for _, row := range table.Rows {
-			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && (row.Cells[colIndex].Value.Number.IsNotEmpty || 0 != row.Cells[colIndex].Value.Number.Content) {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
 				if row.Cells[colIndex].Value.Number.Content < min {
 					min = row.Cells[colIndex].Value.Number.Content
 				}
@@ -747,7 +832,7 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 			}
 		}
 		if math.MaxFloat64 != min && -math.MaxFloat64 != max {
-			col.Calc.Result = &Value{Number: NewFormattedValueNumber(max-min, NumberFormatNone)}
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(max-min, col.NumberFormat)}
 		}
 	}
 }
@@ -869,6 +954,132 @@ func (table *Table) calcColURL(col *TableColumn, colIndex int) {
 		countNotEmpty := 0
 		for _, row := range table.Rows {
 			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.URL && "" != row.Cells[colIndex].Value.URL.Content {
+				countNotEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	}
+}
+
+func (table *Table) calcColEmail(col *TableColumn, colIndex int) {
+	switch col.Calc.Operator {
+	case CalcOperatorCountAll:
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(len(table.Rows)), NumberFormatNone)}
+	case CalcOperatorCountValues:
+		countValues := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Email && "" != row.Cells[colIndex].Value.Email.Content {
+				countValues++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countValues), NumberFormatNone)}
+	case CalcOperatorCountUniqueValues:
+		countUniqueValues := 0
+		uniqueValues := map[string]bool{}
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Email && "" != row.Cells[colIndex].Value.Email.Content {
+				if !uniqueValues[row.Cells[colIndex].Value.Email.Content] {
+					uniqueValues[row.Cells[colIndex].Value.Email.Content] = true
+					countUniqueValues++
+				}
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}
+	case CalcOperatorCountEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Email || "" == row.Cells[colIndex].Value.Email.Content {
+				countEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty), NumberFormatNone)}
+	case CalcOperatorCountNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Email && "" != row.Cells[colIndex].Value.Email.Content {
+				countNotEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty), NumberFormatNone)}
+	case CalcOperatorPercentEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Email || "" == row.Cells[colIndex].Value.Email.Content {
+				countEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorPercentNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Email && "" != row.Cells[colIndex].Value.Email.Content {
+				countNotEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	}
+}
+
+func (table *Table) calcColPhone(col *TableColumn, colIndex int) {
+	switch col.Calc.Operator {
+	case CalcOperatorCountAll:
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(len(table.Rows)), NumberFormatNone)}
+	case CalcOperatorCountValues:
+		countValues := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Phone && "" != row.Cells[colIndex].Value.Phone.Content {
+				countValues++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countValues), NumberFormatNone)}
+	case CalcOperatorCountUniqueValues:
+		countUniqueValues := 0
+		uniqueValues := map[string]bool{}
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Phone && "" != row.Cells[colIndex].Value.Phone.Content {
+				if !uniqueValues[row.Cells[colIndex].Value.Phone.Content] {
+					uniqueValues[row.Cells[colIndex].Value.Phone.Content] = true
+					countUniqueValues++
+				}
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}
+	case CalcOperatorCountEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Phone || "" == row.Cells[colIndex].Value.Phone.Content {
+				countEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty), NumberFormatNone)}
+	case CalcOperatorCountNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Phone && "" != row.Cells[colIndex].Value.Phone.Content {
+				countNotEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty), NumberFormatNone)}
+	case CalcOperatorPercentEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Phone || "" == row.Cells[colIndex].Value.Phone.Content {
+				countEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorPercentNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Phone && "" != row.Cells[colIndex].Value.Phone.Content {
 				countNotEmpty++
 			}
 		}

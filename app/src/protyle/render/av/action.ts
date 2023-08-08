@@ -10,6 +10,9 @@ import {addCol} from "./addCol";
 import {openMenuPanel} from "./openMenuPanel";
 import {hintRef} from "../../hint/extend";
 import {hideElements} from "../../ui/hideElements";
+import {focusByRange} from "../../util/selection";
+import {writeText} from "../../util/compatibility";
+import {showMessage} from "../../../dialog/message";
 
 export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLElement }) => {
     const blockElement = hasClosestBlock(event.target);
@@ -102,6 +105,29 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
         return true;
     }
 
+    const copyElement = hasClosestByAttribute(event.target, "data-type", "copy");
+    if (copyElement) {
+        writeText(copyElement.previousElementSibling.textContent.trim());
+        showMessage(window.siyuan.languages.copied);
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+    }
+
+    const linkElement = hasClosestByClassName(event.target, "av__celltext--url");
+    if (linkElement) {
+        let prefix = "";
+        if (linkElement.dataset.type === "phone") {
+            prefix = "tel:";
+        } else if (linkElement.dataset.type === "email") {
+            prefix = "mailto:";
+        }
+        window.open(prefix + linkElement.textContent.trim());
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+    }
+
     const cellHeaderElement = hasClosestByClassName(event.target, "av__cellheader");
     if (cellHeaderElement) {
         showColMenu(protyle, blockElement, cellHeaderElement.parentElement);
@@ -135,6 +161,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
         if (protyle.hint.element.classList.contains("fn__none")) {
             protyle.toolbar.range = document.createRange();
             protyle.toolbar.range.selectNodeContents(blockElement.querySelector(".av__title"));
+            focusByRange(protyle.toolbar.range);
             hintRef("", protyle, "av");
         } else {
             hideElements(["hint"], protyle);
@@ -178,7 +205,8 @@ export const avContextmenu = (protyle: IProtyle, event: MouseEvent & { detail: a
     rowElement.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconCheck");
     const rowIds: string[] = [];
     const blockIds: string[] = [];
-    blockElement.querySelectorAll(".av__row--select:not(.av__row--header )").forEach(item => {
+    const rowElements = blockElement.querySelectorAll(".av__row--select:not(.av__row--header)");
+    rowElements.forEach(item => {
         rowIds.push(item.getAttribute("data-id"));
         blockIds.push(item.querySelector(".av__cell").getAttribute("data-block-id"));
     });
@@ -187,6 +215,7 @@ export const avContextmenu = (protyle: IProtyle, event: MouseEvent & { detail: a
         icon: "iconTrashcan",
         label: window.siyuan.languages.delete,
         click() {
+            const previousElement = rowElements[0].previousElementSibling as HTMLElement;
             transaction(protyle, [{
                 action: "removeAttrViewBlock",
                 srcIDs: blockIds,
@@ -194,10 +223,13 @@ export const avContextmenu = (protyle: IProtyle, event: MouseEvent & { detail: a
             }], [{
                 action: "insertAttrViewBlock",
                 avID: blockElement.getAttribute("data-av-id"),
-                previousID: rowElement.previousElementSibling?.getAttribute("data-id") || "",
+                previousID: previousElement?.getAttribute("data-id") || "",
                 srcIDs: rowIds,
             }]);
-            rowElement.remove();
+            rowElements.forEach(item => {
+                item.remove();
+            });
+            updateHeader(previousElement);
         }
     });
     if (rowIds.length === 1) {

@@ -7,7 +7,7 @@
 		"id": "20200923234731-h3zkwm2",
 		"title": "FAQ",
 		"type": "doc",
-		"updated": "20230627215826"
+		"updated": "20230806004444"
 	},
 	"Children": [
 		{
@@ -470,173 +470,23 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20221112205611-eafvvel",
-				"updated": "20221112205652"
+				"updated": "20230805233206"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Although it does not support third-party sync disks, it supports third-party cloud storage services, which can be configured in "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Settings"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ - "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Cloud"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ - "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Cloud Storage Provider"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​, currently supported:"
-				}
-			]
-		},
-		{
-			"ID": "20221112205611-b4zhc8p",
-			"Type": "NodeList",
-			"ListData": {},
-			"Properties": {
-				"id": "20221112205611-b4zhc8p",
-				"updated": "20221112205611"
-			},
-			"Children": [
-				{
-					"ID": "20221112205611-97prfc9",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20221112205611-97prfc9",
-						"updated": "20221112205611"
-					},
-					"Children": [
-						{
-							"ID": "20221112205611-uzrdaj3",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20221112205611-uzrdaj3",
-								"updated": "20221112210327"
-							},
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "S3 compatible object storage services, such as "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://s.qiniu.com/VbQfeu",
-									"TextMarkTextContent": "Qiniu"
-								},
-								{
-									"Type": "NodeText",
-									"Data": ", "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://www.aliyun.com/product/oss?userCode=yqovuas2",
-									"TextMarkTextContent": "Aliyun OSS"
-								},
-								{
-									"Type": "NodeText",
-									"Data": ", "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://www.cloudflare.com/",
-									"TextMarkTextContent": "Cloudflare R2"
-								}
-							]
-						}
-					]
-				},
-				{
-					"ID": "20221112205611-2igreuz",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20221112205611-2igreuz",
-						"updated": "20221112205611"
-					},
-					"Children": [
-						{
-							"ID": "20221112205611-j3l9b8r",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20221112205611-j3l9b8r",
-								"updated": "20221112210118"
-							},
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "WebDAV protocol, such as "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://infini-cloud.net/",
-									"TextMarkTextContent": "InfiniCLOUD"
-								},
-								{
-									"Type": "NodeText",
-									"Data": ", "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "a",
-									"TextMarkAHref": "https://koofr.eu/",
-									"TextMarkTextContent": "Koofr"
-								}
-							]
-						}
-					]
-				}
-			]
-		},
-		{
-			"ID": "20221112205611-5r7862d",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20221112205611-5r7862d",
-				"updated": "20221112211041"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "Synchronizing data through third-party cloud storage services is also "
+					"Data": "Although it does not support third-party sync disks, it supports "
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "block-ref",
-					"TextMarkBlockRefID": "20210721112229-fp97j3c",
+					"TextMarkBlockRefID": "20230805232018-hgrq0ju",
 					"TextMarkBlockRefSubtype": "s",
-					"TextMarkTextContent": "end-to-end encrypted"
+					"TextMarkTextContent": "Connect with third-party cloud storage"
 				},
 				{
 					"Type": "NodeText",
-					"Data": ", and third-party cloud storage service providers cannot obtain our plaintext data."
+					"Data": "."
 				}
 			]
 		},
@@ -1117,7 +967,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20220909100946-9eyc3uh",
-				"updated": "20230617085510"
+				"updated": "20230806002204"
 			},
 			"Children": [
 				{
@@ -1158,7 +1008,17 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​, or by following "
+					"Data": "​, or pay attention to "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "a",
+					"TextMarkAHref": "https://b3log.org/siyuan/",
+					"TextMarkTextContent": "Official website"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " or "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1169,25 +1029,6 @@
 				{
 					"Type": "NodeText",
 					"Data": " to get the new version."
-				}
-			]
-		},
-		{
-			"ID": "20220909100946-k0d6ska",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20220909100946-k0d6ska",
-				"updated": "20220909100946"
-			},
-			"Children": [
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "tag",
-					"TextMarkTextContent": "Note"
-				},
-				{
-					"Type": "NodeText",
-					"Data": ": Do not place the workspace in the installation directory, because the updated version will clear all files in the installation directory"
 				}
 			]
 		},
@@ -1852,12 +1693,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20230406111519-ro0o3iv",
-				"updated": "20230406111521"
+				"updated": "20230802130902"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "All local features are free, even for commercial use."
+					"Data": "Most features are free, even for commercial use."
 				}
 			]
 		},
@@ -1866,19 +1707,29 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20230627215819-kfmomdw",
-				"updated": "20230627215826"
+				"updated": "20230806004444"
 			},
 			"Children": [
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "block-ref",
-					"TextMarkBlockRefID": "20210808180303-v9awwp0",
+					"TextMarkBlockRefID": "20230805231614-vqn28eh",
 					"TextMarkBlockRefSubtype": "s",
-					"TextMarkTextContent": "Cloud services"
+					"TextMarkTextContent": "Member\u0026apos;s privileges"
 				},
 				{
 					"Type": "NodeText",
-					"Data": " require a paid subscription to use."
+					"Data": " can only be used after payment, please refer to "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "a",
+					"TextMarkAHref": "https://b3log.org/siyuan/en/pricing.html",
+					"TextMarkTextContent": "Pricing"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "."
 				}
 			]
 		},

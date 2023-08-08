@@ -32,6 +32,8 @@ import (
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/util"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 // AttributeView 描述了属性视图的结构。
@@ -61,6 +63,8 @@ const (
 	KeyTypeSelect  KeyType = "select"
 	KeyTypeMSelect KeyType = "mSelect"
 	KeyTypeURL     KeyType = "url"
+	KeyTypeEmail   KeyType = "email"
+	KeyTypePhone   KeyType = "phone"
 )
 
 // Key 描述了属性视图属性列的基础结构。
@@ -72,7 +76,8 @@ type Key struct {
 
 	// 以下是某些列类型的特有属性
 
-	Options []*KeySelectOption `json:"options,omitempty"` // 选项列表
+	Options      []*KeySelectOption `json:"options,omitempty"` // 选项列表
+	NumberFormat NumberFormat       `json:"numberFormat"`      // 列数字格式化
 }
 
 func NewKey(id, name string, keyType KeyType) *Key {
@@ -100,6 +105,8 @@ type Value struct {
 	Date    *ValueDate     `json:"date,omitempty"`
 	MSelect []*ValueSelect `json:"mSelect,omitempty"`
 	URL     *ValueURL      `json:"url,omitempty"`
+	Email   *ValueEmail    `json:"email,omitempty"`
+	Phone   *ValuePhone    `json:"phone,omitempty"`
 }
 
 func (value *Value) ToJSONString() string {
@@ -129,8 +136,19 @@ type ValueNumber struct {
 type NumberFormat string
 
 const (
-	NumberFormatNone    NumberFormat = ""
-	NumberFormatPercent NumberFormat = "percent"
+	NumberFormatNone           NumberFormat = ""
+	NumberFormatCommas         NumberFormat = "commas"
+	NumberFormatPercent        NumberFormat = "percent"
+	NumberFormatUSDollar       NumberFormat = "usDollar"
+	NumberFormatYuan           NumberFormat = "yuan"
+	NumberFormatEuro           NumberFormat = "euro"
+	NumberFormatPound          NumberFormat = "pound"
+	NumberFormatYen            NumberFormat = "yen"
+	NumberFormatRuble          NumberFormat = "ruble"
+	NumberFormatRupee          NumberFormat = "rupee"
+	NumberFormatWon            NumberFormat = "won"
+	NumberFormatCanadianDollar NumberFormat = "canadianDollar"
+	NumberFormatFranc          NumberFormat = "franc"
 )
 
 func NewValueNumber(content float64) *ValueNumber {
@@ -149,31 +167,73 @@ func NewFormattedValueNumber(content float64, format NumberFormat) (ret *ValueNu
 		Format:           format,
 		FormattedContent: fmt.Sprintf("%f", content),
 	}
+
+	ret.FormattedContent = formatNumber(content, format)
+
 	switch format {
 	case NumberFormatNone:
 		s := fmt.Sprintf("%.5f", content)
 		ret.FormattedContent = strings.TrimRight(strings.TrimRight(s, "0"), ".")
-	case NumberFormatPercent:
-		s := fmt.Sprintf("%.2f", content*100)
-		ret.FormattedContent = strings.TrimRight(strings.TrimRight(s, "0"), ".") + "%"
 	}
 	return
 }
 
 func (number *ValueNumber) FormatNumber() {
-	switch number.Format {
+	number.FormattedContent = formatNumber(number.Content, number.Format)
+}
+
+func formatNumber(content float64, format NumberFormat) string {
+	switch format {
 	case NumberFormatNone:
-		number.FormattedContent = strconv.FormatFloat(number.Content, 'f', -1, 64)
+		return strconv.FormatFloat(content, 'f', -1, 64)
+	case NumberFormatCommas:
+		p := message.NewPrinter(language.English)
+		s := p.Sprintf("%f", content)
+		return strings.TrimRight(strings.TrimRight(s, "0"), ".")
 	case NumberFormatPercent:
-		s := fmt.Sprintf("%.2f", number.Content*100)
-		number.FormattedContent = strings.TrimRight(strings.TrimRight(s, "0"), ".") + "%"
+		s := fmt.Sprintf("%.2f", content*100)
+		return strings.TrimRight(strings.TrimRight(s, "0"), ".") + "%"
+	case NumberFormatUSDollar:
+		p := message.NewPrinter(language.English)
+		return p.Sprintf("$%.2f", content)
+	case NumberFormatYuan:
+		p := message.NewPrinter(language.Chinese)
+		return p.Sprintf("CN¥%.2f", content)
+	case NumberFormatEuro:
+		p := message.NewPrinter(language.German)
+		return p.Sprintf("€%.2f", content)
+	case NumberFormatPound:
+		p := message.NewPrinter(language.English)
+		return p.Sprintf("£%.2f", content)
+	case NumberFormatYen:
+		p := message.NewPrinter(language.Japanese)
+		return p.Sprintf("¥%.0f", content)
+	case NumberFormatRuble:
+		p := message.NewPrinter(language.Russian)
+		return p.Sprintf("₽%.2f", content)
+	case NumberFormatRupee:
+		p := message.NewPrinter(language.Hindi)
+		return p.Sprintf("₹%.2f", content)
+	case NumberFormatWon:
+		p := message.NewPrinter(language.Korean)
+		return p.Sprintf("₩%.0f", content)
+	case NumberFormatCanadianDollar:
+		p := message.NewPrinter(language.English)
+		return p.Sprintf("CA$%.2f", content)
+	case NumberFormatFranc:
+		p := message.NewPrinter(language.French)
+		return p.Sprintf("CHF%.2f", content)
+	default:
+		return strconv.FormatFloat(content, 'f', -1, 64)
 	}
 }
 
 type ValueDate struct {
 	Content          int64  `json:"content"`
-	Content2         int64  `json:"content2"`
+	IsNotEmpty       bool   `json:"isNotEmpty"`
 	HasEndDate       bool   `json:"hasEndDate"`
+	Content2         int64  `json:"content2"`
+	IsNotEmpty2      bool   `json:"isNotEmpty2"`
 	FormattedContent string `json:"formattedContent"`
 }
 
@@ -226,6 +286,14 @@ type ValueSelect struct {
 }
 
 type ValueURL struct {
+	Content string `json:"content"`
+}
+
+type ValueEmail struct {
+	Content string `json:"content"`
+}
+
+type ValuePhone struct {
 	Content string `json:"content"`
 }
 
