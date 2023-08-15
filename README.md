@@ -278,6 +278,7 @@ Welcome to join us and contribute code to SiYuan together.
 SiYuan is made possible by the following open source projects.
 
 * [https://github.com/golang/go](https://github.com/golang/go) `BSD-3-Clause License`
+* [https://github.com/sajari/docconv](https://github.com/sajari/docconv) `MIT License`
 * [https://github.com/atotto/clipboard](https://github.com/atotto/clipboard) `BSD-3-Clause License`
 * [https://github.com/vanng822/css](https://github.com/vanng822/css) `MIT License`
 * [https://github.com/gofrs/flock](https://github.com/gofrs/flock) `BSD-3-Clause License`
@@ -315,9 +316,12 @@ SiYuan is made possible by the following open source projects.
 * [https://github.com/steambap/captcha](https://github.com/steambap/captcha) `MIT License`
 * [https://github.com/vmihailenco/msgpack](https://github.com/vmihailenco/msgpack) `BSD-2-Clause License`
 * [https://github.com/xrash/smetrics](https://github.com/xrash/smetrics) `MIT License`
+* [https://github.com/xuri/excelize](https://github.com/xuri/excelize) `BSD-3-Clause License`
 * [https://github.com/jgm/pandoc](https://github.com/jgm/pandoc) `GPL-2.0 License`
 * [https://github.com/microsoft/TypeScript](https://github.com/microsoft/TypeScript) `Apache-2.0 License`
 * [https://github.com/electron/electron](https://github.com/electron/electron) `MIT License`
 * [https://github.com/visjs/vis-network](https://github.com/visjs/vis-network) `Apache-2.0 License`
 * [https://github.com/mozilla/pdf.js](https://github.com/mozilla/pdf.js) `Apache-2.0 License`
 * [https://github.com/blueimp/JavaScript-MD5](https://github.com/blueimp/JavaScript-MD5) `MIT License`
+
+Complete dependencies please refer to [go.mod](https://github.com/siyuan-note/siyuan/blob/master/kernel/go.mod) and [package.json](https://github.com/siyuan-note/siyuan/blob/master/app/package.json).

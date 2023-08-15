@@ -51,16 +51,14 @@ export const keymap = {
 </label>`;
             });
             if (commandHTML) {
-                pluginHtml += `<div class="b3-list__panel">
-    <div class="b3-list-item b3-list-item--narrow toggle">
-        <span class="b3-list-item__toggle b3-list-item__toggle--hl">
-            <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
-        </span>
-        <span class="b3-list-item__text ft__on-surface">${item.displayName}</span>
-    </div>
-    <div class="fn__none b3-list__panel">
-        ${commandHTML}
-    </div>
+                pluginHtml += `<div class="b3-list-item b3-list-item--narrow toggle">
+    <span class="b3-list-item__toggle b3-list-item__toggle--hl">
+        <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
+    </span>
+    <span class="b3-list-item__text ft__on-surface">${item.displayName}</span>
+</div>
+<div class="fn__none b3-list__panel">
+    ${commandHTML}
 </div>`;
             }
         });
@@ -72,7 +70,9 @@ export const keymap = {
         </span>
         <span class="b3-list-item__text ft__on-surface">${window.siyuan.languages.plugin}</span>
     </div>
-    ${pluginHtml}
+    <div class="b3-list__panel">
+        ${pluginHtml}
+    </div>
 </div>`;
         }
         return `<label class="fn__flex b3-label config__item">

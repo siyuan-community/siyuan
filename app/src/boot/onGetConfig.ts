@@ -249,31 +249,36 @@ export const initWindow = (app: App) => {
     currentWindow.on("blur", winOnBlur);
     if (!isWindow()) {
         ipcRenderer.on(Constants.SIYUAN_OPENURL, (event, url) => {
-            if (/^siyuan:\/\/plugins\//.test(url)) {
-                // siyuan://plugins/plugin-samplecustom_tab?title=自定义页签&icon=iconFace&data={"text": "This is the custom plugin tab I opened via protocol."}
+            if (url.startsWith("siyuan://plugins/")) {
                 const pluginId = url.replace("siyuan://plugins/", "").split("?")[0];
+                if (!pluginId) {
+                    return;
+                }
                 app.plugins.find(plugin => {
-                    const match = Object.keys(plugin.models).find(key => {
-                        if (key === pluginId) {
-                            let data = getSearch("data", url);
-                            try {
-                                data = JSON.parse(data || "{}");
-                            } catch (e) {
-                                console.log("Error open plugin tab with protocol:", e);
+                    if (pluginId.startsWith(plugin.name)) {
+                        // siyuan://plugins/plugin-name/foo?bar=baz
+                        plugin.eventBus.emit("open-siyuan-url-plugin", {url});
+                        // siyuan://plugins/plugin-samplecustom_tab?title=自定义页签&icon=iconFace&data={"text": "This is the custom plugin tab I opened via protocol."}
+                        Object.keys(plugin.models).find(key => {
+                            if (key === pluginId) {
+                                let data = getSearch("data", url);
+                                try {
+                                    data = JSON.parse(data || "{}");
+                                } catch (e) {
+                                    console.log("Error open plugin tab with protocol:", e);
+                                }
+                                openFile({
+                                    app,
+                                    custom: {
+                                        title: getSearch("title", url),
+                                        icon: getSearch("icon", url),
+                                        data,
+                                        fn: plugin.models[key]
+                                    },
+                                });
+                                return true;
                             }
-                            openFile({
-                                app,
-                                custom: {
-                                    title: getSearch("title", url),
-                                    icon: getSearch("icon", url),
-                                    data,
-                                    fn: plugin.models[key]
-                                },
-                            });
-                            return true;
-                        }
-                    });
-                    if (match) {
+                        });
                         return true;
                     }
                 });
@@ -281,16 +286,25 @@ export const initWindow = (app: App) => {
             }
             if (isSYProtocol(url)) {
                 const id = getIdFromSYProtocol(url);
+                const focus = getSearch("focus", url) === "1";
                 fetchPost("/api/block/checkBlockExist", {id}, existResponse => {
                     if (existResponse.data) {
                         openFileById({
                             app,
                             id,
                             action: [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT],
-                            zoomIn: getSearch("focus", url) === "1"
+                            zoomIn: focus,
                         });
                         ipcRenderer.send(Constants.SIYUAN_SHOW, getCurrentWindow().id);
                     }
+                    app.plugins.forEach(plugin => {
+                        plugin.eventBus.emit("open-siyuan-url-block", {
+                            url,
+                            id,
+                            focus,
+                            exist: existResponse.data,
+                        });
+                    });
                 });
                 return;
             }

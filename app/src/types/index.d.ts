@@ -44,6 +44,7 @@ type TEventBus = "ws-main" |
     "open-noneditableblock" |
     "open-menu-blockref" | "open-menu-fileannotationref" | "open-menu-tag" | "open-menu-link" | "open-menu-image" |
     "open-menu-av" | "open-menu-content" | "open-menu-breadcrumbmore" |
+    "open-siyuan-url-plugin" | "open-siyuan-url-block" |
     "input-search" |
     "loaded-protyle"
 type TAVCol =
@@ -139,6 +140,23 @@ interface IPluginSettingOption {
     actionElement?: HTMLElement
 
     createActionElement?(): HTMLElement
+}
+
+interface ISearchAssetOption {
+    keys: string[],
+    col: string,
+    row: string,
+    layout: number,
+    method: number,
+    types: {
+        ".txt": boolean,
+        ".md": boolean,
+        ".docx": boolean,
+        ".xlsx": boolean,
+        ".pptx": boolean,
+    },
+    sort: number,
+    k: string,
 }
 
 interface ISearchOption {

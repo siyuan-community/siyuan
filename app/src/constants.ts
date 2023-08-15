@@ -41,7 +41,7 @@ export abstract class Constants {
 
     // size
     public static readonly SIZE_LINK_TEXT_MAX: number = 24;
-    public static readonly SIZE_TOOLBAR_HEIGHT: number = isMobile() ? 0 : 28;
+    public static readonly SIZE_TOOLBAR_HEIGHT: number = isMobile() ? 0 : 32;
     public static readonly SIZE_GET_MAX = 102400;
     public static readonly SIZE_UNDO = 64;
     public static readonly SIZE_TITLE = 512;
@@ -70,6 +70,7 @@ export abstract class Constants {
     public static readonly LOCAL_ZOOM = "local-zoom";
     public static readonly LOCAL_SEARCHDATA = "local-searchdata";
     public static readonly LOCAL_SEARCHKEYS = "local-searchkeys";
+    public static readonly LOCAL_SEARCHASSET = "local-searchasset";
     public static readonly LOCAL_DOCINFO = "local-docinfo"; // only mobile
     public static readonly LOCAL_DAILYNOTEID = "local-dailynoteid"; // string
     public static readonly LOCAL_HISTORYNOTEID = "local-historynoteid"; // string
@@ -241,6 +242,7 @@ export abstract class Constants {
             recentDocs: {default: "⌘E", custom: "⌘E"},
             move: {default: "", custom: ""},
             selectOpen1: {default: "", custom: ""},
+            toggleDock: {default: "", custom: ""},
         },
         editor: {
             general: {
