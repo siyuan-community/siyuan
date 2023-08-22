@@ -27,7 +27,7 @@ import {
     assetFilterMenu,
     assetInputEvent,
     assetMethodMenu, assetMoreMenu,
-    openSearchAsset,
+    openSearchAsset, renderNextAssetMark,
     renderPreview,
     toggleAssetHistory
 } from "./assets";
@@ -328,6 +328,7 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
         };
     });
 
+    const localSearch = window.siyuan.storage[Constants.LOCAL_SEARCHASSET] as ISearchAssetOption;
     const assetsElement = element.querySelector("#searchAssets");
     element.addEventListener("click", (event: MouseEvent) => {
         let target = event.target as HTMLElement;
@@ -508,7 +509,7 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                 event.preventDefault();
                 break;
             } else if (target.id === "searchAsset") {
-                openSearchAsset(assetsElement, !!closeCB);
+                openSearchAsset(assetsElement, !closeCB);
                 event.stopPropagation();
                 event.preventDefault();
                 break;
@@ -636,11 +637,25 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                 event.stopPropagation();
                 event.preventDefault();
                 break;
+            } else if (type === "assetPrevious") {
+                if (!target.getAttribute("disabled")) {
+                    assetInputEvent(assetsElement, localSearch, parseInt(assetsElement.querySelector("#searchAssetResult .fn__flex-center").textContent.split("/")[1]) - 1);
+                }
+                event.stopPropagation();
+                event.preventDefault();
+                break;
+            } else if (type === "assetNext") {
+                if (!target.getAttribute("disabled")) {
+                    assetInputEvent(assetsElement, localSearch, parseInt(assetsElement.querySelector("#searchAssetResult .fn__flex-center").textContent.split("/")[1]) + 1);
+                }
+                event.stopPropagation();
+                event.preventDefault();
+                break;
             } else if (target.id === "assetMore") {
                 assetMoreMenu(target, assetsElement, () => {
                     assetInputEvent(assetsElement);
-                    setStorageVal(Constants.LOCAL_SEARCHASSET, window.siyuan.storage[Constants.LOCAL_SEARCHASSET]);
-                })
+                    setStorageVal(Constants.LOCAL_SEARCHASSET, localSearch);
+                });
                 event.stopPropagation();
                 event.preventDefault();
                 break;
@@ -651,9 +666,9 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                 break;
             } else if (target.id === "assetSyntaxCheck") {
                 assetMethodMenu(target, () => {
-                    element.querySelector("#assetSyntaxCheck").setAttribute("aria-label", getQueryTip(window.siyuan.storage[Constants.LOCAL_SEARCHASSET].method));
-                    assetInputEvent(assetsElement);
-                    setStorageVal(Constants.LOCAL_SEARCHASSET, window.siyuan.storage[Constants.LOCAL_SEARCHASSET]);
+                    element.querySelector("#assetSyntaxCheck").setAttribute("aria-label", getQueryTip(localSearch.method));
+                    assetInputEvent(assetsElement, localSearch);
+                    setStorageVal(Constants.LOCAL_SEARCHASSET, localSearch);
                 });
                 event.stopPropagation();
                 event.preventDefault();
@@ -728,6 +743,9 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                                     assetsElement.querySelector(".b3-list-item--focus").classList.remove("b3-list-item--focus");
                                     target.classList.add("b3-list-item--focus");
                                     renderPreview(element.querySelector("#searchAssetPreview"), target.dataset.id, searchAssetInputElement.value, window.siyuan.storage[Constants.LOCAL_SEARCHASSET].method);
+                                    searchAssetInputElement.focus();
+                                } else if (target.classList.contains("b3-list-item--focus")) {
+                                    renderNextAssetMark(element.querySelector("#searchAssetPreview"));
                                     searchAssetInputElement.focus();
                                 }
                             } else {

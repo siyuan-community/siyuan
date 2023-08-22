@@ -154,6 +154,16 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
                 blockElement = item;
             }
         });
+        // https://github.com/siyuan-note/siyuan/issues/8972
+        if (html.split('<span data-type="inline-math" data-subtype="math"').length > 1) {
+            Array.from(blockElement.querySelectorAll('[data-type="inline-math"]')).find((item: HTMLElement) => {
+                if (item.dataset.content.indexOf("<wbr>") > -1) {
+                    item.setAttribute("data-content", item.dataset.content.replace("<wbr>", ""));
+                    protyle.toolbar.showRender(protyle, item);
+                    return true;
+                }
+            });
+        }
         Array.from(tempElement.content.children).forEach((item, index) => {
             const tempId = item.getAttribute("data-node-id");
             let realElement;

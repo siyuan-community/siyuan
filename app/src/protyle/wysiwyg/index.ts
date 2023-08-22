@@ -21,7 +21,7 @@ import {isLocalPath, pathPosix} from "../../util/pathName";
 import {genEmptyElement} from "../../block/util";
 import {previewImage} from "../preview/image";
 import {
-    contentMenu,
+    contentMenu, enterBack,
     fileAnnotationRefMenu,
     imgMenu,
     linkMenu,
@@ -1266,7 +1266,11 @@ export class WYSIWYG {
             }
             protyle.toolbar.range = getEditorRange(protyle.element);
             if (target.tagName === "SPAN") { // https://ld246.com/article/1665141518103
-                const types = protyle.toolbar.getCurrentType(protyle.toolbar.range);
+                let types = protyle.toolbar.getCurrentType(protyle.toolbar.range);
+                if (types.length === 0) {
+                    // https://github.com/siyuan-note/siyuan/issues/8960
+                    types = (target.dataset.type || "").split(" ");
+                }
                 if (types.length > 0) {
                     removeSearchMark(target);
                 }
@@ -1316,6 +1320,7 @@ export class WYSIWYG {
                 return false;
             }
             if (!isNotEditBlock(nodeElement) && !nodeElement.classList.contains("protyle-wysiwyg--select") &&
+                !hasClosestByClassName(target, "protyle-action") && // https://github.com/siyuan-note/siyuan/issues/8983
                 (isMobile() || event.detail.target || (beforeContextmenuRange && nodeElement.contains(beforeContextmenuRange.startContainer)))
             ) {
                 if ((!isMobile() || protyle.toolbar?.element.classList.contains("fn__none")) && !nodeElement.classList.contains("av")) {
@@ -1927,8 +1932,9 @@ export class WYSIWYG {
                         clientX: event.clientX + 4,
                         clientY: event.clientY
                     });
-                } else if (!protyle.disabled && actionElement.parentElement.classList.contains("li")) {
-                    if (event.altKey) {
+                } else if (actionElement.parentElement.classList.contains("li")) {
+                    const actionId = actionElement.parentElement.getAttribute("data-node-id")
+                    if (event.altKey && !protyle.disabled) {
                         // 展开/折叠当前层级的所有列表项
                         if (actionElement.parentElement.parentElement.classList.contains("protyle-wysiwyg")) {
                             // 缩放列表项 https://ld246.com/article/1653123034794
@@ -1956,24 +1962,30 @@ export class WYSIWYG {
                             updateTransaction(protyle, actionElement.parentElement.parentElement.getAttribute("data-node-id"), actionElement.parentElement.parentElement.outerHTML, oldHTML);
                         }
                         hideElements(["gutter"], protyle);
-                    } else if (event.shiftKey) {
+                    } else if (event.shiftKey && !protyle.disabled) {
                         openAttr(actionElement.parentElement);
                     } else if (ctrlIsPressed) {
-                        zoomOut({protyle, id: actionElement.parentElement.getAttribute("data-node-id")});
+                        zoomOut({protyle, id: actionId});
                     } else {
                         if (actionElement.classList.contains("protyle-action--task")) {
-                            const html = actionElement.parentElement.outerHTML;
-                            if (actionElement.parentElement.classList.contains("protyle-task--done")) {
-                                actionElement.querySelector("use").setAttribute("xlink:href", "#iconUncheck");
-                                actionElement.parentElement.classList.remove("protyle-task--done");
-                            } else {
-                                actionElement.querySelector("use").setAttribute("xlink:href", "#iconCheck");
-                                actionElement.parentElement.classList.add("protyle-task--done");
+                            if (!protyle.disabled) {
+                                const html = actionElement.parentElement.outerHTML;
+                                if (actionElement.parentElement.classList.contains("protyle-task--done")) {
+                                    actionElement.querySelector("use").setAttribute("xlink:href", "#iconUncheck");
+                                    actionElement.parentElement.classList.remove("protyle-task--done");
+                                } else {
+                                    actionElement.querySelector("use").setAttribute("xlink:href", "#iconCheck");
+                                    actionElement.parentElement.classList.add("protyle-task--done");
+                                }
+                                actionElement.parentElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
+                                updateTransaction(protyle, actionId, actionElement.parentElement.outerHTML, html);
                             }
-                            actionElement.parentElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-                            updateTransaction(protyle, actionElement.parentElement.getAttribute("data-node-id"), actionElement.parentElement.outerHTML, html);
                         } else {
-                            zoomOut({protyle, id: actionElement.parentElement.getAttribute("data-node-id")});
+                            if (protyle.block.id === actionId) {
+                                enterBack(protyle, actionId);
+                            } else {
+                                zoomOut({protyle, id: actionId});
+                            }
                         }
                     }
                 }

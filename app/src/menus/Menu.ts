@@ -225,8 +225,9 @@ export class MenuItem {
         if (options.submenu) {
             const submenuElement = document.createElement("div");
             submenuElement.classList.add("b3-menu__submenu");
+            submenuElement.innerHTML = '<div class="b3-menu__items"></div>';
             options.submenu.forEach((item) => {
-                submenuElement.append(new MenuItem(item).element);
+                submenuElement.firstElementChild.append(new MenuItem(item).element);
             });
             this.element.insertAdjacentHTML("beforeend", '<svg class="b3-menu__icon b3-menu__icon--arrow"><use xlink:href="#iconRight"></use></svg>');
             this.element.append(submenuElement);
@@ -296,7 +297,7 @@ export const bindMenuKeydown = (event: KeyboardEvent) => {
         currentElement.classList.remove("b3-menu__item--current");
         currentElement.classList.add("b3-menu__item--show");
 
-        const actionMenuElement = getActionMenu(subMenuElement.firstElementChild, true);
+        const actionMenuElement = getActionMenu(subMenuElement.firstElementChild.firstElementChild, true);
         if (actionMenuElement) {
             actionMenuElement.classList.add("b3-menu__item--current");
         }
@@ -307,9 +308,12 @@ export const bindMenuKeydown = (event: KeyboardEvent) => {
         if (!currentElement) {
             return true;
         }
-        currentElement.parentElement.parentElement.classList.remove("b3-menu__item--show");
-        currentElement.parentElement.parentElement.classList.add("b3-menu__item--current");
-        currentElement.classList.remove("b3-menu__item--current");
+        const parentItemElement = hasClosestByClassName(currentElement, "b3-menu__item--show");
+        if (parentItemElement) {
+            parentItemElement.classList.remove("b3-menu__item--show");
+            parentItemElement.classList.add("b3-menu__item--current");
+            currentElement.classList.remove("b3-menu__item--current");
+        }
         return true;
     } else if (event.code === "Enter") {
         const currentElement = window.siyuan.menus.menu.element.querySelector(".b3-menu__item--current");
