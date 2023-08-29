@@ -56,6 +56,7 @@ import {openRecentDocs} from "../business/openRecentDocs";
 import {App} from "../index";
 import {commandPanel} from "../plugin/commandPanel";
 import {toggleDockBar} from "../layout/dock/util";
+import {workspaceMenu} from "../menus/workspace";
 
 const getRightBlock = (element: HTMLElement, x: number, y: number) => {
     let index = 1;
@@ -445,7 +446,8 @@ export const globalShortcut = (app: App) => {
         if (!event.altKey && !event.shiftKey && isCtrl(event)) {
             if (event.key === "Meta" || event.key === "Control" || event.ctrlKey || event.metaKey) {
                 window.siyuan.ctrlIsPressed = true;
-                if (window.siyuan.config.editor.floatWindowMode === 1 && !event.repeat) {
+                if ((event.key === "Meta" || event.key === "Control") &&
+                    window.siyuan.config.editor.floatWindowMode === 1 && !event.repeat) {
                     showPopover(app);
                 }
             } else {
@@ -574,6 +576,11 @@ export const globalShortcut = (app: App) => {
                 return;
             }
             openRecentDocs();
+            event.preventDefault();
+            return;
+        }
+
+        if (bindMenuKeydown(event)) {
             event.preventDefault();
             return;
         }
@@ -758,6 +765,12 @@ export const globalShortcut = (app: App) => {
                     focusBlock(editor.editor.protyle.wysiwyg.element.firstElementChild);
                 }
             }
+            event.preventDefault();
+            return;
+        }
+
+        if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.mainMenu.custom, event)) {
+            workspaceMenu(app, document.querySelector("#barWorkspace").getBoundingClientRect());
             event.preventDefault();
             return;
         }
@@ -1307,7 +1320,9 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         hasClosestByClassName(target, "protyle", true)) {
         return false;
     }
-    if (bindMenuKeydown(event)) {
+    if (!window.siyuan.menus.menu.element.classList.contains("fn__none") &&
+        (event.code.startsWith("Arrow") || event.code === "Enter") &&
+        !event.altKey && !event.shiftKey && !isCtrl(event)) {
         event.preventDefault();
         return true;
     }

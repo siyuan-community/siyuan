@@ -372,4 +372,12 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/petal/setPetalEnabled", model.CheckAuth, model.CheckReadonly, setPetalEnabled)
 
 	ginServer.Handle("POST", "/api/network/forwardProxy", model.CheckAuth, model.CheckReadonly, forwardProxy)
+
+	ginServer.Handle("GET", "/ws/broadcast", model.CheckAuth, broadcast)
+	ginServer.Handle("GET", "/api/broadcast/channels", model.CheckAuth, getChannels)
+	ginServer.Handle("POST", "/api/broadcast/postMessage", model.CheckAuth, postMessage)
+	ginServer.Handle("POST", "/api/broadcast/getChannelInfo", model.CheckAuth, getChannelInfo)
+
+	ginServer.Handle("POST", "/api/archive/zip", model.CheckAuth, zip)
+	ginServer.Handle("POST", "/api/archive/unzip", model.CheckAuth, unzip)
 }

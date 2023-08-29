@@ -425,7 +425,9 @@ export class WYSIWYG {
                             dragElement.style.height = (dragHeight + (moveEvent.clientY - y)) + "px";
                         }
                     } else {
-                        dragElement.parentElement.parentElement.style.maxWidth = (parseInt(dragElement.style.width) + 10) + "px";
+                        dragElement.parentElement.parentElement.style.width = (parseInt(dragElement.style.width) + 10) + "px";
+                        // 历史兼容
+                        dragElement.parentElement.parentElement.style.maxWidth = "";
                     }
                 };
 
@@ -1933,7 +1935,7 @@ export class WYSIWYG {
                         clientY: event.clientY
                     });
                 } else if (actionElement.parentElement.classList.contains("li")) {
-                    const actionId = actionElement.parentElement.getAttribute("data-node-id")
+                    const actionId = actionElement.parentElement.getAttribute("data-node-id");
                     if (event.altKey && !protyle.disabled) {
                         // 展开/折叠当前层级的所有列表项
                         if (actionElement.parentElement.parentElement.classList.contains("protyle-wysiwyg")) {

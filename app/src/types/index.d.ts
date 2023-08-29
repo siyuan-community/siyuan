@@ -46,7 +46,8 @@ type TEventBus = "ws-main" |
     "open-menu-av" | "open-menu-content" | "open-menu-breadcrumbmore" |
     "open-siyuan-url-plugin" | "open-siyuan-url-block" |
     "input-search" |
-    "loaded-protyle"
+    "loaded-protyle" | "loaded-protyle-dynamic"|
+    "destroy-protyle"
 type TAVCol =
     "text"
     | "date"
@@ -78,6 +79,7 @@ type TAVFilterOperator =
 declare module "blueimp-md5"
 
 interface Window {
+    pdfjsLib: any
     dataLayer: any[]
     siyuan: ISiyuan
     webkit: any

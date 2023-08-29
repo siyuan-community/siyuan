@@ -549,7 +549,7 @@ export const enterBack = (protyle: IProtyle, id: string) => {
     } else {
         zoomOut({protyle, id: protyle.block.parent2ID, focusId: id});
     }
-}
+};
 
 export const zoomOut = (options: {
     protyle: IProtyle,
@@ -598,12 +598,14 @@ export const zoomOut = (options: {
                 data: getResponse,
                 protyle: options.protyle,
                 action: options.id === options.protyle.block.rootID ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HTML] : [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS, Constants.CB_GET_HTML],
+                afterCB: options.callback
             });
         } else {
             onGet({
                 data: getResponse,
                 protyle: options.protyle,
                 action: options.id === options.protyle.block.rootID ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HTML, Constants.CB_GET_UNUNDO] : [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS, Constants.CB_GET_UNUNDO, Constants.CB_GET_HTML],
+                afterCB: options.callback
             });
         }
         // https://github.com/siyuan-note/siyuan/issues/4874
@@ -643,9 +645,6 @@ export const zoomOut = (options: {
             updateBacklinkGraph(allModels, options.protyle);
         }
         /// #endif
-        if (options.callback) {
-            options.callback();
-        }
     });
 };
 
@@ -1016,11 +1015,11 @@ export const linkMenu = (protyle: IProtyle, linkElement: HTMLElement, focusText 
         }).element);
     }
     if (linkAddress) {
-        window.siyuan.menus.menu.append(new MenuItem({type: "separator"}).element)
+        window.siyuan.menus.menu.append(new MenuItem({type: "separator"}).element);
         openMenu(protyle.app, linkAddress, false, true);
         /// #if !BROWSER
         if (linkAddress?.startsWith("assets/")) {
-            window.siyuan.menus.menu.append(new MenuItem(exportAsset(linkAddress)).element)
+            window.siyuan.menus.menu.append(new MenuItem(exportAsset(linkAddress)).element);
         }
         /// #endif
     }
