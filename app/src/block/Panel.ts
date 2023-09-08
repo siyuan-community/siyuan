@@ -49,7 +49,6 @@ export class BlockPanel {
         this.isBacklink = options.isBacklink;
 
         this.element = document.createElement("div");
-        this.element.style.zIndex = (++window.siyuan.zIndex).toString();
         this.element.classList.add("block__popover");
 
         const parentElement = hasClosestByClassName(this.targetElement, "block__popover", true);
@@ -295,6 +294,7 @@ export class BlockPanel {
                         setPosition(this.element, targetRect.left, targetRect.bottom + 4, targetRect.height + 12, 8);
                     } else if (typeof this.x === "number" && typeof this.y === "number") {
                         setPosition(this.element, this.x, this.y);
+                        this.element.style.maxHeight = Math.floor(window.innerHeight - Math.max(this.y, Constants.SIZE_TOOLBAR_HEIGHT) - 12) + "px";
                     }
                     const elementRect = this.element.getBoundingClientRect();
                     if (this.targetElement && !this.targetElement.classList.contains("protyle-wysiwyg__embed")) {
@@ -305,6 +305,7 @@ export class BlockPanel {
                         }
                     }
                     this.element.classList.add("block__popover--open");
+                    this.element.style.zIndex = (++window.siyuan.zIndex).toString();
                 } : undefined);
             } else {
                 observer.observe(item);
