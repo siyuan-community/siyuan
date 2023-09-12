@@ -364,8 +364,8 @@ export class Toolbar {
                 }
             }
             contents.childNodes.forEach((item: HTMLElement, index) => {
-                if (item.nodeType !== 3 && item.tagName !== "BR") {
-                    const types = item.getAttribute("data-type").split(" ");
+                if (item.nodeType !== 3 && item.tagName !== "BR" && item.tagName !== "IMG") {
+                    const types = (item.getAttribute("data-type") || "").split(" ");
                     if (type === "clear") {
                         for (let i = 0; i < types.length; i++) {
                             if (textObj && textObj.type === "text") {
@@ -560,7 +560,7 @@ export class Toolbar {
                             hasSameTextStyle(item, nextElement, textObj)) {
                             nextIndex = item.textContent.length;
                             nextElement.innerHTML = item.innerHTML + nextElement.innerHTML;
-                        } else if (item.tagName !== "BR") {
+                        } else if (item.tagName !== "BR" && item.tagName !== "IMG") {
                             if (item.getAttribute("data-type")?.indexOf("backslash") > -1 &&
                                 item.firstChild?.textContent === "\\") {
                                 item.firstChild.remove();

@@ -85,12 +85,19 @@ const focusStack = (backStack: IBackStack) => {
         protyle.wysiwyg.element.innerHTML = getResponse.data.content;
         processRender(protyle.wysiwyg.element);
         highlightRender(protyle.wysiwyg.element);
-        avRender(protyle.wysiwyg.element);
+        avRender(protyle.wysiwyg.element, protyle);
         blockRender(protyle, protyle.wysiwyg.element, backStack.scrollTop);
         if (getResponse.data.isSyncing) {
             disabledForeverProtyle(protyle);
         } else {
-            if (protyle.disabled) {
+            let readOnly = window.siyuan.config.readonly ? "true" : "false";
+            if (readOnly === "false") {
+                readOnly = protyle.wysiwyg.element.getAttribute(Constants.CUSTOM_SY_READONLY);
+                if (!readOnly) {
+                    readOnly = window.siyuan.config.editor.readOnly ? "true" : "false";
+                }
+            }
+            if (readOnly === "true") {
                 disabledProtyle(protyle);
             } else {
                 enableProtyle(protyle);

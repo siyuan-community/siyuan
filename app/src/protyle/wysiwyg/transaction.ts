@@ -7,7 +7,7 @@ import {processRender} from "../util/processCode";
 import {highlightRender} from "../render/highlightRender";
 import {hasClosestBlock, hasClosestByAttribute} from "../util/hasClosest";
 import {setFold, zoomOut} from "../../menus/protyle";
-import {onGet} from "../util/onGet";
+import {disabledProtyle, enableProtyle, onGet} from "../util/onGet";
 /// #if !MOBILE
 import {getAllModels} from "../../layout/getAll";
 /// #endif
@@ -18,6 +18,7 @@ import {hideElements} from "../ui/hideElements";
 import {reloadProtyle} from "../util/reload";
 import {countBlockWord} from "../../layout/status";
 import {needLogin, needSubscribe} from "../../util/needSubscribe";
+import {setPadding} from "../ui/initUI";
 
 const removeTopElement = (updateElement: Element, protyle: IProtyle) => {
     // 移动到其他文档中，该块需移除
@@ -123,7 +124,7 @@ const promiseTransaction = () => {
                     });
                     processRender(protyle.wysiwyg.element);
                     highlightRender(protyle.wysiwyg.element);
-                    avRender(protyle.wysiwyg.element);
+                    avRender(protyle.wysiwyg.element, protyle);
                     blockRender(protyle, protyle.wysiwyg.element);
                     protyle.contentElement.scrollTop = scrollTop;
                     protyle.scroll.lastScrollTop = scrollTop;
@@ -163,7 +164,7 @@ const promiseTransaction = () => {
                     });
                     processRender(protyle.wysiwyg.element);
                     highlightRender(protyle.wysiwyg.element);
-                    avRender(protyle.wysiwyg.element);
+                    avRender(protyle.wysiwyg.element, protyle);
                     blockRender(protyle, protyle.wysiwyg.element);
                 }
                 // 当前编辑器中更新嵌入块
@@ -273,7 +274,7 @@ const promiseTransaction = () => {
                     cursorElements.forEach(item => {
                         processRender(item);
                         highlightRender(item);
-                        avRender(item);
+                        avRender(item, protyle);
                         blockRender(protyle, item);
                         const wbrElement = item.querySelector("wbr");
                         if (wbrElement) {
@@ -313,7 +314,7 @@ const updateEmbed = (protyle: IProtyle, operation: IOperation) => {
     if (updatedEmbed) {
         processRender(protyle.wysiwyg.element);
         highlightRender(protyle.wysiwyg.element);
-        avRender(protyle.wysiwyg.element);
+        avRender(protyle.wysiwyg.element, protyle);
     }
 };
 
@@ -357,7 +358,7 @@ const updateBlock = (updateElements: Element[], protyle: IProtyle, operation: IO
     }
     processRender(updateElements.length === 1 ? updateElements[0] : protyle.wysiwyg.element);
     highlightRender(updateElements.length === 1 ? updateElements[0] : protyle.wysiwyg.element);
-    avRender(updateElements.length === 1 ? updateElements[0] : protyle.wysiwyg.element);
+    avRender(updateElements.length === 1 ? updateElements[0] : protyle.wysiwyg.element, protyle);
     blockRender(protyle, updateElements.length === 1 ? updateElements[0] : protyle.wysiwyg.element);
     // 更新 ws 嵌入块
     updateEmbed(protyle, operation);
@@ -398,7 +399,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         if (operation.retData) {
             processRender(protyle.wysiwyg.element);
             highlightRender(protyle.wysiwyg.element);
-            avRender(protyle.wysiwyg.element);
+            avRender(protyle.wysiwyg.element, protyle);
             blockRender(protyle, protyle.wysiwyg.element);
             protyle.contentElement.scrollTop = scrollTop;
             protyle.scroll.lastScrollTop = scrollTop;
@@ -424,7 +425,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
     if (operation.action === "delete") {
         if (updateElements.length > 0) {
             deleteBlock(updateElements, operation.id, protyle, isUndo);
-        } else if (isUndo){
+        } else if (isUndo) {
             zoomOut({
                 protyle,
                 id: protyle.block.rootID,
@@ -491,18 +492,32 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                 if (refElement) {
                     nodeAttrHTML += refElement.outerHTML;
                 }
-                if (data.new["custom-riff-decks"] && data.new["custom-riff-decks"] !== data.old["custom-riff-decks"]) {
+                if (data.new[Constants.CUSTOM_RIFF_DECKS] && data.new[Constants.CUSTOM_RIFF_DECKS] !== data.old[Constants.CUSTOM_RIFF_DECKS]) {
                     protyle.title.element.style.animation = "addCard 450ms linear";
-                    protyle.title.element.setAttribute("custom-riff-decks", data.new["custom-riff-decks"]);
+                    protyle.title.element.setAttribute(Constants.CUSTOM_RIFF_DECKS, data.new[Constants.CUSTOM_RIFF_DECKS]);
                     setTimeout(() => {
                         protyle.title.element.style.animation = "";
                     }, 450);
-                } else if (!data.new["custom-riff-decks"]) {
-                    protyle.title.element.removeAttribute("custom-riff-decks");
+                } else if (!data.new[Constants.CUSTOM_RIFF_DECKS]) {
+                    protyle.title.element.removeAttribute(Constants.CUSTOM_RIFF_DECKS);
                 }
                 protyle.title.element.querySelector(".protyle-attr").innerHTML = nodeAttrHTML;
             }
             protyle.wysiwyg.renderCustom(attrsResult);
+            if (data.new[Constants.CUSTOM_SY_FULLWIDTH] !== data.old[Constants.CUSTOM_SY_FULLWIDTH]) {
+                setPadding(protyle);
+            }
+            if (data.new[Constants.CUSTOM_SY_READONLY] !== data.old[Constants.CUSTOM_SY_READONLY]) {
+                let customReadOnly = data.new[Constants.CUSTOM_SY_READONLY];
+                if (!customReadOnly) {
+                    customReadOnly = window.siyuan.config.editor.readOnly ? "true" : "false";
+                }
+                if (customReadOnly === "true") {
+                    disabledProtyle(protyle);
+                } else {
+                    enableProtyle(protyle);
+                }
+            }
             if (data.new.icon !== data.old.icon) {
                 /// #if MOBILE
                 if (window.siyuan.mobile.editor.protyle.background.ial.icon !== data.new.icon) {
@@ -526,12 +541,12 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
             Object.keys(data.old).forEach(key => {
                 item.removeAttribute(key);
             });
-            if (data.new.style && data.new["custom-riff-decks"] && data.new["custom-riff-decks"] !== data.old["custom-riff-decks"]) {
+            if (data.new.style && data.new[Constants.CUSTOM_RIFF_DECKS] && data.new[Constants.CUSTOM_RIFF_DECKS] !== data.old[Constants.CUSTOM_RIFF_DECKS]) {
                 data.new.style += ";animation:addCard 450ms linear";
             }
             Object.keys(data.new).forEach(key => {
                 item.setAttribute(key, data.new[key]);
-                if (key === "custom-riff-decks" && data.new["custom-riff-decks"] !== data.old["custom-riff-decks"]) {
+                if (key === Constants.CUSTOM_RIFF_DECKS && data.new[Constants.CUSTOM_RIFF_DECKS] !== data.old[Constants.CUSTOM_RIFF_DECKS]) {
                     item.style.animation = "addCard 450ms linear";
                     setTimeout(() => {
                         item.style.animation = "";
@@ -672,7 +687,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         cursorElements.forEach(item => {
             processRender(item);
             highlightRender(item);
-            avRender(item);
+            avRender(item, protyle);
             blockRender(protyle, item);
             const wbrElement = item.querySelector("wbr");
             if (isUndo) {
@@ -901,7 +916,7 @@ export const turnsIntoTransaction = (options: {
     transaction(options.protyle, doOperations, undoOperations);
     processRender(options.protyle.wysiwyg.element);
     highlightRender(options.protyle.wysiwyg.element);
-    avRender(options.protyle.wysiwyg.element);
+    avRender(options.protyle.wysiwyg.element, options.protyle);
     blockRender(options.protyle, options.protyle.wysiwyg.element);
     if (range) {
         focusByWbr(options.protyle.wysiwyg.element, range);

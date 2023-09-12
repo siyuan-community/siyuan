@@ -95,8 +95,7 @@ interface Window {
     }
 
     newWindow: {
-        positionPDF(pathStr: string, page: string | number): void
-        switchTabById(id: string): void
+        openFile(options: IOpenFileOptions): void
     }
 
     Protyle: import("../protyle/method").default
@@ -491,6 +490,7 @@ interface IExport {
     addTitle: boolean;
     markdownYFM: boolean;
     pdfFooter: string;
+    docxTemplate: string;
 }
 
 interface IEditor {
