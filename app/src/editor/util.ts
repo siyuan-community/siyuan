@@ -4,11 +4,10 @@ import {Wnd} from "../layout/Wnd";
 import {getDockByType, getInstanceById, getWndByLayout, pdfIsLoading, setPanelFocus} from "../layout/util";
 import {getAllModels, getAllTabs} from "../layout/getAll";
 import {highlightById, scrollCenter} from "../util/highlightById";
-import {getDisplayName, pathPosix} from "../util/pathName";
+import {getDisplayName, pathPosix, showFileInFolder} from "../util/pathName";
 import {Constants} from "../constants";
 import {setEditMode} from "../protyle/util/setEditMode";
 import {Files} from "../layout/dock/Files";
-import {setPadding} from "../protyle/ui/initUI";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {focusBlock, focusByRange} from "../protyle/util/selection";
 import {onGet} from "../protyle/util/onGet";
@@ -182,7 +181,7 @@ export const openFile = (options: IOpenFileOptions) => {
         if (ids.includes(options.rootID) || ids.includes(options.assetPath)) {
             item.focus();
             const optionsClone = Object.assign({}, options);
-            delete optionsClone.app
+            delete optionsClone.app;
             item.webContents.executeJavaScript(`window.newWindow.openFile(${JSON.stringify(optionsClone)});`);
             if (options.afterOpen) {
                 options.afterOpen();
@@ -328,12 +327,12 @@ const switchEditor = (editor: Editor, options: IOpenFileOptions, allModels: IMod
     allModels.editor.forEach((item) => {
         if (!item.element.isSameNode(editor.element) && window.siyuan.editorIsFullscreen && item.element.classList.contains("fullscreen")) {
             item.element.classList.remove("fullscreen");
-            setPadding(item.editor.protyle);
+            resize(item.editor.protyle);
         }
     });
     if (window.siyuan.editorIsFullscreen) {
         editor.element.classList.add("fullscreen");
-        setPadding(editor.editor.protyle);
+        resize(editor.editor.protyle);
     }
     if (options.keepCursor) {
         editor.parent.headElement.setAttribute("keep-cursor", options.id);
@@ -669,7 +668,7 @@ export const openBy = (url: string, type: "folder" | "app") => {
             if (type === "app") {
                 shell.openPath(response.data);
             } else if (type === "folder") {
-                shell.showItemInFolder(response.data);
+                showFileInFolder(response.data);
             }
         });
         return;
@@ -692,7 +691,7 @@ export const openBy = (url: string, type: "folder" | "app") => {
                 address = address.replace(/\\\\/g, "\\");
             }
         }
-        shell.showItemInFolder(address);
+        showFileInFolder(address);
     }
     /// #endif
 };

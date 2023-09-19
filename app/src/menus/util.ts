@@ -1,11 +1,10 @@
 /// #if !BROWSER
 import {dialog} from "@electron/remote";
 import {SaveDialogReturnValue} from "electron";
-import {shell} from "electron";
 import * as path from "path";
 /// #endif
 import {fetchPost} from "../util/fetch";
-import {getAssetName, pathPosix} from "../util/pathName";
+import {getAssetName, pathPosix, showFileInFolder} from "../util/pathName";
 import {openFileById} from "../editor/util";
 import {Constants} from "../constants";
 import {openNewWindowById} from "../window/openNewWindow";
@@ -82,20 +81,18 @@ export const openEditorTab = (app: App, id: string, notebookId?: string, pathStr
     });
     /// #if !BROWSER
     openSubmenus.push({type: "separator"});
-    if (!window.siyuan.config.readonly) {
-        openSubmenus.push({
-            label: window.siyuan.languages.showInFolder,
-            click: () => {
-                if (notebookId) {
-                    shell.showItemInFolder(path.join(window.siyuan.config.system.dataDir, notebookId, pathString));
-                } else {
-                    fetchPost("/api/block/getBlockInfo", {id}, (response) => {
-                        shell.showItemInFolder(path.join(window.siyuan.config.system.dataDir, response.data.box, response.data.path));
-                    });
-                }
+    openSubmenus.push({
+        label: window.siyuan.languages.showInFolder,
+        click: () => {
+            if (notebookId) {
+                showFileInFolder(path.join(window.siyuan.config.system.dataDir, notebookId, pathString));
+            } else {
+                fetchPost("/api/block/getBlockInfo", {id}, (response) => {
+                    showFileInFolder(path.join(window.siyuan.config.system.dataDir, response.data.box, response.data.path));
+                });
             }
-        });
-    }
+        }
+    });
     /// #endif
     window.siyuan.menus.menu.append(new MenuItem({
         label: window.siyuan.languages.openBy,

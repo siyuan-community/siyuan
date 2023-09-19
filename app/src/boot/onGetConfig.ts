@@ -28,6 +28,7 @@ import {getIdFromSYProtocol, isSYProtocol} from "../util/pathName";
 import {App} from "../index";
 import {initWindowEvent} from "./globalEvent/event";
 import {sendGlobalShortcut} from "./globalEvent/keydown";
+import {closeWindow} from "../window/closeWin";
 
 const matchKeymap = (keymap: Record<string, IKeymapItem>, key1: "general" | "editor", key2?: "general" | "insert" | "heading" | "list" | "table") => {
     if (key1 === "general") {
@@ -241,7 +242,7 @@ export const initWindow = (app: App) => {
     currentWindow.on("focus", winOnFocus);
     currentWindow.on("blur", winOnBlur);
     if (!isWindow()) {
-        ipcRenderer.on(Constants.SIYUAN_OPENURL, (event, url) => {
+        ipcRenderer.on(Constants.SIYUAN_OPEN_URL, (event, url) => {
             if (url.startsWith("siyuan://plugins/")) {
                 const pluginId = url.replace("siyuan://plugins/", "").split("?")[0];
                 if (!pluginId) {
@@ -280,7 +281,7 @@ export const initWindow = (app: App) => {
                         openFileById({
                             app,
                             id,
-                            action: [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT],
+                            action: [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
                             zoomIn: focus,
                         });
                         ipcRenderer.send(Constants.SIYUAN_SHOW, getCurrentWindow().id);
@@ -297,10 +298,14 @@ export const initWindow = (app: App) => {
                 return;
             }
         });
-        ipcRenderer.on(Constants.SIYUAN_SAVE_CLOSE, (event, close) => {
-            winOnClose(currentWindow, close);
-        });
     }
+    ipcRenderer.on(Constants.SIYUAN_SAVE_CLOSE, (event, close) => {
+        if (isWindow()) {
+            closeWindow(app);
+        } else {
+            winOnClose(currentWindow, close);
+        }
+    });
     ipcRenderer.on(Constants.SIYUAN_SEND_WINDOWS, (e, ipcData: IWebSocketData) => {
         onWindowsMsg(ipcData);
     });
@@ -425,7 +430,7 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
 
     if (isWindow()) {
         document.body.insertAdjacentHTML("beforeend", `<div class="toolbar__window">
-<div class="toolbar__item b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.pin}" id="pinWindow">
+<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.pin}" id="pinWindow">
     <svg>
         <use xlink:href="#iconPin"></use>
     </svg>
@@ -462,22 +467,22 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
     document.body.classList.add("body--win32");
 
     // 添加窗口控件
-    const controlsHTML = `<div class="toolbar__item b3-tooltips b3-tooltips__sw toolbar__item--win" aria-label="${window.siyuan.languages.min}" id="minWindow">
+    const controlsHTML = `<div class="toolbar__item ariaLabel toolbar__item--win" aria-label="${window.siyuan.languages.min}" id="minWindow">
     <svg>
         <use xlink:href="#iconMin"></use>
     </svg>
 </div>
-<div aria-label="${window.siyuan.languages.max}" class="b3-tooltips b3-tooltips__sw toolbar__item toolbar__item--win" id="maxWindow">
+<div aria-label="${window.siyuan.languages.max}" class="ariaLabel toolbar__item toolbar__item--win" id="maxWindow">
     <svg>
         <use xlink:href="#iconMax"></use>
     </svg>
 </div>
-<div aria-label="${window.siyuan.languages.restore}" class="b3-tooltips b3-tooltips__sw toolbar__item toolbar__item--win" id="restoreWindow">
+<div aria-label="${window.siyuan.languages.restore}" class="ariaLabel toolbar__item toolbar__item--win" id="restoreWindow">
     <svg>
         <use xlink:href="#iconRestore"></use>
     </svg>
 </div>
-<div aria-label="${window.siyuan.languages.close}" class="b3-tooltips b3-tooltips__sw toolbar__item toolbar__item--close" id="closeWindow">
+<div aria-label="${window.siyuan.languages.close}" class="ariaLabel toolbar__item toolbar__item--close" id="closeWindow">
     <svg>
         <use xlink:href="#iconClose"></use>
     </svg>
@@ -516,7 +521,7 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
     });
     closeBtnElement.addEventListener("click", () => {
         if (isWindow()) {
-            currentWindow.destroy();
+            closeWindow(app);
         } else {
             winOnClose(currentWindow);
         }

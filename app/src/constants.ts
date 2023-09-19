@@ -26,18 +26,21 @@ export abstract class Constants {
     // 渲染进程调主进程
     public static readonly SIYUAN_SHOW: string = "siyuan-show";
     public static readonly SIYUAN_CONFIG_TRAY: string = "siyuan-config-tray";
-    public static readonly SIYUAN_OPEN_WORKSPACE: string = "siyuan-open-workspace";
     public static readonly SIYUAN_QUIT: string = "siyuan-quit";
     public static readonly SIYUAN_HOTKEY: string = "siyuan-hotkey";
     public static readonly SIYUAN_INIT: string = "siyuan-init";
-    public static readonly SIYUAN_OPENURL: string = "siyuan-openurl";
-    public static readonly SIYUAN_OPENWINDOW: string = "siyuan-openwindow";
-    public static readonly SIYUAN_SEND_WINDOWS: string = "siyuan-send_windows"; // 主窗口和各新窗口之间的通信，{cmd: "closetab"|"lockscreen"|"lockscreenByMode", data: {}})
+    public static readonly SIYUAN_SEND_WINDOWS: string = "siyuan-send-windows"; // 主窗口和各新窗口之间的通信，{cmd: "closetab"|"lockscreen"|"lockscreenByMode", data: {}})
     public static readonly SIYUAN_SAVE_CLOSE: string = "siyuan-save-close";
+    public static readonly SIYUAN_AUTO_LAUNCH: string = "siyuan-auto-launch";
+
+    public static readonly SIYUAN_OPEN_WORKSPACE: string = "siyuan-open-workspace";
+    public static readonly SIYUAN_OPEN_URL: string = "siyuan-open-url";
+    public static readonly SIYUAN_OPEN_WINDOW: string = "siyuan-open-window";
+    public static readonly SIYUAN_OPEN_FOLDER: string = "siyuan-open-folder";
+
     public static readonly SIYUAN_EXPORT_PDF: string = "siyuan-export-pdf";
     public static readonly SIYUAN_EXPORT_CLOSE: string = "siyuan-export-close";
     public static readonly SIYUAN_EXPORT_PREVENT: string = "siyuan-export-prevent";
-    public static readonly SIYUAN_AUTO_LAUNCH: string = "siyuan-auto-launch";
 
     // custom
     public static readonly CUSTOM_SY_READONLY: string = "custom-sy-readonly";
@@ -69,6 +72,7 @@ export abstract class Constants {
     public static readonly CB_GET_UNUNDO = "cb-get-unundo"; // 不需要记录历史
     public static readonly CB_GET_SCROLL = "cb-get-scroll"; // 滚动到指定位置
     public static readonly CB_GET_CONTEXT = "cb-get-context"; // 包含上下文
+    public static readonly CB_GET_ROOTSCROLL = "cb-get-rootscroll"; // 如果为 rootID 就滚动到指定位置
     public static readonly CB_GET_HTML = "cb-get-html"; // 直接渲染，不需要再 /api/block/getDocInfo，否则搜索表格无法定位
     public static readonly CB_GET_HISTORY = "cb-get-history"; // 历史渲染
 
@@ -219,7 +223,7 @@ export abstract class Constants {
         general: {
             mainMenu: {default: "⌥\\", custom: "⌥\\"},
             commandPanel: {default: "⌥⇧P", custom: "⌥⇧P"},
-            editMode: {default: "⇧⌘G", custom: "⇧⌘G"},
+            editReadonly: {default: "⇧⌘G", custom: "⇧⌘G"},
             syncNow: {default: "F9", custom: "F9"},
             enterBack: {default: "⌥←", custom: "⌥←"},
             enter: {default: "⌥→", custom: "⌥→"},

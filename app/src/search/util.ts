@@ -1,6 +1,5 @@
 import {getAllModels} from "../layout/getAll";
 /// #if !BROWSER
-import {shell} from "electron";
 import * as path from "path";
 /// #endif
 import {Constants} from "../constants";
@@ -10,10 +9,17 @@ import {openFile, openFileById} from "../editor/util";
 import {showMessage} from "../dialog/message";
 import {reloadProtyle} from "../protyle/util/reload";
 import {MenuItem} from "../menus/Menu";
-import {getDisplayName, getNotebookIcon, getNotebookName, movePathTo, pathPosix} from "../util/pathName";
+import {
+    getDisplayName,
+    getNotebookIcon,
+    getNotebookName,
+    movePathTo,
+    pathPosix,
+    showFileInFolder
+} from "../util/pathName";
 import {Protyle} from "../protyle";
-import {disabledProtyle, onGet} from "../protyle/util/onGet";
-import {addLoading, setPadding} from "../protyle/ui/initUI";
+import {onGet} from "../protyle/util/onGet";
+import {addLoading} from "../protyle/ui/initUI";
 import {getIconByType} from "../editor/getIcon";
 import {unicode2Emoji} from "../emoji";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
@@ -31,6 +37,7 @@ import {
     renderPreview,
     toggleAssetHistory
 } from "./assets";
+import {resize} from "../protyle/util/resize";
 
 const toggleReplaceHistory = (replaceHistoryElement: Element, historyElement: Element, replaceInputElement: HTMLInputElement) => {
     if (replaceHistoryElement.classList.contains("fn__none")) {
@@ -281,6 +288,7 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
         }
     }
     let clickTimeout: number;
+    let lastClickTime = new Date().getTime();
     let inputTimeout: number;
 
     searchInputElement.value = config.k || "";
@@ -320,7 +328,7 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
             window.siyuan.storage[Constants.LOCAL_SEARCHKEYS][direction === "lr" ? (closeCB ? "col" : "colTab") : (closeCB ? "row" : "rowTab")] = nextElement[direction === "lr" ? "clientWidth" : "clientHeight"] + "px";
             setStorageVal(Constants.LOCAL_SEARCHKEYS, window.siyuan.storage[Constants.LOCAL_SEARCHKEYS]);
             if (direction === "lr") {
-                setPadding(edit.protyle);
+                resize(edit.protyle);
             }
         };
     });
@@ -589,7 +597,7 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                                 } else {
                                     edit.protyle.element.classList.add("fn__flex-1");
                                 }
-                                setPadding(edit.protyle);
+                                resize(edit.protyle);
                                 if (isPopover) {
                                     localData.layout = 0;
                                 } else {
@@ -610,7 +618,7 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                                 } else {
                                     edit.protyle.element.classList.add("fn__flex-1");
                                 }
-                                setPadding(edit.protyle);
+                                resize(edit.protyle);
                                 if (isPopover) {
                                     localData.layout = 1;
                                 } else {
@@ -734,7 +742,15 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                     newFileByName(app, searchInputElement.value);
                 } else if (type === "search-item") {
                     const isAsset = target.dataset.id;
-                    if (event.detail === 1) {
+                    let isClick = event.detail === 1;
+                    let isDblClick = event.detail === 2;
+                    /// #if BROWSER
+                    const newDate = new Date().getTime();
+                    isClick = newDate - lastClickTime > Constants.TIMEOUT_DBLCLICK;
+                    isDblClick = !isClick;
+                    lastClickTime = newDate;
+                    /// #endif
+                    if (isClick) {
                         clickTimeout = window.setTimeout(() => {
                             if (isAsset) {
                                 if (!target.classList.contains("b3-list-item--focus")) {
@@ -753,7 +769,8 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                                         openFileById({
                                             app,
                                             id,
-                                            action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT],
+                                            action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] :
+                                                (id === target.getAttribute("data-root-id") ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ROOTSCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT]),
                                             zoomIn: foldResponse.data,
                                             position: "right"
                                         });
@@ -781,11 +798,11 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                                 }
                             }
                         }, Constants.TIMEOUT_DBLCLICK);
-                    } else if (event.detail === 2 && !event.ctrlKey) {
+                    } else if (isDblClick && !event.ctrlKey) {
                         clearTimeout(clickTimeout);
                         if (isAsset) {
                             /// #if !BROWSER
-                            shell.showItemInFolder(path.join(window.siyuan.config.system.dataDir, target.lastElementChild.getAttribute("aria-label")));
+                            showFileInFolder(path.join(window.siyuan.config.system.dataDir, target.lastElementChild.getAttribute("aria-label")));
                             /// #endif
                         } else {
                             const id = target.getAttribute("data-node-id");
@@ -793,7 +810,8 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                                 openFileById({
                                     app,
                                     id,
-                                    action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT],
+                                    action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] :
+                                        (id === target.getAttribute("data-root-id") ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ROOTSCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT]),
                                     zoomIn: foldResponse.data
                                 });
                                 if (closeCB) {
@@ -852,7 +870,8 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                     app,
                     id,
                     position: "right",
-                    action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT],
+                    action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] :
+                        (id === currentList.getAttribute("data-root-id") ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ROOTSCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT]),
                     zoomIn: foldResponse.data
                 });
                 if (closeCB) {
@@ -881,7 +900,8 @@ export const genSearch = (app: App, config: ISearchOption, element: Element, clo
                         openFileById({
                             app,
                             id,
-                            action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT],
+                            action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] :
+                                (id === currentList.getAttribute("data-root-id") ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ROOTSCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT]),
                             zoomIn: foldResponse.data
                         });
                         if (closeCB) {

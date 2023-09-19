@@ -36,6 +36,7 @@ import {focusByOffset, getSelectionOffset} from "../protyle/util/selection";
 import {Custom} from "./dock/Custom";
 import {App} from "../index";
 import {unicode2Emoji} from "../emoji";
+import {closeWindow} from "../window/closeWin";
 
 export class Wnd {
     private app: App;
@@ -473,7 +474,7 @@ export class Wnd {
                     openFileById({
                         app: this.app,
                         id: keepCursorId,
-                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT]
+                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]
                     });
                 }
                 currentTab.headElement.removeAttribute("keep-cursor");
@@ -775,7 +776,7 @@ export class Wnd {
             if (!wnd) {
                 /// #if !BROWSER
                 if (isWindow()) {
-                    getCurrentWindow().destroy();
+                    closeWindow(this.app);
                     return;
                 }
                 /// #endif
