@@ -211,7 +211,9 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         protyle.toolbar.getCurrentType(range).includes("code")) {
         // 粘贴在代码位置
         // https://github.com/siyuan-note/siyuan/issues/9142
-        if (range.toString() !== "" && range.startContainer.nodeType !== 3 && (range.startContainer as Element).classList.contains("protyle-action")) {
+        // https://github.com/siyuan-note/siyuan/issues/9323
+        // 需排除行内代码 https://github.com/siyuan-note/siyuan/issues/9369
+        if (nodeElement.querySelector(".protyle-action")?.contains(range.startContainer)) {
             range.setStart(nodeElement.querySelector(".hljs").firstChild, 0);
         }
         insertHTML(textPlain, protyle);

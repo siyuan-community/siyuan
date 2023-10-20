@@ -19,7 +19,7 @@ import * as dayjs from "dayjs";
 import {Constants} from "../constants";
 import {exportImage} from "../protyle/export/util";
 import {App} from "../index";
-import {renderAVAttribute} from "../protyle/render/av/render";
+import {renderAVAttribute} from "../protyle/render/av/blockAttr";
 
 const bindAttrInput = (inputElement: HTMLInputElement, id: string) => {
     inputElement.addEventListener("change", () => {
@@ -149,7 +149,7 @@ export const openFileWechatNotify = (protyle: IProtyle) => {
     });
 };
 
-export const openFileAttr = (attrs: IObject, focusName = "bookmark") => {
+export const openFileAttr = (attrs: IObject, focusName = "bookmark", protyle?: IProtyle) => {
     let customHTML = "";
     let notifyHTML = "";
     let hasAV = false;
@@ -187,7 +187,7 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark") => {
             <span class="item__text">${window.siyuan.languages.builtIn}</span>
             <span class="fn__flex-1"></span>
         </div>
-        <div class="item item--full${hasAV ? "" : " fn__none"}" data-type="av">
+        <div class="item item--full${hasAV ? "" : " fn__none"}" data-type="NodeAttributeView">
             <span class="fn__flex-1"></span>
             <span class="item__text">${window.siyuan.languages.database}</span>
             <span class="fn__flex-1"></span>
@@ -225,7 +225,7 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark") => {
             </label>
             ${notifyHTML}
         </div>
-        <div data-type="av" class="fn__none custom-attr"></div>
+        <div data-type="NodeAttributeView" class="fn__none custom-attr"></div>
         <div data-type="custom" class="fn__none custom-attr">
            ${customHTML}
            <div class="b3-label">
@@ -245,6 +245,9 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark") => {
     (dialog.element.querySelector('.b3-text-field[data-name="alias"]') as HTMLInputElement).value = attrs.alias || "";
     dialog.element.addEventListener("click", (event) => {
         let target = event.target as HTMLElement;
+        if (typeof event.detail === "string") {
+            target = dialog.element.querySelector('.item--full[data-type="NodeAttributeView"]');
+        }
         while (!target.isSameNode(dialog.element)) {
             const type = target.dataset.action;
             if (target.classList.contains("item--full")) {
@@ -252,8 +255,8 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark") => {
                 target.classList.add("item--focus");
                 dialog.element.querySelectorAll(".custom-attr").forEach((item: HTMLElement) => {
                     if (item.dataset.type === target.dataset.type) {
-                        if (item.dataset.type === "av" && item.innerHTML === "") {
-                            renderAVAttribute(item, attrs.id);
+                        if (item.dataset.type === "NodeAttributeView" && item.innerHTML === "") {
+                            renderAVAttribute(item, attrs.id, protyle);
                         }
                         item.classList.remove("fn__none");
                     } else {
@@ -308,7 +311,7 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark") => {
                 });
                 const inputElement = addDialog.element.querySelector("input") as HTMLInputElement;
                 const btnsElement = addDialog.element.querySelectorAll(".b3-button");
-                dialog.bindInput(inputElement, () => {
+                addDialog.bindInput(inputElement, () => {
                     (btnsElement[1] as HTMLButtonElement).click();
                 });
                 inputElement.focus();
@@ -342,20 +345,23 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark") => {
         }
     });
     dialog.element.querySelectorAll(".b3-text-field").forEach((item: HTMLInputElement) => {
-        if (focusName === item.getAttribute("data-name")) {
+        if (focusName !== "av" && focusName === item.getAttribute("data-name")) {
             item.focus();
         }
         bindAttrInput(item, attrs.id);
     });
+    if (focusName === "av") {
+        dialog.element.dispatchEvent(new CustomEvent("click", {detail: "av"}));
+    }
 };
 
-export const openAttr = (nodeElement: Element, focusName = "bookmark") => {
+export const openAttr = (nodeElement: Element, focusName = "bookmark", protyle?: IProtyle) => {
     if (nodeElement.getAttribute("data-type") === "NodeThematicBreak") {
         return;
     }
     const id = nodeElement.getAttribute("data-node-id");
     fetchPost("/api/attr/getBlockAttrs", {id}, (response) => {
-        openFileAttr(response.data, focusName);
+        openFileAttr(response.data, focusName, protyle);
     });
 };
 
@@ -394,6 +400,7 @@ export const copySubMenu = (id: string, accelerator = true, focusElement?: Eleme
         }
     }, {
         label: window.siyuan.languages.copyProtocolInMd,
+        accelerator: accelerator ? window.siyuan.config.keymap.editor.general.copyProtocolInMd.custom : undefined,
         click: () => {
             fetchPost("/api/block/getRefText", {id}, (response) => {
                 writeText(`[${response.data}](siyuan://blocks/${id})`);
@@ -431,6 +438,7 @@ export const exportMd = (id: string) => {
         icon: "iconUpload",
         submenu: [{
             label: window.siyuan.languages.template,
+            iconClass: "ft__error",
             icon: "iconMarkdown",
             click: async () => {
                 const result = await fetchSyncPost("/api/block/getRefText", {id: id});
@@ -536,6 +544,7 @@ export const exportMd = (id: string) => {
                 }
             }, {
                 label: "HTML (SiYuan)",
+                iconClass: "ft__error",
                 icon: "iconHTML5",
                 click: () => {
                     saveExport({type: "html", id});

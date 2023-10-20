@@ -16,7 +16,7 @@ import {setKey} from "../sync/syncGuide";
 export const about = {
     element: undefined as Element,
     genHTML: () => {
-        return `<label class="fn__flex b3-label${isBrowser() || "std" !== window.siyuan.config.system.container || "linux" === window.siyuan.config.system.os ? " fn__none" : ""}">
+        return `<label class="fn__flex b3-label${isBrowser() || window.siyuan.config.system.isMicrosoftStore || "std" !== window.siyuan.config.system.container || "linux" === window.siyuan.config.system.os ? " fn__none" : ""}">
     <div class="fn__flex-1">
         ${window.siyuan.languages.autoLaunch}
         <div class="b3-label__text">${window.siyuan.languages.autoLaunchTip}</div>
@@ -56,7 +56,7 @@ export const about = {
     <div class="fn__space"></div>
     <input class="b3-switch fn__flex-center" id="networkServe" type="checkbox"${window.siyuan.config.system.networkServe ? " checked" : ""}>
 </label>
-<div class="b3-label">
+<div class="b3-label${(window.siyuan.config.readonly || isBrowser()) ? " fn__none" : ""}">
     <label class="fn__flex">
         <div class="fn__flex-1">
             ${window.siyuan.languages.about5}

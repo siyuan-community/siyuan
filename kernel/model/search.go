@@ -161,6 +161,9 @@ func SearchRefBlock(id, rootID, keyword string, beforeLen int, isSquareBrackets 
 		if 1 > len(ret) {
 			ret = []*Block{}
 		}
+
+		// 在 hPath 中加入笔记本名 Show notebooks in hpath of block ref search list results https://github.com/siyuan-note/siyuan/issues/9378
+		prependNotebookNameInHPath(ret)
 		return
 	}
 
@@ -205,7 +208,23 @@ func SearchRefBlock(id, rootID, keyword string, beforeLen int, isSquareBrackets 
 			newDoc = nil == treenode.GetBlockTreeRootByHPath(block.BoxID, p)
 		}
 	}
+
+	// 在 hPath 中加入笔记本名 Show notebooks in hpath of block ref search list results https://github.com/siyuan-note/siyuan/issues/9378
+	prependNotebookNameInHPath(ret)
 	return
+}
+
+func prependNotebookNameInHPath(blocks []*Block) {
+	var boxIDs []string
+	for _, b := range blocks {
+		boxIDs = append(boxIDs, b.Box)
+	}
+	boxIDs = gulu.Str.RemoveDuplicatedElem(boxIDs)
+	boxNames := Conf.BoxNames(boxIDs)
+	for _, b := range blocks {
+		name := boxNames[b.Box]
+		b.HPath = util.EscapeHTML(name) + b.HPath
+	}
 }
 
 func FindReplace(keyword, replacement string, ids []string, paths, boxes []string, types map[string]bool, method, orderBy, groupBy int) (err error) {
@@ -215,9 +234,7 @@ func FindReplace(keyword, replacement string, ids []string, paths, boxes []strin
 		return
 	}
 
-	keyword = strings.TrimSpace(keyword)
-	replacement = strings.TrimSpace(replacement)
-
+	// No longer trim spaces for the keyword and replacement https://github.com/siyuan-note/siyuan/issues/9229
 	if keyword == replacement {
 		return
 	}
@@ -606,6 +623,7 @@ func buildTypeFilter(types map[string]bool) string {
 		s.Paragraph = types["paragraph"]
 		s.HTMLBlock = types["htmlBlock"]
 		s.EmbedBlock = types["embedBlock"]
+		s.DatabaseBlock = types["databaseBlock"]
 	} else {
 		s.Document = Conf.Search.Document
 		s.Heading = Conf.Search.Heading
@@ -619,6 +637,7 @@ func buildTypeFilter(types map[string]bool) string {
 		s.Paragraph = Conf.Search.Paragraph
 		s.HTMLBlock = Conf.Search.HTMLBlock
 		s.EmbedBlock = Conf.Search.EmbedBlock
+		s.DatabaseBlock = Conf.Search.DatabaseBlock
 	}
 	return s.TypeFilter()
 }

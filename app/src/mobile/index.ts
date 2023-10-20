@@ -2,7 +2,7 @@ import {addScript, addScriptSync} from "../protyle/util/addScript";
 import {Constants} from "../constants";
 import {onMessage} from "./util/onMessage";
 import {genUUID} from "../util/genID";
-import {hasClosestByAttribute, hasTopClosestByClassName} from "../protyle/util/hasClosest";
+import {hasClosestBlock, hasClosestByAttribute, hasTopClosestByClassName} from "../protyle/util/hasClosest";
 import {Model} from "../layout/Model";
 import "../assets/scss/mobile.scss";
 import {Menus} from "../menus";
@@ -16,13 +16,15 @@ import {initMessage, showMessage} from "../dialog/message";
 import {goBack} from "./util/MobileBackFoward";
 import {hideKeyboardToolbar, showKeyboardToolbar} from "./util/keyboardToolbar";
 import {getLocalStorage, writeText} from "../protyle/util/compatibility";
-import {openMobileFileById} from "./editor";
+import {getCurrentEditor, openMobileFileById} from "./editor";
 import {getSearch} from "../util/functions";
 import {initRightMenu} from "./menu";
 import {openChangelog} from "../boot/openChangelog";
 import {registerServiceWorker} from "../util/serviceWorker";
 import {afterLoadPlugin, loadPlugins} from "../plugin/loader";
 import {saveScroll} from "../protyle/scroll/saveScroll";
+import {removeBlock} from "../protyle/wysiwyg/remove";
+import {isNotEditBlock} from "../protyle/wysiwyg/getBlock";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -62,13 +64,15 @@ class App {
             }
             const copyElement = hasTopClosestByClassName(event.target, "protyle-action__copy");
             if (copyElement) {
-                writeText(copyElement.parentElement.nextElementSibling.textContent.trimEnd());
+                let text = copyElement.parentElement.nextElementSibling.textContent.trimEnd();
+                text = text.replace(/\u00A0/g, " "); // Replace non-breaking spaces with normal spaces when copying https://github.com/siyuan-note/siyuan/issues/9382
+                writeText(text);
                 showMessage(window.siyuan.languages.copied, 2000);
                 event.preventDefault();
             }
         });
         window.addEventListener("beforeunload", () => {
-           saveScroll(window.siyuan.mobile.editor.protyle);
+            saveScroll(window.siyuan.mobile.editor.protyle);
         }, false);
         window.addEventListener("pagehide", () => {
             saveScroll(window.siyuan.mobile.editor.protyle);
@@ -108,6 +112,25 @@ class App {
             document.addEventListener("touchend", (event) => {
                 handleTouchEnd(event, siyuanApp);
             }, false);
+            // 移动端删除键 https://github.com/siyuan-note/siyuan/issues/9259
+            window.addEventListener("keydown", (event) => {
+                if (getSelection().rangeCount > 0) {
+                    const range = getSelection().getRangeAt(0);
+                    const editor = getCurrentEditor();
+                    if (range.toString() === "" &&
+                        editor && editor.protyle.wysiwyg.element.contains(range.startContainer) &&
+                        !event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
+                        const nodeElement = hasClosestBlock(range.startContainer);
+                        if (nodeElement && isNotEditBlock(nodeElement)) {
+                            nodeElement.classList.add("protyle-wysiwyg--select");
+                            removeBlock(editor.protyle, nodeElement, range);
+                            event.stopPropagation();
+                            event.preventDefault();
+                            return;
+                        }
+                    }
+                }
+            });
         });
     }
 }

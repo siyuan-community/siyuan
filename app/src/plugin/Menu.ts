@@ -41,11 +41,11 @@ export class Menu {
         this.menu.addSeparator(index);
     }
 
-    open(options: { x: number, y: number, h?: number, w?: number, isLeft?: boolean }) {
+    open(options:IPosition) {
         if (this.isOpen) {
             return;
         }
-        this.menu.popup(options, options.isLeft);
+        this.menu.popup(options);
     }
 
     fullscreen(position: "bottom" | "all" = "all") {

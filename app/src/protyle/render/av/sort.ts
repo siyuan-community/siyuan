@@ -2,6 +2,7 @@ import {Menu} from "../../../plugin/Menu";
 import {getColIconByType} from "./col";
 import {transaction} from "../../wysiwyg/transaction";
 import {setPosition} from "../../../util/setPosition";
+import {unicode2Emoji} from "../../../emoji";
 
 export const addSort = (options: {
     data: IAV,
@@ -23,7 +24,7 @@ export const addSort = (options: {
         if (!hasSort) {
             menu.addItem({
                 label: column.name,
-                icon: getColIconByType(column.type),
+                iconHTML: `<span style="align-self: center;margin-right: 8px;width: 14px;" class="block__icon block__icon--show">${column.icon ? unicode2Emoji(column.icon) : `<svg><use xlink:href="#${getColIconByType(column.type)}"></use></svg>`}</span>`,
                 click: () => {
                     const oldSorts = Object.assign([], options.data.view.sorts);
                     options.data.view.sorts.push({
@@ -111,7 +112,6 @@ export const getSortsHTML = (columns: IAVColumn[], sorts: IAVSort[]) => {
         <svg><use xlink:href="#iconLeft"></use></svg>
     </span>
     <span class="b3-menu__label ft__center">${window.siyuan.languages.sort}</span>
-    <svg class="b3-menu__action" data-type="close" style="opacity: 1"><use xlink:href="#iconCloseRound"></use></svg>
 </button>
 <button class="b3-menu__separator"></button>
 ${html}

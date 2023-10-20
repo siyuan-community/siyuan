@@ -8,7 +8,7 @@ import {setEditMode} from "../util/setEditMode";
 import {RecordMedia} from "../util/RecordMedia";
 import {hideMessage, showMessage} from "../../dialog/message";
 import {uploadFiles} from "../upload";
-import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "../util/hasClosest";
+import {hasClosestBlock, hasClosestByAttribute} from "../util/hasClosest";
 import {needSubscribe} from "../../util/needSubscribe";
 import {isMobile} from "../../util/functions";
 import {zoomOut} from "../../menus/protyle";
@@ -18,7 +18,7 @@ import {openFileById} from "../../editor/util";
 import {setPanelFocus} from "../../layout/util";
 /// #endif
 /// #if !BROWSER
-import {getCurrentWindow, systemPreferences} from "@electron/remote";
+import {ipcRenderer} from "electron";
 /// #endif
 import {onGet} from "../util/onGet";
 import {hideElements} from "../ui/hideElements";
@@ -30,7 +30,6 @@ import {openTitleMenu} from "../header/openTitleMenu";
 import {emitOpenMenu} from "../../plugin/EventBus";
 import {isInAndroid} from "../util/compatibility";
 import {resize} from "../util/resize";
-import {transferBlockRef} from "../../menus/block";
 
 export class Breadcrumb {
     public element: HTMLElement;
@@ -88,7 +87,7 @@ export class Breadcrumb {
                         fetchPost("/api/block/getDocInfo", {
                             id: protyle.block.rootID
                         }, (response) => {
-                            openFileAttr(response.data.ial);
+                            openFileAttr(response.data.ial, "bookmark", protyle);
                         });
                     } else {
                         const targetRect = target.getBoundingClientRect();
@@ -102,6 +101,7 @@ export class Breadcrumb {
                     this.showMenu(protyle, {
                         x: targetRect.right,
                         y: targetRect.bottom,
+                        isLeft: true,
                     });
                     event.stopPropagation();
                     event.preventDefault();
@@ -166,20 +166,6 @@ export class Breadcrumb {
             this.element.scrollLeft = this.element.scrollLeft + event.deltaY;
         }, {passive: true});
         /// #endif
-        /// #if !BROWSER
-        if ("windows" !== window.siyuan.config.system.os && "linux" !== window.siyuan.config.system.os) {
-            const currentWindow = getCurrentWindow();
-            element.querySelector(".protyle-breadcrumb__space").addEventListener("dblclick", (event) => {
-                if (hasClosestByClassName(event.target as HTMLElement, "fullscreen")) {
-                    if (currentWindow.isMaximized()) {
-                        currentWindow.unmaximize();
-                    } else {
-                        currentWindow.maximize();
-                    }
-                }
-            });
-        }
-        /// #endif
     }
 
     private startRecord(protyle: IProtyle) {
@@ -241,7 +227,7 @@ export class Breadcrumb {
         }
     }
 
-    public showMenu(protyle: IProtyle, position: { x: number, y: number }) {
+    public showMenu(protyle: IProtyle, position: IPosition) {
         if (!window.siyuan.menus.menu.element.classList.contains("fn__none") &&
             window.siyuan.menus.menu.element.getAttribute("data-name") === "breadcrumbMore") {
             window.siyuan.menus.menu.remove();
@@ -285,12 +271,12 @@ export class Breadcrumb {
                         click: async () => {
                             /// #if !BROWSER
                             if (window.siyuan.config.system.os === "darwin") {
-                                const status = systemPreferences.getMediaAccessStatus("microphone");
+                                const status = await ipcRenderer.invoke(Constants.SIYUAN_GET, {cmd: "getMicrophone"});
                                 if (["denied", "restricted", "unknown"].includes(status)) {
                                     showMessage(window.siyuan.languages.microphoneDenied);
                                     return;
                                 } else if (status === "not-determined") {
-                                    const isAccess = await systemPreferences.askForMediaAccess("microphone");
+                                    const isAccess = await ipcRenderer.invoke(Constants.SIYUAN_GET, {cmd: "askMicrophone"});
                                     if (!isAccess) {
                                         showMessage(window.siyuan.languages.microphoneNotAccess);
                                         return;
@@ -415,6 +401,13 @@ export class Breadcrumb {
                 accelerator: window.siyuan.config.keymap.editor.general.wysiwyg.custom,
                 click: () => {
                     setEditMode(protyle, "wysiwyg");
+                    protyle.scroll.lastScrollTop = 0;
+                    fetchPost("/api/filetree/getDoc", {
+                        id: protyle.block.parentID,
+                        size: window.siyuan.config.editor.dynamicLoadBlocks,
+                    }, getResponse => {
+                        onGet({data: getResponse, protyle});
+                    });
                 }
             }];
             editSubmenu.push({
@@ -511,9 +504,6 @@ export class Breadcrumb {
                 }).element);
             }
             /// #endif
-            if (!protyle.disabled) {
-                transferBlockRef(protyle.block.rootID);
-            }
             if (protyle?.app?.plugins) {
                 emitOpenMenu({
                     plugins: protyle.app.plugins,
@@ -538,7 +528,7 @@ export class Breadcrumb {
             /// #if MOBILE
             window.siyuan.menus.menu.fullscreen();
             /// #else
-            window.siyuan.menus.menu.popup(position, true);
+            window.siyuan.menus.menu.popup(position);
             /// #endif
         });
     }

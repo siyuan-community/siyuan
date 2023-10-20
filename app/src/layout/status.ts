@@ -4,7 +4,7 @@ import {hasClosestByClassName} from "../protyle/util/hasClosest";
 import {fetchPost} from "../util/fetch";
 import {mountHelp} from "../util/mount";
 /// #if !BROWSER
-import {getCurrentWindow} from "@electron/remote";
+import { ipcRenderer } from "electron";
 /// #endif
 /// #endif
 import {MenuItem} from "../menus/Menu";
@@ -53,7 +53,7 @@ export const initStatus = (isWindow = false) => {
                     }).element);
                 });
                 const rect = target.getBoundingClientRect();
-                window.siyuan.menus.menu.popup({x: rect.right, y: rect.top}, true);
+                window.siyuan.menus.menu.popup({x: rect.right, y: rect.top, isLeft: true});
                 event.stopPropagation();
                 break;
             } else if (target.id === "statusHelp") {
@@ -87,7 +87,7 @@ export const initStatus = (isWindow = false) => {
                     label: window.siyuan.languages.debug,
                     icon: "iconBug",
                     click: () => {
-                        getCurrentWindow().webContents.openDevTools({mode: "bottom"});
+                        ipcRenderer.send(Constants.SIYUAN_CMD, "openDevTools");
                     }
                 }).element);
                 /// #endif
@@ -106,7 +106,7 @@ export const initStatus = (isWindow = false) => {
                     }
                 }).element);
                 const rect = target.getBoundingClientRect();
-                window.siyuan.menus.menu.popup({x: rect.right, y: rect.top}, true);
+                window.siyuan.menus.menu.popup({x: rect.right, y: rect.top, isLeft: true});
                 event.stopPropagation();
                 break;
             } else if (target.classList.contains("b3-menu__item")) {

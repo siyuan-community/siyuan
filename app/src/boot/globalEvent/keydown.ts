@@ -41,7 +41,6 @@ import {hintMoveBlock} from "../../protyle/hint/extend";
 import {Backlink} from "../../layout/dock/Backlink";
 /// #if !BROWSER
 import {setZoom} from "../../layout/topBar";
-import {getCurrentWindow} from "@electron/remote";
 import {ipcRenderer} from "electron";
 /// #endif
 import {openHistory} from "../../history/history";
@@ -59,6 +58,8 @@ import {resize} from "../../protyle/util/resize";
 import {Search} from "../../search";
 import {Custom} from "../../layout/dock/Custom";
 import {Protyle} from "../../protyle";
+import {transaction} from "../../protyle/wysiwyg/transaction";
+import {quickMakeCard} from "../../card/makeCard";
 
 const switchDialogEvent = (app: App, event: MouseEvent) => {
     event.preventDefault();
@@ -159,10 +160,17 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
     if (getSelection().rangeCount > 0) {
         range = getSelection().getRangeAt(0);
     }
+    const activePanelElement = document.querySelector(".layout__tab--active");
+    let isFileFocus = false;
+    if (activePanelElement && activePanelElement.classList.contains("sy__file")) {
+        isFileFocus = true;
+    }
     if (range) {
         window.siyuan.dialogs.find(item => {
             if (item.editor && item.editor.protyle.element.contains(range.startContainer)) {
                 protyle = item.editor.protyle;
+                // https://github.com/siyuan-note/siyuan/issues/9384
+                isFileFocus = false;
                 return true;
             }
         });
@@ -179,7 +187,6 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
             return false;
         }
     } else if (!protyle) {
-        const models = getAllModels();
         if (!protyle && range) {
             window.siyuan.blockPanels.find(item => {
                 item.editors.find(editorItem => {
@@ -193,6 +200,7 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
                 }
             });
         }
+        const models = getAllModels();
         if (!protyle) {
             models.backlink.find(item => {
                 if (item.element.classList.contains("layout__tab--active")) {
@@ -223,11 +231,6 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
             return false;
         }
     }
-    const activePanelElement = document.querySelector(".layout__tab--active");
-    let isFileFocus = false;
-    if (activePanelElement && activePanelElement.classList.contains("sy__file")) {
-        isFileFocus = true;
-    }
     let searchKey = "";
     if (matchHotKey(window.siyuan.config.keymap.general.replace.custom, event)) {
         searchKey = window.siyuan.config.keymap.general.replace.custom;
@@ -248,6 +251,25 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
                 app,
                 hotkey: searchKey,
             });
+        }
+        event.preventDefault();
+        return true;
+    }
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard.custom, event)) {
+        if (protyle.title?.editElement.contains(range.startContainer)) {
+            quickMakeCard(protyle, [protyle.title.element]);
+        } else {
+            const selectElement: Element[] = [];
+            protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select").forEach(item => {
+                selectElement.push(item);
+            });
+            if (selectElement.length === 0) {
+                const nodeElement = hasClosestBlock(range.startContainer);
+                if (nodeElement) {
+                    selectElement.push(nodeElement);
+                }
+            }
+            quickMakeCard(protyle, selectElement);
         }
         event.preventDefault();
         return true;
@@ -283,9 +305,7 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
     const target = event.target as HTMLElement;
-    if (target.tagName !== "TABLE" && (
-        target.tagName === "INPUT" || target.tagName === "TEXTAREA" || hasClosestByAttribute(target, "contenteditable", null)
-    )) {
+    if (target.tagName !== "TABLE" && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
         return false;
     }
     if (matchHotKey(window.siyuan.config.keymap.editor.general.refresh.custom, event)) {
@@ -315,6 +335,9 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         });
         event.preventDefault();
         return true;
+    }
+    if (hasClosestByClassName(target, "protyle-title__input")) {
+        return false;
     }
     // 没有光标时，无法撤销 https://ld246.com/article/1624021111567
     if (matchHotKey(window.siyuan.config.keymap.editor.general.undo.custom, event)) {
@@ -404,6 +427,29 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
                 openCardByData(app, response.data, "notebook", notebookId, getNotebookName(notebookId));
             });
         }
+    }
+
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard.custom, event)) {
+        const blockIDs: string[] = [];
+        liElements.forEach(item => {
+            const id = item.getAttribute("data-node-id");
+            if (id) {
+                blockIDs.push(id);
+            }
+        });
+        if (blockIDs.length > 0) {
+            transaction(undefined, [{
+                action: "addFlashcards",
+                deckID: Constants.QUICK_DECK_ID,
+                blockIDs,
+            }], [{
+                action: "removeFlashcards",
+                deckID: Constants.QUICK_DECK_ID,
+                blockIDs,
+            }]);
+        }
+        event.preventDefault();
+        return true;
     }
 
     if (matchHotKey(window.siyuan.config.keymap.editor.general.rename.custom, event)) {
@@ -1137,7 +1183,10 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         return;
     }
     if (matchHotKey(window.siyuan.config.keymap.general.newFile.custom, event)) {
-        newFile(app, undefined, undefined, undefined, true);
+        newFile({
+            app,
+            useSavePath: true
+        });
         event.preventDefault();
         return;
     }
@@ -1162,9 +1211,15 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
             return;
         }
         if (!window.siyuan.menus.menu.element.classList.contains("fn__none")) {
-            window.siyuan.menus.menu.remove();
-            return;
+            if (window.siyuan.dialogs.length > 0 &&
+                window.siyuan.menus.menu.element.style.zIndex < (window.siyuan.dialogs[0].element.querySelector(".b3-dialog") as HTMLElement).style.zIndex) {
+                // 窗口高于菜单时，先关闭窗口，如 av 修改列 icon 时
+            } else {
+                window.siyuan.menus.menu.remove();
+                return;
+            }
         }
+
         if (window.siyuan.dialogs.length > 0) {
             hideElements(["dialog"]);
             return;
@@ -1365,7 +1420,6 @@ export const sendGlobalShortcut = (app: App) => {
     });
     ipcRenderer.send(Constants.SIYUAN_HOTKEY, {
         languages: window.siyuan.languages["_trayMenu"],
-        id: getCurrentWindow().id,
         hotkeys
     });
     /// #endif

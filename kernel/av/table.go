@@ -111,6 +111,24 @@ func (value *Value) Compare(other *Value) int {
 			return 0
 		}
 	}
+	if nil != value.Created && nil != other.Created {
+		if value.Created.Content > other.Created.Content {
+			return 1
+		} else if value.Created.Content < other.Created.Content {
+			return -1
+		} else {
+			return 0
+		}
+	}
+	if nil != value.Updated && nil != other.Updated {
+		if value.Updated.Content > other.Updated.Content {
+			return 1
+		} else if value.Updated.Content < other.Updated.Content {
+			return -1
+		} else {
+			return 0
+		}
+	}
 
 	if nil != value.MSelect && nil != other.MSelect {
 		var v1 string
@@ -132,12 +150,23 @@ func (value *Value) Compare(other *Value) int {
 	if nil != value.Phone && nil != other.Phone {
 		return strings.Compare(value.Phone.Content, other.Phone.Content)
 	}
+	if nil != value.MAsset && nil != other.MAsset {
+		var v1 string
+		for _, v := range value.MAsset {
+			v1 += v.Content
+		}
+		var v2 string
+		for _, v := range other.MAsset {
+			v2 += v.Content
+		}
+		return strings.Compare(v1, v2)
+	}
 	return 0
 }
 
 func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool {
-	if nil == value || nil == other {
-		return false
+	if nil == other {
+		return true
 	}
 
 	if nil != value.Block && nil != other.Block {
@@ -164,16 +193,34 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 	if nil != value.Text && nil != other.Text {
 		switch operator {
 		case FilterOperatorIsEqual:
+			if "" == strings.TrimSpace(other.Text.Content) {
+				return true
+			}
 			return value.Text.Content == other.Text.Content
 		case FilterOperatorIsNotEqual:
+			if "" == strings.TrimSpace(other.Text.Content) {
+				return true
+			}
 			return value.Text.Content != other.Text.Content
 		case FilterOperatorContains:
+			if "" == strings.TrimSpace(other.Text.Content) {
+				return true
+			}
 			return strings.Contains(value.Text.Content, other.Text.Content)
 		case FilterOperatorDoesNotContain:
+			if "" == strings.TrimSpace(other.Text.Content) {
+				return true
+			}
 			return !strings.Contains(value.Text.Content, other.Text.Content)
 		case FilterOperatorStartsWith:
+			if "" == strings.TrimSpace(other.Text.Content) {
+				return true
+			}
 			return strings.HasPrefix(value.Text.Content, other.Text.Content)
 		case FilterOperatorEndsWith:
+			if "" == strings.TrimSpace(other.Text.Content) {
+				return true
+			}
 			return strings.HasSuffix(value.Text.Content, other.Text.Content)
 		case FilterOperatorIsEmpty:
 			return "" == strings.TrimSpace(value.Text.Content)
@@ -185,8 +232,14 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 	if nil != value.Number && nil != other.Number {
 		switch operator {
 		case FilterOperatorIsEqual:
+			if !other.Number.IsNotEmpty {
+				return true
+			}
 			return value.Number.Content == other.Number.Content
 		case FilterOperatorIsNotEqual:
+			if !other.Number.IsNotEmpty {
+				return true
+			}
 			return value.Number.Content != other.Number.Content
 		case FilterOperatorIsGreater:
 			return value.Number.Content > other.Number.Content
@@ -206,8 +259,14 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 	if nil != value.Date && nil != other.Date {
 		switch operator {
 		case FilterOperatorIsEqual:
+			if !other.Date.IsNotEmpty {
+				return true
+			}
 			return value.Date.Content == other.Date.Content
 		case FilterOperatorIsNotEqual:
+			if !other.Date.IsNotEmpty {
+				return true
+			}
 			return value.Date.Content != other.Date.Content
 		case FilterOperatorIsGreater:
 			return value.Date.Content > other.Date.Content
@@ -228,6 +287,62 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 			return !value.Date.IsNotEmpty
 		case FilterOperatorIsNotEmpty:
 			return value.Date.IsNotEmpty
+		case FilterOperatorIsRelativeToToday:
+			// TODO: date filter (relative to today)
+			return value.Date.Content >= other.Date.Content && value.Date.Content <= other.Date.Content2
+		}
+	}
+
+	if nil != value.Created && nil != other.Created {
+		switch operator {
+		case FilterOperatorIsEqual:
+			return value.Created.Content == other.Created.Content
+		case FilterOperatorIsNotEqual:
+			return value.Created.Content != other.Created.Content
+		case FilterOperatorIsGreater:
+			return value.Created.Content > other.Created.Content
+		case FilterOperatorIsGreaterOrEqual:
+			return value.Created.Content >= other.Created.Content
+		case FilterOperatorIsLess:
+			return value.Created.Content < other.Created.Content
+		case FilterOperatorIsLessOrEqual:
+			return value.Created.Content <= other.Created.Content
+		case FilterOperatorIsBetween:
+			start := value.Created.Content >= other.Created.Content
+			end := value.Created.Content <= other.Created.Content2
+			return start && end
+		case FilterOperatorIsEmpty:
+			return !value.Created.IsNotEmpty
+		case FilterOperatorIsNotEmpty:
+			return value.Created.IsNotEmpty
+		case FilterOperatorIsRelativeToToday:
+			// TODO: date filter (relative to today)
+			return value.Date.Content >= other.Date.Content && value.Date.Content <= other.Date.Content2
+		}
+	}
+
+	if nil != value.Updated && nil != other.Updated {
+		switch operator {
+		case FilterOperatorIsEqual:
+			return value.Updated.Content == other.Updated.Content
+		case FilterOperatorIsNotEqual:
+			return value.Updated.Content != other.Updated.Content
+		case FilterOperatorIsGreater:
+			return value.Updated.Content > other.Updated.Content
+		case FilterOperatorIsGreaterOrEqual:
+			return value.Updated.Content >= other.Updated.Content
+		case FilterOperatorIsLess:
+			return value.Updated.Content < other.Updated.Content
+		case FilterOperatorIsLessOrEqual:
+			return value.Updated.Content <= other.Updated.Content
+		case FilterOperatorIsBetween:
+			start := value.Updated.Content >= other.Updated.Content
+			end := value.Updated.Content <= other.Updated.Content2
+			return start && end
+		case FilterOperatorIsEmpty:
+			return !value.Updated.IsNotEmpty
+		case FilterOperatorIsNotEmpty:
+			return value.Updated.IsNotEmpty
 		case FilterOperatorIsRelativeToToday:
 			// TODO: date filter (relative to today)
 			return value.Date.Content >= other.Date.Content && value.Date.Content <= other.Date.Content2
@@ -328,6 +443,36 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 		}
 	}
 
+	if nil != value.MAsset && nil != other.MAsset && 0 < len(value.MAsset) && 0 < len(other.MAsset) {
+		switch operator {
+		case FilterOperatorIsEqual, FilterOperatorContains:
+			contains := false
+			for _, v := range value.MAsset {
+				for _, v2 := range other.MAsset {
+					if v.Content == v2.Content {
+						contains = true
+						break
+					}
+				}
+			}
+			return contains
+		case FilterOperatorIsNotEqual, FilterOperatorDoesNotContain:
+			contains := false
+			for _, v := range value.MAsset {
+				for _, v2 := range other.MAsset {
+					if v.Content == v2.Content {
+						contains = true
+						break
+					}
+				}
+			}
+			return !contains
+		case FilterOperatorIsEmpty:
+			return 0 == len(value.MAsset) || 1 == len(value.MAsset) && "" == value.MAsset[0].Content
+		case FilterOperatorIsNotEmpty:
+			return 0 != len(value.MAsset) && !(1 == len(value.MAsset) && "" == value.MAsset[0].Content)
+		}
+	}
 	return true
 }
 
@@ -355,11 +500,22 @@ type TableColumn struct {
 
 	Options      []*KeySelectOption `json:"options,omitempty"` // 选项列表
 	NumberFormat NumberFormat       `json:"numberFormat"`      // 列数字格式化
+	Template     string             `json:"template"`          // 模板内容
 }
 
 type TableRow struct {
 	ID    string       `json:"id"`
 	Cells []*TableCell `json:"cells"`
+}
+
+func (row *TableRow) GetBlockValue() (ret *Value) {
+	for _, cell := range row.Cells {
+		if KeyTypeBlock == cell.ValueType {
+			ret = cell.Value
+			break
+		}
+	}
+	return
 }
 
 func (table *Table) GetType() LayoutType {
@@ -423,9 +579,29 @@ func (table *Table) FilterRows() {
 
 	rows := []*TableRow{}
 	for _, row := range table.Rows {
+		block := row.GetBlockValue()
+		if !block.IsInitialized && nil != block.Block && "" == block.Block.Content && block.IsDetached {
+			rows = append(rows, row)
+			continue
+		}
+
 		pass := true
 		for j, index := range colIndexes {
-			if !row.Cells[index].Value.CompareOperator(table.Filters[j].Value, table.Filters[j].Operator) {
+			operator := table.Filters[j].Operator
+
+			if nil == row.Cells[index].Value {
+				switch operator {
+				case FilterOperatorIsNotEmpty:
+					pass = false
+				}
+
+				if KeyTypeText != row.Cells[index].ValueType {
+					pass = false
+				}
+				break
+			}
+
+			if !row.Cells[index].Value.CompareOperator(table.Filters[j].Value, operator) {
 				pass = false
 				break
 			}
@@ -466,6 +642,142 @@ func (table *Table) CalcCols() {
 			table.calcColEmail(col, i)
 		case KeyTypePhone:
 			table.calcColPhone(col, i)
+		case KeyTypeMAsset:
+			table.calcColMAsset(col, i)
+		case KeyTypeTemplate:
+			table.calcColTemplate(col, i)
+		case KeyTypeCreated:
+			table.calcColCreated(col, i)
+		case KeyTypeUpdated:
+			table.calcColUpdated(col, i)
+		}
+	}
+}
+
+func (table *Table) calcColTemplate(col *TableColumn, colIndex int) {
+	switch col.Calc.Operator {
+	case CalcOperatorCountAll:
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(len(table.Rows)), NumberFormatNone)}
+	case CalcOperatorCountValues:
+		countValues := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Template && "" != row.Cells[colIndex].Value.Template.Content {
+				countValues++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countValues), NumberFormatNone)}
+	case CalcOperatorCountUniqueValues:
+		countUniqueValues := 0
+		uniqueValues := map[string]bool{}
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Template && "" != row.Cells[colIndex].Value.Template.Content {
+				if !uniqueValues[row.Cells[colIndex].Value.Template.Content] {
+					uniqueValues[row.Cells[colIndex].Value.Template.Content] = true
+					countUniqueValues++
+				}
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}
+	case CalcOperatorCountEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Template || "" == row.Cells[colIndex].Value.Template.Content {
+				countEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty), NumberFormatNone)}
+	case CalcOperatorCountNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Template && "" != row.Cells[colIndex].Value.Template.Content {
+				countNotEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty), NumberFormatNone)}
+	case CalcOperatorPercentEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Template || "" == row.Cells[colIndex].Value.Template.Content {
+				countEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorPercentNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Template && "" != row.Cells[colIndex].Value.Template.Content {
+				countNotEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	}
+}
+
+func (table *Table) calcColMAsset(col *TableColumn, colIndex int) {
+	switch col.Calc.Operator {
+	case CalcOperatorCountAll:
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(len(table.Rows)), NumberFormatNone)}
+	case CalcOperatorCountValues:
+		countValues := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.MAsset && 0 < len(row.Cells[colIndex].Value.MAsset) {
+				countValues += len(row.Cells[colIndex].Value.MAsset)
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countValues), NumberFormatNone)}
+	case CalcOperatorCountUniqueValues:
+		countUniqueValues := 0
+		uniqueValues := map[string]bool{}
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.MAsset && 0 < len(row.Cells[colIndex].Value.MAsset) {
+				for _, sel := range row.Cells[colIndex].Value.MAsset {
+					if _, ok := uniqueValues[sel.Content]; !ok {
+						uniqueValues[sel.Content] = true
+						countUniqueValues++
+					}
+				}
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}
+	case CalcOperatorCountEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.MAsset || 0 == len(row.Cells[colIndex].Value.MAsset) {
+				countEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty), NumberFormatNone)}
+	case CalcOperatorCountNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.MAsset && 0 < len(row.Cells[colIndex].Value.MAsset) {
+				countNotEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty), NumberFormatNone)}
+	case CalcOperatorPercentEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.MAsset || 0 == len(row.Cells[colIndex].Value.MAsset) {
+				countEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorPercentNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.MAsset && 0 < len(row.Cells[colIndex].Value.MAsset) {
+				countNotEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
 		}
 	}
 }
@@ -552,8 +864,10 @@ func (table *Table) calcColSelect(col *TableColumn, colIndex int) {
 		uniqueValues := map[string]bool{}
 		for _, row := range table.Rows {
 			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.MSelect && 0 < len(row.Cells[colIndex].Value.MSelect) && nil != row.Cells[colIndex].Value.MSelect[0] && "" != row.Cells[colIndex].Value.MSelect[0].Content {
-				uniqueValues[row.Cells[colIndex].Value.MSelect[0].Content] = true
-				countUniqueValues++
+				if _, ok := uniqueValues[row.Cells[colIndex].Value.MSelect[0].Content]; !ok {
+					uniqueValues[row.Cells[colIndex].Value.MSelect[0].Content] = true
+					countUniqueValues++
+				}
 			}
 		}
 		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}
@@ -795,44 +1109,44 @@ func (table *Table) calcColNumber(col *TableColumn, colIndex int) {
 			}
 		}
 	case CalcOperatorMin:
-		min := math.MaxFloat64
+		minVal := math.MaxFloat64
 		for _, row := range table.Rows {
 			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
-				if row.Cells[colIndex].Value.Number.Content < min {
-					min = row.Cells[colIndex].Value.Number.Content
+				if row.Cells[colIndex].Value.Number.Content < minVal {
+					minVal = row.Cells[colIndex].Value.Number.Content
 				}
 			}
 		}
-		if math.MaxFloat64 != min {
-			col.Calc.Result = &Value{Number: NewFormattedValueNumber(min, col.NumberFormat)}
+		if math.MaxFloat64 != minVal {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(minVal, col.NumberFormat)}
 		}
 	case CalcOperatorMax:
-		max := -math.MaxFloat64
+		maxVal := -math.MaxFloat64
 		for _, row := range table.Rows {
 			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
-				if row.Cells[colIndex].Value.Number.Content > max {
-					max = row.Cells[colIndex].Value.Number.Content
+				if row.Cells[colIndex].Value.Number.Content > maxVal {
+					maxVal = row.Cells[colIndex].Value.Number.Content
 				}
 			}
 		}
-		if -math.MaxFloat64 != max {
-			col.Calc.Result = &Value{Number: NewFormattedValueNumber(max, col.NumberFormat)}
+		if -math.MaxFloat64 != maxVal {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(maxVal, col.NumberFormat)}
 		}
 	case CalcOperatorRange:
-		min := math.MaxFloat64
-		max := -math.MaxFloat64
+		minVal := math.MaxFloat64
+		maxVal := -math.MaxFloat64
 		for _, row := range table.Rows {
 			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Number && row.Cells[colIndex].Value.Number.IsNotEmpty {
-				if row.Cells[colIndex].Value.Number.Content < min {
-					min = row.Cells[colIndex].Value.Number.Content
+				if row.Cells[colIndex].Value.Number.Content < minVal {
+					minVal = row.Cells[colIndex].Value.Number.Content
 				}
-				if row.Cells[colIndex].Value.Number.Content > max {
-					max = row.Cells[colIndex].Value.Number.Content
+				if row.Cells[colIndex].Value.Number.Content > maxVal {
+					maxVal = row.Cells[colIndex].Value.Number.Content
 				}
 			}
 		}
-		if math.MaxFloat64 != min && -math.MaxFloat64 != max {
-			col.Calc.Result = &Value{Number: NewFormattedValueNumber(max-min, col.NumberFormat)}
+		if math.MaxFloat64 != minVal && -math.MaxFloat64 != maxVal {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(maxVal-minVal, col.NumberFormat)}
 		}
 	}
 }
@@ -1148,6 +1462,212 @@ func (table *Table) calcColBlock(col *TableColumn, colIndex int) {
 		}
 		if 0 < len(table.Rows) {
 			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	}
+}
+
+func (table *Table) calcColCreated(col *TableColumn, colIndex int) {
+	switch col.Calc.Operator {
+	case CalcOperatorCountAll:
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(len(table.Rows)), NumberFormatNone)}
+	case CalcOperatorCountValues:
+		countValues := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Created {
+				countValues++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countValues), NumberFormatNone)}
+	case CalcOperatorCountUniqueValues:
+		countUniqueValues := 0
+		uniqueValues := map[int64]bool{}
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Created {
+				if _, ok := uniqueValues[row.Cells[colIndex].Value.Created.Content]; !ok {
+					countUniqueValues++
+					uniqueValues[row.Cells[colIndex].Value.Created.Content] = true
+				}
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}
+	case CalcOperatorCountEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Created {
+				countEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty), NumberFormatNone)}
+	case CalcOperatorCountNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Created {
+				countNotEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty), NumberFormatNone)}
+	case CalcOperatorPercentEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Created {
+				countEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorPercentNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Created {
+				countNotEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorEarliest:
+		earliest := int64(0)
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Created {
+				if 0 == earliest || earliest > row.Cells[colIndex].Value.Created.Content {
+					earliest = row.Cells[colIndex].Value.Created.Content
+				}
+			}
+		}
+		if 0 != earliest {
+			col.Calc.Result = &Value{Created: NewFormattedValueCreated(earliest, 0, CreatedFormatNone)}
+		}
+	case CalcOperatorLatest:
+		latest := int64(0)
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Created {
+				if 0 == latest || latest < row.Cells[colIndex].Value.Created.Content {
+					latest = row.Cells[colIndex].Value.Created.Content
+				}
+			}
+		}
+		if 0 != latest {
+			col.Calc.Result = &Value{Created: NewFormattedValueCreated(latest, 0, CreatedFormatNone)}
+		}
+	case CalcOperatorRange:
+		earliest := int64(0)
+		latest := int64(0)
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Created {
+				if 0 == earliest || earliest > row.Cells[colIndex].Value.Created.Content {
+					earliest = row.Cells[colIndex].Value.Created.Content
+				}
+				if 0 == latest || latest < row.Cells[colIndex].Value.Created.Content {
+					latest = row.Cells[colIndex].Value.Created.Content
+				}
+			}
+		}
+		if 0 != earliest && 0 != latest {
+			col.Calc.Result = &Value{Created: NewFormattedValueCreated(earliest, latest, CreatedFormatDuration)}
+		}
+	}
+}
+
+func (table *Table) calcColUpdated(col *TableColumn, colIndex int) {
+	switch col.Calc.Operator {
+	case CalcOperatorCountAll:
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(len(table.Rows)), NumberFormatNone)}
+	case CalcOperatorCountValues:
+		countValues := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Updated && row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				countValues++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countValues), NumberFormatNone)}
+	case CalcOperatorCountUniqueValues:
+		countUniqueValues := 0
+		uniqueValues := map[int64]bool{}
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Updated && row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				if _, ok := uniqueValues[row.Cells[colIndex].Value.Updated.Content]; !ok {
+					countUniqueValues++
+					uniqueValues[row.Cells[colIndex].Value.Updated.Content] = true
+				}
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}
+	case CalcOperatorCountEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Updated || !row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				countEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty), NumberFormatNone)}
+	case CalcOperatorCountNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Updated && row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				countNotEmpty++
+			}
+		}
+		col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty), NumberFormatNone)}
+	case CalcOperatorPercentEmpty:
+		countEmpty := 0
+		for _, row := range table.Rows {
+			if nil == row.Cells[colIndex] || nil == row.Cells[colIndex].Value || nil == row.Cells[colIndex].Value.Updated || !row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				countEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorPercentNotEmpty:
+		countNotEmpty := 0
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Updated && row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				countNotEmpty++
+			}
+		}
+		if 0 < len(table.Rows) {
+			col.Calc.Result = &Value{Number: NewFormattedValueNumber(float64(countNotEmpty)/float64(len(table.Rows)), NumberFormatPercent)}
+		}
+	case CalcOperatorEarliest:
+		earliest := int64(0)
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Updated && row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				if 0 == earliest || earliest > row.Cells[colIndex].Value.Updated.Content {
+					earliest = row.Cells[colIndex].Value.Updated.Content
+				}
+			}
+		}
+		if 0 != earliest {
+			col.Calc.Result = &Value{Updated: NewFormattedValueUpdated(earliest, 0, UpdatedFormatNone)}
+		}
+	case CalcOperatorLatest:
+		latest := int64(0)
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Updated && row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				if 0 == latest || latest < row.Cells[colIndex].Value.Updated.Content {
+					latest = row.Cells[colIndex].Value.Updated.Content
+				}
+			}
+		}
+		if 0 != latest {
+			col.Calc.Result = &Value{Updated: NewFormattedValueUpdated(latest, 0, UpdatedFormatNone)}
+		}
+	case CalcOperatorRange:
+		earliest := int64(0)
+		latest := int64(0)
+		for _, row := range table.Rows {
+			if nil != row.Cells[colIndex] && nil != row.Cells[colIndex].Value && nil != row.Cells[colIndex].Value.Updated && row.Cells[colIndex].Value.Updated.IsNotEmpty {
+				if 0 == earliest || earliest > row.Cells[colIndex].Value.Updated.Content {
+					earliest = row.Cells[colIndex].Value.Updated.Content
+				}
+				if 0 == latest || latest < row.Cells[colIndex].Value.Updated.Content {
+					latest = row.Cells[colIndex].Value.Updated.Content
+				}
+			}
+		}
+		if 0 != earliest && 0 != latest {
+			col.Calc.Result = &Value{Updated: NewFormattedValueUpdated(earliest, latest, UpdatedFormatDuration)}
 		}
 	}
 }

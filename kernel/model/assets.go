@@ -512,6 +512,15 @@ func RenameAsset(oldPath, newName string) (err error) {
 		logging.LogErrorf("copy asset [%s] failed: %s", oldPath, err)
 		return
 	}
+
+	if gulu.File.IsExist(filepath.Join(util.DataDir, oldPath+".sya")) {
+		// Rename the .sya annotation file when renaming a PDF asset https://github.com/siyuan-note/siyuan/issues/9390
+		if err = filelock.Copy(filepath.Join(util.DataDir, oldPath+".sya"), filepath.Join(util.DataDir, newPath+".sya")); nil != err {
+			logging.LogErrorf("copy PDF annotation [%s] failed: %s", oldPath+".sya", err)
+			return
+		}
+	}
+
 	oldName := path.Base(oldPath)
 
 	notebooks, err := ListNotebooks()
@@ -663,6 +672,37 @@ func UnusedAssets() (ret []string) {
 			continue
 		}
 	}
+
+	// 排除数据库中引用的资源文件
+	storageAvDir := filepath.Join(util.DataDir, "storage", "av")
+	if gulu.File.IsDir(storageAvDir) {
+		entries, readErr := os.ReadDir(storageAvDir)
+		if nil != readErr {
+			logging.LogErrorf("read dir [%s] failed: %s", storageAvDir, readErr)
+			err = readErr
+			return
+		}
+
+		for _, entry := range entries {
+			if !strings.HasSuffix(entry.Name(), ".json") || !ast.IsNodeIDPattern(strings.TrimSuffix(entry.Name(), ".json")) {
+				continue
+			}
+
+			data, readDataErr := filelock.ReadFile(filepath.Join(util.DataDir, "storage", "av", entry.Name()))
+			if nil != readDataErr {
+				logging.LogErrorf("read file [%s] failed: %s", entry.Name(), readDataErr)
+				err = readDataErr
+				return
+			}
+
+			for asset, _ := range assetsPathMap {
+				if bytes.Contains(data, []byte(asset)) {
+					toRemoves = append(toRemoves, asset)
+				}
+			}
+		}
+	}
+
 	for _, toRemove := range toRemoves {
 		delete(assetsPathMap, toRemove)
 	}

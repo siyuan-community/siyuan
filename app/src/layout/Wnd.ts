@@ -16,7 +16,6 @@ import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "../
 import {Constants} from "../constants";
 /// #if !BROWSER
 import {webFrame, ipcRenderer} from "electron";
-import {getCurrentWindow} from "@electron/remote";
 import {setModelsHash, setTabPosition} from "../window/setHeader";
 /// #endif
 import {Search} from "../search";
@@ -102,7 +101,10 @@ export class Wnd {
             while (target && !target.isEqualNode(this.headersElement)) {
                 if (target.classList.contains("block__icon") && target.getAttribute("data-type") === "new") {
                     setPanelFocus(this.headersElement.parentElement.parentElement);
-                    newFile(app, undefined, undefined, undefined, true);
+                    newFile({
+                        app,
+                        useSavePath: true
+                    });
                     break;
                 } else if (target.classList.contains("block__icon") && target.getAttribute("data-type") === "more") {
                     this.renderTabList(target);
@@ -119,17 +121,6 @@ export class Wnd {
             while (target && !target.isEqualNode(this.headersElement)) {
                 if (window.siyuan.config.fileTree.openFilesUseCurrentTab && target.getAttribute("data-type") === "tab-header") {
                     target.classList.remove("item--unupdate");
-                    break;
-                } else if (target.tagName === "SPAN" && target.className === "fn__flex-1" &&
-                    isWindow() && this.headersElement.getBoundingClientRect().top <= 0) {
-                    /// #if !BROWSER
-                    const currentWindow = getCurrentWindow();
-                    if (currentWindow.isMaximized()) {
-                        currentWindow.unmaximize();
-                    } else {
-                        currentWindow.maximize();
-                    }
-                    /// #endif
                     break;
                 }
                 target = target.parentElement;
@@ -234,7 +225,7 @@ export class Wnd {
                     ipcRenderer.send(Constants.SIYUAN_SEND_WINDOWS, {cmd: "closetab", data: tabData.id});
                     it.querySelector("li[data-clone='true']").remove();
                     wnd.switchTab(oldTab.headElement);
-                    getCurrentWindow().focus();
+                    ipcRenderer.send(Constants.SIYUAN_CMD, "focus");
                 }
             }
             /// #endif
@@ -341,7 +332,7 @@ export class Wnd {
                 JSONToCenter(app, tabData, this);
                 oldTab = this.children[this.children.length - 1];
                 ipcRenderer.send(Constants.SIYUAN_SEND_WINDOWS, {cmd: "closetab", data: tabData.id});
-                getCurrentWindow().focus();
+                ipcRenderer.send(Constants.SIYUAN_CMD, "focus");
             }
             /// #endif
             if (!oldTab) {
@@ -625,7 +616,8 @@ export class Wnd {
         window.siyuan.menus.menu.popup({
             x: rect.left + rect.width,
             y: rect.top + rect.height,
-        }, true);
+            isLeft: true
+        });
     }
 
     private removeOverCounter(oldFocusIndex?: number) {
@@ -787,7 +779,7 @@ export class Wnd {
         }
         /// #if !BROWSER
         webFrame.clearCache();
-        getCurrentWindow().webContents.session.clearCache();
+        ipcRenderer.send(Constants.SIYUAN_CMD, "clearCache");
         setTabPosition();
         /// #endif
     };

@@ -1,6 +1,5 @@
 /// #if !BROWSER
-import {dialog} from "@electron/remote";
-import {SaveDialogReturnValue} from "electron";
+import {ipcRenderer} from "electron";
 import * as path from "path";
 /// #endif
 import {fetchPost} from "../util/fetch";
@@ -17,15 +16,15 @@ export const exportAsset = (src: string) => {
     return {
         label: window.siyuan.languages.export,
         icon: "iconUpload",
-        click() {
-            dialog.showSaveDialog({
+        async click() {
+            const result = await ipcRenderer.invoke(Constants.SIYUAN_GET,{
+                cmd: "showSaveDialog",
                 defaultPath: getAssetName(src) + pathPosix().extname(src),
                 properties: ["showOverwriteConfirmation"],
-            }).then((result: SaveDialogReturnValue) => {
-                if (!result.canceled) {
-                    fetchPost("/api/file/copyFile", {src, dest: result.filePath});
-                }
             });
+            if (!result.canceled) {
+                fetchPost("/api/file/copyFile", {src, dest: result.filePath});
+            }
         }
     };
     /// #endif
@@ -39,14 +38,38 @@ export const openEditorTab = (app: App, id: string, notebookId?: string, pathStr
         label: window.siyuan.languages.insertRight,
         accelerator: `${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}/${updateHotkeyTip("⌥Click")}`,
         click: () => {
-            openFileById({app, id, position: "right", action: [Constants.CB_GET_FOCUS]});
+            if (notebookId) {
+                openFileById({app, id, position: "right", action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]});
+            } else {
+                fetchPost("/api/block/checkBlockFold", {id}, (foldResponse) => {
+                    openFileById({
+                        app,
+                        id,
+                        position: "right",
+                        action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
+                        zoomIn: foldResponse.data
+                    });
+                });
+            }
         }
     }, {
         icon: "iconLayoutBottom",
         label: window.siyuan.languages.insertBottom,
         accelerator: "⇧Click",
         click: () => {
-            openFileById({app, id, position: "bottom", action: [Constants.CB_GET_FOCUS]});
+            if (notebookId) {
+                openFileById({app, id, position: "bottom", action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]});
+            } else {
+                fetchPost("/api/block/checkBlockFold", {id}, (foldResponse) => {
+                    openFileById({
+                        app,
+                        id,
+                        position: "bottom",
+                        action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
+                        zoomIn: foldResponse.data
+                    });
+                });
+            }
         }
     }];
     if (window.siyuan.config.fileTree.openFilesUseCurrentTab) {
@@ -54,11 +77,19 @@ export const openEditorTab = (app: App, id: string, notebookId?: string, pathStr
             label: window.siyuan.languages.openInNewTab,
             accelerator: "⌥⌘Click",
             click: () => {
-                openFileById({
-                    app,
-                    id, action: [Constants.CB_GET_FOCUS],
-                    removeCurrentTab: false
-                });
+                if (notebookId) {
+                    openFileById({app, id, action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL], removeCurrentTab: false});
+                } else {
+                    fetchPost("/api/block/checkBlockFold", {id}, (foldResponse) => {
+                        openFileById({
+                            app,
+                            id,
+                            action: foldResponse.data ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
+                            zoomIn: foldResponse.data,
+                            removeCurrentTab: false
+                        });
+                    });
+                }
             }
         });
     }
