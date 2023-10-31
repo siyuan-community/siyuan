@@ -2,12 +2,11 @@ import {fetchSyncPost} from "../util/fetch";
 import {App} from "../index";
 import {Plugin} from "./index";
 /// #if !MOBILE
-import {exportLayout, resizeTopbar} from "../layout/util";
+import {exportLayout, resizeTopBar} from "../layout/util";
 /// #endif
 import {API} from "./API";
 import {getFrontend, isMobile, isWindow} from "../util/functions";
 import {Constants} from "../constants";
-import {Menu} from "./Menu";
 
 const getObject = (key: string) => {
     const api = {
@@ -150,11 +149,11 @@ export const afterLoadPlugin = (plugin: Plugin) => {
     }
 
     if (!isWindow() || isMobile()) {
-        const pluginMenu: IMenu[] = [];
+        const unPinMenu: IMenu[] = [];
         plugin.topBarIcons.forEach(element => {
             if (isMobile()) {
                 if (window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].includes(element.id)) {
-                    pluginMenu.push({
+                    unPinMenu.push({
                         iconHTML: element.firstElementChild.outerHTML,
                         label: element.textContent.trim(),
                         click() {
@@ -171,23 +170,12 @@ export const afterLoadPlugin = (plugin: Plugin) => {
                 document.querySelector("#" + (element.getAttribute("data-position") === "right" ? "barPlugins" : "drag")).before(element);
             }
         });
-        if (isMobile() && pluginMenu.length > 0) {
-            const pluginElement = document.createElement("div");
-            pluginElement.classList.add("b3-menu__item");
-            pluginElement.setAttribute("data-menu", "true");
-            pluginElement.innerHTML = `<svg class="b3-menu__icon"><use xlink:href="#iconPlugin"></use></svg><span class="b3-menu__label">${window.siyuan.languages.plugin}</span>`;
-            pluginElement.addEventListener("click", () => {
-                const menu = new Menu();
-                pluginMenu.forEach(item => {
-                    menu.addItem(item);
-                });
-                menu.fullscreen();
-            });
-            document.querySelector("#menuAbout").after(pluginElement);
+        if (isMobile() && unPinMenu.length > 0) {
+            return unPinMenu;
         }
     }
     /// #if !MOBILE
-    resizeTopbar();
+    resizeTopBar();
     mergePluginHotkey(plugin);
     plugin.statusBarIcons.forEach(element => {
         const statusElement = document.getElementById("status");

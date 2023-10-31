@@ -1,7 +1,8 @@
 import {Tab} from "../layout/Tab";
 import {Editor} from "./index";
 import {Wnd} from "../layout/Wnd";
-import {getDockByType, getInstanceById, getWndByLayout, pdfIsLoading, setPanelFocus} from "../layout/util";
+import {getInstanceById, getWndByLayout, pdfIsLoading, setPanelFocus} from "../layout/util";
+import {getDockByType} from "../layout/tabUtil";
 import {getAllModels, getAllTabs} from "../layout/getAll";
 import {highlightById, scrollCenter} from "../util/highlightById";
 import {getDisplayName, pathPosix, showFileInFolder} from "../util/pathName";
@@ -533,11 +534,14 @@ export const updatePanelByEditor = (options: {
                 }
             }
         }
+        // 切换页签或关闭所有页签时，需更新对应的面板
+        const models = getAllModels();
+        updateOutline(models, options.protyle, options.reload);
+        updateBacklinkGraph(models, options.protyle);
+        options.protyle.app.plugins.forEach(item => {
+            item.eventBus.emit("switch-protyle", {protyle:options.protyle});
+        });
     }
-    // 切换页签或关闭所有页签时，需更新对应的面板
-    const models = getAllModels();
-    updateOutline(models, options.protyle, options.reload);
-    updateBacklinkGraph(models, options.protyle);
 };
 
 export const isCurrentEditor = (blockId: string) => {

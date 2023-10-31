@@ -86,6 +86,14 @@
     position: relative;
     font-size: 87.5%;
 
+    &.dragover__bottom {
+      border-bottom-color: var(--b3-theme-primary-lighter);
+    }
+
+    &.dragover__top {
+      box-shadow: 0 -3px 0 var(--b3-theme-primary-lighter), inset 0 2px 0 var(--b3-theme-primary-lighter) !important;
+    }
+
     &:hover {
       [data-type="block-ref"],
       [data-type="block-more"] {
@@ -196,7 +204,6 @@
     flex-shrink: 0;
     border-right: 1px solid var(--b3-theme-surface-lighter);
     display: flex;
-    transition: var(--b3-transition);
 
     [data-type="block-ref"],
     [data-type="block-more"] {
@@ -205,6 +212,10 @@
       right: 5px;
       font-size: 85%;
       top: 8px;
+    }
+
+    &.dragover__right {
+      border-right-color: var(--b3-theme-primary-lighter);
     }
 
     &--select {
@@ -339,16 +350,6 @@
 
       &__item {
         transition: margin .2s cubic-bezier(0, 0, .2, 1) 0ms;
-
-        &.dragover__bottom {
-          background-color: var(--b3-theme-primary-lightest);
-          box-shadow: 0 -2px 0 var(--b3-theme-primary-lighter) inset;
-        }
-
-        &.dragover__top {
-          background-color: var(--b3-theme-primary-lightest);
-          box-shadow: 0 2px 0 var(--b3-theme-primary-lighter) inset;
-        }
       }
 
       &__item:hover .b3-menu__action {
@@ -375,9 +376,17 @@
 }
 
 img.av__cellassetimg {
-  max-height: 18px;
+  max-height: 20px;
   border-radius: var(--b3-border-radius);
   margin: 1px 2px;
   max-width: none;
+  vertical-align: top;
 }
 
+html[data-theme-mode="dark"] .av__panel .b3-menu__item {
+  mix-blend-mode: lighten;
+}
+
+html[data-theme-mode="light"] .av__panel .b3-menu__item {
+  mix-blend-mode: darken;
+}

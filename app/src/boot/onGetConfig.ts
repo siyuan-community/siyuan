@@ -1,4 +1,5 @@
-import {exportLayout, JSONToLayout, resetLayout, resizeTopbar, resizeTabs} from "../layout/util";
+import {exportLayout, JSONToLayout, resetLayout, resizeTopBar} from "../layout/util";
+import {resizeTabs} from "../layout/tabUtil";
 import {setStorageVal} from "../protyle/util/compatibility";
 /// #if !BROWSER
 import {ipcRenderer, webFrame} from "electron";
@@ -139,14 +140,14 @@ export const onGetConfig = (isStart: boolean, app: App) => {
     initWindow(app);
     appearance.onSetappearance(window.siyuan.config.appearance);
     initAssets();
-    renderSnippet();
     setInlineStyle();
+    renderSnippet();
     let resizeTimeout = 0;
     window.addEventListener("resize", () => {
         window.clearTimeout(resizeTimeout);
         resizeTimeout = window.setTimeout(() => {
             resizeTabs();
-            resizeTopbar();
+            resizeTopBar();
         }, 200);
     });
     addGA();
