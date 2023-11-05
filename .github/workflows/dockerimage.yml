@@ -36,9 +36,12 @@ jobs:
 
       - name: Check out the repo
         uses: actions/checkout@v3
+        with:
+          ref: v2.10.13
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v2
 
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@v2
@@ -51,4 +54,4 @@ jobs:
 
       - name: Build the Docker image
         run: |
-          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t powersee/siyuan:latest -t powersee/siyuan:v2.10.13 .
+          docker buildx build --push --platform linux/amd64 -t powersee/siyuan:latest -t powersee/siyuan:v2.10.13 .
