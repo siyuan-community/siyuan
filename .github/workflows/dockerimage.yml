@@ -1,10 +1,12 @@
 name: Release Docker Image
 
-on:
+on: 
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - master
+    inputs:
+      title: 
+        description: '点击运行'
+        required: false
+        default: yes
 
 jobs:
   build:
@@ -49,4 +51,4 @@ jobs:
 
       - name: Build the Docker image
         run: |
-          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t b3log/siyuan:latest -t b3log/siyuan:v2.10.13 .
+          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t powersee/siyuan:latest -t powersee/siyuan:v2.10.13 .
