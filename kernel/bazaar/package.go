@@ -248,11 +248,11 @@ func getPreferredFunding(funding *Funding) string {
 
 func PluginJSON(pluginDirName string) (ret *Plugin, err error) {
 	p := filepath.Join(util.DataDir, "plugins", pluginDirName, "plugin.json")
-	if !gulu.File.IsExist(p) {
+	if !filelock.IsExist(p) {
 		err = os.ErrNotExist
 		return
 	}
-	data, err := os.ReadFile(p)
+	data, err := filelock.ReadFile(p)
 	if nil != err {
 		logging.LogErrorf("read plugin.json [%s] failed: %s", p, err)
 		return
@@ -268,11 +268,11 @@ func PluginJSON(pluginDirName string) (ret *Plugin, err error) {
 
 func WidgetJSON(widgetDirName string) (ret *Widget, err error) {
 	p := filepath.Join(util.DataDir, "widgets", widgetDirName, "widget.json")
-	if !gulu.File.IsExist(p) {
+	if !filelock.IsExist(p) {
 		err = os.ErrNotExist
 		return
 	}
-	data, err := os.ReadFile(p)
+	data, err := filelock.ReadFile(p)
 	if nil != err {
 		logging.LogErrorf("read widget.json [%s] failed: %s", p, err)
 		return
@@ -308,11 +308,11 @@ func IconJSON(iconDirName string) (ret *Icon, err error) {
 
 func TemplateJSON(templateDirName string) (ret *Template, err error) {
 	p := filepath.Join(util.DataDir, "templates", templateDirName, "template.json")
-	if !gulu.File.IsExist(p) {
+	if !filelock.IsExist(p) {
 		err = os.ErrNotExist
 		return
 	}
-	data, err := os.ReadFile(p)
+	data, err := filelock.ReadFile(p)
 	if nil != err {
 		logging.LogErrorf("read template.json [%s] failed: %s", p, err)
 		return

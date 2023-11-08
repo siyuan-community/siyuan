@@ -21,13 +21,13 @@ export const initBlockPopover = (app: App) => {
             hasClosestByAttribute(event.target, "data-type", "inline-memo");
         if (aElement) {
             let tip = aElement.getAttribute("aria-label") || aElement.getAttribute("data-inline-memo-content");
-            // 折叠块标文案替换
-            if (hasClosestByAttribute(event.target, "data-type", "fold", true)) {
-                tip = window.siyuan.languages.fold;
-            }
             if (aElement.classList.contains("av__celltext")) {
                 if (aElement.scrollWidth > aElement.parentElement.clientWidth - 11) {
-                    tip = aElement.textContent;
+                    if (aElement.querySelector(".av__cellicon")) {
+                        tip = `${aElement.firstChild.textContent} ➡️ ${aElement.lastChild.textContent}`;
+                    } else {
+                        tip = aElement.textContent;
+                    }
                 } else {
                     return;
                 }
@@ -153,8 +153,7 @@ const hidePopover = (event: MouseEvent & { target: HTMLElement, path: HTMLElemen
         } else {
             for (let i = 0; i < window.siyuan.blockPanels.length; i++) {
                 const item = window.siyuan.blockPanels[i];
-                if ((item.targetElement || typeof item.x === "number") && item.element.getAttribute("data-pin") === "false" &&
-                    parseInt(item.element.getAttribute("data-level")) > (maxEditLevels[item.element.getAttribute("data-oid")] || 0)) {
+                if ((item.targetElement || typeof item.x === "number") && item.element.getAttribute("data-pin") === "false") {
                     item.destroy();
                     i--;
                 }

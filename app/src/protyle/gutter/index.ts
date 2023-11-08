@@ -3,7 +3,7 @@ import {getIconByType} from "../../editor/getIcon";
 import {enterBack, iframeMenu, setFold, tableMenu, videoMenu, zoomOut} from "../../menus/protyle";
 import {MenuItem} from "../../menus/Menu";
 import {copySubMenu, openAttr, openWechatNotify} from "../../menus/commonMenuItem";
-import {copyPlainText, updateHotkeyTip, writeText} from "../util/compatibility";
+import {copyPlainText, isMac, updateHotkeyTip, writeText} from "../util/compatibility";
 import {
     transaction,
     turnsIntoOneTransaction,
@@ -42,17 +42,16 @@ import {resizeAV} from "../util/resize";
 
 export class Gutter {
     public element: HTMLElement;
+    private gutterTip: string;
 
     constructor(protyle: IProtyle) {
+        if (isMac()) {
+            this.gutterTip = window.siyuan.languages.gutterTip;
+        } else {
+            this.gutterTip = window.siyuan.languages.gutterTip.replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+").replace(/⌃/g, "Ctrl+");
+        }
         this.element = document.createElement("div");
         this.element.className = "protyle-gutters";
-        if (/Mac/.test(navigator.platform) || navigator.platform === "iPhone") {
-            this.element.setAttribute("aria-label", window.siyuan.languages.gutterTip);
-        } else {
-            this.element.setAttribute("aria-label", window.siyuan.languages.gutterTip.replace("⌥⌘A", "Ctrl+Alt+A").replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+").replace(/⌃/g, "Ctrl+"));
-        }
-        this.element.setAttribute("data-type", "a");
-        this.element.setAttribute("data-position", "right");
         this.element.addEventListener("dragstart", (event: DragEvent & { target: HTMLElement }) => {
             hideTooltip();
             const buttonElement = event.target.parentElement;
@@ -1843,7 +1842,8 @@ export class Gutter {
                     html = "";
                 }
                 index += 1;
-                const buttonHTML = `<button data-type="${type}" data-subtype="${nodeElement.getAttribute("data-subtype")}" data-node-id="${nodeElement.getAttribute("data-node-id")}">
+                const buttonHTML = `<button class="ariaLabel" data-position="right" aria-label="${this.gutterTip}" 
+data-type="${type}" data-subtype="${nodeElement.getAttribute("data-subtype")}" data-node-id="${nodeElement.getAttribute("data-node-id")}">
     <svg><use xlink:href="#${getIconByType(type, nodeElement.getAttribute("data-subtype"))}"></use></svg>
     <span ${protyle.disabled ? "" : 'draggable="true"'}></span>
 </button>`;
@@ -1853,7 +1853,8 @@ export class Gutter {
                 let foldHTML = "";
                 if (type === "NodeListItem" && nodeElement.childElementCount > 3 || type === "NodeHeading") {
                     const fold = nodeElement.getAttribute("fold");
-                    foldHTML = `<button data-type="fold"><svg style="width:10px${fold && fold === "1" ? "" : ";transform:rotate(90deg)"}"><use xlink:href="#iconPlay"></use></svg></button>`;
+                    foldHTML = `<button class="ariaLabel" data-position="right" aria-label="${window.siyuan.languages.fold}" 
+data-type="fold"><svg style="width:10px${fold && fold === "1" ? "" : ";transform:rotate(90deg)"}"><use xlink:href="#iconPlay"></use></svg></button>`;
                 }
                 if (type === "NodeListItem" || type === "NodeList") {
                     listItem = nodeElement;
@@ -1915,11 +1916,18 @@ export class Gutter {
         }
         if (nodeElement.getAttribute("data-type") === "NodeAttributeView") {
             const iconElement = nodeElement.querySelector(".item__graphic");
+            let top = rect.top + 8
             if (iconElement) {
-                this.element.style.top = `${Math.max(iconElement.getBoundingClientRect().top - (window.siyuan.config.editor.fontSize * 1.625 - 14) / 2, wysiwyg.parentElement.getBoundingClientRect().top)}px`;
-            } else {
-                this.element.style.top = `${Math.max(rect.top, wysiwyg.parentElement.getBoundingClientRect().top) + 8}px`;
+                top = iconElement.getBoundingClientRect().top - (window.siyuan.config.editor.fontSize * 1.625 - 14) / 2;
             }
+            // 防止遮挡可左右滚动的 cell
+            const maxTop = wysiwyg.parentElement.getBoundingClientRect().top
+            if (top < maxTop - 43) {
+                top = -1000
+            } else if (top > maxTop - 43 && top <= maxTop) {
+                top = maxTop
+            }
+            this.element.style.top = `${top}px`;
         } else {
             this.element.style.top = `${Math.max(rect.top, wysiwyg.parentElement.getBoundingClientRect().top) + marginHeight}px`;
         }

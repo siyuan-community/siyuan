@@ -383,7 +383,7 @@ export class WYSIWYG {
                 const dragColId = dragElement.getAttribute("data-col-id");
                 let newWidth: string;
                 documentSelf.onmousemove = (moveEvent: MouseEvent) => {
-                    newWidth = Math.max(oldWidth + (moveEvent.clientX - event.clientX), 100) + "px";
+                    newWidth = Math.max(oldWidth + (moveEvent.clientX - event.clientX), 58) + "px";
                     dragElement.parentElement.parentElement.querySelectorAll(".av__row, .av__row--footer").forEach(item => {
                         (item.querySelector(`[data-col-id="${dragColId}"]`) as HTMLElement).style.width = newWidth;
                     });
@@ -453,8 +453,6 @@ export class WYSIWYG {
                         }
                     } else {
                         dragElement.parentElement.parentElement.style.width = (parseInt(dragElement.style.width) + 10) + "px";
-                        // 历史兼容
-                        dragElement.parentElement.parentElement.style.maxWidth = "";
                     }
                 };
 
@@ -1454,6 +1452,12 @@ export class WYSIWYG {
                 if (embedElement) {
                     protyle.gutter.render(protyle, embedElement, this.element);
                 } else {
+                    // database 行块标
+                    const rowElement = hasClosestByClassName(event.target, "av__row");
+                    if (rowElement && rowElement.dataset.id) {
+                        const rowRect = rowElement.getBoundingClientRect();
+                        rowElement.firstElementChild.setAttribute("style", `left:${rowRect.left - 44}px;top:${rowRect.top}px`);
+                    }
                     protyle.gutter.render(protyle, nodeElement, this.element);
                 }
             }
@@ -1708,10 +1712,6 @@ export class WYSIWYG {
                     activeBlur();
                     hideKeyboardToolbar();
                     /// #else
-                    if (aElement) {
-                        window.open(aLink);
-                        return;
-                    }
                     if (event.shiftKey) {
                         openFileById({
                             app: protyle.app,

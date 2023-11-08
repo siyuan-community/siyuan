@@ -27,6 +27,7 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/Masterminds/sprig/v3"
+	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/av"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -36,6 +37,7 @@ import (
 type BlockAttributeViewKeys struct {
 	AvID      string          `json:"avID"`
 	AvName    string          `json:"avName"`
+	BlockIDs  []string        `json:"blockIDs"`
 	KeyValues []*av.KeyValues `json:"keyValues"`
 }
 
@@ -140,9 +142,39 @@ func GetBlockAttributeViewKeys(blockID string) (ret []*BlockAttributeViewKeys) {
 			})
 		}
 
+		blockIDs := av.GetMirrorBlockIDs(avID)
+		if 1 > len(blockIDs) {
+			// 老数据兼容处理
+			avBts := treenode.GetBlockTreesByType("av")
+			for _, avBt := range avBts {
+				if nil == avBt {
+					continue
+				}
+				tree, _ := loadTreeByBlockID(avBt.ID)
+				if nil == tree {
+					continue
+				}
+				node := treenode.GetNodeInTree(tree, avBt.ID)
+				if nil == node {
+					continue
+				}
+				if avID == node.AttributeViewID {
+					blockIDs = append(blockIDs, avBt.ID)
+				}
+			}
+			if 1 > len(blockIDs) {
+				continue
+			}
+			blockIDs = gulu.Str.RemoveDuplicatedElem(blockIDs)
+			for _, blockID := range blockIDs {
+				av.UpsertBlockRel(avID, blockID)
+			}
+		}
+
 		ret = append(ret, &BlockAttributeViewKeys{
 			AvID:      avID,
 			AvName:    attrView.Name,
+			BlockIDs:  blockIDs,
 			KeyValues: keyValues,
 		})
 	}
@@ -152,7 +184,7 @@ func GetBlockAttributeViewKeys(blockID string) (ret []*BlockAttributeViewKeys) {
 func RenderAttributeView(avID string) (viewable av.Viewable, attrView *av.AttributeView, err error) {
 	waitForSyncingStorages()
 
-	if avJSONPath := av.GetAttributeViewDataPath(avID); !gulu.File.IsExist(avJSONPath) {
+	if avJSONPath := av.GetAttributeViewDataPath(avID); !filelock.IsExist(avJSONPath) {
 		attrView = av.NewAttributeView(avID)
 		if err = av.SaveAttributeView(attrView); nil != err {
 			logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)

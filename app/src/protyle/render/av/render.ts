@@ -6,6 +6,7 @@ import * as dayjs from "dayjs";
 import {unicode2Emoji} from "../../../emoji";
 import {focusBlock} from "../../util/selection";
 import {resizeAV} from "../../util/resize";
+import {isMac} from "../../util/compatibility";
 
 export const avRender = (element: Element, protyle: IProtyle, cb?: () => void) => {
     let avElements: Element[] = [];
@@ -79,8 +80,9 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                 // body
                 data.rows.forEach((row: IAVRow) => {
                     tableHTML += `<div class="av__row" data-id="${row.id}">
-<div class="av__gutters ariaLabel" draggable="true" data-position="right" aria-label="${window.siyuan.languages.rowTip}">
-    <button><svg><use xlink:href="#iconDrag"></use></svg></button>
+<div class="av__gutters">
+    <button class="ariaLabel" data-action="add" data-position="right" aria-label="${isMac() ? window.siyuan.languages.addBelowAbove : window.siyuan.languages.addBelowAbove.replace("⌥", "Alt+")}"><svg><use xlink:href="#iconAdd"></use></svg></button>
+    <button class="ariaLabel" draggable="true" data-position="right" aria-label="${window.siyuan.languages.rowTip}"><svg><use xlink:href="#iconDrag"></use></svg></button>
 </div>
 <div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>`;
                     row.cells.forEach((cell, index) => {
@@ -149,7 +151,7 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                         }
                         if (["text", "template", "url", "email", "phone", "number", "date", "created", "updated"].includes(cell.valueType)) {
                             if (cell.value && cell.value[cell.valueType as "url"].content) {
-                                text += `<span data-type="copy" class="b3-tooltips b3-tooltips__n block__icon" aria-label="${window.siyuan.languages.copy}"><svg><use xlink:href="#iconCopy"></use></svg></span>`;
+                                text += `<span ${cell.valueType !== "number" ? "" : 'style="right:auto;left:5px"'} data-type="copy" class="b3-tooltips b3-tooltips__n block__icon" aria-label="${window.siyuan.languages.copy}"><svg><use xlink:href="#iconCopy"></use></svg></span>`;
                             }
                         }
                         tableHTML += `<div class="av__cell" data-id="${cell.id}" data-col-id="${data.columns[index].id}"
@@ -176,6 +178,8 @@ ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
         <div class="layout-tab-bar fn__flex">
             ${tabHTML}
             <div class="fn__flex-1"></div>
+            ${response.data.isMirror?` <span class="block__icon block__icon--show b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.mirrorTip}">
+    <svg><use xlink:href="#iconSplitLR"></use></svg></span><div class="fn__space"></div>`:""}
             <span data-type="av-filter" class="block__icon block__icon--show b3-tooltips b3-tooltips__w${data.filters.length > 0 ? " block__icon--active" : ""}" aria-label="${window.siyuan.languages.filter}">
                 <svg><use xlink:href="#iconFilter"></use></svg>
             </span>
