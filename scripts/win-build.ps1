@@ -2,8 +2,8 @@ echo 'pwsh -f ./scripts/build.ps1'
 
 echo 'Building UI'
 
-nvm on
-nvm use 20
+# nvm on
+# nvm use 20
 
 cd app
 
