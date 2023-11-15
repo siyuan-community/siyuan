@@ -156,20 +156,52 @@ func CheckReadonly(c *gin.Context) {
 	}
 }
 
+func CheckBasicAuth(c *gin.Context) {
+	if "" == Conf.AccessAuthCode {
+		localhost := isLocalhost(c)
+		if localhost {
+			c.Next()
+		} else {
+			abortWithUnauthorized(c)
+		}
+		return
+	}
+
+	// 通过 Cookies
+	if certified := checkCookies(c); certified {
+		c.Next()
+		return
+	}
+
+	// 通过 API token
+	if certified, ok := checkToken(c); ok {
+		if certified {
+			c.Next()
+		} else {
+			abortWithUnauthorized(c)
+		}
+		return
+	}
+
+	// 通过 HTTP Basic
+	if certified, ok := checkBasic(c); ok && certified {
+		c.Next()
+	} else {
+		c.Header("WWW-Authenticate", "Basic realm=\"Authorization Required\", charset=\"UTF-8\"")
+		c.AbortWithStatus(http.StatusUnauthorized)
+	}
+
+	return
+}
+
 func CheckAuth(c *gin.Context) {
 	//logging.LogInfof("check auth for [%s]", c.Request.RequestURI)
-	localhost := util.IsLocalHost(c.Request.RemoteAddr)
+	localhost := isLocalhost(c)
 
 	// 未设置访问授权码
 	if "" == Conf.AccessAuthCode {
 		// Authenticate requests with the Origin header other than 127.0.0.1 https://github.com/siyuan-note/siyuan/issues/9180
-		host := c.GetHeader("Host")
-		origin := c.GetHeader("Origin")
-		forwardedHost := c.GetHeader("X-Forwarded-Host")
-		if !localhost ||
-			("" != host && !util.IsLocalHost(host)) ||
-			("" != origin && !util.IsLocalOrigin(origin) && !strings.HasPrefix(origin, "chrome-extension://")) ||
-			("" != forwardedHost && !util.IsLocalHost(forwardedHost)) {
+		if !localhost {
 			c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed: for security reasons, please set [Access authorization code] when using non-127.0.0.1 access\n\n为安全起见，使用非 127.0.0.1 访问时请设置 [访问授权码]"})
 			c.Abort()
 			return
@@ -200,38 +232,30 @@ func CheckAuth(c *gin.Context) {
 		}
 	}
 
-	// 通过 Cookie
-	session := util.GetSession(c)
-	workspaceSession := util.GetWorkspaceSession(session)
-	if workspaceSession.AccessAuthCode == Conf.AccessAuthCode {
+	// 通过 Cookies
+	cookiesCertified := checkCookies(c)
+	if cookiesCertified {
 		c.Next()
 		return
 	}
 
-	// 通过 API token (header: Authorization)
-	if authHeader := c.GetHeader("Authorization"); "" != authHeader {
-		if strings.HasPrefix(authHeader, "Token ") {
-			token := strings.TrimPrefix(authHeader, "Token ")
-			if Conf.Api.Token == token {
-				c.Next()
-				return
-			}
-
-			c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed"})
-			c.Abort()
-			return
+	// 通过 API token
+	if certified, ok := checkToken(c); ok {
+		if certified {
+			c.Next()
+		} else {
+			abortWithUnauthorized(c)
 		}
+		return
 	}
 
-	// 通过 API token (query-params: token)
-	if token := c.Query("token"); "" != token {
-		if Conf.Api.Token == token {
+	// 通过 HTTP Basic
+	if certified, ok := checkBasic(c); ok {
+		if certified {
 			c.Next()
-			return
+		} else {
+			abortWithUnauthorized(c)
 		}
-
-		c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed"})
-		c.Abort()
 		return
 	}
 
@@ -240,7 +264,7 @@ func CheckAuth(c *gin.Context) {
 		return
 	}
 
-	if workspaceSession.AccessAuthCode != Conf.AccessAuthCode {
+	if !cookiesCertified {
 		userAgentHeader := c.GetHeader("User-Agent")
 		if strings.HasPrefix(userAgentHeader, "SiYuan/") || strings.HasPrefix(userAgentHeader, "Mozilla/") {
 			if "GET" != c.Request.Method {
@@ -260,12 +284,73 @@ func CheckAuth(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed"})
-		c.Abort()
+		abortWithUnauthorized(c)
 		return
 	}
 
 	c.Next()
+}
+
+func checkCookies(c *gin.Context) bool {
+	session := util.GetSession(c)
+	workspaceSession := util.GetWorkspaceSession(session)
+	return workspaceSession.AccessAuthCode == Conf.AccessAuthCode
+}
+
+func checkToken(c *gin.Context) (certified, ok bool) {
+	var token string
+	if authHeader := c.GetHeader("Authorization"); "" != authHeader {
+		// 通过 API token (header: Authorization)
+		if strings.HasPrefix(authHeader, "Token ") {
+			ok = true
+			token = strings.TrimPrefix(authHeader, "Token ")
+		}
+	} else {
+		// 通过 API token (query-params: token)
+		token, ok = c.GetQuery("token")
+	}
+
+	certified = Conf.Api.Token == token
+	return
+}
+
+func checkBasic(c *gin.Context) (certified, ok bool) {
+	_, password, ok := c.Request.BasicAuth()
+	certified = Conf.AccessAuthCode == password
+	return
+}
+
+func isLocalhost(c *gin.Context) bool {
+	if !util.IsLocalHost(c.Request.RemoteAddr) {
+		return false
+	}
+
+	host := c.GetHeader("Host")
+	if "" != host {
+		if !util.IsLocalHost(host) {
+			return false
+		}
+	}
+
+	origin := c.GetHeader("Origin")
+	if "" != origin {
+		if !util.IsLocalOrigin(origin) && !strings.HasPrefix(origin, "chrome-extension://") {
+			return false
+		}
+	}
+
+	forwardedHost := c.GetHeader("X-Forwarded-Host")
+	if "" != forwardedHost {
+		if !util.IsLocalHost(forwardedHost) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func abortWithUnauthorized(c *gin.Context) {
+	c.AbortWithStatusJSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed"})
 }
 
 var timingAPIs = map[string]int{
