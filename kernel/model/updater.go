@@ -136,9 +136,9 @@ func getUpdatePkg() (downloadPkgURLs []string, checksum string, err error) {
 	// b3logURL := "https://release.b3log.org/siyuan/" + pkg
 	// downloadPkgURLs = append(downloadPkgURLs, b3logURL)
 	githubURL := "https://github.com/siyuan-community/siyuan/releases/download/v" + ver + "/" + pkg
-	// ghproxyURL := "https://ghproxy.com/" + githubURL
-	// downloadPkgURLs = append(downloadPkgURLs, ghproxyURL)
 	downloadPkgURLs = append(downloadPkgURLs, githubURL)
+	// ghproxyURL := "https://mirror.ghproxy.com/" + githubURL
+	// downloadPkgURLs = append(downloadPkgURLs, ghproxyURL)
 
 	checksums := result["checksums"].(map[string]interface{})
 	checksum = checksums[pkg].(string)

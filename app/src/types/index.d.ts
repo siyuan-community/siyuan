@@ -27,6 +27,7 @@ type TOperation =
     | "updateAttrViewColTemplate"
     | "sortAttrViewRow"
     | "sortAttrViewCol"
+    | "setAttrViewColPin"
     | "setAttrViewColHidden"
     | "setAttrViewColWrap"
     | "setAttrViewColWidth"
@@ -903,7 +904,7 @@ interface IBlockTree {
 }
 
 interface IBlock {
-    riffCardReps?: number   // 闪卡复习次数
+    riffCard?: IRiffCard,
     depth?: number,
     box?: string;
     path?: string;
@@ -923,6 +924,11 @@ interface IBlock {
     children?: IBlock[]
     length?: number
     ial: IObject
+}
+
+interface IRiffCard {
+    due?: string;
+    reps?: number; // 闪卡复习次数
 }
 
 interface IModels {
@@ -1024,11 +1030,12 @@ interface IAVSort {
 }
 
 interface IAVColumn {
-    width: number,
+    width: string,
     icon: string,
     id: string,
     name: string,
     wrap: boolean,
+    pin: boolean,
     hidden: boolean,
     type: TAVCol,
     numberFormat: string,

@@ -22,9 +22,9 @@ export const initBlockPopover = (app: App) => {
         if (aElement) {
             let tip = aElement.getAttribute("aria-label") || aElement.getAttribute("data-inline-memo-content");
             if (aElement.classList.contains("av__celltext")) {
-                if (aElement.scrollWidth > aElement.parentElement.clientWidth - 11) {
+                if (aElement.offsetWidth > aElement.parentElement.clientWidth - 11) {
                     if (aElement.querySelector(".av__cellicon")) {
-                        tip = `${aElement.firstChild.textContent} ➡️ ${aElement.lastChild.textContent}`;
+                        tip = `${aElement.firstChild.textContent} → ${aElement.lastChild.textContent}`;
                     } else {
                         tip = aElement.textContent;
                     }
