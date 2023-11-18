@@ -28,6 +28,9 @@ const isDevEnv = process.env.NODE_ENV === "development";
 const appVer = app.getVersion();
 const confDir = path.join(app.getPath("home"), ".config", "siyuan");
 const windowStatePath = path.join(confDir, "windowState.json");
+const localServer = "http://127.0.0.1";
+
+let baseURL;
 let bootWindow;
 let firstOpen = false;
 let workspaces = []; // workspaceDir, id, browserWindow, tray
@@ -51,6 +54,10 @@ try {
     require("electron").dialog.showErrorBox("创建配置目录失败 Failed to create config directory", "思源需要在用户家目录下创建配置文件夹（~/.config/siyuan），请确保该路径具有写入权限。\n\nSiYuan needs to create a configuration folder (~/.config/siyuan) in the user's home directory. Please make sure that the path has write permissions.");
     app.exit();
 }
+
+const getServer = (port = kernelPort) => {
+    return baseURL || localServer + ":" + port;
+};
 
 const hotKey2Electron = (key) => {
     if (!key) {
@@ -137,12 +144,6 @@ const exitApp = (port, errorWindowId) => {
         globalShortcut.unregisterAll();
         writeLog("exited ui");
     }
-};
-
-const localServer = "http://127.0.0.1";
-
-const getServer = (port = kernelPort) => {
-    return localServer + ":" + port;
 };
 
 const sleep = (ms) => {
@@ -379,7 +380,7 @@ const boot = () => {
     // 当前页面链接使用浏览器打开
     currentWindow.webContents.on("will-navigate", (event) => {
         const url = event.url;
-        if (url.startsWith(localServer)) {
+        if (url.startsWith(getServer())) {
             return;
         }
         event.preventDefault();
@@ -865,7 +866,7 @@ app.whenReady().then(() => {
         printWin.loadURL(data);
         printWin.webContents.on("will-navigate", (nEvent) => {
             nEvent.preventDefault();
-            if (nEvent.url.startsWith(localServer)) {
+            if (nEvent.url.startsWith(getServer())) {
                 return;
             }
             shell.openExternal(nEvent.url);
@@ -1068,6 +1069,16 @@ app.whenReady().then(() => {
                 }
             }
         };
+
+        const url = getArg("--url");
+        if (url) {
+            baseURL = ((url.startsWith("\"") && url.endsWith("\"")) || (url.startsWith("'") && url.endsWith("'")))
+                ? url.slice(1, -1)
+                : url;
+            writeLog("got arg [--url=" + baseURL + "]");
+            boot();
+            return;
+        }
 
         const workspace = getArg("--workspace");
         if (workspace) {
