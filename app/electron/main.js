@@ -1079,10 +1079,10 @@ app.whenReady().then(() => {
                 : [fragments[0], fragments.slice(1).join("=")];
         }));
 
-        const url = args.get("--url");
-        if (url) {
-            writeLog(`got arg [--url="${url}"]`);
-            baseURL = url;
+        const remote = args.get("--remote");
+        if (remote) {
+            writeLog(`got arg [--remote="${remote}"]`);
+            baseURL = remote;
             boot();
             return;
         }
