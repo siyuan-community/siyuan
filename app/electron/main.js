@@ -28,12 +28,13 @@ const isDevEnv = process.env.NODE_ENV === "development";
 const appVer = app.getVersion();
 const confDir = path.join(app.getPath("home"), ".config", "siyuan");
 const windowStatePath = path.join(confDir, "windowState.json");
-const localServer = "http://127.0.0.1";
 
 let baseURL;
 let bootWindow;
 let firstOpen = false;
 let workspaces = []; // workspaceDir, id, browserWindow, tray
+let kernelProtocol = "http";
+let kernelHostname = "127.0.0.1";
 let kernelPort = 6806;
 let resetWindowStateOnRestart = false;
 
@@ -56,7 +57,7 @@ try {
 }
 
 const getServer = (port = kernelPort) => {
-    return baseURL || localServer + ":" + port;
+    return baseURL || `${kernelProtocol}://${kernelHostname}:${port}`;
 };
 
 const hotKey2Electron = (key) => {
@@ -409,7 +410,7 @@ const showWindow = (wnd) => {
     wnd.show();
 };
 
-const initKernel = (workspace, port, lang) => {
+const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) => {
     return new Promise(async (resolve) => {
         bootWindow = new BrowserWindow({
             width: Math.floor(screen.getPrimaryDisplay().size.width / 2),
@@ -467,14 +468,23 @@ const initKernel = (workspace, port, lang) => {
         if (isDevEnv && workspaces.length === 0) {
             cmds.push("--mode", "dev");
         }
-        if (workspace && "" !== workspace) {
+        if (workspace) {
             cmds.push("--workspace", workspace);
         }
-        if (port && "" !== port) {
+        if (port) {
             cmds.push("--port", port);
         }
-        if (lang && "" !== lang) {
+        if (lang) {
             cmds.push("--lang", lang);
+        }
+        if (tlsKernel) {
+            cmds.push("--tls-kernel", true);
+        }
+        if (tlsCertFile) {
+            cmds.push("--tls-cert-file", tlsCertFile);
+        }
+        if (tlsKeyFile) {
+            cmds.push("--tls-key-file", tlsKeyFile);
         }
         let cmd = `ui version [${appVer}], booting kernel [${kernelPath} ${cmds.join(" ")}]`;
         writeLog(cmd);
@@ -1062,33 +1072,48 @@ app.whenReady().then(() => {
             firstOpenWindow.destroy();
         });
     } else {
-        const getArg = (name) => {
-            for (let i = 0; i < process.argv.length; i++) {
-                if (process.argv[i].startsWith(name)) {
-                    return process.argv[i].split("=")[1];
-                }
-            }
-        };
+        const args = new Map(process.argv.map(arg => {
+            const fragments = arg.split("=");
+            return fragments.length === 1
+                ? [fragments[0], true]
+                : [fragments[0], fragments.slice(1).join("=")];
+        }));
 
-        const url = getArg("--url");
+        const url = args.get("--url");
         if (url) {
-            baseURL = ((url.startsWith("\"") && url.endsWith("\"")) || (url.startsWith("'") && url.endsWith("'")))
-                ? url.slice(1, -1)
-                : url;
-            writeLog("got arg [--url=" + baseURL + "]");
+            writeLog(`got arg [--url="${url}"]`);
+            baseURL = url;
             boot();
             return;
         }
 
-        const workspace = getArg("--workspace");
+        const workspace = args.get("--workspace");
         if (workspace) {
-            writeLog("got arg [--workspace=" + workspace + "]");
+            writeLog(`got arg [--workspace="${workspace}"]`);
         }
-        const port = getArg("--port");
+        const hostname = args.get("--hostname");
+        if (hostname) {
+            writeLog(`got arg [--hostname="${hostname}"]`);
+            kernelHostname = hostname;
+        }
+        const port = args.get("--port");
         if (port) {
-            writeLog("got arg [--port=" + port + "]");
+            writeLog(`got arg [--port="${port}"]`);
         }
-        initKernel(workspace, port, "").then((isSucc) => {
+        const tlsKernel = args.get("--tls-kernel");
+        if (tlsKernel) {
+            writeLog("got arg [--tls-kernel]");
+            kernelProtocol = "https";
+        }
+        const tlsCertFile = args.get("--tls-cert-file");
+        if (tlsCertFile) {
+            writeLog(`got arg [--tls-cert-file="${tlsCertFile}"]`);
+        }
+        const tlsKeyFile = args.get("--tls-key-file");
+        if (tlsKeyFile) {
+            writeLog(`got arg [--tls-key-file="${tlsKeyFile}"]`);
+        }
+        initKernel(workspace, port, "", tlsKernel, tlsCertFile, tlsKeyFile).then((isSucc) => {
             if (isSucc) {
                 boot();
             }

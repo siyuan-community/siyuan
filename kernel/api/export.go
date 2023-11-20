@@ -437,7 +437,7 @@ func exportTempContent(c *gin.Context) {
 	}
 	url := path.Join("/export/temp/", filepath.Base(p))
 	ret.Data = map[string]interface{}{
-		"url": "http://" + util.LocalHost + ":" + util.ServerPort + url,
+		"url": util.Protocol + "://" + util.LocalHost + ":" + util.ServerPort + url,
 	}
 }
 
@@ -465,7 +465,7 @@ func exportPreviewHTML(c *gin.Context) {
 	}
 	name, content, node := model.ExportHTML(id, "", true, image, keepFold, merge)
 	// 导出 PDF 预览时点击块引转换后的脚注跳转不正确 https://github.com/siyuan-note/siyuan/issues/5894
-	content = strings.ReplaceAll(content, "http://"+util.LocalHost+":"+util.ServerPort+"/#", "#")
+	content = strings.ReplaceAll(content, util.Protocol+"://"+util.LocalHost+":"+util.ServerPort+"/#", "#")
 
 	// Add `data-doc-type` and attribute when exporting image and PDF https://github.com/siyuan-note/siyuan/issues/9497
 	attrs := map[string]string{}

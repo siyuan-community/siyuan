@@ -31,8 +31,12 @@ import (
 )
 
 var (
-	SSL       = false
-	UserAgent = "SiYuan/" + Ver
+	SSL         = false
+	TLSKernel   = false
+	TLSCertFile = ""
+	TLSKeyFile  = ""
+	Protocol    = "http"
+	UserAgent   = "SiYuan/" + Ver
 )
 
 func ShortPathForBootingDisplay(p string) string {

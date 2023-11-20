@@ -129,11 +129,17 @@ func Serve(fastMode bool) {
 			}
 
 			// 启动一个 6806 端口的反向代理服务器，这样浏览器扩展才能直接使用 127.0.0.1:6806，不用配置端口
-			serverURL, _ := url.Parse("http://127.0.0.1:" + port)
+			serverURL, _ := url.Parse(util.Protocol + "://127.0.0.1:" + port)
 			proxy := httputil.NewSingleHostReverseProxy(serverURL)
 			logging.LogInfof("reverse proxy server [%s] is booting", host+":"+util.FixedPort)
-			if proxyErr := http.ListenAndServe(host+":"+util.FixedPort, proxy); nil != proxyErr {
-				logging.LogWarnf("boot reverse proxy server [%s] failed: %s", serverURL, proxyErr)
+			if util.TLSKernel {
+				if proxyErr := http.ListenAndServeTLS(host+":"+util.FixedPort, util.TLSCertFile, util.TLSKeyFile, proxy); nil != proxyErr {
+					logging.LogWarnf("boot reverse proxy server [%s] with SSL/TLS failed: %s", serverURL, proxyErr)
+				}
+			} else {
+				if proxyErr := http.ListenAndServe(host+":"+util.FixedPort, proxy); nil != proxyErr {
+					logging.LogWarnf("boot reverse proxy server [%s] failed: %s", serverURL, proxyErr)
+				}
 			}
 			// 反代服务器启动失败不影响核心服务器启动
 		}
@@ -141,10 +147,19 @@ func Serve(fastMode bool) {
 
 	go util.HookUILoaded()
 
-	if err = http.Serve(ln, ginServer); nil != err {
-		if !fastMode {
-			logging.LogErrorf("boot kernel failed: %s", err)
-			os.Exit(logging.ExitCodeUnavailablePort)
+	if util.TLSKernel {
+		if err = http.ServeTLS(ln, ginServer, util.TLSCertFile, util.TLSKeyFile); nil != err {
+			if !fastMode {
+				logging.LogErrorf("boot kernel with SSL/TLS failed: %s", err)
+				os.Exit(logging.ExitCodeUnavailablePort)
+			}
+		}
+	} else {
+		if err = http.Serve(ln, ginServer); nil != err {
+			if !fastMode {
+				logging.LogErrorf("boot kernel failed: %s", err)
+				os.Exit(logging.ExitCodeUnavailablePort)
+			}
 		}
 	}
 }

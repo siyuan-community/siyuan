@@ -17,10 +17,10 @@
 package util
 
 import (
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
-	"math/rand"
 	"mime"
 	"os"
 	"path/filepath"
@@ -28,7 +28,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/88250/gulu"
 	figure "github.com/common-nighthawk/go-figure"
@@ -54,7 +53,6 @@ var (
 
 func Boot() {
 	IncBootProgress(3, "Booting kernel...")
-	rand.Seed(time.Now().UTC().UnixNano())
 	initMime()
 	initHttpClient()
 
@@ -63,9 +61,14 @@ func Boot() {
 	port := flag.String("port", "0", "port of the HTTP server")
 	readOnly := flag.String("readonly", "false", "read-only mode")
 	accessAuthCode := flag.String("accessAuthCode", "", "access auth code")
-	ssl := flag.Bool("ssl", false, "for https and wss")
+	ssl := flag.Bool("ssl", false, "cookie secure for https and wss")
 	lang := flag.String("lang", "", "zh_CN/zh_CHT/en_US/fr_FR/es_ES")
 	mode := flag.String("mode", "prod", "dev/prod")
+
+	tlsKernel := flag.Bool("tls-kernel", false, "enable SSL/TLS for kernel service")
+	tlsCertFile := flag.String("tls-cert-file", "", "SSL/TLS fullchain certificate file path, default to workspace/conf/tls/siyuan.pem.cer")
+	tlsKeyFile := flag.String("tls-key-file", "", "SSL/TLS private key file path, default to workspace/conf/tls/siyuan.pem.key")
+
 	flag.Parse()
 
 	if "" != *wdPath {
@@ -100,6 +103,27 @@ func Boot() {
 	initWorkspaceDir(*workspacePath)
 
 	SSL = *ssl
+
+	TLSKernel = *tlsKernel
+	TLSCertFile = *tlsCertFile
+	TLSKeyFile = *tlsKeyFile
+
+	if TLSKernel {
+		if TLSCertFile == "" {
+			TLSCertFile = filepath.Join(ConfDir, "tls", "siyuan.pem.cer")
+		}
+		if TLSKeyFile == "" {
+			TLSKeyFile = filepath.Join(ConfDir, "tls", "siyuan.pem.key")
+		}
+		if _, err := tls.LoadX509KeyPair(TLSCertFile, TLSKeyFile); nil != err {
+			logging.LogWarnf("load SSL/TLS certificate file failed: %s", err)
+			TLSKernel = false
+		} else {
+			SSL = true
+			Protocol = "https"
+		}
+	}
+
 	LogPath = filepath.Join(TempDir, "siyuan.log")
 	logging.SetLogPath(LogPath)
 
