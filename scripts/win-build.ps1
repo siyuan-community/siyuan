@@ -12,6 +12,8 @@ pnpm run build
 
 cd ..
 
+## ----------------------------------------------------------------
+
 echo 'Cleaning Builds'
 
 Remove-Item './app/build' -Recurse
@@ -38,6 +40,8 @@ go mod tidy
 go build --tags fts5 -v -o "../app/kernel/SiYuan-Kernel.exe" -ldflags "-s -w -H=windowsgui" .
 
 cd ..
+
+## ----------------------------------------------------------------
 
 echo 'Building Electron'
 
