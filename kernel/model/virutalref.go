@@ -29,9 +29,9 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/ClarkThan/ahocorasick"
 	"github.com/dgraph-io/ristretto"
-	"github.com/siyuan-note/siyuan/kernel/search"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/search"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 )
 
 // virtualBlockRefCache 用于保存块关联的虚拟引用关键字。

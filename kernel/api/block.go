@@ -24,9 +24,9 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute/html"
 	"github.com/gin-gonic/gin"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func getParentNextChildID(c *gin.Context) {

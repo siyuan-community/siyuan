@@ -1,4 +1,4 @@
-module github.com/siyuan-note/siyuan/kernel
+module github.com/siyuan-community/siyuan/kernel
 
 go 1.21
 

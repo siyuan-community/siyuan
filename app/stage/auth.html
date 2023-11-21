@@ -514,7 +514,11 @@
         if ({{.appearanceModeOS}} && window.matchMedia('(prefers-color-scheme: dark)').matches || {{.appearanceMode}} ===1) {
             document.body.classList.add('dark')
         }
-        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        if (!window.location.hostname.endsWith('.localhost')
+            && window.location.hostname !== 'localhost'
+            && window.location.hostname !== '127.0.0.1'
+            && window.location.hostname !== '[::1]'
+        ) {
             document.querySelector('.b3-button--white').remove()
         }
 

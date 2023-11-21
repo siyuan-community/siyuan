@@ -20,8 +20,8 @@ import (
 	"database/sql"
 	"strings"
 
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 type Stat struct {

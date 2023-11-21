@@ -18,13 +18,14 @@ package treenode
 
 import (
 	"bytes"
-	"github.com/Masterminds/sprig/v3"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/cache"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
+
+	"github.com/Masterminds/sprig/v3"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
@@ -35,8 +36,8 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
 	"github.com/88250/vitess-sqlparser/sqlparser"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func GetEmbedBlockRef(embedNode *ast.Node) (blockRefID string) {

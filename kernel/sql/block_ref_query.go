@@ -24,8 +24,8 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute/parse"
 	"github.com/emirpasic/gods/sets/hashset"
+	"github.com/siyuan-community/siyuan/kernel/search"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/search"
 )
 
 func GetRefDuplicatedDefRootIDs() (ret []string) {

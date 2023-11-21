@@ -17,7 +17,7 @@
 package conf
 
 import (
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 type System struct {

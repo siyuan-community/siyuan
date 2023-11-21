@@ -19,7 +19,7 @@ package sql
 import (
 	"database/sql"
 
-	"github.com/siyuan-note/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 )
 
 type Block struct {

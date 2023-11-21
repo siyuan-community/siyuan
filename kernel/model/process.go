@@ -25,8 +25,8 @@ import (
 	"time"
 
 	goPS "github.com/mitchellh/go-ps"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func HandleSignal() {

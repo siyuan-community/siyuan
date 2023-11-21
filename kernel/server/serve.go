@@ -38,11 +38,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mssola/useragent"
 	"github.com/olahol/melody"
+	"github.com/siyuan-community/siyuan/kernel/api"
+	"github.com/siyuan-community/siyuan/kernel/cmd"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/api"
-	"github.com/siyuan-note/siyuan/kernel/cmd"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"golang.org/x/net/webdav"
 )
 

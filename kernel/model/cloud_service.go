@@ -28,10 +28,10 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 var ErrFailedToConnectCloudServer = errors.New("failed to connect cloud server")

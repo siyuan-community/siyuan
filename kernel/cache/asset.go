@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 type Asset struct {

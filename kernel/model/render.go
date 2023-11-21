@@ -18,9 +18,10 @@ package model
 
 import (
 	"bytes"
-	"github.com/88250/lute/editor"
 	"regexp"
 	"strings"
+
+	"github.com/88250/lute/editor"
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
@@ -28,9 +29,9 @@ import (
 	"github.com/88250/lute/html"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func renderOutline(heading *ast.Node, luteEngine *lute.Lute) (ret string) {

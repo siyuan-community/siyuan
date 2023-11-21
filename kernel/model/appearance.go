@@ -26,10 +26,10 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/fsnotify/fsnotify"
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func InitAppearance() {

@@ -16,7 +16,7 @@
 
 package conf
 
-import "github.com/siyuan-note/siyuan/kernel/util"
+import "github.com/siyuan-community/siyuan/kernel/util"
 
 // BoxConf 维护 .siyuan/conf.json 笔记本配置。
 type BoxConf struct {

@@ -21,13 +21,14 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
-	"github.com/siyuan-note/siyuan/kernel/filesys"
 	"strings"
+
+	"github.com/siyuan-community/siyuan/kernel/filesys"
 
 	"github.com/88250/lute/parse"
 	"github.com/emirpasic/gods/sets/hashset"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/eventbus"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 var luteEngine = util.NewLute()

@@ -23,9 +23,9 @@ import (
 	"strings"
 
 	"github.com/88250/gulu"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
 )
 
 func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {

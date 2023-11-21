@@ -18,8 +18,8 @@ package cmd
 
 import (
 	"github.com/olahol/melody"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 type Cmd interface {

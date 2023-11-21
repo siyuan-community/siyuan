@@ -18,18 +18,19 @@ package api
 
 import (
 	"encoding/hex"
-	"github.com/siyuan-note/logging"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/siyuan-note/logging"
+
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func importSyncProviderWebDAV(c *gin.Context) {

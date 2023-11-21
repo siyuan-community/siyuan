@@ -17,7 +17,7 @@
 package cmd
 
 import (
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 type closews struct {

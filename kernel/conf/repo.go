@@ -19,7 +19,7 @@ package conf
 import (
 	"path/filepath"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 type Repo struct {
