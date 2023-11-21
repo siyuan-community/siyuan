@@ -1,10 +1,11 @@
 name: Release Docker Image
 
 on:
-  workflow_dispatch:
+  # workflow_dispatch:
   # push:
   #   branches:
   #     - master
+  create
 
 jobs:
   build:
