@@ -6,7 +6,7 @@ import {
     updateHotkeyTip,
     writeText
 } from "../../protyle/util/compatibility";
-import {matchHotKey} from "../../protyle/util/hotKey";
+import {matchAuxiliaryHotKey, matchHotKey} from "../../protyle/util/hotKey";
 import {openSearch} from "../../search/spread";
 import {
     hasClosestBlock,
@@ -120,11 +120,16 @@ const dialogArrow = (app: App, element: HTMLElement, event: KeyboardEvent) => {
                 currentLiElement.parentElement.firstElementChild.classList.add("b3-list-item--focus");
             }
         } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-            if (isWindow()) {
-                currentLiElement.classList.add("b3-list-item--focus");
+            const sideElement = currentLiElement.parentElement.previousElementSibling || currentLiElement.parentElement.nextElementSibling;
+            if (sideElement) {
+                const tempLiElement = sideElement.querySelector(`[data-index="${currentLiElement.getAttribute("data-index")}"]`) || sideElement.lastElementChild;
+                if (tempLiElement) {
+                    tempLiElement.classList.add("b3-list-item--focus");
+                } else {
+                    currentLiElement.classList.add("b3-list-item--focus");
+                }
             } else {
-                const sideElement = currentLiElement.parentElement.previousElementSibling || currentLiElement.parentElement.nextElementSibling;
-                (sideElement.querySelector(`[data-index="${currentLiElement.getAttribute("data-index")}"]`) || sideElement.lastElementChild).classList.add("b3-list-item--focus");
+                currentLiElement.classList.add("b3-list-item--focus");
             }
         } else if (event.key === "Enter") {
             const currentType = currentLiElement.getAttribute("data-type");
@@ -146,14 +151,15 @@ const dialogArrow = (app: App, element: HTMLElement, event: KeyboardEvent) => {
         }
         currentLiElement = element.querySelector(".b3-list-item--focus");
         const rootId = currentLiElement.getAttribute("data-node-id");
+        const pathElement = element.querySelector(".switch-doc__path");
         if (rootId) {
             fetchPost("/api/filetree/getFullHPathByID", {
                 id: rootId
             }, (response) => {
-                currentLiElement.parentElement.parentElement.nextElementSibling.innerHTML = escapeHtml(response.data);
+                pathElement.innerHTML = escapeHtml(response.data);
             });
         } else {
-            currentLiElement.parentElement.parentElement.nextElementSibling.innerHTML = currentLiElement.querySelector(".b3-list-item__text").innerHTML;
+            pathElement.innerHTML = currentLiElement.querySelector(".b3-list-item__text").innerHTML;
         }
         const currentRect = currentLiElement.getBoundingClientRect();
         const currentParentRect = currentLiElement.parentElement.getBoundingClientRect();
@@ -1055,8 +1061,10 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         }
     }
 
-    // mac 中只能使用 ⌃
-    if (switchDialog && event.ctrlKey && !event.metaKey && event.key.startsWith("Arrow")) {
+    if (switchDialog &&
+        (matchAuxiliaryHotKey(window.siyuan.config.keymap.general.goToEditTabNext.custom, event) ||
+            matchAuxiliaryHotKey(window.siyuan.config.keymap.general.goToEditTabPrev.custom, event))
+        && event.key.startsWith("Arrow")) {
         dialogArrow(app, switchDialog.element, event);
         return;
     }
@@ -1068,7 +1076,8 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
     }
 
     const isTabWindow = isWindow();
-    if (event.ctrlKey && !event.metaKey && event.key === "Tab") {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToEditTabNext.custom, event) ||
+        matchHotKey(window.siyuan.config.keymap.general.goToEditTabPrev.custom, event)) {
         if (switchDialog && switchDialog.element.parentElement) {
             return;
         }
@@ -1119,14 +1128,14 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         switchDialog = new Dialog({
             title: window.siyuan.languages.switchTab,
             content: `<div class="fn__flex-column switch-doc">
-    <div class="fn__hr"><input style="opacity: 0;height: 1px;box-sizing: border-box"></div>
+    <input style="opacity: 0;height: 0.1px;box-sizing: border-box;margin: 0;padding: 0;border: 0;">
     <div class="fn__flex" style="overflow:auto;">${dockHtml}
         <ul${!isTabWindow ? "" : ' style="border-left:0"'} class="b3-list b3-list--background fn__flex-1">${tabHtml}</ul>
     </div>
     <div class="switch-doc__path"></div>
 </div>`,
         });
-        switchDialog.element.setAttribute("data-key", "⌃⇥");
+        switchDialog.element.setAttribute("data-key", window.siyuan.config.keymap.general.goToEditTabNext.custom);
         // 需移走光标，否则编辑器会继续监听并执行按键操作
         switchDialog.element.querySelector("input").focus();
         if (isMac()) {
@@ -1155,15 +1164,6 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
     }
 
     if (matchHotKey(window.siyuan.config.keymap.general.recentDocs.custom, event)) {
-        const openRecentDocsDialog = window.siyuan.dialogs.find(item => {
-            if (item.element.getAttribute("data-key") === window.siyuan.config.keymap.general.recentDocs.custom) {
-                return true;
-            }
-        });
-        if (openRecentDocsDialog) {
-            hideElements(["dialog"]);
-            return;
-        }
         openRecentDocs();
         event.preventDefault();
         return;
@@ -1265,7 +1265,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         return;
     }
     if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.dailyNote.custom, event)) {
-        newDailyNote();
+        newDailyNote(app);
         event.stopPropagation();
         event.preventDefault();
         return;

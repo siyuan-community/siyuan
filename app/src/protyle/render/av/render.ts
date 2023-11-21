@@ -1,12 +1,14 @@
 import {fetchPost} from "../../../util/fetch";
 import {getColIconByType} from "./col";
 import {Constants} from "../../../constants";
-import {getCalcValue, popTextCell} from "./cell";
+import {popTextCell} from "./cell";
 import * as dayjs from "dayjs";
 import {unicode2Emoji} from "../../../emoji";
 import {focusBlock} from "../../util/selection";
 import {isMac} from "../../util/compatibility";
 import {hasClosestByClassName} from "../../util/hasClosest";
+import {stickyRow} from "./row";
+import {getCalcValue} from "./calc";
 
 export const avRender = (element: Element, protyle: IProtyle, cb?: () => void) => {
     let avElements: Element[] = [];
@@ -84,9 +86,9 @@ data-icon="${column.icon}" data-dtype="${column.type}"  data-pin="${column.pin}"
 style="width: ${column.width || "200px"};
 ${column.wrap ? "" : "white-space: nowrap;"}">
     <div draggable="true" class="av__cellheader">
-        ${column.icon ? unicode2Emoji(column.icon, "av__cellicon", true) : `<svg class="av__cellicon"><use xlink:href="#${getColIconByType(column.type)}"></use></svg>`}
+        ${column.icon ? unicode2Emoji(column.icon, "av__cellheadericon", true) : `<svg class="av__cellheadericon"><use xlink:href="#${getColIconByType(column.type)}"></use></svg>`}
         <span class="av__celltext">${column.name}</span>
-        ${column.pin ? '<div class="fn__flex-1"></div><svg class="av__cellicon"><use xlink:href="#iconPin"></use></svg>' : ""}
+        ${column.pin ? '<div class="fn__flex-1"></div><svg class="av__cellheadericon"><use xlink:href="#iconPin"></use></svg>' : ""}
     </div>
     <div class="av__widthdrag"></div>
 </div>`;
@@ -171,6 +173,8 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                                     text += `<span class="b3-chip av__celltext--url" data-url="${item.content}">${item.name}</span>`;
                                 }
                             });
+                        } else if (cell.valueType === "checkbox") {
+                            text += `<svg class="av__checkbox"><use xlink:href="#icon${cell.value?.checkbox?.checked ? "Check" : "Uncheck"}"></use></svg>`;
                         }
                         if (["text", "template", "url", "email", "phone", "number", "date", "created", "updated"].includes(cell.valueType) &&
                             cell.value && cell.value[cell.valueType as "url"].content) {
@@ -240,12 +244,19 @@ ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
                     if (left) {
                         e.querySelector(".av__scroll").scrollLeft = left;
                     }
+
+                    const editRect = protyle.contentElement.getBoundingClientRect();
                     if (headerTransform) {
                         (e.querySelector(".av__row--header") as HTMLElement).style.transform = headerTransform;
+                    } else {
+                        stickyRow(e, editRect, "top");
                     }
                     if (footerTransform) {
                         (e.querySelector(".av__row--footer") as HTMLElement).style.transform = footerTransform;
+                    } else {
+                        stickyRow(e, editRect, "bottom");
                     }
+
                     if (selectCellId) {
                         const newCellElement = e.querySelector(`.av__row[data-id="${selectCellId.split(Constants.ZWSP)[0]}"] .av__cell[data-col-id="${selectCellId.split(Constants.ZWSP)[1]}"]`);
                         if (newCellElement) {

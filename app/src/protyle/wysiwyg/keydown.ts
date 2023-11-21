@@ -6,7 +6,7 @@ import {
     focusByWbr,
     getEditorRange,
     getSelectionOffset, getSelectionPosition,
-    selectAll,
+    selectAll, setFirstNodeRange,
 } from "../util/selection";
 import {
     hasClosestBlock,
@@ -718,7 +718,8 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
 
         // 删除，不可使用 isNotCtrl(event)，否则软删除回导致 https://github.com/siyuan-note/siyuan/issues/5607
         // 不可使用 !event.shiftKey，否则 https://ld246.com/article/1666434796806
-        if (!event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
+        if ((!event.altKey && (event.key === "Backspace" || event.key === "Delete")) ||
+            matchHotKey("⌃D", event)) {
             if (protyle.wysiwyg.element.querySelector(".protyle-wysiwyg--select")) {
                 removeBlock(protyle, nodeElement, range);
                 event.stopPropagation();
@@ -800,7 +801,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                     return;
                 }
                 const position = getSelectionOffset(editElement, protyle.wysiwyg.element, range);
-                if (event.key === "Delete") {
+                if (event.key === "Delete" || matchHotKey("⌃D", event)) {
                     // 段末反向删除 https://github.com/siyuan-note/insider/issues/274
                     if (position.end === editElement.textContent.length) {
                         const nextElement = getNextBlock(getTopAloneElement(nodeElement));
@@ -855,6 +856,23 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                     // 代码块中空行 ⌘+Del 异常 https://ld246.com/article/1663166544901
                     if (nodeElement.classList.contains("code-block") && isOnlyMeta(event) &&
                         range.startContainer.nodeType === 3 && range.startContainer.textContent.substring(range.startOffset - 1, range.startOffset) === "\n") {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        return;
+                    }
+                    // https://github.com/siyuan-note/siyuan/issues/9690
+                    const inlineElement = hasClosestByMatchTag(range.startContainer, "SPAN");
+                    if (position.start === 2 && inlineElement &&
+                        getSelectionOffset(inlineElement, protyle.wysiwyg.element, range).start === 1 &&
+                        inlineElement.textContent.startsWith(Constants.ZWSP)) {
+                        focusBlock(nodeElement);
+                        event.stopPropagation();
+                        event.preventDefault();
+                        return;
+                    }
+                    if (position.start === 1 && !inlineElement && editElement.textContent.startsWith(Constants.ZWSP)) {
+                        setFirstNodeRange(editElement, range);
+                        removeBlock(protyle, nodeElement, range);
                         event.stopPropagation();
                         event.preventDefault();
                         return;

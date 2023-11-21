@@ -76,7 +76,7 @@ import {removeSearchMark} from "../toolbar/util";
 import {activeBlur, hideKeyboardToolbar} from "../../mobile/util/keyboardToolbar";
 import {commonClick} from "./commonClick";
 import {avClick, avContextmenu, updateAVName} from "../render/av/action";
-import {updateHeader} from "../render/av/row";
+import {stickyRow, updateHeader} from "../render/av/row";
 
 export class WYSIWYG {
     public lastHTMLs: { [key: string]: string } = {};
@@ -382,14 +382,14 @@ export class WYSIWYG {
                 const oldWidth = dragElement.clientWidth;
                 const dragColId = dragElement.getAttribute("data-col-id");
                 let newWidth: string;
+                const scrollElement = nodeElement.querySelector(".av__scroll");
+                const contentRect = protyle.contentElement.getBoundingClientRect();
                 documentSelf.onmousemove = (moveEvent: MouseEvent) => {
-                    newWidth = Math.max(oldWidth + (moveEvent.clientX - event.clientX), 58) + "px";
-                    const scrollElement = hasClosestByClassName(dragElement, "av__scroll");
-                    if (scrollElement) {
-                        scrollElement.querySelectorAll(".av__row, .av__row--footer").forEach(item => {
-                            (item.querySelector(`[data-col-id="${dragColId}"]`) as HTMLElement).style.width = newWidth;
-                        });
-                    }
+                    newWidth = Math.max(oldWidth + (moveEvent.clientX - event.clientX), 25) + "px";
+                    scrollElement.querySelectorAll(".av__row, .av__row--footer").forEach(item => {
+                        (item.querySelector(`[data-col-id="${dragColId}"]`) as HTMLElement).style.width = newWidth;
+                    });
+                    stickyRow(nodeElement, contentRect, "bottom");
                 };
 
                 documentSelf.onmouseup = () => {
@@ -1475,6 +1475,12 @@ export class WYSIWYG {
             // https://github.com/siyuan-note/siyuan/issues/4600
             if (event.target.tagName === "PROTYLE-HTML") {
                 event.stopPropagation();
+                return;
+            }
+            const blockElement = hasClosestBlock(event.target);
+            if (blockElement && !getContenteditableElement(blockElement)) {
+                event.stopPropagation();
+                event.preventDefault();
                 return;
             }
             paste(protyle, event);

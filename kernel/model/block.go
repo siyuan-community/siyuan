@@ -70,9 +70,14 @@ type RiffCard struct {
 	Reps uint64    `json:"reps"`
 }
 
-func GetRiffCard(card *fsrs.Card) *RiffCard {
+func getRiffCard(card *fsrs.Card) *RiffCard {
+	due := card.Due
+	if due.IsZero() {
+		due = time.Now()
+	}
+
 	return &RiffCard{
-		Due:  card.Due,
+		Due:  due,
 		Reps: card.Reps,
 	}
 }
@@ -575,7 +580,7 @@ func getBlock(id string, tree *parse.Tree) (ret *Block, err error) {
 	return
 }
 
-func getEmbeddedBlock(embedBlockID string, trees map[string]*parse.Tree, sqlBlock *sql.Block, headingMode int, breadcrumb bool) (block *Block, blockPaths []*BlockPath) {
+func getEmbeddedBlock(trees map[string]*parse.Tree, sqlBlock *sql.Block, headingMode int, breadcrumb bool) (block *Block, blockPaths []*BlockPath) {
 	tree, _ := trees[sqlBlock.RootID]
 	if nil == tree {
 		tree, _ = loadTreeByBlockID(sqlBlock.RootID)

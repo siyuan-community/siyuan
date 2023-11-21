@@ -9,7 +9,7 @@ require (
 	github.com/88250/clipboard v0.1.5
 	github.com/88250/epub v0.0.0-20230830085737-c19055cd1f48
 	github.com/88250/gulu v1.2.3-0.20231023172823-f152fc5d93ef
-	github.com/88250/lute v1.7.6-0.20231113042205-e8dab3abc952
+	github.com/88250/lute v1.7.6-0.20231117124256-a3955cb3899d
 	github.com/88250/pdfcpu v0.3.14-0.20230401044135-c7369a99720c
 	github.com/88250/vitess-sqlparser v0.0.0-20210205111146-56a2ded2aba1
 	github.com/ClarkThan/ahocorasick v0.0.0-20231011042242-30d1ef1347f4
@@ -36,7 +36,7 @@ require (
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-github/v53 v53.2.0
 	github.com/gorilla/websocket v1.5.1
-	github.com/imroc/req/v3 v3.42.1
+	github.com/imroc/req/v3 v3.42.2
 	github.com/jinzhu/copier v0.4.0
 	github.com/json-iterator/go v1.1.12
 	github.com/klippa-app/go-pdfium v1.8.2
@@ -48,13 +48,14 @@ require (
 	github.com/panjf2000/ants/v2 v2.8.2
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/radovskyb/watcher v1.0.7
-	github.com/sashabaranov/go-openai v1.17.6
+	github.com/rqlite/sql v0.0.0-20221103124402-8f9ff0ceb8f0
+	github.com/sashabaranov/go-openai v1.17.8
 	github.com/shirou/gopsutil/v3 v3.23.10
-	github.com/siyuan-note/dejavu v0.0.0-20231114024923-42c60dc5343a
+	github.com/siyuan-note/dejavu v0.0.0-20231120143143-e407eb1309c0
 	github.com/siyuan-note/encryption v0.0.0-20220713091850-5ecd92177b75
 	github.com/siyuan-note/eventbus v0.0.0-20230804030110-cf250f838c80
 	github.com/siyuan-note/filelock v0.0.0-20231107122348-6ed75b0b525a
-	github.com/siyuan-note/httpclient v0.0.0-20231114005512-c39c76a8c333
+	github.com/siyuan-note/httpclient v0.0.0-20231120083123-750db4d28b38
 	github.com/siyuan-note/logging v0.0.0-20231030034701-8265764f00ff
 	github.com/siyuan-note/riff v0.0.0-20231106140614-c67ff0c69e33
 	github.com/steambap/captcha v1.4.1
@@ -88,7 +89,7 @@ require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/asaskevich/EventBus v0.0.0-20200907212545-49d423059eef // indirect
-	github.com/aws/aws-sdk-go v1.47.11 // indirect
+	github.com/aws/aws-sdk-go v1.48.0 // indirect
 	github.com/bytedance/sonic v1.10.2 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect
@@ -122,7 +123,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jolestar/go-commons-pool/v2 v2.1.2 // indirect
 	github.com/juju/errors v1.0.0 // indirect
-	github.com/klauspost/compress v1.17.2 // indirect
+	github.com/klauspost/compress v1.17.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/levigross/exp-html v0.0.0-20120902181939-8df60c69a8f5 // indirect

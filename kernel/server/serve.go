@@ -225,8 +225,9 @@ func serveAppearance(ginServer *gin.Engine) {
 
 	siyuan.Handle("GET", "/", func(c *gin.Context) {
 		userAgentHeader := c.GetHeader("User-Agent")
+		logging.LogInfof("serving [/] for user-agent [%s]", userAgentHeader)
 
-		/* Carry query parameters when redirecting */
+		// Carry query parameters when redirecting
 		location := url.URL{}
 		queryParams := c.Request.URL.Query()
 		queryParams.Set("r", gulu.Rand.String(7))
@@ -362,6 +363,7 @@ func serveCheckAuth(c *gin.Context) {
 		"l5":                     model.Conf.Language(177),
 		"l6":                     model.Conf.Language(178),
 		"l7":                     template.HTML(model.Conf.Language(184)),
+		"l8":                     model.Conf.Language(95),
 		"appearanceMode":         model.Conf.Appearance.Mode,
 		"appearanceModeOS":       model.Conf.Appearance.ModeOS,
 		"workspace":              filepath.Base(util.WorkspaceDir),
