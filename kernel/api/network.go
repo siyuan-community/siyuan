@@ -32,8 +32,8 @@ import (
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
 	"github.com/imroc/req/v3"
-	"github.com/siyuan-community/logging"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
 
 type File struct {

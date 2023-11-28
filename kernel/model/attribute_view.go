@@ -30,12 +30,12 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/Masterminds/sprig/v3"
-	"github.com/siyuan-community/dejavu/entity"
-	"github.com/siyuan-community/filelock"
-	"github.com/siyuan-community/logging"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/dejavu/entity"
+	"github.com/siyuan-note/filelock"
+	"github.com/siyuan-note/logging"
 )
 
 type BlockAttributeViewKeys struct {
