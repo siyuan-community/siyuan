@@ -27,8 +27,8 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
+	"github.com/siyuan-community/logging"
 	"github.com/siyuan-community/siyuan/kernel/util"
-	"github.com/siyuan-note/logging"
 	"github.com/steambap/captcha"
 )
 
@@ -200,8 +200,22 @@ func CheckAuth(c *gin.Context) {
 
 	// 未设置访问授权码
 	if "" == Conf.AccessAuthCode {
+		// Skip the empty access authorization code check https://github.com/siyuan-note/siyuan/issues/9709
+		if util.SiyuanAccessAuthCodeBypass {
+			c.Next()
+			return
+		}
+
 		// Authenticate requests with the Origin header other than 127.0.0.1 https://github.com/siyuan-note/siyuan/issues/9180
-		if !localhost {
+		clientIP := c.ClientIP()
+		host := c.GetHeader("Host")
+		origin := c.GetHeader("Origin")
+		forwardedHost := c.GetHeader("X-Forwarded-Host")
+		if !localhost ||
+			("" != clientIP && !util.IsLocalHostname(clientIP)) ||
+			("" != host && !util.IsLocalHost(host)) ||
+			("" != origin && !util.IsLocalOrigin(origin) && !strings.HasPrefix(origin, "chrome-extension://")) ||
+			("" != forwardedHost && !util.IsLocalHost(forwardedHost)) {
 			c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed: for security reasons, please set [Access authorization code] when using non-127.0.0.1 access\n\n为安全起见，使用非 127.0.0.1 访问时请设置 [访问授权码]"})
 			c.Abort()
 			return
@@ -227,6 +241,10 @@ func CheckAuth(c *gin.Context) {
 			return
 		}
 		if strings.HasPrefix(c.Request.RequestURI, "/api/system/exit") {
+			c.Next()
+			return
+		}
+		if strings.HasPrefix(c.Request.RequestURI, "/api/system/getNetwork") {
 			c.Next()
 			return
 		}
@@ -267,7 +285,7 @@ func CheckAuth(c *gin.Context) {
 	if !cookiesCertified {
 		userAgentHeader := c.GetHeader("User-Agent")
 		if strings.HasPrefix(userAgentHeader, "SiYuan/") || strings.HasPrefix(userAgentHeader, "Mozilla/") {
-			if "GET" != c.Request.Method {
+			if "GET" != c.Request.Method || c.IsWebsocket() {
 				c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": Conf.Language(156)})
 				c.Abort()
 				return
