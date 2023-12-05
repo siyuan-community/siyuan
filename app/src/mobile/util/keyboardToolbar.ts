@@ -11,6 +11,7 @@ import {focusByRange, getSelectionPosition} from "../../protyle/util/selection";
 import {getCurrentEditor} from "../editor";
 import {fontEvent, getFontNodeElements} from "../../protyle/toolbar/Font";
 import {hideElements} from "../../protyle/ui/hideElements";
+import {input} from "../../protyle/wysiwyg/input";
 
 let renderKeyboardToolbarTimeout: number;
 let showUtil = false;
@@ -412,6 +413,9 @@ export const showKeyboardToolbar = () => {
     if (editor && editor.protyle.wysiwyg.element.contains(range.startContainer)) {
         editor.protyle.element.parentElement.style.paddingBottom = "42px";
     }
+    getCurrentEditor().protyle.app.plugins.forEach(item => {
+        item.eventBus.emit("mobile-keyboard-show");
+    });
     setTimeout(() => {
         const contentElement = hasClosestByClassName(range.startContainer, "protyle-content", true);
         if (contentElement) {
@@ -433,6 +437,9 @@ export const hideKeyboardToolbar = () => {
         return;
     }
     const toolbarElement = document.getElementById("keyboardToolbar");
+    if (toolbarElement.classList.contains("fn__none")) {
+        return;
+    }
     toolbarElement.classList.add("fn__none");
     toolbarElement.style.height = "";
     const editor = getCurrentEditor();
@@ -443,6 +450,9 @@ export const hideKeyboardToolbar = () => {
     if (modelElement.style.transform === "translateY(0px)") {
         modelElement.style.paddingBottom = "";
     }
+    getCurrentEditor().protyle.app.plugins.forEach(item => {
+        item.eventBus.emit("mobile-keyboard-hide");
+    });
 };
 
 export const activeBlur = () => {
@@ -474,6 +484,7 @@ export const initKeyboardToolbar = () => {
             <span class="keyboard__split"></span>
             <button class="keyboard__action" data-type="moveup"><svg><use xlink:href="#iconUp"></use></svg></button>
             <button class="keyboard__action" data-type="movedown"><svg><use xlink:href="#iconDown"></use></svg></button>
+            <button class="keyboard__action" data-type="softLine"><svg><use xlink:href="#iconArrowDown"></use></svg></button>
         </div>
         <div class="fn__none keyboard__dynamic">
             <button class="keyboard__action" data-type="goback"><svg><use xlink:href="#iconBack"></use></svg></button>
@@ -621,6 +632,11 @@ export const initKeyboardToolbar = () => {
         } else if (type === "movedown") {
             moveToDown(protyle, nodeElement, range);
             focusByRange(range);
+            return;
+        } else if (type === "softLine") {
+            range.insertNode(document.createTextNode("\n"));
+            range.collapse(false);
+            input(protyle, nodeElement, range);
             return;
         } else if (type === "add") {
             if (buttonElement.classList.contains("protyle-toolbar__item--current")) {

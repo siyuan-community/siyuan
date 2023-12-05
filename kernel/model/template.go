@@ -44,7 +44,14 @@ import (
 )
 
 func RenderGoTemplate(templateContent string) (ret string, err error) {
-	tpl, err := template.New("").Funcs(sprig.TxtFuncMap()).Parse(templateContent)
+	tmpl := template.New("")
+	tmpl = tmpl.Funcs(sprig.TxtFuncMap())
+	tmpl = tmpl.Funcs(template.FuncMap{
+		"Weekday":   util.Weekday,
+		"WeekdayCN": util.WeekdayCN,
+		"ISOWeek":   util.ISOWeek,
+	})
+	tpl, err := tmpl.Parse(templateContent)
 	if nil != err {
 		return "", errors.New(fmt.Sprintf(Conf.Language(44), err.Error()))
 	}
@@ -240,6 +247,9 @@ func renderTemplate(p, id string, preview bool) (string, error) {
 		}
 		return ret
 	}
+	funcMap["Weekday"] = util.Weekday
+	funcMap["WeekdayCN"] = util.WeekdayCN
+	funcMap["ISOWeek"] = util.ISOWeek
 
 	goTpl := template.New("").Delims(".action{", "}")
 	tpl, err := goTpl.Funcs(funcMap).Parse(gulu.Str.FromBytes(md))
@@ -315,7 +325,7 @@ func renderTemplate(p, id string, preview bool) (string, error) {
 						}
 					} else {
 						// 预览时使用简单表格渲染
-						view, getErr := attrView.GetView()
+						view, getErr := attrView.GetCurrentView()
 						if nil != getErr {
 							logging.LogErrorf("get attribute view [%s] failed: %s", n.AttributeViewID, getErr)
 							return ast.WalkContinue

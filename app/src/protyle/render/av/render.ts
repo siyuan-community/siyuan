@@ -10,7 +10,7 @@ import {hasClosestByClassName} from "../../util/hasClosest";
 import {stickyRow} from "./row";
 import {getCalcValue} from "./calc";
 
-export const avRender = (element: Element, protyle: IProtyle, cb?: () => void) => {
+export const avRender = (element: Element, protyle: IProtyle, cb?: () => void, viewID?: string) => {
     let avElements: Element[] = [];
     if (element.getAttribute("data-type") === "NodeAttributeView") {
         // 编辑器内代码块编辑渲染
@@ -52,10 +52,17 @@ export const avRender = (element: Element, protyle: IProtyle, cb?: () => void) =
             }
             const created = protyle.options.history?.created;
             const snapshot = protyle.options.history?.snapshot;
+            let newViewID = "";
+            if (typeof viewID === "string") {
+                newViewID = viewID;
+            } else if (typeof viewID === "undefined") {
+                newViewID = e.querySelector(".av__header .item--focus")?.getAttribute("data-id");
+            }
             fetchPost(created ? "/api/av/renderHistoryAttributeView" : (snapshot ? "/api/av/renderSnapshotAttributeView" : "/api/av/renderAttributeView"), {
                 id: e.getAttribute("data-av-id"),
                 created,
-                snapshot
+                snapshot,
+                viewID: newViewID
             }, (response) => {
                 const data = response.data.view as IAVTable;
                 // header
@@ -115,8 +122,8 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                 data.rows.forEach((row: IAVRow) => {
                     tableHTML += `<div class="av__row" data-id="${row.id}">
 <div class="av__gutters">
-    <button class="ariaLabel" data-action="add" data-position="right" aria-label="${isMac() ? window.siyuan.languages.addBelowAbove : window.siyuan.languages.addBelowAbove.replace("⌥", "Alt+")}"><svg><use xlink:href="#iconAdd"></use></svg></button>
-    <button class="ariaLabel" draggable="true" data-position="right" aria-label="${window.siyuan.languages.rowTip}"><svg><use xlink:href="#iconDrag"></use></svg></button>
+    <button class="av__gutter ariaLabel" data-action="add" data-position="right" aria-label="${isMac() ? window.siyuan.languages.addBelowAbove : window.siyuan.languages.addBelowAbove.replace("⌥", "Alt+")}"><svg><use xlink:href="#iconAdd"></use></svg></button>
+    <button class="av__gutter ariaLabel" draggable="true" data-position="right" aria-label="${window.siyuan.languages.rowTip}"><svg><use xlink:href="#iconDrag"></use></svg></button>
 </div>`;
                     if (pinIndex > -1) {
                         tableHTML += '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
@@ -147,7 +154,7 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                                 text += `<span class="b3-chip b3-chip--info b3-chip--small" data-type="block-ref" data-id="${cell.value.block.id}" data-subtype="s">${window.siyuan.languages.openBy}</span>`;
                             }
                         } else if (cell.valueType === "number") {
-                            text = `<span style="float: right" class="av__celltext" data-content="${cell.value?.number.isNotEmpty ? cell.value?.number.content : ""}">${cell.value?.number.formattedContent || ""}</span>`;
+                            text = `<span style="float: right;${data.columns[index].wrap ? "word-break: break-word;" : ""}" class="av__celltext" data-content="${cell.value?.number.isNotEmpty ? cell.value?.number.content : ""}">${cell.value?.number.formattedContent || ""}</span>`;
                         } else if (cell.valueType === "mSelect" || cell.valueType === "select") {
                             cell.value?.mSelect?.forEach((item) => {
                                 text += `<span class="b3-chip" style="background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})">${item.content}</span>`;
@@ -200,33 +207,44 @@ ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
                 });
                 let tabHTML = "";
                 response.data.views.forEach((item: IAVView) => {
-                    tabHTML += `<div data-id="${response.data.viewID}" class="item${item.id === response.data.viewID ? " item--focus" : ""}">
-    <svg class="item__graphic"><use xlink:href="#iconTable"></use></svg>
+                    tabHTML += `<div data-id="${item.id}" class="item${item.id === response.data.viewID ? " item--focus" : ""}">
+    ${item.icon ? unicode2Emoji(item.icon, "item__graphic", true) : '<svg class="item__graphic"><use xlink:href="#iconTable"></use></svg>'}
     <span class="item__text">${item.name}</span>
 </div>`;
                 });
                 setTimeout(() => {
                     e.firstElementChild.outerHTML = `<div class="av__container" style="--av-background:${e.style.backgroundColor || "var(--b3-theme-background)"}">
     <div class="av__header">
-        <div class="layout-tab-bar fn__flex">
-            ${tabHTML}
+        <div class="fn__flex av__views">
+            <div class="layout-tab-bar fn__flex">
+                ${tabHTML}
+            </div>
+            <div class="fn__space"></div>
+            <span data-type="av-add" class="block__icon">
+                <svg><use xlink:href="#iconAdd"></use></svg>
+            </span>
             <div class="fn__flex-1"></div>
-            ${response.data.isMirror ? ` <span class="block__icon block__icon--show b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.mirrorTip}">
-    <svg><use xlink:href="#iconSplitLR"></use></svg></span><div class="fn__space"></div>` : ""}
-            <span data-type="av-filter" class="block__icon block__icon--show b3-tooltips b3-tooltips__w${data.filters.length > 0 ? " block__icon--active" : ""}" aria-label="${window.siyuan.languages.filter}">
+            <div class="fn__space"></div>
+            <span data-type="av-switcher" class="block__icon${response.data.views.length > 0 ? "" : " fn__none"}">
+                <svg><use xlink:href="#iconDown"></use></svg>
+            </span>
+            <div class="fn__space"></div>
+            <span data-type="av-filter" class="block__icon${data.filters.length > 0 ? " block__icon--active" : ""}">
                 <svg><use xlink:href="#iconFilter"></use></svg>
             </span>
             <div class="fn__space"></div>
-            <span data-type="av-sort" class="block__icon block__icon--show b3-tooltips b3-tooltips__w${data.sorts.length > 0 ? " block__icon--active" : ""}" aria-label="${window.siyuan.languages.sort}">
+            <span data-type="av-sort" class="block__icon${data.sorts.length > 0 ? " block__icon--active" : ""}">
                 <svg><use xlink:href="#iconSort"></use></svg>
             </span>
             <div class="fn__space"></div>
-            <span data-type="av-more" class="block__icon block__icon--show b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.more}">
+            <span data-type="av-more" class="block__icon">
                 <svg><use xlink:href="#iconMore"></use></svg>
             </span>
             <div class="fn__space"></div>
+            ${response.data.isMirror ? ` <span class="block__icon block__icon--show ariaLabel" aria-label="${window.siyuan.languages.mirrorTip}">
+    <svg><use xlink:href="#iconSplitLR"></use></svg></span><div class="fn__space"></div>` : ""}
         </div>
-        <div contenteditable="${protyle.disabled ? "false" : "true"}" spellcheck="${window.siyuan.config.editor.spellcheck.toString()}" class="av__title" data-title="${data.name || ""}" data-tip="${window.siyuan.languages.title}">${response.data.name || ""}</div>
+        <div contenteditable="${protyle.disabled ? "false" : "true"}" spellcheck="${window.siyuan.config.editor.spellcheck.toString()}" class="av__title" data-title="${response.data.name || ""}" data-tip="${window.siyuan.languages.title}">${response.data.name || ""}</div>
         <div class="av__counter fn__none"></div>
     </div>
     <div class="av__scroll">
@@ -270,6 +288,7 @@ ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
                             focusBlock(e);
                         }
                     }
+                    e.querySelector(".layout-tab-bar").scrollLeft = (e.querySelector(".layout-tab-bar .item--focus") as HTMLElement).offsetLeft;
                     if (cb) {
                         cb();
                     }
@@ -290,7 +309,6 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation, isUndo: bool
             }
             titleElement.textContent = operation.data;
             titleElement.dataset.title = operation.data;
-            item.querySelector(".layout-tab-bar .item__text").textContent = operation.data;
         });
     }
     if (lastParentID === operation.parentID && protyle.contentElement.isSameNode(lastElement)) {
@@ -312,12 +330,14 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation, isUndo: bool
     } else {
         Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${avId}"]`)).forEach((item: HTMLElement) => {
             item.removeAttribute("data-render");
+            const isCurrent = item.querySelector(".av__pulse"); // ctrl+D 后点击添加行
             avRender(item, protyle, () => {
                 // https://github.com/siyuan-note/siyuan/issues/9599
-                if (!isUndo && operation.action === "insertAttrViewBlock" && operation.isDetached) {
+                if (!isUndo && operation.action === "insertAttrViewBlock" && operation.isDetached && isCurrent) {
                     popTextCell(protyle, [item.querySelector(`.av__row[data-id="${operation.srcIDs[0]}"] .av__cell[data-detached="true"]`)], "block");
                 }
-            });
+            }, ["addAttrViewView", "duplicateAttrViewView"].includes(operation.action) ? operation.id :
+                (operation.action === "removeAttrViewView" ? null : undefined));
         });
     }
 

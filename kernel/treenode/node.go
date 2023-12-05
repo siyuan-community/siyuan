@@ -509,6 +509,8 @@ func getAttributeViewContent(avID string) (content string) {
 	}
 
 	buf := bytes.Buffer{}
+	buf.WriteString(attrView.Name)
+	buf.WriteByte(' ')
 	for _, v := range attrView.Views {
 		buf.WriteString(v.Name)
 		buf.WriteByte(' ')
@@ -527,7 +529,7 @@ func getAttributeViewContent(avID string) (content string) {
 		}
 	}
 	if nil == view {
-		content = buf.String()
+		content = strings.TrimSpace(buf.String())
 		return
 	}
 
@@ -559,6 +561,7 @@ func getAttributeViewContent(avID string) (content string) {
 func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *av.Table, err error) {
 	ret = &av.Table{
 		ID:      view.ID,
+		Icon:    view.Icon,
 		Name:    view.Name,
 		Columns: []*av.TableColumn{},
 		Rows:    []*av.TableRow{},

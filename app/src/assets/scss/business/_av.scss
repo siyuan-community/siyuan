@@ -4,6 +4,10 @@
   display: flex;
   max-width: 100%;
 
+  &:hover .av__views .block__icon {
+    opacity: 1;
+  }
+
   &__container {
     overflow: auto;
   }
@@ -37,15 +41,16 @@
     .layout-tab-bar {
       background-color: transparent;
       font-size: 87.5%;
-
-      .item {
-        line-height: normal;
-      }
     }
+  }
+
+  &__views {
+    align-items: center;
   }
 
   &__title {
     outline: none;
+    font-weight: bold;
 
     &:empty::after {
       color: var(--b3-theme-on-surface);
@@ -63,11 +68,14 @@
 
   &__gutters {
     @extend .protyle-gutters;
-    position: fixed;
     top: 0;
     left: -44px;
     opacity: 0;
     display: flex;
+
+    &--min .av__gutter {
+      padding: 4px 0;
+    }
 
     svg {
       height: 25px;
