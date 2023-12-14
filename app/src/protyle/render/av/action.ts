@@ -5,7 +5,7 @@ import {openEditorTab} from "../../../menus/util";
 import {copySubMenu} from "../../../menus/commonMenuItem";
 import {getTypeByCellElement, popTextCell} from "./cell";
 import {getColIconByType, showColMenu} from "./col";
-import {insertAttrViewBlockAnimation, stickyRow, updateHeader} from "./row";
+import {insertAttrViewBlockAnimation, setPageSize, stickyRow, updateHeader} from "./row";
 import {emitOpenMenu} from "../../../plugin/EventBus";
 import {addCol} from "./col";
 import {openMenuPanel} from "./openMenuPanel";
@@ -77,6 +77,23 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.preventDefault();
             event.stopPropagation();
             return true;
+        } else if (type === "av-add-more") {
+            const avID = blockElement.getAttribute("data-av-id");
+            const srcIDs = [Lute.NewNodeID()];
+            transaction(protyle, [{
+                action: "insertAttrViewBlock",
+                avID,
+                srcIDs,
+                isDetached: true,
+            }], [{
+                action: "removeAttrViewBlock",
+                srcIDs,
+                avID,
+            }]);
+            insertAttrViewBlockAnimation(blockElement, srcIDs, undefined, avID);
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
         } else if (type === "av-more") {
             openMenuPanel({protyle, blockElement, type: "config"});
             event.preventDefault();
@@ -87,7 +104,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.preventDefault();
             event.stopPropagation();
             return true;
-        }  else if (type === "av-sort") {
+        } else if (type === "av-sort") {
             openMenuPanel({protyle, blockElement, type: "sorts"});
             event.preventDefault();
             event.stopPropagation();
@@ -107,6 +124,43 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             protyle.toolbar.range.selectNodeContents(target);
             focusByRange(protyle.toolbar.range);
             hintRef(target.previousElementSibling.textContent.trim(), protyle, "av");
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (type === "av-load-more") {
+            (blockElement.querySelector(".av__row--footer") as HTMLElement).style.transform = "";
+            blockElement.removeAttribute("data-render");
+            blockElement.dataset.pageSize = (parseInt(blockElement.dataset.pageSize) + parseInt(blockElement.querySelector('[data-type="set-page-size"]').getAttribute("data-size"))).toString();
+            avRender(blockElement, protyle);
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (type === "set-page-size") {
+            setPageSize({
+                target,
+                protyle,
+                avID: blockElement.getAttribute("data-av-id"),
+                nodeElement: blockElement
+            });
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (type === "av-add-bottom") {
+            const avID = blockElement.getAttribute("data-av-id");
+            const srcIDs = [Lute.NewNodeID()];
+            const previousID = blockElement.querySelector(".av__row--util").previousElementSibling.getAttribute("data-id") || "";
+            transaction(protyle, [{
+                action: "insertAttrViewBlock",
+                avID,
+                previousID,
+                srcIDs,
+                isDetached: true,
+            }], [{
+                action: "removeAttrViewBlock",
+                srcIDs,
+                avID,
+            }]);
+            insertAttrViewBlockAnimation(blockElement, srcIDs, previousID, avID);
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -130,7 +184,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                     srcIDs,
                     avID,
                 }]);
-                insertAttrViewBlockAnimation(blockElement, 1, previousID, avID);
+                insertAttrViewBlockAnimation(blockElement, srcIDs, previousID, avID);
             } else {
                 const gutterRect = target.getBoundingClientRect();
                 avContextmenu(protyle, rowElement, {
@@ -189,7 +243,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
         } else if (target.classList.contains("av__cell")) {
             if (!hasClosestByClassName(target, "av__row--header")) {
                 const scrollElement = hasClosestByClassName(target, "av__scroll");
-                if (!scrollElement) {
+                if (!scrollElement || target.querySelector(".av__pulse")) {
                     return;
                 }
                 const rowElement = hasClosestByClassName(target, "av__row");
@@ -213,25 +267,6 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             return true;
         } else if (target.classList.contains("av__calc")) {
             openCalcMenu(protyle, target);
-            event.preventDefault();
-            event.stopPropagation();
-            return true;
-        } else if (target.classList.contains("av__row--add")) {
-            const avID = blockElement.getAttribute("data-av-id");
-            const srcIDs = [Lute.NewNodeID()];
-            const previousID = target.previousElementSibling.getAttribute("data-id") || "";
-            transaction(protyle, [{
-                action: "insertAttrViewBlock",
-                avID,
-                previousID,
-                srcIDs,
-                isDetached: true,
-            }], [{
-                action: "removeAttrViewBlock",
-                srcIDs,
-                avID,
-            }]);
-            insertAttrViewBlockAnimation(blockElement, 1, previousID, avID);
             event.preventDefault();
             event.stopPropagation();
             return true;

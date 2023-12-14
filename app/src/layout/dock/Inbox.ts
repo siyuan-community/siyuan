@@ -333,9 +333,8 @@ ${data.shorthandContent}
                         path: pathPosix().join(getDisplayName(toPath[0], false, true), Lute.NewNodeID() + ".sy"),
                         title: replaceFileName(response.data.shorthandTitle),
                         md: response.data.shorthandMd,
-                    }, (docResponse) => {
+                    }, () => {
                         this.remove(item);
-                        fetchPost("/api/format/netAssets2LocalAssets", {id: docResponse.data.id});
                     });
                 });
             });

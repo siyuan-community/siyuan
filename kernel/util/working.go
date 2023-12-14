@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/88250/gulu"
 	figure "github.com/common-nighthawk/go-figure"
@@ -41,7 +42,7 @@ import (
 var Mode = "prod"
 
 const (
-	Ver       = "2.11.1"
+	Ver       = "2.11.2"
 	IsInsider = false
 )
 
@@ -59,9 +60,9 @@ func initEnvVars() {
 }
 
 var (
-	bootProgress float64 // 启动进度，从 0 到 100
-	bootDetails  string  // 启动细节描述
-	HttpServing  = false // 是否 HTTP 伺服已经可用
+	bootProgress = atomic.Int32{} // 启动进度，从 0 到 100
+	bootDetails  string           // 启动细节描述
+	HttpServing  = false          // 是否 HTTP 伺服已经可用
 )
 
 func Boot() {
@@ -170,40 +171,48 @@ func Boot() {
 	logBootInfo()
 }
 
+var bootDetailsLock = sync.Mutex{}
+
 func setBootDetails(details string) {
+	bootDetailsLock.Lock()
 	bootDetails = "v" + Ver + " " + details
+	bootDetailsLock.Unlock()
 }
 
 func SetBootDetails(details string) {
-	if 100 <= bootProgress {
+	if 100 <= bootProgress.Load() {
 		return
 	}
 	setBootDetails(details)
 }
 
-func IncBootProgress(progress float64, details string) {
-	if 100 <= bootProgress {
+func IncBootProgress(progress int32, details string) {
+	if 100 <= bootProgress.Load() {
 		return
 	}
-	bootProgress += progress
+	bootProgress.Add(progress)
 	setBootDetails(details)
 }
 
 func IsBooted() bool {
-	return 100 <= bootProgress
+	return 100 <= bootProgress.Load()
 }
 
-func GetBootProgressDetails() (float64, string) {
-	return bootProgress, bootDetails
+func GetBootProgressDetails() (progress int32, details string) {
+	progress = bootProgress.Load()
+	bootDetailsLock.Lock()
+	details = bootDetails
+	bootDetailsLock.Unlock()
+	return
 }
 
-func GetBootProgress() float64 {
-	return bootProgress
+func GetBootProgress() int32 {
+	return bootProgress.Load()
 }
 
 func SetBooted() {
 	setBootDetails("Finishing boot...")
-	bootProgress = 100
+	bootProgress.Store(100)
 	logging.LogInfof("kernel booted")
 }
 

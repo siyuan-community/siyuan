@@ -725,7 +725,7 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes map[s
 			if "1" == n.IALAttr("heading-fold") {
 				// 折叠标题下被引用的块无法悬浮查看
 				// The referenced block under the folded heading cannot be hovered to view https://github.com/siyuan-note/siyuan/issues/9582
-				if 0 != mode && id != n.ID {
+				if (0 != mode && id != n.ID) || isDoc {
 					unlinks = append(unlinks, n)
 					return ast.WalkContinue
 				}
@@ -967,22 +967,9 @@ func writeJSONQueue(tree *parse.Tree) (err error) {
 	return
 }
 
-func writeJSONQueueWithoutChangeTime(tree *parse.Tree) (err error) {
-	if err = filesys.WriteTreeWithoutChangeTime(tree); nil != err {
-		return
-	}
-	sql.UpsertTreeQueue(tree)
-	return
-}
-
 func indexWriteJSONQueue(tree *parse.Tree) (err error) {
 	treenode.IndexBlockTree(tree)
 	return writeJSONQueue(tree)
-}
-
-func indexWriteJSONQueueWithoutChangeTime(tree *parse.Tree) (err error) {
-	treenode.IndexBlockTree(tree)
-	return writeJSONQueueWithoutChangeTime(tree)
 }
 
 func renameWriteJSONQueue(tree *parse.Tree) (err error) {

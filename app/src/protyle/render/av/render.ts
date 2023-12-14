@@ -6,7 +6,7 @@ import * as dayjs from "dayjs";
 import {unicode2Emoji} from "../../../emoji";
 import {focusBlock} from "../../util/selection";
 import {isMac} from "../../util/compatibility";
-import {hasClosestByClassName} from "../../util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName} from "../../util/hasClosest";
 import {stickyRow} from "./row";
 import {getCalcValue} from "./calc";
 
@@ -26,10 +26,8 @@ export const avRender = (element: Element, protyle: IProtyle, cb?: () => void, v
             if (e.getAttribute("data-render") === "true") {
                 return;
             }
-            let time: number;
             if (e.firstElementChild.innerHTML === "") {
                 e.style.alignSelf = "";
-                time = new Date().getTime();
                 let html = "";
                 [1, 2, 3].forEach(() => {
                     html += `<div class="av__row">
@@ -62,9 +60,13 @@ export const avRender = (element: Element, protyle: IProtyle, cb?: () => void, v
                 id: e.getAttribute("data-av-id"),
                 created,
                 snapshot,
+                pageSize: parseInt(e.dataset.pageSize) || undefined,
                 viewID: newViewID
             }, (response) => {
                 const data = response.data.view as IAVTable;
+                if (!e.dataset.pageSize) {
+                    e.dataset.pageSize = data.pageSize.toString();
+                }
                 // header
                 let tableHTML = '<div class="av__row av__row--header"><div class="av__firstcol av__colsticky"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
                 let calcHTML = '<div style="width: 24px"></div>';
@@ -93,9 +95,8 @@ export const avRender = (element: Element, protyle: IProtyle, cb?: () => void, v
                         return;
                     }
                     tableHTML += `<div class="av__cell" data-col-id="${column.id}" 
-data-icon="${column.icon}" data-dtype="${column.type}"  data-pin="${column.pin}" 
-style="width: ${column.width || "200px"};
-${column.wrap ? "" : "white-space: nowrap;"}">
+data-icon="${column.icon}" data-dtype="${column.type}" data-wrap="${column.wrap}" data-pin="${column.pin}" 
+style="width: ${column.width || "200px"};">
     <div draggable="true" class="av__cellheader">
         ${column.icon ? unicode2Emoji(column.icon, "av__cellheadericon", true) : `<svg class="av__cellheadericon"><use xlink:href="#${getColIconByType(column.type)}"></use></svg>`}
         <span class="av__celltext">${column.name}</span>
@@ -128,7 +129,7 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                     if (pinIndex > -1) {
                         tableHTML += '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
                     } else {
-                        tableHTML += "<div class=\"av__firstcol av__colsticky\"><svg><use xlink:href=\"#iconUncheck\"></use></svg></div>";
+                        tableHTML += '<div class="av__firstcol av__colsticky"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
                     }
 
                     row.cells.forEach((cell, index) => {
@@ -147,7 +148,7 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                             }
                             text = `<span class="av__celltext av__celltext--url" data-type="${cell.valueType}"${urlAttr}>${urlContent}</span>`;
                         } else if (cell.valueType === "block") {
-                            text = `<span class="av__celltext">${cell.value.block.content || ""}</span>`;
+                            text = `<span class="av__celltext${cell.value?.isDetached ? "" : " av__celltext--ref"}">${cell.value.block.content || ""}</span>`;
                             if (cell.value?.isDetached) {
                                 text += `<span class="b3-chip b3-chip--info b3-chip--small" data-type="block-more" >${window.siyuan.languages.more}</span>`;
                             } else {
@@ -192,11 +193,10 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || '<svg><use x
                             text += `<span ${cell.valueType !== "number" ? "" : 'style="right:auto;left:5px"'} data-type="copy" class="block__icon"><svg><use xlink:href="#iconCopy"></use></svg></span>`;
                         }
                         tableHTML += `<div class="av__cell" data-id="${cell.id}" data-col-id="${data.columns[index].id}"
-${cell.valueType === "block" ? 'data-block-id="' + (cell.value.block.id || "") + '"' : ""}  
+${cell.valueType === "block" ? 'data-block-id="' + (cell.value.block.id || "") + '"' : ""} data-wrap="${data.columns[index].wrap}" 
 ${cell.value?.isDetached ? ' data-detached="true"' : ""} 
 style="width: ${data.columns[index].width || "200px"};
 ${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
-white-space: ${data.columns[index].wrap ? "pre-wrap" : "nowrap"};
 ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
 
                         if (pinIndex === index) {
@@ -212,8 +212,7 @@ ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
     <span class="item__text">${item.name}</span>
 </div>`;
                 });
-                setTimeout(() => {
-                    e.firstElementChild.outerHTML = `<div class="av__container" style="--av-background:${e.style.backgroundColor || "var(--b3-theme-background)"}">
+                e.firstElementChild.outerHTML = `<div class="av__container" style="--av-background:${e.style.backgroundColor || "var(--b3-theme-background)"}">
     <div class="av__header">
         <div class="fn__flex av__views">
             <div class="layout-tab-bar fn__flex">
@@ -241,6 +240,10 @@ ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
                 <svg><use xlink:href="#iconMore"></use></svg>
             </span>
             <div class="fn__space"></div>
+            <span data-type="av-add-more" class="block__icon">
+                <svg><use xlink:href="#iconAdd"></use></svg>
+            </span>
+            <div class="fn__space"></div>
             ${response.data.isMirror ? ` <span class="block__icon block__icon--show ariaLabel" aria-label="${window.siyuan.languages.mirrorTip}">
     <svg><use xlink:href="#iconSplitLR"></use></svg></span><div class="fn__space"></div>` : ""}
         </div>
@@ -248,58 +251,80 @@ ${cell.color ? `color:${cell.color};` : ""}">${text}</div>`;
         <div class="av__counter fn__none"></div>
     </div>
     <div class="av__scroll">
-        <div style="float: left;">
+        <div class="av__body">
             ${tableHTML}
-            <div class="av__row--add">
+            <div class="av__row--util">
                 <div class="av__colsticky">
-                    <svg><use xlink:href="#iconAdd"></use></svg>
-                    ${window.siyuan.languages.addAttr}
+                    <button class="b3-button" data-type="av-add-bottom">
+                        <svg><use xlink:href="#iconAdd"></use></svg>
+                        ${window.siyuan.languages.addAttr}
+                    </button>
+                    <span class="fn__space"></span>
+                    <button class="b3-button${data.rowCount > data.rows.length ? "" : " fn__none"}">
+                        <svg data-type="av-load-more"><use xlink:href="#iconArrowDown"></use></svg>
+                        <span data-type="av-load-more">
+                            ${window.siyuan.languages.loadMore}
+                        </span>
+                        <svg data-type="set-page-size" data-size="${data.pageSize}"><use xlink:href="#iconMore"></use></svg>
+                    </button>
                 </div>
             </div>
             <div class="av__row--footer">${calcHTML}</div>
         </div>
     </div>
 </div>`;
-                    e.setAttribute("data-render", "true");
-                    // 历史兼容
-                    e.style.margin = "";
-                    if (left) {
-                        e.querySelector(".av__scroll").scrollLeft = left;
-                    }
+                e.setAttribute("data-render", "true");
+                // 历史兼容
+                e.style.margin = "";
+                if (left) {
+                    e.querySelector(".av__scroll").scrollLeft = left;
+                }
 
-                    const editRect = protyle.contentElement.getBoundingClientRect();
-                    if (headerTransform) {
-                        (e.querySelector(".av__row--header") as HTMLElement).style.transform = headerTransform;
-                    } else {
-                        stickyRow(e, editRect, "top");
+                const editRect = protyle.contentElement.getBoundingClientRect();
+                if (headerTransform) {
+                    (e.querySelector(".av__row--header") as HTMLElement).style.transform = headerTransform;
+                } else {
+                    stickyRow(e, editRect, "top");
+                }
+                if (footerTransform) {
+                    (e.querySelector(".av__row--footer") as HTMLElement).style.transform = footerTransform;
+                } else {
+                    stickyRow(e, editRect, "bottom");
+                }
+                if (selectCellId) {
+                    const newCellElement = e.querySelector(`.av__row[data-id="${selectCellId.split(Constants.ZWSP)[0]}"] .av__cell[data-col-id="${selectCellId.split(Constants.ZWSP)[1]}"]`);
+                    if (newCellElement) {
+                        newCellElement.classList.add("av__cell--select");
                     }
-                    if (footerTransform) {
-                        (e.querySelector(".av__row--footer") as HTMLElement).style.transform = footerTransform;
-                    } else {
-                        stickyRow(e, editRect, "bottom");
+                    const avMaskElement = document.querySelector(".av__mask");
+                    if (avMaskElement) {
+                        (avMaskElement.querySelector(" textarea") as HTMLTextAreaElement).focus();
+                    } else if (!document.querySelector(".av__panel")) {
+                        focusBlock(e);
                     }
-
-                    if (selectCellId) {
-                        const newCellElement = e.querySelector(`.av__row[data-id="${selectCellId.split(Constants.ZWSP)[0]}"] .av__cell[data-col-id="${selectCellId.split(Constants.ZWSP)[1]}"]`);
-                        if (newCellElement) {
-                            newCellElement.classList.add("av__cell--select");
-                        }
-                        if (!document.querySelector(".av__panel")) {
+                }
+                if (getSelection().rangeCount > 0) {
+                    // 修改表头后光标重新定位
+                    const range = getSelection().getRangeAt(0);
+                    if (!hasClosestByClassName(range.startContainer, "av__title")) {
+                        const blockElement = hasClosestBlock(range.startContainer);
+                        if (blockElement && e.isSameNode(blockElement)) {
                             focusBlock(e);
                         }
                     }
-                    e.querySelector(".layout-tab-bar").scrollLeft = (e.querySelector(".layout-tab-bar .item--focus") as HTMLElement).offsetLeft;
-                    if (cb) {
-                        cb();
-                    }
-                }, time ? 256 - (new Date().getTime() - time) : 0); // 为了让动画更好看，需延时到 256ms
+                }
+                e.querySelector(".layout-tab-bar").scrollLeft = (e.querySelector(".layout-tab-bar .item--focus") as HTMLElement).offsetLeft;
+                if (cb) {
+                    cb();
+                }
             });
         });
     }
 };
 
-let lastParentID: string;
-let lastElement: HTMLElement;
+const refreshTimeouts: {
+    [key: string]: number;
+} = {};
 export const refreshAV = (protyle: IProtyle, operation: IOperation, isUndo: boolean) => {
     if (operation.action === "setAttrViewName") {
         Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${operation.id}"]`)).forEach((item: HTMLElement) => {
@@ -311,37 +336,31 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation, isUndo: bool
             titleElement.dataset.title = operation.data;
         });
     }
-    if (lastParentID === operation.parentID && protyle.contentElement.isSameNode(lastElement)) {
-        return;
-    }
-    lastElement = protyle.contentElement;
-    lastParentID = operation.parentID;
-    const avId = operation.avID;
-    if (operation.action === "setAttrViewColWidth") {
-        Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${avId}"]`)).forEach((item: HTMLElement) => {
-            const cellElement = item.querySelector(`.av__cell[data-col-id="${operation.id}"]`) as HTMLElement;
-            if (!cellElement || cellElement.style.width === operation.data) {
-                return;
-            }
-            item.querySelectorAll(".av__row").forEach(rowItem => {
-                (rowItem.querySelector(`[data-col-id="${operation.id}"]`) as HTMLElement).style.width = operation.data;
-            });
-        });
-    } else {
-        Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${avId}"]`)).forEach((item: HTMLElement) => {
-            item.removeAttribute("data-render");
-            const isCurrent = item.querySelector(".av__pulse"); // ctrl+D 后点击添加行
-            avRender(item, protyle, () => {
-                // https://github.com/siyuan-note/siyuan/issues/9599
-                if (!isUndo && operation.action === "insertAttrViewBlock" && operation.isDetached && isCurrent) {
-                    popTextCell(protyle, [item.querySelector(`.av__row[data-id="${operation.srcIDs[0]}"] .av__cell[data-detached="true"]`)], "block");
+    // 只能 setTimeout，以前方案快速输入后最后一次修改会被忽略；必须为每一个 protyle 单独设置，否则有多个 protyle 时，其余无法被执行
+    clearTimeout(refreshTimeouts[protyle.id]);
+    refreshTimeouts[protyle.id] = window.setTimeout(() => {
+        if (operation.action === "setAttrViewColWidth") {
+            Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${operation.avID}"]`)).forEach((item: HTMLElement) => {
+                const cellElement = item.querySelector(`.av__cell[data-col-id="${operation.id}"]`) as HTMLElement;
+                if (!cellElement || cellElement.style.width === operation.data) {
+                    return;
                 }
-            }, ["addAttrViewView", "duplicateAttrViewView"].includes(operation.action) ? operation.id :
-                (operation.action === "removeAttrViewView" ? null : undefined));
-        });
-    }
-
-    setTimeout(() => {
-        lastParentID = null;
-    }, Constants.TIMEOUT_TRANSITION);
+                item.querySelectorAll(".av__row").forEach(rowItem => {
+                    (rowItem.querySelector(`[data-col-id="${operation.id}"]`) as HTMLElement).style.width = operation.data;
+                });
+            });
+        } else {
+            Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${operation.avID}"]`)).forEach((item: HTMLElement) => {
+                item.removeAttribute("data-render");
+                const isCurrent = item.querySelector(".av__pulse"); // ctrl+D 后点击添加行
+                avRender(item, protyle, () => {
+                    // https://github.com/siyuan-note/siyuan/issues/9599
+                    if (!isUndo && operation.action === "insertAttrViewBlock" && operation.isDetached && isCurrent) {
+                        popTextCell(protyle, [item.querySelector(`.av__row[data-id="${operation.srcIDs[0]}"] .av__cell[data-detached="true"]`)], "block");
+                    }
+                }, ["addAttrViewView", "duplicateAttrViewView"].includes(operation.action) ? operation.id :
+                    (operation.action === "removeAttrViewView" ? null : undefined));
+            });
+        }
+    }, 100);
 };

@@ -224,7 +224,7 @@ func RenderRepoSnapshotAttributeView(indexID, avID string) (viewable av.Viewable
 		}
 	}
 
-	viewable, err = renderAttributeView(attrView, "")
+	viewable, err = renderAttributeView(attrView, "", 1, -1)
 	return
 }
 
@@ -267,11 +267,11 @@ func RenderHistoryAttributeView(avID, created string) (viewable av.Viewable, att
 		}
 	}
 
-	viewable, err = renderAttributeView(attrView, "")
+	viewable, err = renderAttributeView(attrView, "", 1, -1)
 	return
 }
 
-func RenderAttributeView(avID, viewID string) (viewable av.Viewable, attrView *av.AttributeView, err error) {
+func RenderAttributeView(avID, viewID string, page, pageSize int) (viewable av.Viewable, attrView *av.AttributeView, err error) {
 	waitForSyncingStorages()
 
 	if avJSONPath := av.GetAttributeViewDataPath(avID); !filelock.IsExist(avJSONPath) {
@@ -288,11 +288,11 @@ func RenderAttributeView(avID, viewID string) (viewable av.Viewable, attrView *a
 		return
 	}
 
-	viewable, err = renderAttributeView(attrView, viewID)
+	viewable, err = renderAttributeView(attrView, viewID, page, pageSize)
 	return
 }
 
-func renderAttributeView(attrView *av.AttributeView, viewID string) (viewable av.Viewable, err error) {
+func renderAttributeView(attrView *av.AttributeView, viewID string, page, pageSize int) (viewable av.Viewable, err error) {
 	if 1 > len(attrView.Views) {
 		view, _ := av.NewTableViewWithBlockKey(ast.NewNodeID())
 		attrView.Views = append(attrView.Views, view)
@@ -372,12 +372,33 @@ func renderAttributeView(attrView *av.AttributeView, viewID string) (viewable av
 		}
 		view.Table.Sorts = tmpSorts
 
-		viewable, err = renderAttributeViewTable(attrView, view)
+		viewable, err = renderAttributeViewTable(attrView, view, page, pageSize)
 	}
 
 	viewable.FilterRows()
 	viewable.SortRows()
 	viewable.CalcCols()
+
+	// 分页
+	switch viewable.GetType() {
+	case av.LayoutTypeTable:
+		table := viewable.(*av.Table)
+		table.RowCount = len(table.Rows)
+		if 1 > view.Table.PageSize {
+			view.Table.PageSize = 50
+		}
+		table.PageSize = view.Table.PageSize
+		if 1 > pageSize {
+			pageSize = table.PageSize
+		}
+
+		start := (page - 1) * pageSize
+		end := start + pageSize
+		if len(table.Rows) < end {
+			end = len(table.Rows)
+		}
+		table.Rows = table.Rows[start:end]
+	}
 	return
 }
 
@@ -440,7 +461,7 @@ func renderTemplateCol(ial map[string]string, tplContent string, rowValues []*av
 	return buf.String()
 }
 
-func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *av.Table, err error) {
+func renderAttributeViewTable(attrView *av.AttributeView, view *av.View, page, pageSize int) (ret *av.Table, err error) {
 	ret = &av.Table{
 		ID:      view.ID,
 		Icon:    view.Icon,
@@ -763,6 +784,9 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 		})
 	}
 
+	view.Table.PageSize = masterView.Table.PageSize
+	view.Table.RowIDs = masterView.Table.RowIDs
+
 	if err = av.SaveAttributeView(attrView); nil != err {
 		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
 		return &TxErr{code: TxErrWriteAttributeView, msg: err.Error(), id: avID}
@@ -793,6 +817,8 @@ func (tx *Transaction) doAddAttrViewView(operation *Operation) (ret *TxErr) {
 	for _, col := range firstView.Table.Columns {
 		view.Table.Columns = append(view.Table.Columns, &av.ViewTableColumn{ID: col.ID})
 	}
+
+	view.Table.RowIDs = firstView.Table.RowIDs
 
 	if err = av.SaveAttributeView(attrView); nil != err {
 		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
@@ -950,6 +976,34 @@ func setAttributeViewSorts(operation *Operation) (err error) {
 	return
 }
 
+func (tx *Transaction) doSetAttrViewPageSize(operation *Operation) (ret *TxErr) {
+	err := setAttributeViewPageSize(operation)
+	if nil != err {
+		return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttributeViewPageSize(operation *Operation) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if nil != err {
+		return
+	}
+
+	view, err := attrView.GetCurrentView()
+	if nil != err {
+		return
+	}
+
+	switch view.LayoutType {
+	case av.LayoutTypeTable:
+		view.Table.PageSize = int(operation.Data.(float64))
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
 func (tx *Transaction) doSetAttrViewColCalc(operation *Operation) (ret *TxErr) {
 	err := setAttributeViewColumnCalc(operation)
 	if nil != err {
@@ -1035,11 +1089,6 @@ func addAttributeViewBlock(blockID string, operation *Operation, tree *parse.Tre
 		return
 	}
 
-	view, err := attrView.GetCurrentView()
-	if nil != err {
-		return
-	}
-
 	// 不允许重复添加相同的块到属性视图中
 	blockValues := attrView.GetBlockKeyValues()
 	for _, blockValue := range blockValues.Values {
@@ -1073,17 +1122,24 @@ func addAttributeViewBlock(blockID string, operation *Operation, tree *parse.Tre
 		}
 	}
 
-	switch view.LayoutType {
-	case av.LayoutTypeTable:
-		if "" != operation.PreviousID {
-			for i, id := range view.Table.RowIDs {
-				if id == operation.PreviousID {
-					view.Table.RowIDs = append(view.Table.RowIDs[:i+1], append([]string{blockID}, view.Table.RowIDs[i+1:]...)...)
-					break
+	for _, view := range attrView.Views {
+		switch view.LayoutType {
+		case av.LayoutTypeTable:
+			if "" != operation.PreviousID {
+				changed := false
+				for i, id := range view.Table.RowIDs {
+					if id == operation.PreviousID {
+						view.Table.RowIDs = append(view.Table.RowIDs[:i+1], append([]string{blockID}, view.Table.RowIDs[i+1:]...)...)
+						changed = true
+						break
+					}
 				}
+				if !changed {
+					view.Table.RowIDs = append(view.Table.RowIDs, blockID)
+				}
+			} else {
+				view.Table.RowIDs = append([]string{blockID}, view.Table.RowIDs...)
 			}
-		} else {
-			view.Table.RowIDs = append([]string{blockID}, view.Table.RowIDs...)
 		}
 	}
 
@@ -1101,11 +1157,6 @@ func (tx *Transaction) doRemoveAttrViewBlock(operation *Operation) (ret *TxErr) 
 
 func (tx *Transaction) removeAttributeViewBlock(operation *Operation) (err error) {
 	attrView, err := av.ParseAttributeView(operation.AvID)
-	if nil != err {
-		return
-	}
-
-	view, err := attrView.GetCurrentView()
 	if nil != err {
 		return
 	}
@@ -1156,8 +1207,10 @@ func (tx *Transaction) removeAttributeViewBlock(operation *Operation) (err error
 		keyValues.Values = tmp
 	}
 
-	for _, blockID := range operation.SrcIDs {
-		view.Table.RowIDs = gulu.Str.RemoveElem(view.Table.RowIDs, blockID)
+	for _, view := range attrView.Views {
+		for _, blockID := range operation.SrcIDs {
+			view.Table.RowIDs = gulu.Str.RemoveElem(view.Table.RowIDs, blockID)
+		}
 	}
 
 	err = av.SaveAttributeView(attrView)
@@ -1350,7 +1403,9 @@ func sortAttributeViewRow(operation *Operation) (err error) {
 		}
 	}
 	if "" == rowID {
-		return
+		rowID = operation.ID
+		view.Table.RowIDs = append(view.Table.RowIDs, rowID)
+		index = len(view.Table.RowIDs) - 1
 	}
 
 	switch view.LayoutType {
@@ -1616,6 +1671,7 @@ func replaceAttributeViewBlock(operation *Operation, tx *Transaction) (err error
 		}
 	}
 
+	replacedRowID := false
 	for _, v := range attrView.Views {
 		switch v.LayoutType {
 		case av.LayoutTypeTable:
@@ -1628,7 +1684,13 @@ func replaceAttributeViewBlock(operation *Operation, tx *Transaction) (err error
 			for i, rowID := range v.Table.RowIDs {
 				if rowID == operation.PreviousID {
 					v.Table.RowIDs[i] = operation.NextID
+					replacedRowID = true
+					break
 				}
+			}
+
+			if !replacedRowID {
+				v.Table.RowIDs = append(v.Table.RowIDs, operation.NextID)
 			}
 		}
 	}
