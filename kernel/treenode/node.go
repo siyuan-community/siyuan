@@ -23,10 +23,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/Masterminds/sprig/v3"
-	"github.com/siyuan-community/siyuan/kernel/av"
-	"github.com/siyuan-community/siyuan/kernel/cache"
-
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
@@ -36,6 +32,8 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
 	"github.com/88250/vitess-sqlparser/sqlparser"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 )
@@ -420,11 +418,12 @@ var typeAbbrMap = map[string]string{
 	"NodeThematicBreak":    "tb",
 	"NodeVideo":            "video",
 	"NodeAudio":            "audio",
-	"NodeText":             "text",
-	"NodeImage":            "img",
-	"NodeLinkText":         "link_text",
-	"NodeLinkDest":         "link_dest",
-	"NodeTextMark":         "textmark",
+	// 行级元素
+	"NodeText":     "text",
+	"NodeImage":    "img",
+	"NodeLinkText": "link_text",
+	"NodeLinkDest": "link_dest",
+	"NodeTextMark": "textmark",
 }
 
 var abbrTypeMap = map[string]string{}
@@ -709,7 +708,7 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 				keyValues := rows[row.ID]
 				ial := map[string]string{}
 				block := row.GetBlockValue()
-				if !block.IsDetached {
+				if nil != block && !block.IsDetached {
 					ial = cache.GetBlockIAL(row.ID)
 					if nil == ial {
 						ial = map[string]string{}
@@ -729,15 +728,14 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 			case av.KeyTypeUpdated: // 渲染更新时间
 				ial := map[string]string{}
 				block := row.GetBlockValue()
-				if !block.IsDetached {
+				if nil != block && !block.IsDetached {
 					ial = cache.GetBlockIAL(row.ID)
 					if nil == ial {
 						ial = map[string]string{}
 					}
 				}
 				updatedStr := ial["updated"]
-				if "" == updatedStr {
-					block := row.GetBlockValue()
+				if "" == updatedStr && nil != block {
 					cell.Value.Updated = av.NewFormattedValueUpdated(block.Block.Updated, 0, av.UpdatedFormatNone)
 					cell.Value.Updated.IsNotEmpty = true
 				} else {
@@ -813,6 +811,14 @@ func FillAttributeViewTableCellNilValue(tableCell *av.TableCell, rowID, colID st
 		if nil == tableCell.Value.Checkbox {
 			tableCell.Value.Checkbox = &av.ValueCheckbox{}
 		}
+	case av.KeyTypeRelation:
+		if nil == tableCell.Value.Relation {
+			tableCell.Value.Relation = &av.ValueRelation{}
+		}
+	case av.KeyTypeRollup:
+		if nil == tableCell.Value.Rollup {
+			tableCell.Value.Rollup = &av.ValueRollup{}
+		}
 	}
 }
 
@@ -826,7 +832,7 @@ func renderTemplateCol(ial map[string]string, tplContent string, rowValues []*av
 		ial["updated"] = time.UnixMilli(block.Block.Updated).Format("20060102150405")
 	}
 
-	funcMap := sprig.TxtFuncMap()
+	funcMap := util.BuiltInTemplateFuncs()
 	goTpl := template.New("").Delims(".action{", "}")
 	tpl, tplErr := goTpl.Funcs(funcMap).Parse(tplContent)
 	if nil != tplErr {
@@ -864,6 +870,8 @@ func renderTemplateCol(ial map[string]string, tplContent string, rowValues []*av
 			v := rowValue.Values[0]
 			if av.KeyTypeNumber == v.Type {
 				dataModel[rowValue.Key.Name] = v.Number.Content
+			} else if av.KeyTypeDate == v.Type {
+				dataModel[rowValue.Key.Name] = time.UnixMilli(v.Date.Content)
 			} else {
 				dataModel[rowValue.Key.Name] = v.String()
 			}

@@ -7,6 +7,75 @@ import {objEquals} from "../../../util/functions";
 import {fetchPost} from "../../../util/fetch";
 import {focusBlock} from "../../util/selection";
 import * as dayjs from "dayjs";
+import {unicode2Emoji} from "../../../emoji";
+import {getColIconByType} from "./col";
+
+export const getCellText = (cellElement: HTMLElement | false) => {
+    if (!cellElement) {
+        return "";
+    }
+    let cellText = "";
+    const textElement = cellElement.querySelector(".av__celltext");
+    if (textElement) {
+        if (textElement.querySelector(".av__cellicon")) {
+            cellText = `${textElement.firstChild.textContent} → ${textElement.lastChild.textContent}`;
+        } else {
+            cellText = textElement.textContent;
+        }
+    } else {
+        cellText = cellElement.textContent;
+    }
+    return cellText;
+};
+
+const genCellValueByElement = (colType: TAVCol, cellElement: HTMLElement) => {
+    let cellValue: IAVCellValue;
+    if (colType === "number") {
+        const value = cellElement.querySelector(".av__celltext").getAttribute("data-content");
+        cellValue = {
+            type: colType,
+            number: {
+                content: parseFloat(value) || 0,
+                isNotEmpty: !!value
+            }
+        };
+    } else if (["text", "block", "url", "phone", "email", "template"].includes(colType)) {
+        cellValue = {
+            type: colType,
+            [colType]: {
+                content: cellElement.querySelector(".av__celltext").textContent.trim()
+            }
+        };
+    } else if (colType === "mSelect" || colType === "select") {
+        const mSelect: IAVCellSelectValue[] = [];
+        cellElement.querySelectorAll(".b3-chip").forEach((item: HTMLElement) => {
+            mSelect.push({
+                content: item.textContent.trim(),
+                color: item.style.color.replace("var(--b3-font-color", "").replace(")", "")
+            });
+        });
+        cellValue = {
+            type: colType,
+            mSelect
+        };
+    } else if (["date", "created", "updated"].includes(colType)) {
+        cellValue = {
+            type: colType,
+            [colType]: JSON.parse(cellElement.querySelector(".av__celltext").getAttribute("data-value"))
+        };
+    } else if (colType === "checkbox") {
+        cellValue = {
+            type: colType,
+            checkbox: {
+                checked: cellElement.querySelector("use").getAttribute("xlink:href") === "#iconCheck" ? true : false
+            }
+        };
+    }
+    if (colType === "block") {
+        cellValue.isDetached = cellElement.dataset.detached === "true";
+    }
+    return cellValue;
+};
 
 export const genCellValue = (colType: TAVCol, value: string | any) => {
     let cellValue: IAVCellValue;
@@ -24,6 +93,7 @@ export const genCellValue = (colType: TAVCol, value: string | any) => {
                 cellValue = {
                     type: colType,
                     number: {
+                        content: 0,
                         isNotEmpty: false
                     }
                 };
@@ -40,7 +110,7 @@ export const genCellValue = (colType: TAVCol, value: string | any) => {
                 type: colType,
                 mSelect: [{
                     content: value,
-                    color: ""
+                    color: value ? "1" : ""
                 }]
             };
         } else if (["date", "created", "updated"].includes(colType) && value === "") {
@@ -53,6 +123,13 @@ export const genCellValue = (colType: TAVCol, value: string | any) => {
                     isNotEmpty2: false,
                     hasEndDate: false,
                     isNotTime: true,
+                }
+            };
+        } else if (colType === "checkbox") {
+            cellValue = {
+                type: colType,
+                checkbox: {
+                    checked: value ? true : false
                 }
             };
         }
@@ -80,6 +157,9 @@ export const genCellValue = (colType: TAVCol, value: string | any) => {
                 }
             };
         }
+    }
+    if (colType === "block") {
+        cellValue.isDetached = true;
     }
     return cellValue;
 };
@@ -177,7 +257,7 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
         } else if (type === "date") {
             openMenuPanel({protyle, blockElement, type: "date", cellElements});
         } else if (type === "checkbox") {
-            updateCellValue(protyle, type, cellElements);
+            updateCellValueByInput(protyle, type, cellElements);
         }
         if (!hasClosestByClassName(cellElements[0], "custom-attr")) {
             cellElements[0].classList.add("av__cell--select");
@@ -210,7 +290,7 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
             }
             if (event.key === "Escape" || event.key === "Tab" ||
                 (event.key === "Enter" && !event.shiftKey && isNotCtrl(event))) {
-                updateCellValue(protyle, type, cellElements);
+                updateCellValueByInput(protyle, type, cellElements);
                 if (event.key === "Tab") {
                     protyle.wysiwyg.element.dispatchEvent(new KeyboardEvent("keydown", {
                         shiftKey: event.shiftKey,
@@ -228,13 +308,13 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
     }
     avMaskElement.addEventListener("click", (event) => {
         if ((event.target as HTMLElement).classList.contains("av__mask")) {
-            updateCellValue(protyle, type, cellElements);
+            updateCellValueByInput(protyle, type, cellElements);
             avMaskElement?.remove();
         }
     });
 };
 
-const updateCellValue = (protyle: IProtyle, type: TAVCol, cellElements: HTMLElement[]) => {
+const updateCellValueByInput = (protyle: IProtyle, type: TAVCol, cellElements: HTMLElement[]) => {
     const rowElement = hasClosestByClassName(cellElements[0], "av__row");
     if (!rowElement) {
         return;
@@ -251,7 +331,7 @@ const updateCellValue = (protyle: IProtyle, type: TAVCol, cellElements: HTMLElem
             let tempElement = protyle.wysiwyg.element.querySelector(`.av__cell[data-id="${cellElements[0].dataset.id}"]`) as HTMLElement;
             if (!tempElement) {
                 // 修改单元格后修改其他没有内容的单元格（id 会随机）
-                tempElement = protyle.wysiwyg.element.querySelector(`.av__row[data-id="${rowElement.dataset.id}"] .av__cell[data-col-id="${cellElements[0].dataset.colId}"]`) as HTMLElement
+                tempElement = protyle.wysiwyg.element.querySelector(`.av__row[data-id="${rowElement.dataset.id}"] .av__cell[data-col-id="${cellElements[0].dataset.colId}"]`) as HTMLElement;
             }
             if (!tempElement) {
                 return;
@@ -336,7 +416,8 @@ const updateCellValue = (protyle: IProtyle, type: TAVCol, cellElements: HTMLElem
                 keyID: colId,
                 rowID,
                 data: {
-                    [type]: inputValue
+                    [type]: inputValue,
+                    isDetached: true,
                 }
             }, {
                 action: "doUpdateUpdated",
@@ -350,7 +431,8 @@ const updateCellValue = (protyle: IProtyle, type: TAVCol, cellElements: HTMLElem
                 keyID: colId,
                 rowID,
                 data: {
-                    [type]: oldValue
+                    [type]: oldValue,
+                    isDetached: true,
                 }
             }, {
                 action: "doUpdateUpdated",
@@ -358,7 +440,11 @@ const updateCellValue = (protyle: IProtyle, type: TAVCol, cellElements: HTMLElem
                 data: blockElement.getAttribute("updated"),
             });
             if (!hasClosestByClassName(cellElements[0], "custom-attr")) {
-                updateAttrViewCellAnimation(item);
+                updateAttrViewCellAnimation(item, {
+                    [type]: inputValue,
+                    isDetached: true,
+                    type
+                });
             }
         });
     }
@@ -377,3 +463,157 @@ const updateCellValue = (protyle: IProtyle, type: TAVCol, cellElements: HTMLElem
         item.remove();
     });
 };
+
+export const updateCellsValue = (protyle: IProtyle, nodeElement: HTMLElement, value = "") => {
+    const doOperations: IOperation[] = [];
+    const undoOperations: IOperation[] = [];
+
+    const avID = nodeElement.dataset.avId;
+    const id = nodeElement.dataset.nodeId;
+    let text = "";
+    const cellElements: Element[] = Array.from(nodeElement.querySelectorAll(".av__cell--select")) || [];
+    if (cellElements.length === 0) {
+        nodeElement.querySelectorAll(".av__row--select:not(.av__row--header)").forEach(rowElement => {
+            rowElement.querySelectorAll(".av__cell").forEach(cellElement => {
+                cellElements.push(cellElement);
+            });
+        });
+    }
+    cellElements.forEach((item: HTMLElement) => {
+        const rowElement = hasClosestByClassName(item, "av__row");
+        if (!rowElement) {
+            return;
+        }
+        const type = getTypeByCellElement(item);
+        if (["created", "updated", "template"].includes(type)) {
+            return;
+        }
+        const rowID = rowElement.getAttribute("data-id");
+        const cellId = item.getAttribute("data-id");
+        const colId = item.getAttribute("data-col-id");
+
+        text += getCellText(item);
+        const cellValue = genCellValue(type, value);
+        doOperations.push({
+            action: "updateAttrViewCell",
+            id: cellId,
+            avID,
+            keyID: colId,
+            rowID,
+            data: cellValue
+        });
+        undoOperations.push({
+            action: "updateAttrViewCell",
+            id: cellId,
+            avID,
+            keyID: colId,
+            rowID,
+            data: genCellValueByElement(type, item)
+        });
+        if (!hasClosestByClassName(cellElements[0], "custom-attr")) {
+            updateAttrViewCellAnimation(item, cellValue);
+        }
+    });
+    if (doOperations.length > 0) {
+        doOperations.push({
+            action: "doUpdateUpdated",
+            id,
+            data: dayjs().format("YYYYMMDDHHmmss"),
+        });
+        undoOperations.push({
+            action: "doUpdateUpdated",
+            id,
+            data: nodeElement.getAttribute("updated"),
+        });
+        transaction(protyle, doOperations, undoOperations);
+    }
+    return text;
+};
+
+export const renderCell = (cellValue: IAVCellValue, wrap: boolean) => {
+    let text = "";
+    if (["text", "template"].includes(cellValue.type)) {
+        text = `<span class="av__celltext">${cellValue ? (cellValue[cellValue.type as "text"].content || "") : ""}</span>`;
+    } else if (["url", "email", "phone"].includes(cellValue.type)) {
+        const urlContent = cellValue ? cellValue[cellValue.type as "url"].content : "";
+        // https://github.com/siyuan-note/siyuan/issues/9291
+        let urlAttr = "";
+        if (cellValue.type === "url") {
+            urlAttr = ` data-href="${urlContent}"`;
+        }
+        text = `<span class="av__celltext av__celltext--url" data-type="${cellValue.type}"${urlAttr}>${urlContent}</span>`;
+    } else if (cellValue.type === "block") {
+        if (cellValue?.isDetached) {
+            text = `<span class="av__celltext${cellValue?.isDetached ? "" : " av__celltext--ref"}">${cellValue.block.content || ""}</span>
+<span class="b3-chip b3-chip--info b3-chip--small" data-type="block-more">${window.siyuan.languages.more}</span>`;
+        } else {
+            text = `<span data-type="block-ref" data-id="${cellValue.block.id}" data-subtype="s" class="av__celltext${cellValue?.isDetached ? "" : " av__celltext--ref"}">${cellValue.block.content || ""}</span>
+<span class="b3-chip b3-chip--info b3-chip--small popover__block" data-id="${cellValue.block.id}" data-type="block-more">${window.siyuan.languages.update}</span>`;
+        }
+    } else if (cellValue.type === "number") {
+        text = `<span style="float: right;${wrap ? "word-break: break-word;" : ""}" class="av__celltext" data-content="${cellValue?.number.isNotEmpty ? cellValue?.number.content : ""}">${cellValue?.number.formattedContent || cellValue?.number.content || ""}</span>`;
+    } else if (cellValue.type === "mSelect" || cellValue.type === "select") {
+        cellValue?.mSelect?.forEach((item) => {
+            text += `<span class="b3-chip" style="background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})">${item.content}</span>`;
+        });
+    } else if (cellValue.type === "date") {
+        const dataValue = cellValue ? cellValue.date : null;
+        text = `<span class="av__celltext" data-value='${JSON.stringify(dataValue)}'>`;
+        if (dataValue && dataValue.isNotEmpty) {
+            text += dayjs(dataValue.content).format(dataValue.isNotTime ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm");
+        }
+        if (dataValue && dataValue.hasEndDate && dataValue.isNotEmpty && dataValue.isNotEmpty2) {
+            text += `<svg class="av__cellicon"><use xlink:href="#iconForward"></use></svg>${dayjs(dataValue.content2).format(dataValue.isNotTime ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm")}`;
+        }
+        text += "</span>";
+    } else if (["created", "updated"].includes(cellValue.type)) {
+        const dataValue = cellValue ? cellValue[cellValue.type as "date"] : null;
+        text = `<span class="av__celltext" data-value='${JSON.stringify(dataValue)}'>`;
+        if (dataValue && dataValue.isNotEmpty) {
+            text += dayjs(dataValue.content).format("YYYY-MM-DD HH:mm");
+        }
+        text += "</span>";
+    } else if (cellValue.type === "mAsset") {
+        cellValue?.mAsset?.forEach((item) => {
+            if (item.type === "image") {
+                text += `<img class="av__cellassetimg" src="${item.content}">`;
+            } else {
+                text += `<span class="b3-chip av__celltext--url" data-url="${item.content}">${item.name}</span>`;
+            }
+        });
+    } else if (cellValue.type === "checkbox") {
+        text += `<svg class="av__checkbox"><use xlink:href="#icon${cellValue?.checkbox?.checked ? "Check" : "Uncheck"}"></use></svg>`;
+    }
+    if (["text", "template", "url", "email", "phone", "number", "date", "created", "updated"].includes(cellValue.type) &&
+        cellValue && cellValue[cellValue.type as "url"].content) {
+        text += `<span ${cellValue.type !== "number" ? "" : 'style="right:auto;left:5px"'} data-type="copy" class="block__icon"><svg><use xlink:href="#iconCopy"></use></svg></span>`;
+    }
+    return text;
+}
+
+export const updateHeaderCell = (cellElement: HTMLElement, headerValue: {
+    icon?: string,
+    name?: string,
+    pin?: boolean,
+}) => {
+    if (typeof headerValue.icon !== "undefined") {
+        cellElement.dataset.icon = headerValue.icon;
+        cellElement.querySelector(".av__cellheadericon").outerHTML = headerValue.icon ? unicode2Emoji(headerValue.icon, "av__cellheadericon", true) : `<svg class="av__cellheadericon"><use xlink:href="#${getColIconByType(cellElement.dataset.dtype as TAVCol)}"></use></svg>`
+    }
+    if (typeof headerValue.name !== "undefined") {
+        cellElement.querySelector(".av__celltext").textContent = headerValue.name;
+    }
+    if (typeof headerValue.pin !== "undefined") {
+        const textElement = cellElement.querySelector(".av__celltext")
+        if (headerValue.pin) {
+            if (!textElement.nextElementSibling) {
+                textElement.insertAdjacentHTML("afterend", '<div class="fn__flex-1"></div><svg class="av__cellheadericon"><use xlink:href="#iconPin"></use></svg>')
+            }
+        } else {
+            if (textElement.nextElementSibling) {
+                textElement.nextElementSibling.nextElementSibling.remove();
+                textElement.nextElementSibling.remove();
+            }
+        }
+    }
+}
