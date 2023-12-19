@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
