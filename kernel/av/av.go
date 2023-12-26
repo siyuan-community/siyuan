@@ -49,6 +49,16 @@ type KeyValues struct {
 	Values []*Value `json:"values,omitempty"` // 属性视图属性列值
 }
 
+func (kValues *KeyValues) GetValue(blockID string) (ret *Value) {
+	for _, v := range kValues.Values {
+		if v.BlockID == blockID {
+			ret = v
+			return
+		}
+	}
+	return
+}
+
 type KeyType string
 
 const (
@@ -80,7 +90,7 @@ type Key struct {
 	// 以下是某些列类型的特有属性
 
 	// 单选/多选列
-	Options []*KeySelectOption `json:"options,omitempty"` // 选项列表
+	Options []*SelectOption `json:"options,omitempty"` // 选项列表
 
 	// 数字列
 	NumberFormat NumberFormat `json:"numberFormat"` // 列数字格式化
@@ -89,13 +99,10 @@ type Key struct {
 	Template string `json:"template"` // 模板内容
 
 	// 关联列
-	RelationAvID      string `json:"relationAvID"`      // 关联的属性视图 ID
-	RelationKeyID     string `json:"relationKeyID"`     // 关联列 ID
-	IsBiRelation      bool   `json:"isBiRelation"`      // 是否双向关联
-	BackRelationKeyID string `json:"backRelationKeyID"` // 双向关联时回链关联列的 ID
+	Relation *Relation `json:"relation,omitempty"` // 关联信息
 
 	// 汇总列
-	RollupKeyID string `json:"rollupKeyID"` // 汇总列 ID
+	Rollup *Rollup `json:"rollup,omitempty"` // 汇总信息
 }
 
 func NewKey(id, name, icon string, keyType KeyType) *Key {
@@ -107,7 +114,24 @@ func NewKey(id, name, icon string, keyType KeyType) *Key {
 	}
 }
 
-type KeySelectOption struct {
+type Rollup struct {
+	RelationKeyID string      `json:"relationKeyID"` // 关联列 ID
+	KeyID         string      `json:"keyID"`         // 目标列 ID
+	Calc          *RollupCalc `json:"calc"`          // 计算方式
+}
+
+type RollupCalc struct {
+	Operator CalcOperator `json:"operator"`
+	Result   *Value       `json:"result"`
+}
+
+type Relation struct {
+	AvID      string `json:"avID"`      // 关联的属性视图 ID
+	IsTwoWay  bool   `json:"isTwoWay"`  // 是否双向关联
+	BackKeyID string `json:"backKeyID"` // 双向关联时回链关联列的 ID
+}
+
+type SelectOption struct {
 	Name  string `json:"name"`
 	Color string `json:"color"`
 }
@@ -289,6 +313,20 @@ func (av *AttributeView) GetCurrentView() (ret *View, err error) {
 		}
 	}
 	err = ErrViewNotFound
+	return
+}
+
+func (av *AttributeView) GetValue(keyID, blockID string) (ret *Value) {
+	for _, kv := range av.KeyValues {
+		if kv.Key.ID == keyID {
+			for _, v := range kv.Values {
+				if v.BlockID == blockID {
+					ret = v
+					return
+				}
+			}
+		}
+	}
 	return
 }
 

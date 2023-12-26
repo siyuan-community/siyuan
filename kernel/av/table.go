@@ -176,9 +176,11 @@ func (value *Value) Compare(other *Value) int {
 		}
 	case KeyTypeTemplate:
 		if nil != value.Template && nil != other.Template {
-			if util.IsNumeric(value.Template.Content) && util.IsNumeric(other.Template.Content) {
-				v1, _ := strconv.ParseFloat(value.Template.Content, 64)
-				v2, _ := strconv.ParseFloat(other.Template.Content, 64)
+			vContent := strings.TrimSpace(value.Template.Content)
+			oContent := strings.TrimSpace(other.Template.Content)
+			if util.IsNumeric(vContent) && util.IsNumeric(oContent) {
+				v1, _ := strconv.ParseFloat(vContent, 64)
+				v2, _ := strconv.ParseFloat(oContent, 64)
 				if v1 > v2 {
 					return 1
 				}
@@ -201,9 +203,29 @@ func (value *Value) Compare(other *Value) int {
 			return 0
 		}
 	case KeyTypeRelation:
-		// TODO: relation compare
+		if nil != value.Relation && nil != other.Relation {
+			vContent := strings.TrimSpace(strings.Join(value.Relation.Contents, " "))
+			oContent := strings.TrimSpace(strings.Join(other.Relation.Contents, " "))
+			return strings.Compare(vContent, oContent)
+		}
 	case KeyTypeRollup:
-		// TODO: rollup compare
+		if nil != value.Rollup && nil != other.Rollup {
+			vContent := strings.TrimSpace(strings.Join(value.Relation.Contents, " "))
+			oContent := strings.TrimSpace(strings.Join(other.Relation.Contents, " "))
+			if util.IsNumeric(vContent) && util.IsNumeric(oContent) {
+				v1, _ := strconv.ParseFloat(vContent, 64)
+				v2, _ := strconv.ParseFloat(oContent, 64)
+				if v1 > v2 {
+					return 1
+				}
+
+				if v1 < v2 {
+					return -1
+				}
+				return 0
+			}
+			return strings.Compare(vContent, oContent)
+		}
 	}
 	return 0
 }
@@ -589,19 +611,31 @@ func (value *Value) CompareOperator(other *Value, operator FilterOperator) bool 
 	if nil != value.Relation && nil != other.Relation {
 		switch operator {
 		case FilterOperatorContains:
-			if "" == strings.TrimSpace(other.Relation.Content) {
-				return true
+			contains := false
+			for _, c := range value.Relation.Contents {
+				for _, c1 := range other.Relation.Contents {
+					if strings.Contains(c, c1) {
+						contains = true
+						break
+					}
+				}
 			}
-			return strings.Contains(value.Relation.Content, other.Relation.Content)
+			return contains
 		case FilterOperatorDoesNotContain:
-			if "" == strings.TrimSpace(other.Relation.Content) {
-				return true
+			contains := false
+			for _, c := range value.Relation.Contents {
+				for _, c1 := range other.Relation.Contents {
+					if strings.Contains(c, c1) {
+						contains = true
+						break
+					}
+				}
 			}
-			return !strings.Contains(value.Relation.Content, other.Relation.Content)
+			return !contains
 		case FilterOperatorIsEmpty:
-			return "" == strings.TrimSpace(value.Relation.Content)
+			return 0 == len(value.Relation.Contents) || 1 == len(value.Relation.Contents) && "" == value.Relation.Contents[0]
 		case FilterOperatorIsNotEmpty:
-			return "" != strings.TrimSpace(value.Relation.Content)
+			return 0 != len(value.Relation.Contents) && !(1 == len(value.Relation.Contents) && "" == value.Relation.Contents[0])
 		}
 	}
 
@@ -637,9 +671,11 @@ type TableColumn struct {
 
 	// 以下是某些列类型的特有属性
 
-	Options      []*KeySelectOption `json:"options,omitempty"` // 选项列表
-	NumberFormat NumberFormat       `json:"numberFormat"`      // 列数字格式化
-	Template     string             `json:"template"`          // 模板内容
+	Options      []*SelectOption `json:"options,omitempty"`  // 选项列表
+	NumberFormat NumberFormat    `json:"numberFormat"`       // 列数字格式化
+	Template     string          `json:"template"`           // 模板内容
+	Relation     *Relation       `json:"relation,omitempty"` // 关联列
+	Rollup       *Rollup         `json:"rollup,omitempty"`   // 汇总列
 }
 
 type TableCell struct {

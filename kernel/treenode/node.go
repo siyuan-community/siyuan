@@ -137,6 +137,10 @@ func ExportNodeStdMd(node *ast.Node, luteEngine *lute.Lute) string {
 }
 
 func IsNodeOCRed(node *ast.Node) (ret bool) {
+	if !util.TesseractEnabled || nil == node {
+		return true
+	}
+
 	ret = true
 	ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
@@ -145,16 +149,18 @@ func IsNodeOCRed(node *ast.Node) (ret bool) {
 
 		if ast.NodeImage == n.Type {
 			linkDest := n.ChildByType(ast.NodeLinkDest)
-			if nil != linkDest {
-				linkDestStr := linkDest.TokensStr()
-				if !cache.ExistAsset(linkDestStr) {
-					return ast.WalkContinue
-				}
+			if nil == linkDest {
+				return ast.WalkContinue
+			}
 
-				if !util.ExistsAssetText(linkDestStr) {
-					ret = false
-					return ast.WalkStop
-				}
+			linkDestStr := linkDest.TokensStr()
+			if !cache.ExistAsset(linkDestStr) {
+				return ast.WalkContinue
+			}
+
+			if !util.ExistsAssetText(linkDestStr) {
+				ret = false
+				return ast.WalkStop
 			}
 		}
 		return ast.WalkContinue
@@ -594,10 +600,9 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 
 	// 组装列
 	for _, col := range view.Table.Columns {
-		key, getErr := attrView.GetKey(col.ID)
-		if nil != getErr {
-			err = getErr
-			return
+		key, _ := attrView.GetKey(col.ID)
+		if nil == key {
+			continue
 		}
 
 		ret.Columns = append(ret.Columns, &av.TableColumn{
@@ -608,6 +613,8 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 			Options:      key.Options,
 			NumberFormat: key.NumberFormat,
 			Template:     key.Template,
+			Relation:     key.Relation,
+			Rollup:       key.Rollup,
 			Wrap:         col.Wrap,
 			Hidden:       col.Hidden,
 			Width:        col.Width,
@@ -700,7 +707,7 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 		ret.Rows = append(ret.Rows, &tableRow)
 	}
 
-	// 渲染自动生成的列值，比如模板列、创建时间列和更新时间列
+	// 渲染自动生成的列值，比如模板列、关联列、汇总列、创建时间列和更新时间列
 	for _, row := range ret.Rows {
 		for _, cell := range row.Cells {
 			switch cell.ValueType {
@@ -716,6 +723,44 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View) (ret *a
 				}
 				content := renderTemplateCol(ial, cell.Value.Template.Content, keyValues)
 				cell.Value.Template.Content = content
+			case av.KeyTypeRollup: // 渲染汇总列
+				rollupKey, _ := attrView.GetKey(cell.Value.KeyID)
+				if nil == rollupKey || nil == rollupKey.Rollup {
+					break
+				}
+
+				relKey, _ := attrView.GetKey(rollupKey.Rollup.RelationKeyID)
+				if nil == relKey || nil == relKey.Relation {
+					break
+				}
+
+				relVal := attrView.GetValue(relKey.ID, row.ID)
+				if nil == relVal || nil == relVal.Relation {
+					break
+				}
+
+				destAv, _ := av.ParseAttributeView(relKey.Relation.AvID)
+				if nil == destAv {
+					break
+				}
+
+				for _, blockID := range relVal.Relation.BlockIDs {
+					cell.Value.Rollup.Contents = append(cell.Value.Rollup.Contents, destAv.GetValue(rollupKey.Rollup.KeyID, blockID).String())
+				}
+			case av.KeyTypeRelation: // 渲染关联列
+				relKey, _ := attrView.GetKey(cell.Value.KeyID)
+				if nil != relKey && nil != relKey.Relation {
+					destAv, _ := av.ParseAttributeView(relKey.Relation.AvID)
+					if nil != destAv {
+						blocks := map[string]string{}
+						for _, blockValue := range destAv.GetBlockKeyValues().Values {
+							blocks[blockValue.BlockID] = blockValue.Block.Content
+						}
+						for _, blockID := range cell.Value.Relation.BlockIDs {
+							cell.Value.Relation.Contents = append(cell.Value.Relation.Contents, blocks[blockID])
+						}
+					}
+				}
 			case av.KeyTypeCreated: // 渲染创建时间
 				createdStr := row.ID[:len("20060102150405")]
 				created, parseErr := time.ParseInLocation("20060102150405", createdStr, time.Local)

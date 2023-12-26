@@ -818,6 +818,7 @@ func ProcessPDF(id, p string, merge, removeAssets bool) (err error) {
 
 	processPDFBookmarks(pdfCtx, headings)
 	processPDFLinkEmbedAssets(pdfCtx, assetDests, removeAssets)
+	// processPDFWatermark(pdfCtx, "text", "Test", "")
 
 	pdfcpu.VersionStr = "SiYuan v" + util.Ver
 	if writeErr := api.WriteContextFile(pdfCtx, p); nil != writeErr {
@@ -825,6 +826,46 @@ func ProcessPDF(id, p string, merge, removeAssets bool) (err error) {
 		return
 	}
 	return
+}
+
+func processPDFWatermark(pdfCtx *pdfcpu.Context, mode, watermark, desc string) {
+	// Support adding the watermark on export PDF https://github.com/siyuan-note/siyuan/issues/9961
+	// https://pdfcpu.io/core/watermark
+
+	if !IsPaidUser() {
+		return
+	}
+
+	if "" == watermark {
+		return
+	}
+
+	if "text" != mode && "image" != mode && "pdf" != mode {
+		logging.LogErrorf("invalid watermark type: %s", mode)
+		return
+	}
+
+	var wm *pdfcpu.Watermark
+	var err error
+	switch mode {
+	case "text":
+		wm, err = pdfcpu.ParseTextWatermarkDetails(watermark, desc, false, pdfcpu.POINTS)
+	case "image":
+		wm, err = pdfcpu.ParseImageWatermarkDetails(watermark, desc, false, pdfcpu.POINTS)
+	case "pdf":
+		wm, err = pdfcpu.ParsePDFWatermarkDetails(watermark, desc, false, pdfcpu.POINTS)
+	}
+
+	if nil != err {
+		logging.LogErrorf("parse watermark failed: %s", err)
+		return
+	}
+
+	err = pdfCtx.AddWatermarks(nil, wm)
+	if nil != err {
+		logging.LogErrorf("add watermark failed: %s", err)
+		return
+	}
 }
 
 func processPDFBookmarks(pdfCtx *pdfcpu.Context, headings []*ast.Node) {
@@ -1380,6 +1421,39 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string) (
 			if copyErr := filelock.Copy(avJSONPath, filepath.Join(exportStorageAvDir, avID+".json")); nil != copyErr {
 				logging.LogErrorf("copy av json failed: %s", copyErr)
 			}
+
+			attrView, err := av.ParseAttributeView(avID)
+			if nil != err {
+				logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
+				return ast.WalkContinue
+			}
+
+			// 导出资源文件列 https://github.com/siyuan-note/siyuan/issues/9919
+			for _, keyValues := range attrView.KeyValues {
+				if av.KeyTypeMAsset != keyValues.Key.Type {
+					continue
+				}
+
+				for _, value := range keyValues.Values {
+					for _, asset := range value.MAsset {
+						if !isRelativePath([]byte(asset.Content)) {
+							continue
+						}
+
+						destPath := filepath.Join(exportFolder, asset.Content)
+						srcPath, assetErr := GetAssetAbsPath(asset.Content)
+						if nil != assetErr {
+							logging.LogWarnf("get asset [%s] abs path failed: %s", asset.Content, assetErr)
+							continue
+						}
+
+						if copyErr := filelock.Copy(srcPath, destPath); nil != copyErr {
+							logging.LogErrorf("copy asset failed: %s", copyErr)
+						}
+					}
+				}
+			}
+
 			return ast.WalkContinue
 		})
 	}

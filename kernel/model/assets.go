@@ -111,6 +111,11 @@ func NetImg2LocalAssets(rootID, originalURL string) (err error) {
 				// `网络图片转换为本地图片` 支持处理 `file://` 本地路径图片 https://github.com/siyuan-note/siyuan/issues/6546
 
 				u := string(dest)[7:]
+				unescaped, _ := url.PathUnescape(u)
+				if unescaped != u {
+					// `Convert network images/assets to local` supports URL-encoded local file names https://github.com/siyuan-note/siyuan/issues/9929
+					u = unescaped
+				}
 				if !gulu.File.IsExist(u) || gulu.File.IsDir(u) {
 					return ast.WalkSkipChildren
 				}
@@ -269,6 +274,11 @@ func NetAssets2LocalAssets(rootID string) (err error) {
 
 		if bytes.HasPrefix(bytes.ToLower(dest), []byte("file://")) { // 处理本地文件链接
 			u := string(dest)[7:]
+			unescaped, _ := url.PathUnescape(u)
+			if unescaped != u {
+				// `Convert network images/assets to local` supports URL-encoded local file names https://github.com/siyuan-note/siyuan/issues/9929
+				u = unescaped
+			}
 			if !gulu.File.IsExist(u) || gulu.File.IsDir(u) {
 				return ast.WalkContinue
 			}
@@ -315,6 +325,11 @@ func NetAssets2LocalAssets(rootID string) (err error) {
 			request := browserClient.R()
 			request.SetRetryCount(1).SetRetryFixedInterval(3 * time.Second)
 			resp, reqErr := request.Get(u)
+			if strings.Contains(strings.ToLower(resp.GetContentType()), "text/html") {
+				// 忽略超链接网页 `Convert network assets to local` no longer process webpage https://github.com/siyuan-note/siyuan/issues/9965
+				return ast.WalkContinue
+			}
+
 			if nil != reqErr {
 				logging.LogErrorf("download network asset [%s] failed: %s", u, reqErr)
 				return ast.WalkContinue
@@ -412,11 +427,19 @@ func SearchAssetsByName(keyword string, exts []string) (ret []*cache.Asset) {
 			}
 		}
 
-		if !strings.Contains(strings.ToLower(asset.HName), strings.ToLower(keyword)) {
+		lowerHName := strings.ToLower(asset.HName)
+		lowerPath := strings.ToLower(asset.Path)
+		lowerKeyword := strings.ToLower(keyword)
+		hitName := strings.Contains(lowerHName, lowerKeyword)
+		hitPath := strings.Contains(lowerPath, lowerKeyword)
+		if !hitName && !hitPath {
 			continue
 		}
 
-		_, hName := search.MarkText(asset.HName, keyword, 64, Conf.Search.CaseSensitive)
+		hName := asset.HName
+		if hitName {
+			_, hName = search.MarkText(asset.HName, keyword, 64, Conf.Search.CaseSensitive)
+		}
 		ret = append(ret, &cache.Asset{
 			HName:   hName,
 			Path:    asset.Path,
