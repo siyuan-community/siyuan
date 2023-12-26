@@ -7,6 +7,8 @@ echo 'Building UI'
 
 cd app
 
+$ENV:ELECTRON_MIRROR = 'https://cnpmjs.org/mirrors/electron/'
+
 pnpm install
 pnpm run build
 
