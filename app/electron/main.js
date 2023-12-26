@@ -28,9 +28,17 @@ const isDevEnv = process.env.NODE_ENV === "development";
 const appVer = app.getVersion();
 const confDir = path.join(app.getPath("home"), ".config", "siyuan");
 const windowStatePath = path.join(confDir, "windowState.json");
+const args = new Map(process.argv.map(arg => {
+    const fragments = arg.split("=");
+    return fragments.length === 1
+        ? [fragments[0], true]
+        : [fragments[0], fragments.slice(1).join("=")];
+}));
 
 let baseURL;
 let bootWindow;
+let proxyURL;
+let localhost = true;
 let firstOpen = false;
 let workspaces = []; // workspaceDir, id, browserWindow, tray
 let kernelProtocol = "http";
@@ -57,16 +65,20 @@ try {
 }
 
 const getServer = (port = kernelPort) => {
-    return baseURL || `${kernelProtocol}://${kernelHostname}:${port}`;
+    return localhost
+        ? `${kernelProtocol}://${kernelHostname}:${port}`
+        : baseURL;
 }
 
 const setProxy = (proxyURL, webContents) => {
-    if (proxyURL.startsWith("://")) {
+    try {
+        url = new URL(proxyURL);
+        console.log("network proxy [" + url.href + "]");
+        return webContents.session.setProxy({proxyRules: url.href});
+    } catch (e) {
         console.log("network proxy [system]");
         return webContents.session.setProxy({mode: "system"});
     }
-    console.log("network proxy [" + proxyURL + "]");
-    return webContents.session.setProxy({proxyRules: proxyURL});
 };
 
 const hotKey2Electron = (key) => {
@@ -298,15 +310,22 @@ const boot = () => {
     windowStateInitialized ? currentWindow.setPosition(x, y) : currentWindow.center();
     currentWindow.webContents.userAgent = "SiYuan/" + appVer + " https://b3log.org/siyuan Electron " + currentWindow.webContents.userAgent;
 
-    // set proxy
-    net.fetch(getServer() + "/api/system/getNetwork", {method: "POST"}).then((response) => {
-        return response.json();
-    }).then((response) => {
-        setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents).then(() => {
-            // 加载主界面
-            currentWindow.loadURL(getServer() + "/stage/build/app/index.html?v=" + new Date().getTime());
+    if (localhost && !proxyURL) {
+        // set proxy
+        net.fetch(getServer() + "/api/system/getNetwork", {method: "POST"}).then((response) => {
+            return response.json();
+        }).then((response) => {
+            setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents).then(() => {
+                // 加载主界面
+                currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + new Date().getTime());
+            });
         });
-    });
+    } else {
+        setProxy(proxyURL, currentWindow.webContents).then(() => {
+            // 加载主界面
+            currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + new Date().getTime());
+        });
+    }
 
     currentWindow.webContents.session.setSpellCheckerLanguages(["en-US"]);
 
@@ -632,7 +651,17 @@ if (!app.isPackaged) {
 }
 for (let i = argStart; i < process.argv.length; i++) {
     let arg = process.argv[i];
-    if (arg.startsWith("--workspace=") || arg.startsWith("--port=") || arg.startsWith("siyuan://")) {
+    if (arg.startsWith("siyuan://")
+        || arg.startsWith("--workspace=")
+        || arg.startsWith("--port=")
+        || arg.startsWith("--proxy=")
+        || arg.startsWith("--remote=")
+        || arg.startsWith("--hostname=")
+
+        || arg.startsWith("--tls-kernel")
+        || arg.startsWith("--tls-key-file")
+        || arg.startsWith("--tls-cert-file")
+    ) {
         // 跳过内置参数
         continue;
     }
@@ -1094,18 +1123,25 @@ app.whenReady().then(() => {
             firstOpenWindow.destroy();
         });
     } else {
-        const args = new Map(process.argv.map(arg => {
-            const fragments = arg.split("=");
-            return fragments.length === 1
-                ? [fragments[0], true]
-                : [fragments[0], fragments.slice(1).join("=")];
-        }));
+        const proxy = args.get("--proxy");
+        if (proxy) {
+            writeLog(`got arg [--proxy="${proxy}"]`);
+            proxyURL = proxy;
+        }
 
         const remote = args.get("--remote");
         if (remote) {
             writeLog(`got arg [--remote="${remote}"]`);
-            baseURL = remote;
-            boot();
+            try {
+                new URL(remote);
+                localhost = false;
+                baseURL = remote;
+                boot();
+            } catch (e) {
+                writeLog(`remote URL ["${remote}"] is invalid`);
+                const errorWindowId = showErrorWindow("⚠️ 远程服务 URL 无效 The remote service URL is invalid", `<div>所设置的远程内核服务 URL [${remote}] 不是有效的 URL！</div><div>The remote kernel service URL [${remote}] that you set is not a valid URL!</div>`);
+                exitApp(undefined, errorWindowId);
+            }
             return;
         }
 
