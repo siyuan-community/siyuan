@@ -431,6 +431,6 @@ func ControlConcurrency(c *gin.Context) {
 	requestingLock.Unlock()
 
 	mutex.Lock()
+	defer mutex.Unlock()
 	c.Next()
-	mutex.Unlock()
 }
