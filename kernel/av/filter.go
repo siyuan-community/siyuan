@@ -17,8 +17,9 @@
 package av
 
 import (
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"strings"
+
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 type Filterable interface {
