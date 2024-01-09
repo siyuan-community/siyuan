@@ -217,6 +217,13 @@ interface ICard {
     nextDues: IObject
 }
 
+interface ICardData  {
+    cards: ICard[],
+    unreviewedCount: number
+    unreviewedNewCardCount: number
+    unreviewedOldCardCount: number
+}
+
 interface IPluginSettingOption {
     title: string
     description?: string
@@ -1158,6 +1165,7 @@ interface IAVCellDateValue {
     content2?: number,
     isNotEmpty2?: boolean
     hasEndDate?: boolean
+    formattedContent?: string,
     isNotTime?: boolean // 默认 true
 }
 
