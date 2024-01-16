@@ -483,6 +483,30 @@ func ResetRepo() (err error) {
 	return
 }
 
+func PurgeCloud() (err error) {
+	// TODO https://github.com/siyuan-note/siyuan/issues/10081
+	msg := Conf.Language(223)
+	util.PushEndlessProgress(msg)
+	defer util.PushClearProgress()
+
+	repo, err := newRepository()
+	if nil != err {
+		return
+	}
+
+	stat, err := repo.PurgeCloud()
+	if nil != err {
+		return
+	}
+
+	deletedIndexes := stat.Indexes
+	deletedObjects := stat.Objects
+	deletedSize := humanize.Bytes(uint64(stat.Size))
+	msg = fmt.Sprintf(Conf.Language(203), deletedIndexes, deletedObjects, deletedSize)
+	util.PushMsg(msg, 5000)
+	return
+}
+
 func PurgeRepo() (err error) {
 	msg := Conf.Language(202)
 	util.PushEndlessProgress(msg)
@@ -955,9 +979,13 @@ var syncingFiles = sync.Map{}
 var syncingStorages = atomic.Bool{}
 
 func waitForSyncingStorages() {
-	for syncingStorages.Load() {
+	for isSyncingStorages() {
 		time.Sleep(time.Second)
 	}
+}
+
+func isSyncingStorages() bool {
+	return syncingStorages.Load() || isBootSyncing.Load()
 }
 
 func IsSyncingFile(rootID string) (ret bool) {
@@ -1105,6 +1133,8 @@ func syncRepoUpload() (err error) {
 	return
 }
 
+var isBootSyncing = atomic.Bool{}
+
 func bootSyncRepo() (err error) {
 	if 1 > len(Conf.Repo.Key) {
 		autoSyncErrCount++
@@ -1129,11 +1159,14 @@ func bootSyncRepo() (err error) {
 		return
 	}
 
+	isBootSyncing.Store(true)
+
 	start := time.Now()
 	_, _, err = indexRepoBeforeCloudSync(repo)
 	if nil != err {
 		autoSyncErrCount++
 		planSyncAfter(fixSyncInterval)
+		isBootSyncing.Store(false)
 		return
 	}
 
@@ -1180,17 +1213,21 @@ func bootSyncRepo() (err error) {
 		util.PushStatusBar(msg)
 		util.PushErrMsg(msg, 0)
 		BootSyncSucc = 1
+		isBootSyncing.Store(false)
 		return
 	}
 
 	if 0 < len(fetchedFiles) {
 		go func() {
 			_, syncErr := syncRepo(false, false)
+			isBootSyncing.Store(false)
 			if nil != err {
 				logging.LogErrorf("boot background sync repo failed: %s", syncErr)
 				return
 			}
 		}()
+	} else {
+		isBootSyncing.Store(false)
 	}
 	return
 }

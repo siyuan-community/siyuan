@@ -217,8 +217,9 @@ export class Gutter {
                     return;
                 }
                 if (buttonElement.dataset.type === "NodeAttributeViewRow") {
-                    blockElement.querySelectorAll(".av__cell--select").forEach((cellElement: HTMLElement) => {
-                        cellElement.classList.remove("av__cell--select");
+                    blockElement.querySelectorAll(".av__cell--select, .av__cell--active").forEach((cellElement: HTMLElement) => {
+                        cellElement.classList.remove("av__cell--select", "av__cell--active");
+                        cellElement.querySelector(".av__drag-fill")?.remove();
                     });
                     const avID = blockElement.getAttribute("data-av-id");
                     const srcIDs = [Lute.NewNodeID()];
@@ -716,15 +717,11 @@ export class Gutter {
             accelerator: "⌘C",
             click() {
                 if (isNotEditBlock(selectsElement[0])) {
-                    let html = "";
-                    selectsElement.forEach(item => {
-                        html += removeEmbed(item);
-                    });
-                    writeText(protyle.lute.BlockDOM2StdMd(html).trimEnd());
+                    focusBlock(selectsElement[0]);
                 } else {
                     focusByRange(getEditorRange(selectsElement[0]));
-                    document.execCommand("copy");
                 }
+                document.execCommand("copy");
             }
         }, {
             label: window.siyuan.languages.copyPlainText,
@@ -1157,11 +1154,11 @@ export class Gutter {
             accelerator: "⌘C",
             click() {
                 if (isNotEditBlock(nodeElement)) {
-                    writeText(protyle.lute.BlockDOM2StdMd(removeEmbed(nodeElement)).trimEnd());
+                    focusBlock(nodeElement);
                 } else {
                     focusByRange(getEditorRange(nodeElement));
-                    document.execCommand("copy");
                 }
+                document.execCommand("copy");
             }
         }, {
             label: window.siyuan.languages.copyPlainText,

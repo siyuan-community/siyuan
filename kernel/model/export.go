@@ -70,6 +70,9 @@ func ExportAv2CSV(avID string) (zipPath string, err error) {
 	}
 
 	name := util.FilterFileName(attrView.Name)
+	if "" == name {
+		name = "Untitled"
+	}
 
 	table, err := renderAttributeViewTable(attrView, view)
 	if nil != err {
@@ -90,8 +93,13 @@ func ExportAv2CSV(avID string) (zipPath string, err error) {
 		return
 	}
 
-	writer := csv.NewWriter(f)
+	if _, err = f.WriteString("\xEF\xBB\xBF"); nil != err { // 写入 UTF-8 BOM，避免使用 Microsoft Excel 打开乱码
+		logging.LogErrorf("write UTF-8 BOM to [%s] failed: %s", csvPath, err)
+		f.Close()
+		return
+	}
 
+	writer := csv.NewWriter(f)
 	var header []string
 	for _, col := range table.Columns {
 		header = append(header, col.Name)
@@ -857,11 +865,13 @@ func prepareExportTree(bt *treenode.BlockTree) (ret *parse.Tree) {
 			}
 		}
 
+		oldRoot := ret.Root
 		ret = parse.Parse("", []byte(""), luteEngine.ParseOptions)
 		first := ret.Root.FirstChild
 		for _, node := range nodes {
 			first.InsertBefore(node)
 		}
+		ret.Root.KramdownIAL = oldRoot.KramdownIAL
 	}
 	ret.Path = bt.Path
 	ret.HPath = bt.HPath
@@ -2025,16 +2035,14 @@ func exportTree(tree *parse.Tree, wysiwyg, expandKaTexMacros, keepFold bool,
 		switch blockRefMode {
 		case 2: // 锚文本块链
 			var blockRefLink *ast.Node
-			blockRefLink = &ast.Node{Type: ast.NodeLink}
-			blockRefLink.AppendChild(&ast.Node{Type: ast.NodeOpenBracket})
-			blockRefLink.AppendChild(&ast.Node{Type: ast.NodeLinkText, Tokens: []byte(linkText)})
-			blockRefLink.AppendChild(&ast.Node{Type: ast.NodeCloseBracket})
-			blockRefLink.AppendChild(&ast.Node{Type: ast.NodeOpenParen})
-			blockRefLink.AppendChild(&ast.Node{Type: ast.NodeLinkDest, Tokens: []byte("siyuan://blocks/" + defID)})
-			blockRefLink.AppendChild(&ast.Node{Type: ast.NodeCloseParen})
+			blockRefLink = &ast.Node{Type: ast.NodeTextMark, TextMarkType: "a", TextMarkTextContent: linkText, TextMarkAHref: "siyuan://blocks/" + defID}
+			blockRefLink.KramdownIAL = n.KramdownIAL
 			n.InsertBefore(blockRefLink)
 		case 3: // 仅锚文本
-			n.InsertBefore(&ast.Node{Type: ast.NodeText, Tokens: []byte(linkText)})
+			var blockRefLink *ast.Node
+			blockRefLink = &ast.Node{Type: ast.NodeTextMark, TextMarkType: "text", TextMarkTextContent: linkText}
+			blockRefLink.KramdownIAL = n.KramdownIAL
+			n.InsertBefore(blockRefLink)
 		case 4: // 脚注
 			refFoot := getRefAsFootnotes(defID, &refFootnotes)
 			n.InsertBefore(&ast.Node{Type: ast.NodeText, Tokens: []byte(linkText)})
