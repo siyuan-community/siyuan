@@ -29,6 +29,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/server"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/filelock"
 	_ "golang.org/x/mobile/bind"
 )
 
@@ -77,6 +78,10 @@ func ShowMsg(msg string, timeout int) {
 
 func IsHttpServing() bool {
 	return util.HttpServing
+}
+
+func SetHttpServerPort(port int) {
+	filelock.AndroidServerPort = port
 }
 
 func SetTimezone(container, appDir, timezoneID string) {

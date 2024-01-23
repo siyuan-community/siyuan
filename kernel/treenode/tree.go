@@ -30,6 +30,7 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/filelock"
 )
 
 func StatTree(tree *parse.Tree) (ret *util.BlockStatResult) {
@@ -101,7 +102,7 @@ func RootChildIDs(rootID string) (ret []string) {
 	if !gulu.File.IsDir(subFolder) {
 		return
 	}
-	filepath.Walk(subFolder, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(subFolder, func(path string, info fs.FileInfo, err error) error {
 		if strings.HasSuffix(path, ".sy") {
 			name := filepath.Base(path)
 			id := strings.TrimSuffix(name, ".sy")

@@ -99,7 +99,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	defer os.RemoveAll(unzipPath)
 
 	var syPaths []string
-	filepath.Walk(unzipPath, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(unzipPath, func(path string, info fs.FileInfo, err error) error {
 		if nil != err {
 			return err
 		}
@@ -207,7 +207,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	renameAvPaths := map[string]string{}
 	if gulu.File.IsExist(storageAvDir) {
 		// 重新生成数据库数据
-		filepath.Walk(storageAvDir, func(path string, info fs.FileInfo, err error) error {
+		filelock.Walk(storageAvDir, func(path string, info fs.FileInfo, err error) error {
 			if !strings.HasSuffix(path, ".json") || !ast.IsNodeIDPattern(strings.TrimSuffix(info.Name(), ".json")) {
 				return nil
 			}
@@ -398,7 +398,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 
 	// 重命名文件路径
 	renamePaths := map[string]string{}
-	filepath.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
 		if nil != err {
 			return err
 		}
@@ -473,7 +473,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 
 	// 将包含的资源文件统一移动到 data/assets/ 下
 	var assetsDirs []string
-	filepath.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
 		if strings.Contains(path, "assets") && info.IsDir() {
 			assetsDirs = append(assetsDirs, path)
 		}
@@ -508,7 +508,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	}
 
 	var treePaths []string
-	filepath.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			if strings.HasPrefix(info.Name(), ".") {
 				return filepath.SkipDir
@@ -633,7 +633,7 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 	if gulu.File.IsDir(localPath) {
 		// 收集所有资源文件
 		assets := map[string]string{}
-		filepath.Walk(localPath, func(currentPath string, info os.FileInfo, walkErr error) error {
+		filelock.Walk(localPath, func(currentPath string, info os.FileInfo, walkErr error) error {
 			if localPath == currentPath {
 				return nil
 			}
@@ -655,7 +655,7 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 		assetsDone := map[string]string{}
 
 		// md 转换 sy
-		filepath.Walk(localPath, func(currentPath string, info os.FileInfo, walkErr error) error {
+		filelock.Walk(localPath, func(currentPath string, info os.FileInfo, walkErr error) error {
 			if strings.HasPrefix(info.Name(), ".") {
 				if info.IsDir() {
 					return filepath.SkipDir

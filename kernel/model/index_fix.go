@@ -36,6 +36,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 )
 
@@ -153,7 +154,11 @@ func resetDuplicateBlocksOnFileSys() {
 
 		boxPath := filepath.Join(util.DataDir, box.ID)
 		var duplicatedTrees []*parse.Tree
-		filepath.Walk(boxPath, func(path string, info os.FileInfo, err error) error {
+		filelock.Walk(boxPath, func(path string, info os.FileInfo, err error) error {
+			if nil == info {
+				return nil
+			}
+
 			if info.IsDir() {
 				if boxPath == path {
 					// 跳过根路径（笔记本文件夹）
@@ -297,9 +302,13 @@ func fixBlockTreeByFileSys() {
 	for _, box := range boxes {
 		boxPath := filepath.Join(util.DataDir, box.ID)
 		var paths []string
-		filepath.Walk(boxPath, func(path string, info os.FileInfo, err error) error {
+		filelock.Walk(boxPath, func(path string, info os.FileInfo, err error) error {
 			if boxPath == path {
 				// 跳过根路径（笔记本文件夹）
+				return nil
+			}
+
+			if nil == info {
 				return nil
 			}
 

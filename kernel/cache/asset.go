@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 )
 
@@ -68,7 +69,7 @@ func LoadAssets() {
 
 	assetsCache = map[string]*Asset{}
 	assets := util.GetDataAssetsAbsPath()
-	filepath.Walk(assets, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(assets, func(path string, info fs.FileInfo, err error) error {
 		if nil == info {
 			return err
 		}
