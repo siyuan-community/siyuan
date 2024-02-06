@@ -19,8 +19,8 @@ import {resize} from "../protyle/util/resize";
 import {setStorageVal} from "../protyle/util/compatibility";
 import {focusByRange} from "../protyle/util/selection";
 
-const genCardCount = (unreviewedNewCardCount: number, unreviewedOldCardCount: number,) => {
-    return `<span class="ft__error">1</span>
+const genCardCount = (unreviewedNewCardCount: number, unreviewedOldCardCount: number, index = 1) => {
+    return `<span class="ft__error">${index}</span>
 <span class="fn__space"></span>/<span class="fn__space"></span>
 <span class="ariaLabel ft__primary" aria-label="${window.siyuan.languages.flashcardNewCard}">${unreviewedNewCardCount}</span>
 <span class="fn__space"></span>+<span class="fn__space"></span>
@@ -132,9 +132,6 @@ export const bindCardEvent = async (options: {
     dialog?: Dialog,
     index?: number
 }) => {
-    for (let i = 0; i < options.app.plugins.length; i++) {
-        options.cardsData = await options.app.plugins[i].updateCards(options.cardsData);
-    }
     if (window.siyuan.storage[Constants.LOCAL_FLASHCARD].fullscreen) {
         fullscreen(options.element.querySelector(".card__main"),
             options.element.querySelector('[data-type="fullscreen"]'));
@@ -177,8 +174,8 @@ export const bindCardEvent = async (options: {
         });
     }
     options.element.setAttribute("data-key", Constants.DIALOG_OPENCARD);
-    const countElement = options.element.querySelector('[data-type="count"] span');
-    countElement.innerHTML = (index + 1).toString();
+    const countElement = options.element.querySelector('[data-type="count"]');
+    countElement.firstElementChild.innerHTML = (index + 1).toString();
     const actionElements = options.element.querySelectorAll(".card__action");
     if (options.index === 0) {
         actionElements[0].firstElementChild.setAttribute("disabled", "disabled");
@@ -205,7 +202,7 @@ export const bindCardEvent = async (options: {
                     editor,
                     actionElements,
                     index,
-                    blocks: options.cardsData.cards
+                    cardsData: options.cardsData
                 });
             } else {
                 allDone(countElement, editor, actionElements);
@@ -381,7 +378,7 @@ export const bindCardEvent = async (options: {
                     editor,
                     actionElements,
                     index,
-                    blocks: options.cardsData.cards
+                    cardsData: options.cardsData
                 });
             }
             return;
@@ -428,7 +425,7 @@ export const bindCardEvent = async (options: {
                                 editor,
                                 actionElements,
                                 index,
-                                blocks: options.cardsData.cards
+                                cardsData: options.cardsData
                             });
                         }
                     });
@@ -439,7 +436,7 @@ export const bindCardEvent = async (options: {
                     editor,
                     actionElements,
                     index,
-                    blocks: options.cardsData.cards
+                    cardsData: options.cardsData
                 });
             });
         }
@@ -466,6 +463,9 @@ export const openCardByData = async (app: App, cardsData: ICardData, cardType: T
     let lastRange: Range;
     if (getSelection().rangeCount > 0) {
         lastRange = getSelection().getRangeAt(0);
+    }
+    for (let i = 0; i < app.plugins.length; i++) {
+        cardsData = await app.plugins[i].updateCards(cardsData);
     }
     const dialog = new Dialog({
         positionId: Constants.DIALOG_OPENCARD,
@@ -511,7 +511,7 @@ const nextCard = (options: {
     editor: Protyle,
     actionElements: NodeListOf<Element>,
     index: number,
-    blocks: ICard[]
+    cardsData: ICardData
 }) => {
     options.editor.protyle.element.classList.add("card__block--hide");
     if (window.siyuan.config.flashcard.superBlock) {
@@ -530,19 +530,19 @@ const nextCard = (options: {
     options.actionElements[1].classList.add("fn__none");
     options.editor.protyle.element.classList.remove("fn__none");
     options.editor.protyle.element.nextElementSibling.classList.add("fn__none");
-    options.countElement.innerHTML = (options.index + 1).toString();
-    options.countElement.parentElement.classList.remove("fn__none");
+    options.countElement.innerHTML =  genCardCount(options.cardsData.unreviewedNewCardCount, options.cardsData.unreviewedOldCardCount, options.index + 1);
+    options.countElement.classList.remove("fn__none");
     if (options.index === 0) {
         options.actionElements[0].firstElementChild.setAttribute("disabled", "disabled");
     } else {
         options.actionElements[0].firstElementChild.removeAttribute("disabled");
     }
     fetchPost("/api/block/getDocInfo", {
-        id: options.blocks[options.index].blockID,
+        id: options.cardsData.cards[options.index].blockID,
     }, (response) => {
         options.editor.protyle.wysiwyg.renderCustom(response.data.ial);
         fetchPost("/api/filetree/getDoc", {
-            id: options.blocks[options.index].blockID,
+            id: options.cardsData.cards[options.index].blockID,
             mode: 0,
             size: Constants.SIZE_GET_MAX
         }, (response) => {
@@ -557,7 +557,7 @@ const nextCard = (options: {
 };
 
 const allDone = (countElement: Element, editor: Protyle, actionElements: NodeListOf<Element>) => {
-    countElement.parentElement.classList.add("fn__none");
+    countElement.classList.add("fn__none");
     editor.protyle.element.classList.add("fn__none");
     const emptyElement = editor.protyle.element.nextElementSibling;
     emptyElement.innerHTML = `<div>🔮</div>${window.siyuan.languages.noDueCard}`;
@@ -567,7 +567,7 @@ const allDone = (countElement: Element, editor: Protyle, actionElements: NodeLis
 };
 
 const newRound = (countElement: Element, editor: Protyle, actionElements: NodeListOf<Element>, unreviewedCount: number) => {
-    countElement.parentElement.classList.add("fn__none");
+    countElement.classList.add("fn__none");
     editor.protyle.element.classList.add("fn__none");
     const emptyElement = editor.protyle.element.nextElementSibling;
     emptyElement.innerHTML = `<div>♻️ </div>
