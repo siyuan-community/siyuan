@@ -21,7 +21,7 @@ import {setEmpty} from "../mobile/util/setEmpty";
 import {hideAllElements, hideElements} from "../protyle/ui/hideElements";
 import {App} from "../index";
 import {saveScroll} from "../protyle/scroll/saveScroll";
-import {isInAndroid, isInIOS, setStorageVal} from "../protyle/util/compatibility";
+import {isInAndroid, isInIOS, isLocalhost, setStorageVal} from "../protyle/util/compatibility";
 import {Plugin} from "../plugin";
 
 const updateTitle = (rootID: string, tab: Tab, protyle?: IProtyle) => {
@@ -183,6 +183,12 @@ export const exitSiYuan = () => {
     /// #if MOBILE
     if (window.siyuan.mobile.editor) {
         saveScroll(window.siyuan.mobile.editor.protyle);
+    }
+    /// #endif
+    /// #if !BROWSER
+    if (!isLocalhost()) {
+        ipcRenderer.send(Constants.SIYUAN_QUIT, location.port);
+        return;
     }
     /// #endif
     fetchPost("/api/system/exit", {force: false}, (response) => {

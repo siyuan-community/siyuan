@@ -119,6 +119,10 @@ export const isInIOS = () => {
     return window.siyuan.config.system.container === "ios" && window.webkit?.messageHandlers;
 };
 
+export const isLocalhost = () => {
+    return window.location.hostname === "127.0.0.1";
+}
+
 // Mac，Windows 快捷键展示
 export const updateHotkeyTip = (hotkey: string) => {
     if (isMac()) {
