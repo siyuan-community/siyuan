@@ -1,4 +1,5 @@
 {
+  "fileAnnoRefPlaceholder": "Please enter block ID",
   "addToDatabase": "Add to Database",
   "clearContext": "Clear context",
   "cloudStoragePurge": "Purge cloud storage",
@@ -369,8 +370,11 @@
   "backmentionExpandTip": "If configured as <code class='fn__code'>0</code>, it will not be expanded",
   "googleAnalytics": "Google Analytics",
   "googleAnalyticsTip": "After enabling, it will use <a href=\"https://analytics.google.com/\" target=\"_blank\">Google Analytics</a> to count the opening status of the application and will not collect users data and operations",
-  "floatWindowMode": "Hover to display a floating window",
-  "floatWindowModeTip": "After enabling, a floating window will appear when the mouse hovers over the block reference, breadcrumb block icon, etc. After disabling, you need to hold down the <code class='fn__code'>${hotkey}</code> key to appear the floating window",
+  "floatWindowMode": "Floating window trigger method",
+  "floatWindowModeTip": "Choose how to trigger the floating window when the mouse hovers over the block icon, breadcrumb icon, etc.",
+  "floatWindowMode0": "Hover",
+  "floatWindowMode1": "Press and hold <code class='fn__code'>${hotkey}</code>+Hover",
+  "floatWindowMode2": "Do not trigger",
   "codeSnippet": "Code Snippet",
   "expandDown": "Expand Down",
   "expandUp": "Expand Up",
@@ -1157,7 +1161,6 @@
     "task.history.database.index.commit": "Execute history database index commit",
     "task.database.index.embedBlock": "Execute database index embed block",
     "task.reload.ui": "Execute reload UI",
-    "task.upgrade.userGuide": "Execute upgrade user guide",
     "task.asset.database.index.full": "Execute asset database rebuild index",
     "task.asset.database.index.commit": "Execute asset database index commit"
   },
@@ -1408,6 +1411,7 @@
     "229": "Deleting cloud storage unreferenced snapshots...",
     "230": "Deleting cloud storage unreferenced check indexes...",
     "231": "Deleting unreferenced data objects in cloud storage...",
-    "232": "The cloud data storage has been purged. [%d] snapshots and [%d] data objects have been deleted, and a total of [%s] disk space has been released"
+    "232": "The cloud data storage has been purged. [%d] snapshots and [%d] data objects have been deleted, and a total of [%s] disk space has been released",
+    "233": "Closing user guide..."
   }
 }

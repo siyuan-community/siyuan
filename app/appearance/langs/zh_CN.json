@@ -1,4 +1,5 @@
 {
+  "fileAnnoRefPlaceholder": "请输入块 ID",
   "addToDatabase": "添加到数据库",
   "clearContext": "清空上下文",
   "cloudStoragePurge": "清理云端存储",
@@ -369,8 +370,11 @@
   "backmentionExpandTip": "配置为 <code class='fn__code'>0</code> 则不展开",
   "googleAnalytics": "Google Analytics",
   "googleAnalyticsTip": "启用后会通过 <a href=\"https://analytics.google.com/\" target=\"_blank\">Google Analytics</a> 统计应用打开状态，不会收集用户数据和操作",
-  "floatWindowMode": "悬停出现浮窗",
-  "floatWindowModeTip": "启用后鼠标悬停块引、面包屑块标等位置会出现浮窗，关闭后需按住 <code class='fn__code'>${hotkey}</code> 键才会出现浮窗",
+  "floatWindowMode": "浮窗触发方式",
+  "floatWindowModeTip": "选择鼠标悬停块引、面包屑块标等位置触发浮窗的方式",
+  "floatWindowMode0": "悬停",
+  "floatWindowMode1": "按住 <code class='fn__code'>${hotkey}</code>+悬停",
+  "floatWindowMode2": "不触发浮窗",
   "codeSnippet": "代码片段",
   "expandDown": "向下扩选",
   "expandUp": "向上扩选",
@@ -1157,7 +1161,6 @@
     "task.history.database.index.commit": "执行历史数据库索引提交",
     "task.database.index.embedBlock": "执行数据库索引嵌入块",
     "task.reload.ui": "执行重载界面",
-    "task.upgrade.userGuide": "执行升级用户指南",
     "task.asset.database.index.full": "执行资源文件数据库重建索引",
     "task.asset.database.index.commit": "执行资源文件数据库索引提交"
   },
@@ -1408,6 +1411,7 @@
     "229": "正在删除云端存储未引用快照...",
     "230": "正在删除云端存储未引用校验快照...",
     "231": "正在删除云端存储未引用数据对象...",
-    "232": "云端数据存储清理完毕，已删除 [%d] 个快照和 [%d] 个数据对象，共释放 [%s] 磁盘空间"
+    "232": "云端数据存储清理完毕，已删除 [%d] 个快照和 [%d] 个数据对象，共释放 [%s] 磁盘空间",
+    "233": "正在关闭用户指南..."
   }
 }

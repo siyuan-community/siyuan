@@ -85,13 +85,10 @@ export const loadAssets = (data: IAppearance) => {
     const themeScriptElement = document.getElementById("themeScript");
     const themeScriptAddress = `/appearance/themes/${data.mode === 1 ? data.themeDark : data.themeLight}/theme.js?v=${data.themeVer}`;
     if (themeScriptElement) {
-        if (!themeScriptElement.getAttribute("src").startsWith(themeScriptAddress)) {
-            themeScriptElement.remove();
-            addScript(themeScriptAddress, "themeScript");
-        }
-    } else {
-        addScript(themeScriptAddress, "themeScript");
+        // https://github.com/siyuan-note/siyuan/issues/10341
+        themeScriptElement.remove();
     }
+    addScript(themeScriptAddress, "themeScript");
 
     const iconDefaultScriptElement = document.getElementById("iconDefaultScript");
     // 不能使用 data.iconVer，因为其他主题也需要加载默认图标，此时 data.iconVer 为其他图标的版本号
