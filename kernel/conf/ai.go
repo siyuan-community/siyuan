@@ -17,9 +17,10 @@
 package conf
 
 import (
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"os"
 	"strconv"
+
+	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/sashabaranov/go-openai"
 )
