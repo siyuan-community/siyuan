@@ -900,7 +900,6 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 	}
 
 	IncSync()
-	util.ReloadUI()
 	debug.FreeOSMemory()
 	return
 }

@@ -64,7 +64,7 @@ func BuildTreeGraph(id, query string) (boxID string, nodes []*GraphNode, links [
 	nodes = []*GraphNode{}
 	links = []*GraphLink{}
 
-	tree, err := loadTreeByBlockID(id)
+	tree, err := LoadTreeByBlockID(id)
 	if nil != err {
 		return
 	}
