@@ -18,7 +18,6 @@ package model
 
 import (
 	"errors"
-	"github.com/siyuan-note/siyuan/kernel/task"
 	"io/fs"
 	"path"
 	"path/filepath"
