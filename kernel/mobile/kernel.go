@@ -30,6 +30,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
+	"github.com/siyuan-note/logging"
 	_ "golang.org/x/mobile/bind"
 )
 
@@ -87,6 +88,19 @@ func SetHttpServerPort(port int) {
 
 func GetCurrentWorkspacePath() string {
 	return util.WorkspaceDir
+}
+
+func GetAssetAbsPath(asset string) (ret string) {
+	ret, err := model.GetAssetAbsPath(asset)
+	if nil != err {
+		logging.LogErrorf("get asset [%s] abs path failed: %s", asset, err)
+		ret = asset
+	}
+	return
+}
+
+func GetMimeTypeByExt(ext string) string {
+	return util.GetMimeTypeByExt(ext)
 }
 
 func SetTimezone(container, appDir, timezoneID string) {

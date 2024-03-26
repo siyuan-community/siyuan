@@ -516,6 +516,7 @@ func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {
 	}
 
 	readme := getPreferredReadme(repo.Package.Readme)
+
 	data, err := downloadPackage(repoURLHash+"/"+readme, false, "")
 	if nil != err {
 		ret = "Load bazaar package's README.md failed: " + err.Error()
@@ -613,12 +614,27 @@ func getPackageDownloadURL(owner, repo, hash string) (url string, err error) {
 	}
 }
 
+var (
+	packageLocks     = map[string]*sync.Mutex{}
+	packageLocksLock = sync.Mutex{}
+)
+
 func downloadPackage(repoURLHash string, pushProgress bool, systemID string) (data []byte, err error) {
+	packageLocksLock.Lock()
+	defer packageLocksLock.Unlock()
+
 	// repoURLHash: https://github.com/88250/Comfortably-Numb@6286912c381ef3f83e455d06ba4d369c498238dc
 	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
 	// repoURLHash: <urername>/<reponame>@<git-commit-hash>/README.md
 
-	pushID := repoURLHash[:strings.LastIndex(repoURLHash, "@")]
+	lock, ok := packageLocks[repoURLHash]
+	if !ok {
+		lock = &sync.Mutex{}
+		packageLocks[repoURLHash] = lock
+	}
+	lock.Lock()
+	defer lock.Unlock()
+
 	repoURLHash = strings.TrimPrefix(repoURLHash, "https://github.com/")
 	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
 	// repoURLHash: <urername>/<reponame>@<git-commit-hash>/README.md
@@ -653,7 +669,7 @@ func downloadPackage(repoURLHash string, pushProgress bool, systemID string) (da
 		if pushProgress {
 			progress := float32(info.DownloadedSize) / float32(info.Response.ContentLength)
 			//logging.LogDebugf("downloading bazaar package [%f]", progress)
-			util.PushDownloadProgress(pushID, progress)
+			util.PushDownloadProgress(repoURL, progress)
 		}
 	}).Get(u)
 	if nil != err {
