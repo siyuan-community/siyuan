@@ -22,15 +22,13 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-
-	"github.com/88250/gulu"
-	"github.com/siyuan-community/siyuan/kernel/util"
-	"github.com/siyuan-note/logging"
-
 	"sync"
 	"time"
 
+	"github.com/88250/gulu"
 	"github.com/siyuan-community/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
 
 func BatchUpdateBazaarPackages(frontend string) {
