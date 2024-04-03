@@ -233,18 +233,23 @@ export class Outline extends Model {
                 return;
             }
             const documentSelf = document;
-            item.style.opacity = "0.38";
-            const ghostElement = item.cloneNode(true) as HTMLElement;
-            document.body.append(ghostElement);
-            ghostElement.firstElementChild.setAttribute("style", "padding-left:4px");
-            ghostElement.setAttribute("style", `border-radius: var(--b3-border-radius);background-color: var(--b3-list-hover);position: fixed; top: ${event.clientY}px; left: ${event.clientX}px; z-index:999997;`);
-
             documentSelf.ondragstart = () => false;
-
+            let ghostElement: HTMLElement;
             let selectItem: HTMLElement;
             documentSelf.onmousemove = (moveEvent: MouseEvent) => {
+                if (moveEvent.clientY === event.clientY && moveEvent.clientX === event.clientX) {
+                    return;
+                }
                 moveEvent.preventDefault();
                 moveEvent.stopPropagation();
+                if (!ghostElement) {
+                    item.style.opacity = "0.38";
+                    ghostElement = item.cloneNode(true) as HTMLElement;
+                    this.element.append(ghostElement);
+                    ghostElement.setAttribute("id", "dragGhost");
+                    ghostElement.firstElementChild.setAttribute("style", "padding-left:4px");
+                    ghostElement.setAttribute("style", `border-radius: var(--b3-border-radius);background-color: var(--b3-list-hover);position: fixed; top: ${event.clientY}px; left: ${event.clientX}px; z-index:999997;`);
+                }
                 ghostElement.style.top = moveEvent.clientY + "px";
                 ghostElement.style.left = moveEvent.clientX + "px";
                 selectItem = hasClosestByClassName(moveEvent.target as HTMLElement, "b3-list-item") as HTMLElement;
@@ -272,16 +277,15 @@ export class Outline extends Model {
                 documentSelf.onselect = null;
                 ghostElement.remove();
                 item.style.opacity = "";
-
                 if (!selectItem) {
                     selectItem = this.element.querySelector(".dragover__top, .dragover__bottom, .dragover");
                 }
-                if (selectItem) {
+                if (selectItem && selectItem.className.indexOf("dragover") > -1) {
                     getAllModels().editor.find(editItem => {
                         if (editItem.editor.protyle.block.rootID === this.blockId) {
                             let previousID;
                             let parentID;
-                            const undoPreviousID = item.previousElementSibling?.getAttribute("data-node-id");
+                            const undoPreviousID = (item.previousElementSibling && item.previousElementSibling.tagName === "UL") ? item.previousElementSibling.previousElementSibling.getAttribute("data-node-id") : item.previousElementSibling?.getAttribute("data-node-id");
                             const undoParentID = item.parentElement.previousElementSibling?.getAttribute("data-node-id");
                             if (selectItem.classList.contains("dragover")) {
                                 parentID = selectItem.getAttribute("data-node-id");
@@ -293,7 +297,14 @@ export class Outline extends Model {
                                 }
                             } else if (selectItem.classList.contains("dragover__top")) {
                                 parentID = selectItem.parentElement.previousElementSibling?.getAttribute("data-node-id");
-                                previousID = selectItem.previousElementSibling?.getAttribute("data-node-id");
+                                if (selectItem.previousElementSibling && selectItem.previousElementSibling.tagName === "UL") {
+                                    previousID = selectItem.previousElementSibling.previousElementSibling.getAttribute("data-node-id");
+                                } else {
+                                    previousID = selectItem.previousElementSibling?.getAttribute("data-node-id");
+                                }
+                                if (previousID === item.dataset.nodeId || parentID === item.dataset.nodeId) {
+                                    return true;
+                                }
                                 selectItem.before(item);
                             } else if (selectItem.classList.contains("dragover__bottom")) {
                                 previousID = selectItem.getAttribute("data-node-id");

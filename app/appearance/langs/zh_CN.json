@@ -443,6 +443,7 @@
   "historyFormat": "格式化 (format)",
   "historySync": "同步　 (sync)",
   "historyReplace": "替换　 (replace)",
+  "historyOutline": "大纲　 (outline)",
   "htmlBlockError": "以下 script 执行会影响界面显示，已经停止运行该脚本",
   "fileHistory": "文件历史",
   "htmlBlockTip": "形成了多个 HTML 块，为防止数据丢失请使用 <code class='fn__code'>&lt;div&gt;</code> 标签包裹并去掉空行",
@@ -730,7 +731,7 @@
   "sub": "下标",
   "enter": "聚焦",
   "enterBack": "聚焦到上层",
-  "duplicate": "重复",
+  "duplicate": "复制为副本",
   "turnInto": "转换为",
   "split": "分屏",
   "underline": "下划线",
@@ -1461,6 +1462,8 @@
     "236": "[%d/%d] 正在更新集市包 [%s]...",
     "237": "[%d] 个集市包已经全部更新成功",
     "238": "集市包 [%s] 更新失败，请稍后再试",
-    "239": "相关操作正在处理中，请稍后再试"
+    "239": "相关操作正在处理中，请稍后再试",
+    "240": "不支持拖拽文档中容器块下的标题",
+    "241": "不支持拖拽为自己的子标题"
   }
 }

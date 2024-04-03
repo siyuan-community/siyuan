@@ -35,6 +35,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
+	"golang.org/x/time/rate"
 )
 
 func resetTree(tree *parse.Tree, titleSuffix string) {
@@ -152,7 +153,9 @@ var (
 	ErrIndexing      = errors.New("indexing")
 )
 
-func LoadTreeByBlockID(id string) (ret *parse.Tree, err error) {
+func LoadTreeByBlockIDWithReindex(id string) (ret *parse.Tree, err error) {
+	// 仅提供给 getBlockInfo 接口使用
+
 	if "" == id {
 		return nil, ErrTreeNotFound
 	}
@@ -177,7 +180,32 @@ func LoadTreeByBlockID(id string) (ret *parse.Tree, err error) {
 	return
 }
 
+func LoadTreeByBlockID(id string) (ret *parse.Tree, err error) {
+	if "" == id {
+		return nil, ErrTreeNotFound
+	}
+
+	bt := treenode.GetBlockTree(id)
+	if nil == bt {
+		if task.Contain(task.DatabaseIndex, task.DatabaseIndexFull) {
+			err = ErrIndexing
+			return
+		}
+		return nil, ErrTreeNotFound
+	}
+
+	luteEngine := util.NewLute()
+	ret, err = filesys.LoadTree(bt.BoxID, bt.Path, luteEngine)
+	return
+}
+
+var searchTreeLimiter = rate.NewLimiter(rate.Every(3*time.Second), 1)
+
 func searchTreeInFilesystem(rootID string) {
+	if !searchTreeLimiter.Allow() {
+		return
+	}
+
 	msdID := util.PushMsg(Conf.language(45), 7000)
 	defer util.PushClearMsg(msdID)
 

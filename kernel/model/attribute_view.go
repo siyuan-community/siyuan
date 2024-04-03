@@ -340,9 +340,13 @@ func GetBlockAttributeViewKeys(blockID string) (ret []*BlockAttributeViewKeys) {
 						for _, bID := range relVal.Relation.BlockIDs {
 							destVal := destAv.GetValue(kv.Key.Rollup.KeyID, bID)
 							if nil == destVal {
-								destVal = treenode.GetAttributeViewDefaultValue(ast.NewNodeID(), kv.Key.Rollup.KeyID, blockID, destKey.Type)
+								if destAv.ExistBlock(bID) { // 数据库中存在行但是列值不存在是数据未初始化，这里补一个默认值
+									destVal = treenode.GetAttributeViewDefaultValue(ast.NewNodeID(), kv.Key.Rollup.KeyID, bID, destKey.Type)
+								}
+								if nil == destVal {
+									continue
+								}
 							}
-
 							if av.KeyTypeNumber == destKey.Type {
 								destVal.Number.Format = destKey.NumberFormat
 								destVal.Number.FormatNumber()
@@ -683,7 +687,7 @@ func renderAttributeView(attrView *av.AttributeView, viewID, query string, page,
 			}
 
 			if 0 == v.UpdatedAt {
-				v.UpdatedAt = v.CreatedAt
+				v.UpdatedAt = v.CreatedAt + 1000
 			}
 		}
 	}
@@ -808,9 +812,13 @@ func renderTemplateCol(ial map[string]string, flashcard *Flashcard, rowValues []
 		if 0 < len(rowValue.Values) {
 			v := rowValue.Values[0]
 			if av.KeyTypeNumber == v.Type {
-				dataModel[rowValue.Key.Name] = v.Number.Content
+				if nil != v.Number && v.Number.IsNotEmpty {
+					dataModel[rowValue.Key.Name] = v.Number.Content
+				}
 			} else if av.KeyTypeDate == v.Type {
-				dataModel[rowValue.Key.Name] = time.UnixMilli(v.Date.Content)
+				if nil != v.Date && v.Date.IsNotEmpty {
+					dataModel[rowValue.Key.Name] = time.UnixMilli(v.Date.Content)
+				}
 			} else if av.KeyTypeRollup == v.Type {
 				if 0 < len(v.Rollup.Contents) && av.KeyTypeNumber == v.Rollup.Contents[0].Type {
 					// 模板使用汇总时支持数字计算
@@ -997,7 +1005,12 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View, query s
 				for _, blockID := range relVal.Relation.BlockIDs {
 					destVal := destAv.GetValue(rollupKey.Rollup.KeyID, blockID)
 					if nil == destVal {
-						continue
+						if destAv.ExistBlock(blockID) { // 数据库中存在行但是列值不存在是数据未初始化，这里补一个默认值
+							destVal = treenode.GetAttributeViewDefaultValue(ast.NewNodeID(), rollupKey.Rollup.KeyID, blockID, destKey.Type)
+						}
+						if nil == destVal {
+							continue
+						}
 					}
 					if av.KeyTypeNumber == destKey.Type {
 						destVal.Number.Format = destKey.NumberFormat
@@ -2900,18 +2913,12 @@ func UpdateAttributeViewCell(tx *Transaction, avID, keyID, rowID, cellID string,
 
 	if nil != blockVal {
 		blockVal.Block.Updated = now
-		blockVal.UpdatedAt = now
-		if val.CreatedAt == val.UpdatedAt {
-			val.UpdatedAt += 1000 // 防止更新时间和创建时间一样
-		}
+		blockVal.SetUpdatedAt(now)
 		if isUpdatingBlockKey {
 			blockVal.IsDetached = val.IsDetached
 		}
 	}
-	val.UpdatedAt = now
-	if val.CreatedAt == val.UpdatedAt {
-		val.UpdatedAt += 1000 // 防止更新时间和创建时间一样
-	}
+	val.SetUpdatedAt(now)
 
 	key, _ := attrView.GetKey(val.KeyID)
 	if nil != key && av.KeyTypeRelation == key.Type && nil != key.Relation {
@@ -2943,6 +2950,7 @@ func UpdateAttributeViewCell(tx *Transaction, avID, keyID, rowID, cellID string,
 
 							destVal.Relation.BlockIDs = append(destVal.Relation.BlockIDs, rowID)
 							destVal.Relation.BlockIDs = gulu.Str.RemoveDuplicatedElem(destVal.Relation.BlockIDs)
+							destVal.SetUpdatedAt(now)
 							break
 						}
 					}
@@ -2961,6 +2969,7 @@ func UpdateAttributeViewCell(tx *Transaction, avID, keyID, rowID, cellID string,
 							for _, value := range keyValues.Values {
 								if value.BlockID == blockID {
 									value.Relation.BlockIDs = gulu.Str.RemoveElem(value.Relation.BlockIDs, rowID)
+									value.SetUpdatedAt(now)
 									break
 								}
 							}

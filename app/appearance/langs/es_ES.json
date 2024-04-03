@@ -443,6 +443,7 @@
   "historyFormat": "formatear (format)",
   "historySync": "sincronizar (sync)",
   "historyReplace": "reemplazar (replace)",
+  "historyOutline": "esquema (outline)",
   "htmlBlockError": "La ejecución del siguiente script afectará la visualización de la interfaz y el script ha dejado de ejecutarse",
   "fileHistory": "Historial de archivos",
   "htmlBlockTip": "Se forman varios bloques HTML. Para evitar la pérdida de datos, utilice etiquetas <code class='fn__code'>&lt;div&gt;</code> para ajustar y eliminar líneas en blanco",
@@ -1461,6 +1462,8 @@
     "236": "[%d/%d] está actualizando el paquete del mercado [%s]...",
     "237": "[%d] todos los paquetes del mercado se han actualizado correctamente",
     "238": "Error en la actualización del paquete Marketplace [%s], inténtalo de nuevo más tarde",
-    "239": "Las operaciones relacionadas se están procesando, inténtalo de nuevo más tarde"
+    "239": "Las operaciones relacionadas se están procesando, inténtalo de nuevo más tarde",
+    "240": "No se admite arrastrar encabezado debajo de los bloques contenedores en el documento",
+    "241": "No se admite arrastrar a su subtítulo"
   }
 }
