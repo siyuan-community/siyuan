@@ -19,6 +19,7 @@ package model
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -162,10 +164,66 @@ func LoadTreeByBlockID(id string) (ret *parse.Tree, err error) {
 			return
 		}
 
-		return nil, ErrBlockNotFound
+		// 尝试从文件系统加载
+		searchTreeInFilesystem(id)
+		bt = treenode.GetBlockTree(id)
+		if nil == bt {
+			return nil, ErrTreeNotFound
+		}
 	}
 
 	luteEngine := util.NewLute()
 	ret, err = filesys.LoadTree(bt.BoxID, bt.Path, luteEngine)
 	return
+}
+
+func searchTreeInFilesystem(rootID string) {
+	msdID := util.PushMsg(Conf.language(45), 7000)
+	defer util.PushClearMsg(msdID)
+
+	logging.LogWarnf("searching tree on filesystem [rootID=%s]", rootID)
+	var treePath string
+	filepath.Walk(util.DataDir, func(path string, info fs.FileInfo, err error) error {
+		if info.IsDir() {
+			if strings.HasPrefix(info.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if !strings.HasSuffix(info.Name(), ".sy") {
+			return nil
+		}
+
+		baseName := filepath.Base(path)
+		if rootID+".sy" != baseName {
+			return nil
+		}
+
+		treePath = path
+		return filepath.SkipAll
+	})
+
+	if "" == treePath {
+		logging.LogErrorf("tree not found on filesystem [rootID=%s]", rootID)
+		return
+	}
+
+	boxID := strings.TrimPrefix(treePath, util.DataDir)
+	boxID = boxID[1:]
+	boxID = boxID[:strings.Index(boxID, string(os.PathSeparator))]
+	treePath = strings.TrimPrefix(treePath, util.DataDir)
+	treePath = strings.TrimPrefix(treePath, string(os.PathSeparator))
+	treePath = strings.TrimPrefix(treePath, boxID)
+	treePath = filepath.ToSlash(treePath)
+
+	tree, err := filesys.LoadTree(boxID, treePath, util.NewLute())
+	if nil != err {
+		logging.LogErrorf("load tree [%s] failed: %s", treePath, err)
+		return
+	}
+
+	treenode.IndexBlockTree(tree)
+	sql.IndexTreeQueue(tree)
+	logging.LogInfof("reindexed tree by filesystem [rootID=%s]", rootID)
 }

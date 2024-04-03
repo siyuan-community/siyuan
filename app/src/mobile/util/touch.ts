@@ -36,7 +36,12 @@ export const handleTouchEnd = (event: TouchEvent, app: App) => {
         return;
     }
     const target = event.target as HTMLElement;
-    if (!clientX || !clientY || typeof yDiff === "undefined" ||
+    if (!clientX) {
+        // 上下滚动时防止左右滚动会将 clientX 清空
+        closePanel();
+        return;
+    }
+    if (!clientY || typeof yDiff === "undefined" ||
         target.tagName === "AUDIO" ||
         hasClosestByClassName(target, "b3-dialog", true) ||
         (window.siyuan.mobile.editor && !window.siyuan.mobile.editor.protyle.toolbar.subElement.classList.contains("fn__none")) ||
@@ -180,6 +185,11 @@ export const handleTouchMove = (event: TouchEvent) => {
 
     xDiff = Math.floor(clientX - event.touches[0].clientX);
     yDiff = Math.floor(clientY - event.touches[0].clientY);
+    // 上下滚动防止左右滑动
+    if (Math.abs(xDiff) < Math.abs(yDiff)) {
+        clientX = null;
+        return;
+    }
     if (!firstDirection) {
         firstDirection = xDiff > 0 ? "toLeft" : "toRight";
     }
