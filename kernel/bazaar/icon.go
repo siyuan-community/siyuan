@@ -96,7 +96,7 @@ func Icons() (icons []*Icon) {
 
 		icon.Funding = repo.Package.Funding
 		icon.PreferredFunding = getPreferredFunding(icon.Funding)
-		icon.PreferredName = getPreferredName(icon.Package)
+		icon.PreferredName = GetPreferredName(icon.Package)
 		icon.PreferredDesc = getPreferredDesc(icon.Description)
 		icon.Updated = repo.Updated
 		icon.Stars = repo.Stars
@@ -160,7 +160,7 @@ func InstalledIcons() (ret []*Icon) {
 		icon.PreviewURLThumb = "/appearance/icons/" + dirName + "/preview.png"
 		icon.IconURL = "/appearance/icons/" + dirName + "/icon.png"
 		icon.PreferredFunding = getPreferredFunding(icon.Funding)
-		icon.PreferredName = getPreferredName(icon.Package)
+		icon.PreferredName = GetPreferredName(icon.Package)
 		icon.PreferredDesc = getPreferredDesc(icon.Description)
 		info, statErr := os.Stat(filepath.Join(installPath, "README.md"))
 		if nil != statErr {

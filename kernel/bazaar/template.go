@@ -98,7 +98,7 @@ func Templates() (templates []*Template) {
 
 		template.Funding = repo.Package.Funding
 		template.PreferredFunding = getPreferredFunding(template.Funding)
-		template.PreferredName = getPreferredName(template.Package)
+		template.PreferredName = GetPreferredName(template.Package)
 		template.PreferredDesc = getPreferredDesc(template.Description)
 		template.Updated = repo.Updated
 		template.Stars = repo.Stars
@@ -162,7 +162,7 @@ func InstalledTemplates() (ret []*Template) {
 		template.PreviewURLThumb = "/templates/" + dirName + "/preview.png"
 		template.IconURL = "/templates/" + dirName + "/icon.png"
 		template.PreferredFunding = getPreferredFunding(template.Funding)
-		template.PreferredName = getPreferredName(template.Package)
+		template.PreferredName = GetPreferredName(template.Package)
 		template.PreferredDesc = getPreferredDesc(template.Description)
 		info, statErr := os.Stat(filepath.Join(installPath, "README.md"))
 		if nil != statErr {
