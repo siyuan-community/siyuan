@@ -33,6 +33,7 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/dustin/go-humanize"
 	"github.com/panjf2000/ants/v2"
+	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"
@@ -143,6 +144,7 @@ func index(boxID string) {
 		poolSize = 4
 	}
 	waitGroup := &sync.WaitGroup{}
+	var avNodes []*ast.Node
 	p, _ := ants.NewPoolWithFunc(poolSize, func(arg interface{}) {
 		defer waitGroup.Done()
 
@@ -168,6 +170,10 @@ func index(boxID string) {
 			}
 		}
 
+		lock.Lock()
+		avNodes = append(avNodes, tree.Root.ChildrenByType(ast.NodeAttributeView)...)
+		lock.Unlock()
+
 		cache.PutDocIAL(file.path, docIAL)
 		treenode.IndexBlockTree(tree)
 		sql.IndexTreeQueue(tree)
@@ -190,6 +196,9 @@ func index(boxID string) {
 	}
 	waitGroup.Wait()
 	p.Release()
+
+	// 关联数据库和块
+	av.BatchUpsertBlockRel(avNodes)
 
 	box.UpdateHistoryGenerated() // 初始化历史生成时间为当前时间
 	end := time.Now()

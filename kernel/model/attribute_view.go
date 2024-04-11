@@ -36,6 +36,7 @@ import (
 	"github.com/siyuan-note/dejavu/entity"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
+	"github.com/xrash/smetrics"
 )
 
 func SetDatabaseBlockView(blockID, viewID string) (err error) {
@@ -82,9 +83,7 @@ func GetAttributeViewPrimaryKeyValues(avID, keyword string, page, pageSize int) 
 					}
 				}
 
-				if gulu.Str.Contains(kv.Block.ID, view.Table.RowIDs) {
-					tmp[kv.Block.ID] = kv
-				}
+				tmp[kv.Block.ID] = kv
 			}
 		}
 	}
@@ -96,7 +95,7 @@ func GetAttributeViewPrimaryKeyValues(avID, keyword string, page, pageSize int) 
 	}
 
 	if 1 > pageSize {
-		pageSize = 32
+		pageSize = 16
 	}
 	start := (page - 1) * pageSize
 	end := start + pageSize
@@ -194,16 +193,20 @@ func SearchAttributeView(keyword string) (ret []*SearchAttributeViewResult) {
 	ret = []*SearchAttributeViewResult{}
 	keyword = strings.TrimSpace(keyword)
 
-	avs := map[string]string{}
+	type result struct {
+		AvID      string
+		AvName    string
+		AvUpdated int64
+		Score     float64
+	}
+	var avs []*result
 	avDir := filepath.Join(util.DataDir, "storage", "av")
-	const limit = 16
 	entries, err := os.ReadDir(avDir)
 	if nil != err {
 		logging.LogErrorf("read directory [%s] failed: %s", avDir, err)
 		return
 	}
-
-	count := 0
+	avBlockRels := av.GetBlockRels()
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -214,25 +217,55 @@ func SearchAttributeView(keyword string) (ret []*SearchAttributeViewResult) {
 			continue
 		}
 
-		name, _ := av.GetAttributeViewNameByPath(filepath.Join(avDir, entry.Name()))
-		if "" == name {
+		if nil == avBlockRels[id] {
 			continue
 		}
 
-		if strings.Contains(strings.ToLower(name), strings.ToLower(keyword)) {
-			avs[id] = name
-			count++
-			if limit <= count {
-				break
+		name, _ := av.GetAttributeViewNameByPath(filepath.Join(avDir, entry.Name()))
+		info, _ := entry.Info()
+		if "" != keyword {
+			if strings.Contains(strings.ToLower(name), strings.ToLower(keyword)) {
+				score := smetrics.JaroWinkler(name, keyword, 0.7, 4)
+				a := &result{AvID: id, AvName: name, Score: score}
+				if nil != info && !info.ModTime().IsZero() {
+					a.AvUpdated = info.ModTime().UnixMilli()
+				}
+				avs = append(avs, a)
 			}
+		} else {
+			a := &result{AvID: id, AvName: name}
+			if nil != info && !info.ModTime().IsZero() {
+				a.AvUpdated = info.ModTime().UnixMilli()
+			}
+			avs = append(avs, a)
 		}
 	}
 
-	var avIDs []string
-	for avID := range avs {
-		avIDs = append(avIDs, avID)
+	if "" == keyword {
+		sort.Slice(avs, func(i, j int) bool { return avs[i].AvUpdated > avs[j].AvUpdated })
+	} else {
+		sort.SliceStable(avs, func(i, j int) bool {
+			if avs[i].Score == avs[j].Score {
+				return avs[i].AvUpdated > avs[j].AvUpdated
+			}
+			return avs[i].Score > avs[j].Score
+		})
 	}
-	blockIDs := treenode.BatchGetMirrorAttrViewBlockIDs(avIDs)
+	if 12 <= len(avs) {
+		avs = avs[:12]
+	}
+	var avIDs []string
+	for _, a := range avs {
+		avIDs = append(avIDs, a.AvID)
+	}
+
+	avBlocks := treenode.BatchGetMirrorAttrViewBlocks(avIDs)
+	var blockIDs []string
+	for _, avBlock := range avBlocks {
+		blockIDs = append(blockIDs, avBlock.BlockIDs...)
+	}
+	blockIDs = gulu.Str.RemoveDuplicatedElem(blockIDs)
+
 	trees := map[string]*parse.Tree{}
 	for _, blockID := range blockIDs {
 		bt := treenode.GetBlockTree(blockID)
@@ -261,8 +294,14 @@ func SearchAttributeView(keyword string) (ret []*SearchAttributeViewResult) {
 		}
 
 		avID := node.AttributeViewID
-		name := avs[avID]
-		if "" == name {
+		var existAv *result
+		for _, av := range avs {
+			if av.AvID == avID {
+				existAv = av
+				break
+			}
+		}
+		if nil == existAv {
 			continue
 		}
 
@@ -287,7 +326,7 @@ func SearchAttributeView(keyword string) (ret []*SearchAttributeViewResult) {
 		if !exist {
 			ret = append(ret, &SearchAttributeViewResult{
 				AvID:    avID,
-				AvName:  name,
+				AvName:  existAv.AvName,
 				BlockID: blockID,
 				HPath:   hPath,
 			})
@@ -733,7 +772,7 @@ func renderAttributeView(attrView *av.AttributeView, viewID, query string, page,
 			}
 
 			if 0 == v.UpdatedAt {
-				v.UpdatedAt = v.CreatedAt + 1000
+				v.UpdatedAt = v.CreatedAt
 			}
 		}
 	}
@@ -2090,6 +2129,7 @@ func addAttributeViewBlock(avID, blockID, previousBlockID, addingBlockID string,
 				blockValue.IsDetached = isDetached
 				blockValue.Block.Content = content
 				blockValue.UpdatedAt = now
+				util.PushMsg(Conf.language(242), 3000)
 				err = av.SaveAttributeView(attrView)
 			}
 			return
@@ -2828,6 +2868,17 @@ func replaceAttributeViewBlock(operation *Operation, tx *Transaction) (err error
 	var node *ast.Node
 	if !operation.IsDetached {
 		node, _, _ = getNodeByBlockID(tx, operation.NextID)
+	}
+
+	// 检查是否已经存在绑定块
+	// Improve database primary key binding block https://github.com/siyuan-note/siyuan/issues/10945
+	for _, keyValues := range attrView.KeyValues {
+		for _, value := range keyValues.Values {
+			if value.BlockID == operation.NextID {
+				util.PushMsg(Conf.language(242), 3000)
+				return
+			}
+		}
 	}
 
 	for _, keyValues := range attrView.KeyValues {
