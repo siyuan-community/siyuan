@@ -20,7 +20,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // LayoutTable 描述了表格布局的结构。

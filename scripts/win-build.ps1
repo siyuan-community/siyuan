@@ -1,18 +1,18 @@
-echo 'pwsh -f ./scripts/build.ps1'
+# echo 'pwsh -f ./scripts/build.ps1'
 
-echo 'Building UI'
+# echo 'Building UI'
 
-# nvm on
-# nvm use 20
+# # nvm on
+# # nvm use 20
 
-cd app
+# cd app
 
-$ENV:ELECTRON_MIRROR = 'https://cnpmjs.org/mirrors/electron/'
+# $ENV:ELECTRON_MIRROR = 'https://cnpmjs.org/mirrors/electron/'
 
-pnpm install
-pnpm run build
+# pnpm install
+# pnpm run build
 
-cd ..
+# cd ..
 
 ## ----------------------------------------------------------------
 

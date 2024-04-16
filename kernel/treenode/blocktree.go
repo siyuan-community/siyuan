@@ -32,6 +32,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	util2 "github.com/siyuan-note/dejavu/util"
+	"github.com/siyuan-note/logging"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
