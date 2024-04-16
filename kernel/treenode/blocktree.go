@@ -29,9 +29,9 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/dustin/go-humanize"
 	"github.com/panjf2000/ants/v2"
+	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	util2 "github.com/siyuan-note/dejavu/util"
-	"github.com/siyuan-note/logging"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -503,6 +503,12 @@ func SaveBlockTreeJob() {
 func SaveBlockTree(force bool) {
 	blockTreeLock.Lock()
 	defer blockTreeLock.Unlock()
+
+	if task.ContainIndexTask() {
+		//logging.LogInfof("skip saving block tree because indexing")
+		return
+	}
+	//logging.LogInfof("saving block tree")
 
 	start := time.Now()
 	if err := os.MkdirAll(util.BlockTreePath, 0755); nil != err {

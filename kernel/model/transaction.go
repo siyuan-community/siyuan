@@ -294,6 +294,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 			ret = tx.doHideAttrViewName(op)
 		case "setAttrViewColDate":
 			ret = tx.doSetAttrViewColDate(op)
+		case "unbindAttrViewBlock":
+			ret = tx.doUnbindAttrViewBlock(op)
 		}
 
 		if nil != ret {
@@ -1243,6 +1245,7 @@ func createdUpdated(node *ast.Node) {
 	parents := treenode.ParentNodes(node)
 	for _, parent := range parents { // 更新所有父节点的更新时间字段
 		parent.SetIALAttr("updated", updated)
+		cache.PutBlockIAL(parent.ID, parse.IAL2Map(parent.KramdownIAL))
 	}
 }
 
@@ -1309,7 +1312,7 @@ func (tx *Transaction) begin() (err error) {
 
 func (tx *Transaction) commit() (err error) {
 	for _, tree := range tx.trees {
-		if err = writeJSONQueue(tree); nil != err {
+		if err = writeTreeUpsertQueue(tree); nil != err {
 			return
 		}
 
@@ -1474,7 +1477,7 @@ func refreshDynamicRefTexts(updatedDefNodes map[string]*ast.Node, updatedTrees m
 
 	// 3. 保存变更
 	for _, tree := range changedRefTree {
-		indexWriteJSONQueue(tree)
+		indexWriteTreeUpsertQueue(tree)
 	}
 }
 

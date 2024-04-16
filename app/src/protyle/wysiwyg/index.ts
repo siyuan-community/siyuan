@@ -1752,7 +1752,7 @@ export class WYSIWYG {
                 return;
             }
             const blockElement = hasClosestBlock(event.target);
-            if (blockElement && !getContenteditableElement(blockElement)) {
+            if (blockElement && (!getContenteditableElement(blockElement) || hasClosestByClassName(event.target, "av__cursor"))) {
                 event.stopPropagation();
                 event.preventDefault();
                 return;
@@ -1842,7 +1842,7 @@ export class WYSIWYG {
                     input(protyle, blockElement, range, true); // 搜狗拼音数字后面句号变为点；Mac 反向双引号无法输入
                 });
             } else {
-                input(protyle, blockElement, range, true);
+                input(protyle, blockElement, range, true, event);
             }
             event.stopPropagation();
         });

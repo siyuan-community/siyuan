@@ -17,7 +17,6 @@
 package bazaar
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,7 +27,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/panjf2000/ants/v2"
 	"github.com/siyuan-community/siyuan/kernel/util"
-	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
 )
@@ -52,6 +50,13 @@ func Templates() (templates []*Template) {
 
 		repo := arg.(*StageRepo)
 		repoURL := repo.URL
+
+		if pkg, found := packageCache.Get(repoURL); found {
+			lock.Lock()
+			templates = append(templates, pkg.(*Template))
+			lock.Unlock()
+			return
+		}
 
 		template := &Template{}
 		// innerU := util.BazaarOSSServer + "/package/" + repoURL + "/template.json"
@@ -113,6 +118,8 @@ func Templates() (templates []*Template) {
 		lock.Lock()
 		templates = append(templates, template)
 		lock.Unlock()
+
+		packageCache.SetDefault(repoURL, template)
 	})
 	for _, repo := range stageIndex.Repos {
 		waitGroup.Add(1)
@@ -193,15 +200,11 @@ func InstallTemplate(repoURL, repoHash, installPath string, systemID string) err
 	if nil != err {
 		return err
 	}
-	return installPackage(data, installPath)
+	return installPackage(data, installPath, repoURLHash)
 }
 
 func UninstallTemplate(installPath string) error {
-	if err := filelock.Remove(installPath); nil != err {
-		logging.LogErrorf("remove template [%s] failed: %s", installPath, err)
-		return errors.New("remove community template failed")
-	}
-	return nil
+	return uninstallPackage(installPath)
 }
 
 func filterLegacyTemplates(templates []*Template) (ret []*Template) {

@@ -89,7 +89,7 @@ func GetAttributeViewPrimaryKeyValues(avID, keyword string, page, pageSize int) 
 	}
 	keyValues.Values = []*av.Value{}
 	for _, v := range tmp {
-		if strings.Contains(strings.ToLower(v.String()), strings.ToLower(keyword)) {
+		if strings.Contains(strings.ToLower(v.String(true)), strings.ToLower(keyword)) {
 			keyValues.Values = append(keyValues.Values, v)
 		}
 	}
@@ -145,7 +145,7 @@ func SearchAttributeViewNonRelationKey(avID, keyword string) (ret []*av.Key) {
 	}
 
 	for _, keyValues := range attrView.KeyValues {
-		if av.KeyTypeRelation != keyValues.Key.Type && av.KeyTypeRollup != keyValues.Key.Type && av.KeyTypeTemplate != keyValues.Key.Type && av.KeyTypeCreated != keyValues.Key.Type && av.KeyTypeUpdated != keyValues.Key.Type {
+		if av.KeyTypeRelation != keyValues.Key.Type && av.KeyTypeRollup != keyValues.Key.Type && av.KeyTypeTemplate != keyValues.Key.Type && av.KeyTypeCreated != keyValues.Key.Type && av.KeyTypeUpdated != keyValues.Key.Type && av.KeyTypeLineNumber != keyValues.Key.Type {
 			if strings.Contains(strings.ToLower(keyValues.Key.Name), strings.ToLower(keyword)) {
 				ret = append(ret, keyValues.Key)
 			}
@@ -901,18 +901,42 @@ func renderTemplateCol(ial map[string]string, flashcard *Flashcard, rowValues []
 					dataModel[rowValue.Key.Name] = v.Number.Content
 				}
 			} else if av.KeyTypeDate == v.Type {
-				if nil != v.Date && v.Date.IsNotEmpty {
-					dataModel[rowValue.Key.Name] = time.UnixMilli(v.Date.Content)
+				if nil != v.Date {
+					if v.Date.IsNotEmpty {
+						dataModel[rowValue.Key.Name] = time.UnixMilli(v.Date.Content)
+					}
+					if v.Date.IsNotEmpty2 {
+						dataModel[rowValue.Key.Name+"_end"] = time.UnixMilli(v.Date.Content2)
+					}
 				}
 			} else if av.KeyTypeRollup == v.Type {
-				if 0 < len(v.Rollup.Contents) && av.KeyTypeNumber == v.Rollup.Contents[0].Type {
-					// 模板使用汇总时支持数字计算
-					// Template supports numerical calculations when using rollup https://github.com/siyuan-note/siyuan/issues/10810
-					// 汇总数字时仅取第一个数字填充模板
-					dataModel[rowValue.Key.Name] = v.Rollup.Contents[0].Number.Content
+				if 0 < len(v.Rollup.Contents) {
+					var numbers []float64
+					var contents []string
+					for _, content := range v.Rollup.Contents {
+						if av.KeyTypeNumber == content.Type {
+							numbers = append(numbers, content.Number.Content)
+						} else {
+							contents = append(contents, content.String(true))
+						}
+					}
+
+					if 0 < len(numbers) {
+						dataModel[rowValue.Key.Name] = numbers
+					} else {
+						dataModel[rowValue.Key.Name] = contents
+					}
+				}
+			} else if av.KeyTypeRelation == v.Type {
+				if 0 < len(v.Relation.Contents) {
+					var contents []string
+					for _, content := range v.Relation.Contents {
+						contents = append(contents, content.String(true))
+					}
+					dataModel[rowValue.Key.Name] = contents
 				}
 			} else {
-				dataModel[rowValue.Key.Name] = v.String()
+				dataModel[rowValue.Key.Name] = v.String(true)
 			}
 		}
 	}
@@ -1218,7 +1242,7 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View, query s
 			hit := false
 			for _, cell := range row.Cells {
 				for _, keyword := range keywords {
-					if strings.Contains(strings.ToLower(cell.Value.String()), strings.ToLower(keyword)) {
+					if strings.Contains(strings.ToLower(cell.Value.String(true)), strings.ToLower(keyword)) {
 						hit = true
 						break
 					}
@@ -1260,6 +1284,63 @@ func getRowBlockValue(keyValues []*av.KeyValues) (ret *av.Value) {
 			break
 		}
 	}
+	return
+}
+
+func (tx *Transaction) doUnbindAttrViewBlock(operation *Operation) (ret *TxErr) {
+	err := unbindAttributeViewBlock(operation, tx)
+	if nil != err {
+		return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID}
+	}
+	return
+}
+
+func unbindAttributeViewBlock(operation *Operation, tx *Transaction) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if nil != err {
+		return
+	}
+
+	node, _, _ := getNodeByBlockID(tx, operation.ID)
+	if nil == node {
+		return
+	}
+
+	for _, keyValues := range attrView.KeyValues {
+		for _, value := range keyValues.Values {
+			if value.BlockID != operation.ID {
+				continue
+			}
+
+			if av.KeyTypeBlock == value.Type {
+				unbindBlockAv(tx, operation.AvID, value.BlockID)
+			}
+			value.BlockID = operation.NextID
+			if nil != value.Block {
+				value.Block.ID = operation.NextID
+			}
+		}
+	}
+
+	replacedRowID := false
+	for _, v := range attrView.Views {
+		switch v.LayoutType {
+		case av.LayoutTypeTable:
+			for i, rowID := range v.Table.RowIDs {
+				if rowID == operation.ID {
+					v.Table.RowIDs[i] = operation.NextID
+					replacedRowID = true
+					break
+				}
+			}
+
+			if !replacedRowID {
+				v.Table.RowIDs = append(v.Table.RowIDs, operation.NextID)
+			}
+		}
+	}
+
+	err = av.SaveAttributeView(attrView)
 	return
 }
 
@@ -1609,7 +1690,7 @@ func (tx *Transaction) doRemoveAttrViewView(operation *Operation) (ret *TxErr) {
 	}
 
 	for _, tree := range trees {
-		if err = indexWriteJSONQueue(tree); nil != err {
+		if err = indexWriteTreeUpsertQueue(tree); nil != err {
 			return
 		}
 	}
@@ -2129,7 +2210,6 @@ func addAttributeViewBlock(avID, blockID, previousBlockID, addingBlockID string,
 				blockValue.IsDetached = isDetached
 				blockValue.Block.Content = content
 				blockValue.UpdatedAt = now
-				util.PushMsg(Conf.language(242), 3000)
 				err = av.SaveAttributeView(attrView)
 			}
 			return
@@ -2636,7 +2716,7 @@ func AddAttributeViewKey(avID, keyID, keyName, keyType, keyIcon, previousKeyID s
 	switch keyTyp {
 	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL, av.KeyTypeEmail,
 		av.KeyTypePhone, av.KeyTypeMAsset, av.KeyTypeTemplate, av.KeyTypeCreated, av.KeyTypeUpdated, av.KeyTypeCheckbox,
-		av.KeyTypeRelation, av.KeyTypeRollup:
+		av.KeyTypeRelation, av.KeyTypeRollup, av.KeyTypeLineNumber:
 
 		key := av.NewKey(keyID, keyName, keyIcon, keyTyp)
 		if av.KeyTypeRollup == keyTyp {
@@ -2748,7 +2828,7 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 	switch colType {
 	case av.KeyTypeBlock, av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL, av.KeyTypeEmail,
 		av.KeyTypePhone, av.KeyTypeMAsset, av.KeyTypeTemplate, av.KeyTypeCreated, av.KeyTypeUpdated, av.KeyTypeCheckbox,
-		av.KeyTypeRelation, av.KeyTypeRollup:
+		av.KeyTypeRelation, av.KeyTypeRollup, av.KeyTypeLineNumber:
 		for _, keyValues := range attrView.KeyValues {
 			if keyValues.Key.ID == operation.ID {
 				keyValues.Key.Name = strings.TrimSpace(operation.Name)
@@ -2883,24 +2963,26 @@ func replaceAttributeViewBlock(operation *Operation, tx *Transaction) (err error
 
 	for _, keyValues := range attrView.KeyValues {
 		for _, value := range keyValues.Values {
-			if value.BlockID == operation.PreviousID {
-				if value.BlockID != operation.NextID {
-					// 换绑
-					unbindBlockAv(tx, operation.AvID, value.BlockID)
-				}
+			if value.BlockID != operation.PreviousID {
+				continue
+			}
 
-				value.BlockID = operation.NextID
-				if nil != value.Block {
-					value.Block.ID = operation.NextID
-					value.IsDetached = operation.IsDetached
-					if !operation.IsDetached {
-						value.Block.Content = getNodeRefText(node)
-					}
-				}
+			if av.KeyTypeBlock == value.Type && value.BlockID != operation.NextID {
+				// 换绑
+				unbindBlockAv(tx, operation.AvID, value.BlockID)
+			}
 
+			value.BlockID = operation.NextID
+			if av.KeyTypeBlock == value.Type && nil != value.Block {
+				value.Block.ID = operation.NextID
+				value.IsDetached = operation.IsDetached
 				if !operation.IsDetached {
-					bindBlockAv(tx, operation.AvID, operation.NextID)
+					value.Block.Content = getNodeRefText(node)
 				}
+			}
+
+			if av.KeyTypeBlock == value.Type && !operation.IsDetached {
+				bindBlockAv(tx, operation.AvID, operation.NextID)
 			}
 		}
 	}
@@ -2971,7 +3053,7 @@ func UpdateAttributeViewCell(tx *Transaction, avID, keyID, rowID, cellID string,
 		}
 
 		for _, value := range keyValues.Values {
-			if cellID == value.ID {
+			if cellID == value.ID || rowID == value.BlockID {
 				val = value
 				val.Type = keyValues.Key.Type
 				break
@@ -3153,11 +3235,9 @@ func unbindBlockAv(tx *Transaction, avID, blockID string) {
 	avIDs := strings.Split(attrs[av.NodeAttrNameAvs], ",")
 	avIDs = gulu.Str.RemoveElem(avIDs, avID)
 	if 0 == len(avIDs) {
-		delete(attrs, av.NodeAttrNameAvs)
-		node.RemoveIALAttr(av.NodeAttrNameAvs)
+		attrs[av.NodeAttrNameAvs] = ""
 	} else {
 		attrs[av.NodeAttrNameAvs] = strings.Join(avIDs, ",")
-		node.SetIALAttr(av.NodeAttrNameAvs, strings.Join(avIDs, ","))
 	}
 
 	avNames := getAvNames(attrs[av.NodeAttrNameAvs])
