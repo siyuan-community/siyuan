@@ -76,13 +76,25 @@ func logBootInfo() {
 		"    * arch [%s]\n"+
 		"    * os [%s]\n"+
 		"    * pid [%d]\n"+
+		"    * tls [%v]\n"+
 		"    * runtime mode [%s]\n"+
 		"    * working directory [%s]\n"+
 		"    * read only [%v]\n"+
 		"    * container [%s]\n"+
 		"    * database [ver=%s]\n"+
 		"    * workspace directory [%s]",
-		Ver, runtime.GOARCH, plat, os.Getpid(), Mode, WorkingDir, ReadOnly, Container, DatabaseVer, WorkspaceDir)
+		Ver,
+		runtime.GOARCH,
+		plat,
+		os.Getpid(),
+		TLSKernel,
+		Mode,
+		WorkingDir,
+		ReadOnly,
+		Container,
+		DatabaseVer,
+		WorkspaceDir,
+	)
 }
 
 func RandomSleep(minMills, maxMills int) {

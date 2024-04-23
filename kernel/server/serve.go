@@ -51,6 +51,7 @@ var cookieStore = cookie.NewStore([]byte("ATN51UlxVq1Gcvdf"))
 func Serve(fastMode bool) {
 	gin.SetMode(gin.ReleaseMode)
 	ginServer := gin.New()
+	ginServer.UseH2C = true
 	ginServer.MaxMultipartMemory = 1024 * 1024 * 32 // 插入较大的资源文件时内存占用较大 https://github.com/siyuan-note/siyuan/issues/5023
 	ginServer.Use(
 		model.ControlConcurrency, // 请求串行化 Concurrency control when requesting the kernel API https://github.com/siyuan-note/siyuan/issues/9939
@@ -144,14 +145,14 @@ func Serve(fastMode bool) {
 	go util.HookUILoaded()
 
 	if util.TLSKernel {
-		if err = http.ServeTLS(ln, ginServer, util.TLSCertFile, util.TLSKeyFile); nil != err {
+		if err = http.ServeTLS(ln, ginServer.Handler(), util.TLSCertFile, util.TLSKeyFile); nil != err {
 			if !fastMode {
 				logging.LogErrorf("boot kernel with SSL/TLS failed: %s", err)
 				os.Exit(logging.ExitCodeUnavailablePort)
 			}
 		}
 	} else {
-		if err = http.Serve(ln, ginServer); nil != err {
+		if err = http.Serve(ln, ginServer.Handler()); nil != err {
 			if !fastMode {
 				logging.LogErrorf("boot kernel failed: %s", err)
 				os.Exit(logging.ExitCodeUnavailablePort)
