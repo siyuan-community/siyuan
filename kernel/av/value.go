@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
+	"github.com/88250/lute/ast"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -692,7 +693,7 @@ func (r *ValueRollup) RenderContents(calc *RollupCalc, destKey *Key) {
 				countUniqueValues++
 			}
 		}
-		r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(len(r.Contents)), NumberFormatNone)}}
+		r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countUniqueValues), NumberFormatNone)}}
 	case CalcOperatorCountEmpty:
 		countEmpty := 0
 		for _, v := range r.Contents {
@@ -700,7 +701,7 @@ func (r *ValueRollup) RenderContents(calc *RollupCalc, destKey *Key) {
 				countEmpty++
 			}
 		}
-		r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(len(r.Contents)), NumberFormatNone)}}
+		r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countEmpty), NumberFormatNone)}}
 	case CalcOperatorCountNotEmpty:
 		countNonEmpty := 0
 		for _, v := range r.Contents {
@@ -708,7 +709,7 @@ func (r *ValueRollup) RenderContents(calc *RollupCalc, destKey *Key) {
 				countNonEmpty++
 			}
 		}
-		r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(len(r.Contents)), NumberFormatNone)}}
+		r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countNonEmpty), NumberFormatNone)}}
 	case CalcOperatorPercentEmpty:
 		countEmpty := 0
 		for _, v := range r.Contents {
@@ -717,7 +718,7 @@ func (r *ValueRollup) RenderContents(calc *RollupCalc, destKey *Key) {
 			}
 		}
 		if 0 < len(r.Contents) {
-			r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countEmpty*100/len(r.Contents)), NumberFormatNone)}}
+			r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countEmpty)/float64(len(r.Contents)), NumberFormatPercent)}}
 		}
 	case CalcOperatorPercentNotEmpty:
 		countNonEmpty := 0
@@ -727,7 +728,7 @@ func (r *ValueRollup) RenderContents(calc *RollupCalc, destKey *Key) {
 			}
 		}
 		if 0 < len(r.Contents) {
-			r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countNonEmpty*100/len(r.Contents)), NumberFormatNone)}}
+			r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countNonEmpty)/float64(len(r.Contents)), NumberFormatPercent)}}
 		}
 	case CalcOperatorSum:
 		sum := 0.0
@@ -848,7 +849,7 @@ func (r *ValueRollup) RenderContents(calc *RollupCalc, destKey *Key) {
 			if KeyTypeDate == v.Type && nil != v.Date && v.Date.IsNotEmpty {
 				if 0 == latest || latest < v.Date.Content {
 					latest = v.Date.Content
-					isNotTime = v.Date.IsNotEmpty
+					isNotTime = v.Date.IsNotTime
 					hasEndDate = v.Date.HasEndDate
 				}
 			}
@@ -901,4 +902,57 @@ func (r *ValueRollup) RenderContents(calc *RollupCalc, destKey *Key) {
 			r.Contents = []*Value{{Type: KeyTypeNumber, Number: NewFormattedValueNumber(float64(countUnchecked*100/len(r.Contents)), NumberFormatNone)}}
 		}
 	}
+}
+
+func GetAttributeViewDefaultValue(valueID, keyID, blockID string, typ KeyType) (ret *Value) {
+	if "" == valueID {
+		valueID = ast.NewNodeID()
+	}
+
+	ret = &Value{ID: valueID, KeyID: keyID, BlockID: blockID, Type: typ}
+
+	createdStr := valueID[:len("20060102150405")]
+	created, parseErr := time.ParseInLocation("20060102150405", createdStr, time.Local)
+	if nil == parseErr {
+		ret.CreatedAt = created.UnixMilli()
+	} else {
+		ret.CreatedAt = time.Now().UnixMilli()
+	}
+	if 0 == ret.UpdatedAt {
+		ret.UpdatedAt = ret.CreatedAt
+	}
+
+	switch typ {
+	case KeyTypeText:
+		ret.Text = &ValueText{}
+	case KeyTypeNumber:
+		ret.Number = &ValueNumber{}
+	case KeyTypeDate:
+		ret.Date = &ValueDate{}
+	case KeyTypeSelect:
+		ret.MSelect = []*ValueSelect{}
+	case KeyTypeMSelect:
+		ret.MSelect = []*ValueSelect{}
+	case KeyTypeURL:
+		ret.URL = &ValueURL{}
+	case KeyTypeEmail:
+		ret.Email = &ValueEmail{}
+	case KeyTypePhone:
+		ret.Phone = &ValuePhone{}
+	case KeyTypeMAsset:
+		ret.MAsset = []*ValueAsset{}
+	case KeyTypeTemplate:
+		ret.Template = &ValueTemplate{}
+	case KeyTypeCreated:
+		ret.Created = &ValueCreated{}
+	case KeyTypeUpdated:
+		ret.Updated = &ValueUpdated{}
+	case KeyTypeCheckbox:
+		ret.Checkbox = &ValueCheckbox{}
+	case KeyTypeRelation:
+		ret.Relation = &ValueRelation{}
+	case KeyTypeRollup:
+		ret.Rollup = &ValueRollup{}
+	}
+	return
 }

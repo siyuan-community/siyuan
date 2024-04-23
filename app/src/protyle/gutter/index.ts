@@ -28,7 +28,7 @@ import {removeEmbed} from "../wysiwyg/removeEmbed";
 import {getContenteditableElement, getTopAloneElement, isNotEditBlock} from "../wysiwyg/getBlock";
 import * as dayjs from "dayjs";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
-import {cancelSB, genEmptyElement, insertEmptyBlock, jumpToParentNext} from "../../block/util";
+import {cancelSB, genEmptyElement, getLangByType, insertEmptyBlock, jumpToParentNext} from "../../block/util";
 import {countBlockWord} from "../../layout/status";
 import {Constants} from "../../constants";
 import {mathRender} from "../render/mathRender";
@@ -98,11 +98,10 @@ export class Gutter {
             ghostElement.className = protyle.wysiwyg.element.className;
             selectElements.forEach(item => {
                 const type = item.getAttribute("data-type");
-                if (["NodeIFrame", "NodeWidget"].includes(type)) {
+                if (item.querySelector("iframe")) {
                     const embedElement = genEmptyElement();
                     embedElement.classList.add("protyle-wysiwyg--select");
-                    const isIFrame = type === "NodeIFrame";
-                    getContenteditableElement(embedElement).innerHTML = `<svg class="svg"><use xlink:href="#icon${isIFrame ? "Language" : "Both"}"></use></svg> ${isIFrame ? "IFrame" : window.siyuan.languages.widget}`;
+                    getContenteditableElement(embedElement).innerHTML = `<svg class="svg"><use xlink:href="${buttonElement.querySelector("use").getAttribute("xlink:href")}"></use></svg> ${getLangByType(type)}`;
                     ghostElement.append(embedElement);
                 } else {
                     ghostElement.append(item.cloneNode(true));
@@ -236,8 +235,11 @@ export class Gutter {
                         action: "insertAttrViewBlock",
                         avID,
                         previousID,
-                        srcIDs,
-                        isDetached: true,
+                        srcs: [{
+                            id: srcIDs[0],
+                            isDetached: true,
+                            content: ""
+                        }],
                         blockID: id,
                     }, {
                         action: "doUpdateUpdated",
@@ -818,17 +820,21 @@ export class Gutter {
             icon: "iconDatabase",
             click: () => {
                 openSearchAV("", selectsElement[0] as HTMLElement, (listItemElement) => {
-                    const sourceIds: string[] = [];
+                    const srcIDs: string[] = [];
+                    const srcs: IOperationSrcs[] = [];
                     selectsElement.forEach(item => {
-                        sourceIds.push(item.getAttribute("data-node-id"));
+                        srcIDs.push(item.getAttribute("data-node-id"));
+                        srcs.push({
+                            id:item.getAttribute("data-node-id"),
+                            isDetached: false,
+                        });
                     });
                     const avID = listItemElement.dataset.avId;
                     transaction(protyle, [{
                         action: "insertAttrViewBlock",
                         avID,
-                        srcIDs: sourceIds,
+                        srcs,
                         ignoreFillFilter: true,
-                        isDetached: false,
                         blockID: listItemElement.dataset.blockId
                     }, {
                         action: "doUpdateUpdated",
@@ -836,7 +842,7 @@ export class Gutter {
                         data: dayjs().format("YYYYMMDDHHmmss"),
                     }], [{
                         action: "removeAttrViewBlock",
-                        srcIDs: sourceIds,
+                        srcIDs,
                         avID,
                     }]);
                     focusByRange(range);
@@ -1286,14 +1292,15 @@ export class Gutter {
                 icon: "iconDatabase",
                 click: () => {
                     openSearchAV("", nodeElement as HTMLElement, (listItemElement) => {
-                        const sourceIds: string[] = [id];
                         const avID = listItemElement.dataset.avId;
                         transaction(protyle, [{
                             action: "insertAttrViewBlock",
                             avID,
-                            srcIDs: sourceIds,
+                            srcs:[{
+                                id,
+                                isDetached: false
+                            }],
                             ignoreFillFilter: true,
-                            isDetached: false,
                             blockID: listItemElement.dataset.blockId
                         }, {
                             action: "doUpdateUpdated",
@@ -1301,7 +1308,7 @@ export class Gutter {
                             data: dayjs().format("YYYYMMDDHHmmss"),
                         }], [{
                             action: "removeAttrViewBlock",
-                            srcIDs: sourceIds,
+                            srcIDs: [id],
                             avID,
                         }]);
                         focusByRange(range);
