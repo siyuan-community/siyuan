@@ -1194,6 +1194,10 @@ func convertWikiLinksAndTags0(tree *parse.Tree) {
 }
 
 func convertTags(text string) (ret string) {
+	if !util.MarkdownSettings.InlineTag {
+		return text
+	}
+
 	pos, i := -1, 0
 	tokens := []byte(text)
 	for ; i < len(tokens); i++ {

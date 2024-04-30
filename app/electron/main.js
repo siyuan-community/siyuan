@@ -82,7 +82,7 @@ const getServer = (port = kernelPort) => {
         : baseURL;
 }
 
-const  windowNavigate = (currentWindow) => {
+const windowNavigate = (currentWindow) => {
     currentWindow.webContents.on("will-navigate", (event) => {
         const url = event.url;
         if (url.startsWith(getServer())) {
@@ -244,7 +244,12 @@ const writeLog = (out) => {
     }
 };
 
-const boot = () => {
+let openAsHidden = false;
+const isOpenAsHidden = function () {
+    return 1 === workspaces.length && openAsHidden;
+};
+
+const initMainWindow = () => {
     let windowStateInitialized = true;
     // 恢复主窗体状态
     let oldWindowState = {};
@@ -403,11 +408,15 @@ const boot = () => {
 
     // 主界面事件监听
     currentWindow.once("ready-to-show", () => {
-        currentWindow.show();
-        if (windowState.isMaximized) {
-            currentWindow.maximize();
+        if (isOpenAsHidden()) {
+            currentWindow.minimize();
         } else {
-            currentWindow.unmaximize();
+            currentWindow.show();
+            if (windowState.isMaximized) {
+                currentWindow.maximize();
+            } else {
+                currentWindow.unmaximize();
+            }
         }
         if (bootWindow && !bootWindow.isDestroyed()) {
             bootWindow.destroy();
@@ -461,10 +470,12 @@ const showWindow = (wnd) => {
 const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) => {
     return new Promise(async (resolve) => {
         bootWindow = new BrowserWindow({
+            show: false,
             width: Math.floor(screen.getPrimaryDisplay().size.width / 2),
             height: Math.floor(screen.getPrimaryDisplay().workAreaSize.height / 2),
             frame: false,
             backgroundColor: "#1e1e1e",
+            resizable: false,
             icon: path.join(appDir, "stage", "icon-large.png"),
         });
         let bootIndex = path.join(appDir, "app", "electron", "boot.html");
@@ -472,7 +483,11 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
             bootIndex = path.join(appDir, "electron", "boot.html");
         }
         bootWindow.loadFile(bootIndex, {query: {v: appVer}});
-        bootWindow.show();
+        if (openAsHidden) {
+            bootWindow.minimize();
+        } else {
+            bootWindow.show();
+        }
 
         const kernelName = "win32" === process.platform ? "SiYuan-Kernel.exe" : "SiYuan-Kernel";
         const kernelPath = path.join(appDir, "kernel", kernelName);
@@ -589,9 +604,7 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
             try {
                 const apiResult = await net.fetch(getServer() + "/api/system/version");
                 apiData = await apiResult.json();
-                bootWindow.setResizable(false);
                 bootWindow.loadURL(getServer() + "/appearance/boot/index.html");
-                bootWindow.show();
                 break;
             } catch (e) {
                 writeLog("get kernel version failed: " + e.message);
@@ -655,10 +668,12 @@ let argStart = 1;
 if (!app.isPackaged) {
     argStart = 2;
 }
+
 for (let i = argStart; i < process.argv.length; i++) {
     let arg = process.argv[i];
     if (arg.startsWith("siyuan://")
         || arg.startsWith("--workspace=")
+        || arg.startsWith("--openAsHidden")
         || arg.startsWith("--port=")
         || arg.startsWith("--proxy=")
         || arg.startsWith("--remote=")
@@ -669,6 +684,10 @@ for (let i = argStart; i < process.argv.length; i++) {
         || arg.startsWith("--tls-cert-file")
     ) {
         // 跳过内置参数
+        if (arg.startsWith("--openAsHidden")) {
+            openAsHidden = true;
+            writeLog("open as hidden");
+        }
         continue;
     }
 
@@ -937,6 +956,9 @@ app.whenReady().then(() => {
                 }
                 currentWindow.destroy();
                 break;
+            case "writeLog":
+                writeLog(data.msg);
+                break;
             case "closeButtonBehavior":
                 if (!currentWindow) {
                     return;
@@ -1059,7 +1081,7 @@ app.whenReady().then(() => {
         if (!foundWorkspace) {
             initKernel(data.workspace, "", "").then((isSucc) => {
                 if (isSucc) {
-                    boot();
+                    initMainWindow();
                 }
             });
         }
@@ -1155,7 +1177,10 @@ app.whenReady().then(() => {
         });
     });
     ipcMain.on("siyuan-auto-launch", (event, data) => {
-        app.setLoginItemSettings({openAtLogin: data.openAtLogin});
+        app.setLoginItemSettings({
+            openAtLogin: data.openAtLogin,
+            args: data.openAsHidden ? ["--openAsHidden"] : ""
+        });
     });
 
     if (firstOpen) {
@@ -1189,7 +1214,7 @@ app.whenReady().then(() => {
         ipcMain.on("siyuan-first-init", (event, data) => {
             initKernel(data.workspace, "", data.lang).then((isSucc) => {
                 if (isSucc) {
-                    boot();
+                    initMainWindow();
                 }
             });
             firstOpenWindow.destroy();
@@ -1245,7 +1270,7 @@ app.whenReady().then(() => {
         }
         initKernel(workspace, port, "", tlsKernel, tlsCertFile, tlsKeyFile).then((isSucc) => {
             if (isSucc) {
-                boot();
+                initMainWindow();
             }
         });
     }
@@ -1352,7 +1377,7 @@ app.on("second-instance", (event, argv) => {
     if (workspace) {
         initKernel(workspace, port, "").then((isSucc) => {
             if (isSucc) {
-                boot();
+                initMainWindow();
             }
         });
         return;
@@ -1378,7 +1403,7 @@ app.on("activate", () => {
         }
     }
     if (BrowserWindow.getAllWindows().length === 0) {
-        boot();
+        initMainWindow();
     }
 });
 

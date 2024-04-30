@@ -33,12 +33,12 @@ import {enter, softEnter} from "./enter";
 import {fixTable} from "../util/table";
 import {turnsIntoOneTransaction, turnsIntoTransaction, updateBatchTransaction, updateTransaction} from "./transaction";
 import {fontEvent} from "../toolbar/Font";
-import {listIndent, listOutdent} from "./list";
+import {addSubList, listIndent, listOutdent} from "./list";
 import {newFileContentBySelect, rename, replaceFileName} from "../../editor/rename";
 import {insertEmptyBlock, jumpToParentNext} from "../../block/util";
 import {isLocalPath} from "../../util/pathName";
 /// #if !MOBILE
-import {openBy, openFileById} from "../../editor/util";
+import {openBy, openFileById, openLink} from "../../editor/util";
 /// #endif
 import {
     alignImgCenter,
@@ -171,6 +171,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             nodeElement.querySelector("wbr").remove();
             // 光标位于引用结尾后 ctrl+b 偶尔会失效
             range = cloneRange;
+            // 会导致  protyle.toolbar.range 和 range 不一致，先在有问题的地方重置一下 https://github.com/siyuan-note/siyuan/issues/10933
         }
 
         if (!window.siyuan.menus.menu.element.classList.contains("fn__none") &&
@@ -594,6 +595,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             return;
         }
         const selectText = range.toString();
+
         // 上下左右光标移动
         if (!event.altKey && !event.shiftKey && isNotCtrl(event) && !event.isComposing && (event.key.indexOf("Arrow") > -1)) {
             // 需使用 editabled，否则代码块会把语言字数算入
@@ -774,7 +776,9 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                 const position = getSelectionOffset(editElement, protyle.wysiwyg.element, range);
                 if (event.key === "Delete" || matchHotKey("⌃D", event)) {
                     // 段末反向删除 https://github.com/siyuan-note/insider/issues/274
-                    if (position.end === editElement.textContent.length) {
+                    if (position.end === editElement.textContent.length ||
+                        // 软换行后删除 https://github.com/siyuan-note/siyuan/issues/11118
+                        (position.end === editElement.textContent.length - 1 && editElement.textContent.endsWith("\n"))) {
                         const nextElement = getNextBlock(getTopAloneElement(nodeElement));
                         if (nextElement) {
                             const nextRange = focusBlock(nextElement);
@@ -862,16 +866,20 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
         }
 
         // 回车
-        if (!event.altKey && isNotCtrl(event) && event.key === "Enter") {
-            if (!event.shiftKey) {
-                enter(nodeElement, range, protyle);
-                event.stopPropagation();
-                event.preventDefault();
-                return;
-            } else if (nodeElement.getAttribute("data-type") === "NodeAttributeView") {
-                event.stopPropagation();
-                event.preventDefault();
-                return;
+        if (isNotCtrl(event) && event.key === "Enter") {
+            if (event.altKey) {
+                addSubList(protyle, nodeElement, range);
+            } else {
+                if (!event.shiftKey) {
+                    enter(nodeElement, range, protyle);
+                    event.stopPropagation();
+                    event.preventDefault();
+                    return;
+                } else if (nodeElement.getAttribute("data-type") === "NodeAttributeView") {
+                    event.stopPropagation();
+                    event.preventDefault();
+                    return;
+                }
             }
         }
 
@@ -1022,11 +1030,11 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                         notebook: protyle.notebookId,
                         path: protyle.path,
                     }, (response) => {
-                        newFileBySelect(protyle, selectText, nodeElement, response.data);
+                        newFileBySelect(protyle, selectText, nodeElement, response.data, protyle.notebookId);
                     });
                 } else {
-                    getSavePath(protyle.path, protyle.notebookId, (pathString) => {
-                        newFileBySelect(protyle, selectText, nodeElement, pathString);
+                    getSavePath(protyle.path, protyle.notebookId, (pathString, targetNotebookId) => {
+                        newFileBySelect(protyle, selectText, nodeElement, pathString, targetNotebookId);
                     });
                 }
             }
@@ -1240,7 +1248,8 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                     return false;
                 }
                 if (matchHotKey(menuItem.hotkey, event)) {
-                    protyle.toolbar.range = getEditorRange(protyle.wysiwyg.element);
+                    // 设置 lastHTMLs 会导致  protyle.toolbar.range 和 range 不一致，需重置一下 https://github.com/siyuan-note/siyuan/issues/10933
+                    protyle.toolbar.range = range;
                     if (["block-ref"].includes(menuItem.name) && protyle.toolbar.range.toString() === "") {
                         return true;
                     }
@@ -1573,6 +1582,26 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             return;
         }
         /// #endif
+
+        if (matchHotKey(window.siyuan.config.keymap.editor.general.openBy.custom, event)) {
+            const aElement = hasClosestByAttribute(range.startContainer, "data-type", "a");
+            if (aElement) {
+                openLink(protyle, aElement.getAttribute("data-href"), undefined, false);
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            const fileElement = hasClosestByAttribute(range.startContainer, "data-type", "file-annotation-ref");
+            if (fileElement) {
+                const fileIds = fileElement.getAttribute("data-id").split("/");
+                const linkAddress = `assets/${fileIds[1]}`;
+                openLink(protyle, linkAddress, undefined, false);
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            return;
+        }
 
         // 置于最后，太多快捷键会使用到选中元素
         if (isNotCtrl(event) && event.key !== "Backspace" && event.key !== "Escape" && event.key !== "Delete" && !event.shiftKey && !event.altKey && event.key !== "Enter") {

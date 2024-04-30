@@ -46,12 +46,14 @@
 
     .layout-tab-bar {
       background-color: transparent;
-      font-size: 87.5%;
 
       .item__graphic {
-        height: 1.625em;
+        height: calc(1.625em - 10px);
         width: calc(1.625em - 10px);
-        padding: 5px 5px 5px 8px;
+        padding: 10px 5px 10px 8px;
+        line-height: calc(1.625em - 10px);
+        font-size: inherit;
+        text-align: center;
       }
 
       .item__text {
@@ -64,6 +66,7 @@
   &__views {
     align-items: center;
     box-shadow: 0 -1px inset var(--b3-theme-background-light);
+    font-size: 87.5%;
 
     &--show .block__icon {
       opacity: 1;
@@ -149,9 +152,9 @@
     &--header {
       z-index: 3;
 
-      & > .block__icons svg {
-        height: calc(1.625em - 10px);
-        width: calc(1.625em - 10px);
+      & > .block__icons > .block__icon svg {
+        height: 1em;
+        width: 1em;
       }
     }
 
@@ -516,7 +519,20 @@
   }
 }
 
-.protyle-wysiwyg--select,
+.protyle-wysiwyg--select {
+  .av__row--header,
+  .av__row--footer,
+  .av__row--footer .av__colsticky,
+  .av__row--select .av__cell,
+  .av__colsticky.av__firstcol,
+  .av__colsticky > div,
+  .av__cell--select,
+  .av__cell--active,
+  .av__counter {
+    background-color: var(--b3-av-background-hl) !important;
+  }
+}
+
 .protyle-wysiwyg--hl {
   .av__row--header,
   .av__row--footer,

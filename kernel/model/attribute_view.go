@@ -186,7 +186,7 @@ type SearchAttributeViewResult struct {
 	HPath   string `json:"hPath"`
 }
 
-func SearchAttributeView(keyword string, excludes []string) (ret []*SearchAttributeViewResult) {
+func SearchAttributeView(keyword string, excludeAvIDs []string) (ret []*SearchAttributeViewResult) {
 	waitForSyncingStorages()
 
 	ret = []*SearchAttributeViewResult{}
@@ -311,6 +311,9 @@ func SearchAttributeView(keyword string, excludes []string) (ret []*SearchAttrib
 				break
 			}
 		}
+		if exist {
+			continue
+		}
 
 		var hPath string
 		baseBlock := treenode.GetBlockTreeRootByPath(node.Box, node.Path)
@@ -322,7 +325,7 @@ func SearchAttributeView(keyword string, excludes []string) (ret []*SearchAttrib
 			hPath = box.Name + hPath
 		}
 
-		if !exist && !gulu.Str.Contains(avID, excludes) {
+		if !gulu.Str.Contains(avID, excludeAvIDs) {
 			ret = append(ret, &SearchAttributeViewResult{
 				AvID:    avID,
 				AvName:  existAv.AvName,
@@ -1343,6 +1346,8 @@ func unbindAttributeViewBlock(operation *Operation, tx *Transaction) (err error)
 			if nil != value.Block {
 				value.Block.ID = operation.NextID
 			}
+
+			replaceRelationAvValues(operation.AvID, operation.ID, operation.NextID)
 		}
 	}
 
@@ -3022,6 +3027,8 @@ func replaceAttributeViewBlock(operation *Operation, tx *Transaction) (err error
 
 			if av.KeyTypeBlock == value.Type && !operation.IsDetached {
 				bindBlockAv(tx, operation.AvID, operation.NextID)
+
+				replaceRelationAvValues(operation.AvID, operation.PreviousID, operation.NextID)
 			}
 		}
 	}
@@ -3536,4 +3543,44 @@ func getAttrViewName(attrView *av.AttributeView) string {
 		ret = Conf.language(105)
 	}
 	return ret
+}
+
+func replaceRelationAvValues(avID, previousID, nextID string) {
+	// The database relation fields follow the change after the primary key field is changed https://github.com/siyuan-note/siyuan/issues/11117
+
+	srcAvIDs := av.GetSrcAvIDs(avID)
+	for _, srcAvID := range srcAvIDs {
+		srcAv, parseErr := av.ParseAttributeView(srcAvID)
+		changed := false
+		if nil != parseErr {
+			continue
+		}
+
+		for _, srcKeyValues := range srcAv.KeyValues {
+			if av.KeyTypeRelation != srcKeyValues.Key.Type {
+				continue
+			}
+
+			if avID != srcKeyValues.Key.Relation.AvID {
+				continue
+			}
+
+			for _, srcValue := range srcKeyValues.Values {
+				if nil == srcValue.Relation {
+					continue
+				}
+
+				srcAvChanged := false
+				srcValue.Relation.BlockIDs, srcAvChanged = util.ReplaceStr(srcValue.Relation.BlockIDs, previousID, nextID)
+				if srcAvChanged {
+					changed = true
+				}
+			}
+		}
+
+		if changed {
+			av.SaveAttributeView(srcAv)
+			util.PushReloadAttrView(srcAvID)
+		}
+	}
 }
