@@ -672,8 +672,8 @@ if (!app.isPackaged) {
 for (let i = argStart; i < process.argv.length; i++) {
     let arg = process.argv[i];
     if (arg.startsWith("siyuan://")
-        || arg.startsWith("--workspace=")
         || arg.startsWith("--openAsHidden")
+        || arg.startsWith("--workspace=")
         || arg.startsWith("--port=")
         || arg.startsWith("--proxy=")
         || arg.startsWith("--remote=")
@@ -870,7 +870,7 @@ app.whenReady().then(() => {
             event.sender.send("siyuan-event", "leave-full-screen");
         });
     });
-    ipcMain.on("siyuan-cmd", async (event, data) => {
+    ipcMain.on("siyuan-cmd", (event, data) => {
         let cmd = data;
         let webContentsId = event.sender.id;
         if (typeof data !== "string") {
@@ -1233,7 +1233,7 @@ app.whenReady().then(() => {
                 new URL(remote);
                 localhost = false;
                 baseURL = remote;
-                boot();
+                initMainWindow();
             } catch (e) {
                 writeLog(`remote URL ["${remote}"] is invalid`);
                 const errorWindowId = showErrorWindow("⚠️ 远程服务 URL 无效 The remote service URL is invalid", `<div>所设置的远程内核服务 URL [${remote}] 不是有效的 URL！</div><div>The remote kernel service URL [${remote}] that you set is not a valid URL!</div>`);

@@ -16,7 +16,7 @@
 
 package conf
 
-import "github.com/siyuan-note/siyuan/kernel/util"
+import "github.com/siyuan-community/siyuan/kernel/util"
 
 type Editor struct {
 	AllowHTMLBLockScript            bool           `json:"allowHTMLBLockScript"`            // 允许执行 HTML 块内脚本
