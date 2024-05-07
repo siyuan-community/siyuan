@@ -24,7 +24,7 @@ import {
     getLastBlock,
     getNextBlock,
     getPreviousBlock,
-    getTopAloneElement,
+    getTopAloneElement, hasNextSibling,
     hasPreviousSibling,
     isNotEditBlock,
 } from "./getBlock";
@@ -35,10 +35,10 @@ import {turnsIntoOneTransaction, turnsIntoTransaction, updateBatchTransaction, u
 import {fontEvent} from "../toolbar/Font";
 import {addSubList, listIndent, listOutdent} from "./list";
 import {newFileContentBySelect, rename, replaceFileName} from "../../editor/rename";
-import {insertEmptyBlock, jumpToParentNext} from "../../block/util";
+import {insertEmptyBlock, jumpToParent} from "../../block/util";
 import {isLocalPath} from "../../util/pathName";
 /// #if !MOBILE
-import {openBy, openFileById, openLink} from "../../editor/util";
+import {openBy, openFileById} from "../../editor/util";
 /// #endif
 import {
     alignImgCenter,
@@ -66,6 +66,7 @@ import {removeSearchMark} from "../toolbar/util";
 import {avKeydown} from "../render/av/keydown";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {AIActions} from "../../ai/actions";
+import {openLink} from "../../editor/openLink";
 
 export const getContentByInlineHTML = (range: Range, cb: (content: string) => void) => {
     let html = "";
@@ -421,19 +422,29 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
 
         if (matchHotKey("⇧↓", event)) {
             downSelect({
-                protyle, event, nodeElement, editorElement, range,
+                protyle,
+                event,
+                nodeElement,
+                editorElement,
+                range,
                 cb(selectElements) {
                     const startEndElement = getStartEndElement(selectElements);
                     if (startEndElement.startElement.getBoundingClientRect().top <= startEndElement.endElement.getBoundingClientRect().top) {
                         const nextElement = startEndElement.endElement.nextElementSibling as HTMLElement;
                         if (nextElement && nextElement.getAttribute("data-node-id")) {
-                            nextElement.classList.add("protyle-wysiwyg--select");
-                            nextElement.setAttribute("select-end", "true");
-                            startEndElement.endElement.removeAttribute("select-end");
-                            const bottom = nextElement.getBoundingClientRect().bottom - protyle.contentElement.getBoundingClientRect().bottom;
-                            if (bottom > 0) {
-                                protyle.contentElement.scrollTop = protyle.contentElement.scrollTop + bottom;
-                                protyle.scroll.lastScrollTop = protyle.contentElement.scrollTop - 1;
+                            if (nextElement.getBoundingClientRect().width === 0) {
+                                // https://github.com/siyuan-note/siyuan/issues/11194
+                                hideElements(["select"], protyle);
+                                startEndElement.endElement.parentElement.classList.add("protyle-wysiwyg--select");
+                            } else {
+                                nextElement.classList.add("protyle-wysiwyg--select");
+                                nextElement.setAttribute("select-end", "true");
+                                startEndElement.endElement.removeAttribute("select-end");
+                                const bottom = nextElement.getBoundingClientRect().bottom - protyle.contentElement.getBoundingClientRect().bottom;
+                                if (bottom > 0) {
+                                    protyle.contentElement.scrollTop = protyle.contentElement.scrollTop + bottom;
+                                    protyle.scroll.lastScrollTop = protyle.contentElement.scrollTop - 1;
+                                }
                             }
                         } else if (!startEndElement.endElement.parentElement.classList.contains("protyle-wysiwyg")) {
                             hideElements(["select"], protyle);
@@ -796,6 +807,20 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                         event.stopPropagation();
                         event.preventDefault();
                         return;
+                    } else {
+                        // 图片前 Delete 无效 https://github.com/siyuan-note/siyuan/issues/11209
+                        let nextSibling = hasNextSibling(range.startContainer) as Element;
+                        if (nextSibling) {
+                            if (nextSibling.nodeType === 3 && nextSibling.textContent === Constants.ZWSP) {
+                                nextSibling = nextSibling.nextSibling as Element;
+                            }
+                            if (nextSibling.nodeType === 1 && nextSibling.classList.contains("img")) {
+                                removeImage(nextSibling as Element, nodeElement, range, protyle);
+                                event.stopPropagation();
+                                event.preventDefault();
+                                return;
+                            }
+                        }
                     }
                 } else {
                     const currentNode = range.startContainer.childNodes[range.startOffset - 1] as HTMLElement;
@@ -1348,7 +1373,19 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             return true;
         }
         if (matchHotKey(window.siyuan.config.keymap.editor.general.jumpToParentNext.custom, event)) {
-            jumpToParentNext(protyle, nodeElement);
+            jumpToParent(protyle, nodeElement, "next");
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+        if (matchHotKey(window.siyuan.config.keymap.editor.general.jumpToParent.custom, event)) {
+            jumpToParent(protyle, nodeElement, "parent");
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+        if (matchHotKey(window.siyuan.config.keymap.editor.general.jumpToParentPrev.custom, event)) {
+            jumpToParent(protyle, nodeElement, "previous");
             event.preventDefault();
             event.stopPropagation();
             return true;

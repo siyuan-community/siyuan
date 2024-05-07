@@ -4,19 +4,24 @@ import {upDownHint} from "../../util/upDownHint";
 import {updateHotkeyTip} from "../../protyle/util/compatibility";
 import {isMobile} from "../../util/functions";
 import {Constants} from "../../constants";
-import {getActiveTab, getDockByType} from "../../layout/tabUtil";
 import {Editor} from "../../editor";
-import {Search} from "../../search";
-/// #if !MOBILE
+/// #if MOBILE
+import {getCurrentEditor} from "../../mobile/editor";
+import {openDock} from "../../mobile/dock/util";
+import {popMenu} from "../../mobile/menu";
+/// #else
+import {closeTabByType, getActiveTab, getDockByType} from "../../layout/tabUtil";
 import {Custom} from "../../layout/dock/Custom";
 import {getAllModels} from "../../layout/getAll";
-import {openSearchAV} from "../../protyle/render/av/relation";
-import {transaction} from "../../protyle/wysiwyg/transaction";
-import {focusByRange} from "../../protyle/util/selection";
-import {hasClosestBlock, hasClosestByClassName} from "../../protyle/util/hasClosest";
-import * as dayjs from "dayjs";
 import {Files} from "../../layout/dock/Files";
+import {Search} from "../../search";
+import {openSetting} from "../../config";
+import {Tab} from "../../layout/Tab";
 /// #endif
+import {openHistory} from "../../history/history";
+import {addEditorToDatabase, addFilesToDatabase} from "../../protyle/render/av/addToDatabase";
+import {hasClosestByClassName} from "../../protyle/util/hasClosest";
+import {newDailyNote} from "../../util/mount";
 
 export const commandPanel = (app: App) => {
     const range = getSelection().getRangeAt(0);
@@ -39,16 +44,25 @@ export const commandPanel = (app: App) => {
     });
     dialog.element.setAttribute("data-key", Constants.DIALOG_COMMANDPANEL);
     const listElement = dialog.element.querySelector("#commands");
-    /// #if !MOBILE
-//     let html = ""
-//     Object.keys(window.siyuan.config.keymap.general).forEach((key) => {
-//         html += `<li class="b3-list-item" data-command="${key}">
-//     <span class="b3-list-item__text">${window.siyuan.languages[key]}</span>
-//     <span class="b3-list-item__meta${isMobile() ? " fn__none" : ""}">${updateHotkeyTip(window.siyuan.config.keymap.general[key].custom)}</span>
-// </li>`;
-//     });
-//     listElement.insertAdjacentHTML("beforeend", html);
-    /// #endif
+    let html = "";
+    Object.keys(window.siyuan.config.keymap.general).forEach((key) => {
+        let keys;
+        /// #if MOBILE
+        keys = ["addToDatabase", "fileTree", "outline", "bookmark", "tag", "dailyNote", "inbox", "backlinks", "config",
+            "dataHistory"];
+        /// #else
+        keys = ["addToDatabase", "fileTree", "outline", "bookmark", "tag", "dailyNote", "inbox", "backlinks",
+            "graphView", "globalGraph", "closeAll", "closeLeft", "closeOthers", "closeRight", "closeTab",
+            "closeUnmodified", "config", "dataHistory"];
+        /// #endif
+        if (keys.includes(key)) {
+            html += `<li class="b3-list-item" data-command="${key}">
+    <span class="b3-list-item__text">${window.siyuan.languages[key]}</span>
+    <span class="b3-list-item__meta${isMobile() ? " fn__none" : ""}">${updateHotkeyTip(window.siyuan.config.keymap.general[key].custom)}</span>
+</li>`;
+        }
+    });
+    listElement.insertAdjacentHTML("beforeend", html);
     app.plugins.forEach(plugin => {
         plugin.commands.forEach(command => {
             const liElement = document.createElement("li");
@@ -81,7 +95,6 @@ export const commandPanel = (app: App) => {
 
     const inputElement = dialog.element.querySelector(".b3-text-field") as HTMLInputElement;
     inputElement.focus();
-    /// #if !MOBILE
     listElement.addEventListener("click", (event: KeyboardEvent) => {
         const liElement = hasClosestByClassName(event.target as HTMLElement, "b3-list-item");
         if (liElement) {
@@ -94,7 +107,6 @@ export const commandPanel = (app: App) => {
             }
         }
     });
-    /// #endif
     inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
         event.stopPropagation();
         if (event.isComposing) {
@@ -148,15 +160,146 @@ const filterList = (inputElement: HTMLInputElement, listElement: Element) => {
 
 export const execByCommand = (options: {
     command: string,
-    app: App,
+    app?: App,
     previousRange?: Range,
     protyle?: IProtyle,
     fileLiElements?: Element[]
 }) => {
-    /// #if !MOBILE
+    /// #if MOBILE
+    switch (options.command) {
+        case "fileTree":
+            openDock("file");
+            return;
+        case "outline":
+        case "bookmark":
+        case "tag":
+        case "inbox":
+            openDock(options.command);
+            return;
+        case "backlinks":
+            openDock("backlink");
+            return;
+        case "config":
+            popMenu();
+            return;
+    }
+    /// #else
+    switch (options.command) {
+        case "fileTree":
+            getDockByType("file").toggleModel("file");
+            return;
+        case "outline":
+            getDockByType("outline").toggleModel("outline");
+            return;
+        case "bookmark":
+        case "tag":
+        case "inbox":
+            getDockByType(options.command).toggleModel(options.command);
+            return;
+        case "backlinks":
+            getDockByType("backlink").toggleModel("backlink");
+            return;
+        case "graphView":
+            getDockByType("graph").toggleModel("graph");
+            return;
+        case "globalGraph":
+            getDockByType("globalGraph").toggleModel("globalGraph");
+            return;
+        case "config":
+            openSetting(options.app);
+            return;
+    }
+    if (options.command === "closeUnmodified") {
+        const tab = getActiveTab(false);
+        if (tab) {
+            const unmodifiedTabs: Tab[] = [];
+            tab.parent.children.forEach((item: Tab) => {
+                const editor = item.model as Editor;
+                if (!editor || (editor.editor?.protyle && !editor.editor?.protyle.updated)) {
+                    unmodifiedTabs.push(item);
+                }
+            });
+            if (unmodifiedTabs.length > 0) {
+                closeTabByType(tab, "other", unmodifiedTabs);
+            }
+        }
+        return;
+    }
+    if (options.command === "closeTab") {
+        const activeTabElement = document.querySelector(".layout__tab--active");
+        if (activeTabElement && activeTabElement.getBoundingClientRect().width > 0) {
+            let type = "";
+            Array.from(activeTabElement.classList).find(item => {
+                if (item.startsWith("sy__")) {
+                    type = item.replace("sy__", "");
+                    return true;
+                }
+            });
+            if (type) {
+                getDockByType(type)?.toggleModel(type, false, true);
+            }
+            return;
+        }
+        const tab = getActiveTab(false);
+        if (tab) {
+            tab.parent.removeTab(tab.id);
+        }
+        return;
+    }
+    if (options.command === "closeOthers" || options.command === "closeAll") {
+        const tab = getActiveTab(false);
+        if (tab) {
+            closeTabByType(tab, options.command);
+        }
+        return;
+    }
+    if (options.command === "closeLeft" || options.command === "closeRight") {
+        const tab = getActiveTab(false);
+        if (tab) {
+            const leftTabs: Tab[] = [];
+            const rightTabs: Tab[] = [];
+            let midIndex = -1;
+            tab.parent.children.forEach((item: Tab, index: number) => {
+                if (item.id === tab.id) {
+                    midIndex = index;
+                }
+                if (midIndex === -1) {
+                    leftTabs.push(item);
+                } else if (index > midIndex) {
+                    rightTabs.push(item);
+                }
+            });
+            if (options.command === "closeLeft") {
+                if (leftTabs.length > 0) {
+                    closeTabByType(tab, "other", leftTabs);
+                }
+            } else {
+                if (rightTabs.length > 0) {
+                    closeTabByType(tab, "other", rightTabs);
+                }
+            }
+        }
+        return;
+    }
+    /// #endif
+    switch (options.command) {
+        case "dailyNote":
+            newDailyNote(options.app);
+            return;
+        case "dataHistory":
+            openHistory(options.app);
+            return;
+    }
+
     const isFileFocus = document.querySelector(".layout__tab--active")?.classList.contains("sy__file");
 
     let protyle = options.protyle;
+    /// #if MOBILE
+    if (!protyle) {
+        protyle = getCurrentEditor().protyle;
+        options.previousRange = protyle.toolbar.range;
+    }
+    /// #endif
     const range: Range = options.previousRange || getSelection().getRangeAt(0);
     let fileLiElements = options.fileLiElements;
     if (!isFileFocus && !protyle) {
@@ -256,101 +399,10 @@ export const execByCommand = (options: {
     switch (options.command) {
         case "addToDatabase":
             if (!isFileFocus) {
-                if (protyle.title?.editElement.contains(range.startContainer)) {
-                    openSearchAV("", protyle.breadcrumb.element, (listItemElement) => {
-                        const avID = listItemElement.dataset.avId;
-                        transaction(protyle, [{
-                            action: "insertAttrViewBlock",
-                            avID,
-                            ignoreFillFilter: true,
-                            srcs: [{
-                                id: protyle.block.rootID,
-                                isDetached: false
-                            }],
-                            blockID: listItemElement.dataset.blockId
-                        }, {
-                            action: "doUpdateUpdated",
-                            id: listItemElement.dataset.blockId,
-                            data: dayjs().format("YYYYMMDDHHmmss"),
-                        }], [{
-                            action: "removeAttrViewBlock",
-                            srcIDs: [protyle.block.rootID],
-                            avID,
-                        }]);
-                        focusByRange(range);
-                    });
-                } else {
-                    const selectElement: Element[] = [];
-                    protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select").forEach(item => {
-                        selectElement.push(item);
-                    });
-                    if (selectElement.length === 0) {
-                        const nodeElement = hasClosestBlock(range.startContainer);
-                        if (nodeElement) {
-                            selectElement.push(nodeElement);
-                        }
-                    }
-                    if (selectElement.length === 0) {
-                        return;
-                    }
-                    openSearchAV("", selectElement[0] as HTMLElement, (listItemElement) => {
-                        const srcIDs: string[] = [];
-                        const srcs: IOperationSrcs[] = [];
-                        selectElement.forEach(item => {
-                            srcIDs.push(item.getAttribute("data-node-id"));
-                            srcs.push({
-                                id: item.getAttribute("data-node-id"),
-                                isDetached: false
-                            });
-                        });
-                        const avID = listItemElement.dataset.avId;
-                        transaction(protyle, [{
-                            action: "insertAttrViewBlock",
-                            avID,
-                            ignoreFillFilter: true,
-                            srcs,
-                            blockID: listItemElement.dataset.blockId
-                        }, {
-                            action: "doUpdateUpdated",
-                            id: listItemElement.dataset.blockId,
-                            data: dayjs().format("YYYYMMDDHHmmss"),
-                        }], [{
-                            action: "removeAttrViewBlock",
-                            srcIDs,
-                            avID,
-                        }]);
-                        focusByRange(range);
-                    });
-                }
+                addEditorToDatabase(protyle, range);
             } else {
-                const srcs: IOperationSrcs[] = [];
-                fileLiElements.forEach(item => {
-                    const id = item.getAttribute("data-node-id");
-                    if (id) {
-                        srcs.push({
-                            id,
-                            isDetached: false
-                        });
-                    }
-                });
-                if (srcs.length > 0) {
-                    openSearchAV("", fileLiElements[0] as HTMLElement, (listItemElement) => {
-                        const avID = listItemElement.dataset.avId;
-                        transaction(undefined, [{
-                            action: "insertAttrViewBlock",
-                            avID,
-                            ignoreFillFilter: true,
-                            srcs,
-                            blockID: listItemElement.dataset.blockId
-                        }, {
-                            action: "doUpdateUpdated",
-                            id: listItemElement.dataset.blockId,
-                            data: dayjs().format("YYYYMMDDHHmmss"),
-                        }]);
-                    });
-                }
+                addFilesToDatabase(fileLiElements);
             }
             break;
     }
-    /// #endif
 };

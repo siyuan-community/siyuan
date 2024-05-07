@@ -57,7 +57,7 @@ import {blockRender} from "../render/blockRender";
 /// #if !MOBILE
 import {getAllModels} from "../../layout/getAll";
 import {pushBack} from "../../util/backForward";
-import {openFileById, openLink} from "../../editor/util";
+import {openFileById} from "../../editor/util";
 import {openGlobalSearch} from "../../search/util";
 /// #else
 import {popSearch} from "../../mobile/menu/search";
@@ -90,6 +90,7 @@ import {
     updateCellsValue
 } from "../render/av/cell";
 import {openEmojiPanel, unicode2Emoji} from "../../emoji";
+import {openLink} from "../../editor/openLink";
 
 export class WYSIWYG {
     public lastHTMLs: { [key: string]: string } = {};
@@ -1745,6 +1746,10 @@ export class WYSIWYG {
         });
 
         this.element.addEventListener("paste", (event: ClipboardEvent & { target: HTMLElement }) => {
+            // https://github.com/siyuan-note/siyuan/issues/11241
+            if (event.target.localName === "input" && event.target.getAttribute("data-type") === "av-search") {
+                return;
+            }
             if (protyle.disabled) {
                 event.stopPropagation();
                 event.preventDefault();
@@ -2104,9 +2109,7 @@ export class WYSIWYG {
             if (fileElement && range.toString() === "") {
                 event.stopPropagation();
                 event.preventDefault();
-                const fileIds = fileElement.getAttribute("data-id").split("/");
-                const linkAddress = `assets/${fileIds[1]}`;
-                openLink(protyle, linkAddress, event, ctrlIsPressed);
+                openLink(protyle, fileElement.getAttribute("data-id"), event, ctrlIsPressed);
                 return;
             }
 

@@ -42,7 +42,7 @@ import (
 var Mode = "prod"
 
 const (
-	Ver       = "3.0.12"
+	Ver       = "3.0.13"
 	IsInsider = false
 )
 
@@ -76,8 +76,8 @@ func Boot() {
 	port := flag.String("port", "0", "port of the HTTP server")
 	readOnly := flag.String("readonly", "false", "read-only mode")
 	accessAuthCode := flag.String("accessAuthCode", "", "access auth code")
-	ssl := flag.Bool("ssl", false, "cookie secure for https and wss")
-	lang := flag.String("lang", "", "zh_CN/zh_CHT/en_US/fr_FR/es_ES")
+	ssl := flag.Bool("ssl", false, "for https and wss")
+	lang := flag.String("lang", "", "zh_CN/zh_CHT/en_US/fr_FR/es_ES/ja_JP")
 	mode := flag.String("mode", "prod", "dev/prod")
 
 	tlsKernel := flag.Bool("tls-kernel", false, "enable SSL/TLS for kernel service")
