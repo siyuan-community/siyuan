@@ -45,6 +45,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -650,6 +651,10 @@ func checkoutRepo(id string) {
 
 	task.AppendTask(task.DatabaseIndexFull, fullReindex)
 	task.AppendTask(task.DatabaseIndexRef, IndexRefs)
+	go func() {
+		sql.WaitForWritingDatabase()
+		ResetVirtualBlockRefCache()
+	}()
 	task.AppendTask(task.ReloadUI, util.ReloadUIResetScroll)
 
 	if syncEnabled {
@@ -1406,6 +1411,7 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	var upsertTrees int
 	// 可能需要重新加载部分功能
 	var needReloadFlashcard, needReloadOcrTexts, needReloadPlugin bool
+	upsertPluginSet := hashset.New()
 	for _, file := range mergeResult.Upserts {
 		upserts = append(upserts, file.Path)
 		if strings.HasPrefix(file.Path, "/storage/riff/") {
@@ -1424,12 +1430,19 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			needReloadPlugin = true
 		}
 
+		if strings.HasPrefix(file.Path, "/plugins/") {
+			if parts := strings.Split(file.Path, "/"); 2 < len(parts) {
+				needReloadPlugin = true
+				upsertPluginSet.Add(parts[2])
+			}
+		}
+
 		if strings.HasSuffix(file.Path, ".sy") {
 			upsertTrees++
 		}
 	}
 
-	clearWidgetsDir := hashset.New()
+	removeWidgetDirSet, removePluginSet := hashset.New(), hashset.New()
 	for _, file := range mergeResult.Removes {
 		removes = append(removes, file.Path)
 		if strings.HasPrefix(file.Path, "/storage/riff/") {
@@ -1448,9 +1461,16 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			needReloadPlugin = true
 		}
 
+		if strings.HasPrefix(file.Path, "/plugins/") {
+			if parts := strings.Split(file.Path, "/"); 2 < len(parts) {
+				needReloadPlugin = true
+				removePluginSet.Add(parts[2])
+			}
+		}
+
 		if strings.HasPrefix(file.Path, "/widgets/") {
 			if parts := strings.Split(file.Path, "/"); 2 < len(parts) {
-				clearWidgetsDir.Add(parts[2])
+				removeWidgetDirSet.Add(parts[2])
 			}
 		}
 	}
@@ -1464,10 +1484,10 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	}
 
 	if needReloadPlugin {
-		pushReloadPlugin()
+		pushReloadPlugin(upsertPluginSet, removePluginSet)
 	}
 
-	for _, widgetDir := range clearWidgetsDir.Values() {
+	for _, widgetDir := range removeWidgetDirSet.Values() {
 		widgetDirPath := filepath.Join(util.DataDir, "widgets", widgetDir.(string))
 		gulu.File.RemoveEmptyDirs(widgetDirPath)
 	}
@@ -1475,7 +1495,6 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	syncingFiles = sync.Map{}
 	syncingStorages.Store(false)
 
-	cache.ClearDocsIAL()              // 同步后文档树文档图标没有更新 https://github.com/siyuan-note/siyuan/issues/4939
 	if needFullReindex(upsertTrees) { // 改进同步后全量重建索引判断 https://github.com/siyuan-note/siyuan/issues/5764
 		FullReindex()
 		return
@@ -1999,6 +2018,18 @@ func getCloudSpace() (stat *cloud.Stat, err error) {
 	return
 }
 
-func pushReloadPlugin() {
-	util.BroadcastByType("main", "reloadPlugin", 0, "", nil)
+func pushReloadPlugin(upsertPluginSet, removePluginNameSet *hashset.Set) {
+	upsertPlugins, removePlugins := []string{}, []string{}
+	for _, n := range upsertPluginSet.Values() {
+		upsertPlugins = append(upsertPlugins, n.(string))
+	}
+	for _, n := range removePluginNameSet.Values() {
+		removePlugins = append(removePlugins, n.(string))
+	}
+
+	logging.LogInfof("reload plugins [upserts=%v, removes=%v]", upsertPlugins, removePlugins)
+	util.BroadcastByType("main", "reloadPlugin", 0, "", map[string]interface{}{
+		"upsertPlugins": upsertPlugins,
+		"removePlugins": removePlugins,
+	})
 }

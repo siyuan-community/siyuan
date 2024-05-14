@@ -33,6 +33,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute/html"
 	"github.com/gorilla/websocket"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"
@@ -306,6 +307,12 @@ func removeIndexes(removeFilePaths []string) (removeRootIDs []string) {
 			util.IncBootProgress(bootProgressPart, msg)
 			util.PushStatusBar(msg)
 
+			bts := treenode.GetBlockTreesByRootID(block.RootID)
+			for _, b := range bts {
+				cache.RemoveBlockIAL(b.ID)
+			}
+			cache.RemoveDocIAL(block.Path)
+
 			treenode.RemoveBlockTreesByRootID(block.RootID)
 			sql.RemoveTreeQueue(block.RootID)
 		}
@@ -347,6 +354,13 @@ func upsertIndexes(upsertFilePaths []string) (upsertRootIDs []string) {
 		}
 		treenode.IndexBlockTree(tree)
 		sql.UpsertTreeQueue(tree)
+
+		bts := treenode.GetBlockTreesByRootID(tree.ID)
+		for _, b := range bts {
+			cache.RemoveBlockIAL(b.ID)
+		}
+		cache.RemoveDocIAL(tree.Path)
+
 		upsertRootIDs = append(upsertRootIDs, tree.Root.ID)
 	}
 
