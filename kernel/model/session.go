@@ -296,6 +296,18 @@ func CheckAuth(c *gin.Context) {
 		return
 	}
 
+	// 通过 API token (query-params: token)
+	if token := c.Query("token"); "" != token {
+		if Conf.Api.Token == token {
+			c.Next()
+			return
+		}
+
+		c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed [query: token]"})
+		c.Abort()
+		return
+	}
+
 	// 通过 HTTP Basic
 	if certified, ok := checkBasic(c); ok {
 		if certified {

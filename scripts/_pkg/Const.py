@@ -14,6 +14,10 @@ hostname = "api.github.com"
 HEADER_siyuan = '''
 '''
 
+HEADER_siyuan_community = '''
+'''
+
 HEADER = {
   "siyuan-note/siyuan": HEADER_siyuan,
+  "siyuan-community/siyuan": HEADER_siyuan_community,
 }

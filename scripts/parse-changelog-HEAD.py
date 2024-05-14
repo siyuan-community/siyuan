@@ -10,7 +10,7 @@ def generate_msg_from_repo(repo_name, args):
     if not pat:
         return None
 
-    action_file = "cd.yml"
+    action_file = "release.yml"
     print(U.generate_header_from_repo(repo_name, args.tag, args.lastestRelease, args.electronVersion, action_file, C.HEADER[repo_name]))
 
 
