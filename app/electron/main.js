@@ -46,6 +46,7 @@ const args = new Map(process.argv.map(arg => {
         ? [fragments[0], true]
         : [fragments[0], fragments.slice(1).join("=")];
 }));
+const LOOPBACK_ADDRESS = "127.0.0.1";
 
 let baseURL;
 let bootWindow;
@@ -54,7 +55,7 @@ let localhost = true;
 let firstOpen = false;
 let workspaces = []; // workspaceDir, id, browserWindow, tray
 let kernelProtocol = "http";
-let kernelHostname = "127.0.0.1";
+let kernelHostname = LOOPBACK_ADDRESS;
 let kernelPort = 6806;
 let resetWindowStateOnRestart = false;
 
@@ -80,6 +81,10 @@ const getServer = (port = kernelPort) => {
     return localhost
         ? `${kernelProtocol}://${kernelHostname}:${port}`
         : baseURL;
+}
+
+const kernelExit = (origin = getServer()) => {
+    return net.fetch(`${origin}/api/system/exit`, {method: "POST"})
 }
 
 const windowNavigate = (currentWindow) => {
@@ -623,7 +628,9 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
             writeLog("got kernel version [" + apiData.data + "]");
             if (!isDevEnv && apiData.data !== appVer) {
                 writeLog(`kernel [${apiData.data}] is running, shutdown it now and then start kernel [${appVer}]`);
-                net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                if (localhost) {
+                    kernelExit();
+                }
                 bootWindow.destroy();
                 resolve(false);
             } else {
@@ -640,7 +647,9 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
                         }
                     } catch (e) {
                         writeLog("get boot progress failed: " + e.message);
-                        net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                        if (localhost) {
+                            kernelExit();
+                        }
                         bootWindow.destroy();
                         resolve(false);
                         progressing = true;
@@ -1313,7 +1322,9 @@ app.whenReady().then(() => {
         writeLog("system shutdown");
         workspaces.forEach(item => {
             const currentURL = new URL(item.browserWindow.getURL());
-            net.fetch(getServer(currentURL.port) + "/api/system/exit", {method: "POST"});
+            if (currentURL.hostname === LOOPBACK_ADDRESS) {
+                kernelExit(currentURL.origin);
+            }
         });
     });
     powerMonitor.on("lock-screen", () => {
