@@ -82,6 +82,8 @@ type AppConf struct {
 	Snippet        *conf.Snpt       `json:"snippet"`        // 代码片段
 	State          int              `json:"state"`          // 运行状态，0：已经正常退出，1：运行中
 
+	Community *conf.Community `json:"community"` // 社区配置
+
 	m *sync.Mutex
 }
 
@@ -447,6 +449,10 @@ func InitConf() {
 			Conf.AI.OpenAI.APIMaxTokens,
 			Conf.AI.OpenAI.APITemperature,
 			Conf.AI.OpenAI.APIMaxContexts)
+	}
+
+	if nil == Conf.Community {
+		Conf.Community = conf.NewCommunity()
 	}
 
 	Conf.ReadOnly = util.ReadOnly

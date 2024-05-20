@@ -31,6 +31,7 @@ func main() {
 	util.Boot()
 
 	model.InitConf()
+	model.InitCommunity()
 	go server.Serve(false)
 	model.InitAppearance()
 	sql.InitDatabase(false)

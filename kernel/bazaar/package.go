@@ -142,6 +142,14 @@ var (
 	githubClient  = github.NewClientWithEnvProxy()
 )
 
+func InitGitHubClient(token string) {
+	if token == "" {
+		githubClient = github.NewClientWithEnvProxy()
+	} else {
+		githubClient = github.NewTokenClient(nil, token)
+	}
+}
+
 func getPreferredReadme(readme *Readme) string {
 	if nil == readme {
 		return "README.md"
