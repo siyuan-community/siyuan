@@ -17,9 +17,10 @@
 package av
 
 import (
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"math"
 	"sort"
+
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func (table *Table) CalcCols() {

@@ -38,9 +38,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/siyuan-community/siyuan/kernel/av"
-	"github.com/siyuan-note/riff"
-
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/html"

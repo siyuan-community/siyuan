@@ -25,11 +25,11 @@ import (
 	"time"
 
 	"github.com/88250/lute/ast"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/cache"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func RenderAttributeViewTable(attrView *av.AttributeView, view *av.View, query string,
