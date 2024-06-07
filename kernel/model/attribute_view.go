@@ -42,6 +42,59 @@ import (
 	"github.com/xrash/smetrics"
 )
 
+func AppendAttributeViewDetachedBlocksWithValues(avID string, blocksValues [][]*av.Value) (err error) {
+	attrView, err := av.ParseAttributeView(avID)
+	if nil != err {
+		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
+		return
+	}
+
+	now := util.CurrentTimeMillis()
+	var blockIDs []string
+	for _, blockValues := range blocksValues {
+		blockID := ast.NewNodeID()
+		blockIDs = append(blockIDs, blockID)
+		for _, v := range blockValues {
+			keyValues, _ := attrView.GetKeyValues(v.KeyID)
+			if nil == keyValues {
+				err = fmt.Errorf("key [%s] not found", v.KeyID)
+				return
+			}
+
+			v.ID = ast.NewNodeID()
+			v.BlockID = blockID
+			v.Type = keyValues.Key.Type
+			if av.KeyTypeBlock == v.Type {
+				v.Block.ID = blockID
+				v.Block.Created = now
+				v.Block.Updated = now
+			}
+			v.IsDetached = true
+			v.CreatedAt = now
+			v.UpdatedAt = now
+
+			keyValues.Values = append(keyValues.Values, v)
+		}
+	}
+
+	for _, v := range attrView.Views {
+		switch v.LayoutType {
+		case av.LayoutTypeTable:
+			for _, addingBlockID := range blockIDs {
+				v.Table.RowIDs = append(v.Table.RowIDs, addingBlockID)
+			}
+		}
+	}
+
+	if err = av.SaveAttributeView(attrView); nil != err {
+		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
+		return
+	}
+
+	util.PushReloadAttrView(avID)
+	return
+}
+
 func DuplicateDatabaseBlock(avID string) (newAvID, newBlockID string, err error) {
 	storageAvDir := filepath.Join(util.DataDir, "storage", "av")
 	oldAvPath := filepath.Join(storageAvDir, avID+".json")
@@ -574,7 +627,7 @@ func GetBlockAttributeViewKeys(blockID string) (ret []*BlockAttributeViewKeys) {
 			case av.KeyTypeTemplate:
 				if 0 < len(kv.Values) {
 					ial := map[string]string{}
-					block := getRowBlockValue(keyValues)
+					block := av.GetKeyBlockValue(keyValues)
 					if nil != block && !block.IsDetached {
 						ial = GetBlockAttrsWithoutWaitWriting(block.BlockID)
 					}
@@ -596,6 +649,7 @@ func GetBlockAttributeViewKeys(blockID string) (ret []*BlockAttributeViewKeys) {
 		}
 
 		// 字段排序
+		refreshAttrViewKeyIDs(attrView)
 		sorts := map[string]int{}
 		for i, k := range attrView.KeyIDs {
 			sorts[k] = i
@@ -911,16 +965,6 @@ func renderAttributeView(attrView *av.AttributeView, viewID, query string, page,
 			end = len(table.Rows)
 		}
 		table.Rows = table.Rows[start:end]
-	}
-	return
-}
-
-func getRowBlockValue(keyValues []*av.KeyValues) (ret *av.Value) {
-	for _, kv := range keyValues {
-		if av.KeyTypeBlock == kv.Key.Type && 0 < len(kv.Values) {
-			ret = kv.Values[0]
-			break
-		}
 	}
 	return
 }
@@ -2406,11 +2450,7 @@ func SortAttributeViewKey(avID, keyID, previousKeyID string) (err error) {
 		return
 	}
 
-	if 1 > len(attrView.KeyIDs) {
-		for _, keyValues := range attrView.KeyValues {
-			attrView.KeyIDs = append(attrView.KeyIDs, keyValues.Key.ID)
-		}
-	}
+	refreshAttrViewKeyIDs(attrView)
 
 	var currentKeyID string
 	var idx, previousIndex int
@@ -2437,6 +2477,29 @@ func SortAttributeViewKey(avID, keyID, previousKeyID string) (err error) {
 
 	err = av.SaveAttributeView(attrView)
 	return
+}
+
+func refreshAttrViewKeyIDs(attrView *av.AttributeView) {
+	// 订正 keyIDs 数据
+
+	existKeyIDs := map[string]bool{}
+	for _, keyValues := range attrView.KeyValues {
+		existKeyIDs[keyValues.Key.ID] = true
+	}
+
+	for k, _ := range existKeyIDs {
+		if !gulu.Str.Contains(k, attrView.KeyIDs) {
+			attrView.KeyIDs = append(attrView.KeyIDs, k)
+		}
+	}
+
+	var tmp []string
+	for _, k := range attrView.KeyIDs {
+		if ok := existKeyIDs[k]; ok {
+			tmp = append(tmp, k)
+		}
+	}
+	attrView.KeyIDs = tmp
 }
 
 func (tx *Transaction) doAddAttrViewColumn(operation *Operation) (ret *TxErr) {
