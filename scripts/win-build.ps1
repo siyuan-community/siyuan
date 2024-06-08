@@ -1,4 +1,4 @@
-# echo 'pwsh -f ./scripts/build.ps1'
+echo 'pwsh -f ./scripts/build.ps1'
 
 echo 'Building UI'
 
@@ -30,8 +30,9 @@ cd kernel
 go version
 
 $ENV:GO111MODULE = 'on'
-$ENV:GOPROXY = 'https://goproxy.io'
 $ENV:CGO_ENABLED = '1'
+
+# $ENV:GOPROXY = 'https://goproxy.io'
 
 $ENV:GOOS = 'windows'
 $ENV:GOARCH = 'amd64'
