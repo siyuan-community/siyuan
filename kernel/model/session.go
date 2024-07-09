@@ -202,6 +202,16 @@ func CheckBasicAuth(c *gin.Context) {
 }
 
 func CheckAuth(c *gin.Context) {
+	// 已通过 JWT 认证
+	if role := GetGinContextRole(c); IsValidRole(role, []Role{
+		RoleAdministrator,
+		RoleEditor,
+		RoleReader,
+	}) {
+		c.Next()
+		return
+	}
+
 	//logging.LogInfof("check auth for [%s]", c.Request.RequestURI)
 	localhost := isLocalhost(c)
 
@@ -209,6 +219,7 @@ func CheckAuth(c *gin.Context) {
 	if "" == Conf.AccessAuthCode {
 		// Skip the empty access authorization code check https://github.com/siyuan-note/siyuan/issues/9709
 		if util.SiyuanAccessAuthCodeBypass {
+			c.Set(RoleContextKey, RoleAdministrator)
 			c.Next()
 			return
 		}
@@ -228,6 +239,7 @@ func CheckAuth(c *gin.Context) {
 			return
 		}
 
+		c.Set(RoleContextKey, RoleAdministrator)
 		c.Next()
 		return
 	}
@@ -244,19 +256,23 @@ func CheckAuth(c *gin.Context) {
 	// 放过来自本机的某些请求
 	if localhost {
 		if strings.HasPrefix(c.Request.RequestURI, "/assets/") {
+			c.Set(RoleContextKey, RoleAdministrator)
 			c.Next()
 			return
 		}
 		if strings.HasPrefix(c.Request.RequestURI, "/api/system/exit") {
+			c.Set(RoleContextKey, RoleAdministrator)
 			c.Next()
 			return
 		}
 		if strings.HasPrefix(c.Request.RequestURI, "/api/system/getNetwork") {
+			c.Set(RoleContextKey, RoleAdministrator)
 			c.Next()
 			return
 		}
 		if strings.HasPrefix(c.Request.RequestURI, "/api/sync/performSync") {
 			if util.ContainerIOS == util.Container || util.ContainerAndroid == util.Container {
+				c.Set(RoleContextKey, RoleAdministrator)
 				c.Next()
 				return
 			}
@@ -266,6 +282,7 @@ func CheckAuth(c *gin.Context) {
 	// 通过 Cookies
 	cookiesCertified := checkCookies(c)
 	if cookiesCertified {
+		c.Set(RoleContextKey, RoleAdministrator)
 		c.Next()
 		return
 	}
@@ -285,6 +302,7 @@ func CheckAuth(c *gin.Context) {
 
 		if "" != token {
 			if Conf.Api.Token == token {
+				c.Set(RoleContextKey, RoleAdministrator)
 				c.Next()
 				return
 			}
@@ -299,6 +317,7 @@ func CheckAuth(c *gin.Context) {
 	// 通过 API token (query-params: token)
 	if token := c.Query("token"); "" != token {
 		if Conf.Api.Token == token {
+			c.Set(RoleContextKey, RoleAdministrator)
 			c.Next()
 			return
 		}
@@ -351,6 +370,7 @@ func CheckAuth(c *gin.Context) {
 		return
 	}
 
+	c.Set(RoleContextKey, RoleAdministrator)
 	c.Next()
 }
 
@@ -416,6 +436,37 @@ func abortWithUnauthorized(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed"})
 }
 
+func CheckAdminRole(c *gin.Context) {
+	if IsAdminRoleContext(c) {
+		c.Next()
+	} else {
+		c.AbortWithStatus(http.StatusForbidden)
+	}
+}
+
+func CheckEditRole(c *gin.Context) {
+	if IsValidRole(GetGinContextRole(c), []Role{
+		RoleAdministrator,
+		RoleEditor,
+	}) {
+		c.Next()
+	} else {
+		c.AbortWithStatus(http.StatusForbidden)
+	}
+}
+
+func CheckReadRole(c *gin.Context) {
+	if IsValidRole(GetGinContextRole(c), []Role{
+		RoleAdministrator,
+		RoleEditor,
+		RoleReader,
+	}) {
+		c.Next()
+	} else {
+		c.AbortWithStatus(http.StatusForbidden)
+	}
+}
+
 var timingAPIs = map[string]int{
 	"/api/search/fullTextSearchBlock": 200, // Monitor the search performance and suggest solutions https://github.com/siyuan-note/siyuan/issues/7873
 }
@@ -446,11 +497,7 @@ func Timing(c *gin.Context) {
 }
 
 func Recover(c *gin.Context) {
-	defer func() {
-		logging.Recover()
-		c.Status(http.StatusInternalServerError)
-	}()
-
+	defer logging.Recover()
 	c.Next()
 }
 

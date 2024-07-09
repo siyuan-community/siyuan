@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,7 +43,7 @@ import (
 var Mode = "prod"
 
 const (
-	Ver       = "3.0.17"
+	Ver       = "3.1.0"
 	IsInsider = false
 )
 
@@ -232,7 +233,7 @@ var (
 	DBPath             string        // SQLite 数据库文件路径
 	HistoryDBPath      string        // SQLite 历史数据库文件路径
 	AssetContentDBPath string        // SQLite 资源文件内容数据库文件路径
-	BlockTreePath      string        // 区块树文件路径
+	BlockTreeDBPath    string        // 区块树数据库文件路径
 	AppearancePath     string        // 配置目录下的外观目录 appearance/ 路径
 	ThemesPath         string        // 配置目录下的外观目录下的 themes/ 路径
 	IconsPath          string        // 配置目录下的外观目录下的 icons/ 路径
@@ -310,7 +311,7 @@ func initWorkspaceDir(workspaceArg string) {
 	DBPath = filepath.Join(TempDir, DBName)
 	HistoryDBPath = filepath.Join(TempDir, "history.db")
 	AssetContentDBPath = filepath.Join(TempDir, "asset_content.db")
-	BlockTreePath = filepath.Join(TempDir, "blocktree")
+	BlockTreeDBPath = filepath.Join(TempDir, "blocktree.db")
 	SnippetsPath = filepath.Join(DataDir, "snippets")
 }
 
@@ -365,7 +366,9 @@ func WriteWorkspacePaths(workspacePaths []string) (err error) {
 }
 
 var (
-	ServerPort     = "0" // HTTP/WebSocket 端口，0 为使用随机端口
+	ServerURL  *url.URL // 内核服务 URL
+	ServerPort = "0"    // HTTP/WebSocket 端口，0 为使用随机端口
+
 	ReadOnly       bool
 	AccessAuthCode string
 	Lang           = ""

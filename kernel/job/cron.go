@@ -22,7 +22,6 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
-	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 )
@@ -30,7 +29,6 @@ import (
 func StartCron() {
 	go every(100*time.Millisecond, task.ExecTaskJob)
 	go every(5*time.Second, task.StatusJob)
-	go every(5*time.Second, treenode.SaveBlockTreeJob)
 	go every(5*time.Second, model.SyncDataJob)
 	go every(2*time.Hour, model.StatJob)
 	go every(2*time.Hour, model.RefreshCheckJob)

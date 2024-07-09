@@ -311,7 +311,7 @@ func buildEmbedBlock(embedBlockID string, excludeIDs []string, headingMode int, 
 	return
 }
 
-func SearchRefBlock(id, rootID, keyword string, beforeLen int, isSquareBrackets bool) (ret []*Block, newDoc bool) {
+func SearchRefBlock(id, rootID, keyword string, beforeLen int, isSquareBrackets, isDatabase bool) (ret []*Block, newDoc bool) {
 	cachedTrees := map[string]*parse.Tree{}
 
 	onlyDoc := false
@@ -321,7 +321,9 @@ func SearchRefBlock(id, rootID, keyword string, beforeLen int, isSquareBrackets 
 
 	if "" == keyword {
 		// 查询为空时默认的块引排序规则按最近使用优先 https://github.com/siyuan-note/siyuan/issues/3218
-		refs := sql.QueryRefsRecent(onlyDoc)
+
+		ignoreLines := getRefSearchIgnoreLines()
+		refs := sql.QueryRefsRecent(onlyDoc, ignoreLines)
 		for _, ref := range refs {
 			tree := cachedTrees[ref.DefBlockRootID]
 			if nil == tree {
@@ -398,9 +400,14 @@ func SearchRefBlock(id, rootID, keyword string, beforeLen int, isSquareBrackets 
 	}
 	ret = tmp
 
-	if block := treenode.GetBlockTree(id); nil != block {
-		p := path.Join(block.HPath, keyword)
-		newDoc = nil == treenode.GetBlockTreeRootByHPath(block.BoxID, p)
+	if !isDatabase {
+		// 如果非数据库中搜索块引，则不允许新建重名文档
+		if block := treenode.GetBlockTree(id); nil != block {
+			p := path.Join(block.HPath, keyword)
+			newDoc = nil == treenode.GetBlockTreeRootByHPath(block.BoxID, p)
+		}
+	} else { // 如果是数据库中搜索绑定块，则允许新建重名文档 https://github.com/siyuan-note/siyuan/issues/11713
+		newDoc = true
 	}
 
 	// 在 hPath 中加入笔记本名 Show notebooks in hpath of block ref search list results https://github.com/siyuan-note/siyuan/issues/9378
@@ -1145,12 +1152,12 @@ func fullTextSearchRefBlock(keyword string, beforeLen int, onlyDoc bool) (ret []
 
 	if ignoreLines := getRefSearchIgnoreLines(); 0 < len(ignoreLines) {
 		// Support ignore search results https://github.com/siyuan-note/siyuan/issues/10089
-		notLike := bytes.Buffer{}
+		buf := bytes.Buffer{}
 		for _, line := range ignoreLines {
-			notLike.WriteString(" AND ")
-			notLike.WriteString(line)
+			buf.WriteString(" AND ")
+			buf.WriteString(line)
 		}
-		stmt += notLike.String()
+		stmt += buf.String()
 	}
 
 	orderBy := ` ORDER BY CASE
@@ -1265,12 +1272,12 @@ func fullTextSearchByFTS(query, boxFilter, pathFilter, typeFilter, orderBy strin
 
 	if ignoreLines := getSearchIgnoreLines(); 0 < len(ignoreLines) {
 		// Support ignore search results https://github.com/siyuan-note/siyuan/issues/10089
-		notLike := bytes.Buffer{}
+		buf := bytes.Buffer{}
 		for _, line := range ignoreLines {
-			notLike.WriteString(" AND ")
-			notLike.WriteString(line)
+			buf.WriteString(" AND ")
+			buf.WriteString(line)
 		}
-		stmt += notLike.String()
+		stmt += buf.String()
 	}
 
 	stmt += " " + orderBy
