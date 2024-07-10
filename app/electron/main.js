@@ -81,11 +81,11 @@ const getServer = (port = kernelPort) => {
     return localhost
         ? `${kernelProtocol}://${kernelHostname}:${port}`
         : baseURL;
-}
+};
 
 const kernelExit = (origin = getServer()) => {
-    return net.fetch(`${origin}/api/system/exit`, {method: "POST"})
-}
+    return net.fetch(`${origin}/api/system/exit`, {method: "POST"});
+};
 
 const windowNavigate = (currentWindow) => {
     currentWindow.webContents.on("will-navigate", (event) => {
@@ -465,7 +465,7 @@ const showWindow = (wnd) => {
     wnd.show();
 };
 
-const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) => {
+const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tlsKeyFile) => {
     return new Promise(async (resolve) => {
         bootWindow = new BrowserWindow({
             show: false,
@@ -536,6 +536,9 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
         }
         if (lang) {
             cmds.push("--lang", lang);
+        }
+        if (hostname) {
+            cmds.push("--hostname", hostname);
         }
         if (tlsKernel) {
             cmds.push("--tls-kernel", true);
@@ -1270,7 +1273,7 @@ app.whenReady().then(() => {
         if (tlsKeyFile) {
             writeLog(`got arg [--tls-key-file="${tlsKeyFile}"]`);
         }
-        initKernel(workspace, port, "", tlsKernel, tlsCertFile, tlsKeyFile).then((isSucc) => {
+        initKernel(workspace, port, "", hostname, tlsKernel, tlsCertFile, tlsKeyFile).then((isSucc) => {
             if (isSucc) {
                 initMainWindow();
             }

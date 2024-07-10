@@ -17,15 +17,16 @@
 package proxy
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
 
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 type PublishServiceTransport struct{}
@@ -35,10 +36,13 @@ var (
 	Port = "0"
 
 	listener  net.Listener
-	transport = PublishServiceTransport{}
-	proxy     = &httputil.ReverseProxy{
+	transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	publishServiceTransport = PublishServiceTransport{}
+	proxy                   = &httputil.ReverseProxy{
 		Rewrite:   rewrite,
-		Transport: transport,
+		Transport: publishServiceTransport,
 	}
 )
 
@@ -110,9 +114,17 @@ func closePublishListener() (err error) {
 func startPublishReverseProxyService() {
 	logging.LogInfof("publish service [%s:%s] is running", Host, Port)
 	// 服务进行时一直阻塞
-	if err := http.Serve(listener, proxy); nil != err {
-		if listener != nil {
-			logging.LogErrorf("boot publish service failed: %s", err)
+	if util.TLSKernel {
+		if err := http.ServeTLS(listener, proxy, util.TLSCertFile, util.TLSKeyFile); nil != err {
+			if listener != nil {
+				logging.LogErrorf("boot publish service with SSL/TLS failed: %s", err)
+			}
+		}
+	} else {
+		if err := http.Serve(listener, proxy); nil != err {
+			if listener != nil {
+				logging.LogErrorf("boot publish service failed: %s", err)
+			}
 		}
 	}
 	logging.LogInfof("publish service [%s:%s] is stopped", Host, Port)
@@ -156,6 +168,10 @@ func (PublishServiceTransport) RoundTrip(request *http.Request) (response *http.
 		request.Header.Set(model.XAuthTokenKey, model.GetBasicAuthAccount("").Token)
 	}
 
-	response, err = http.DefaultTransport.RoundTrip(request)
+	// response, err = http.DefaultTransport.RoundTrip(request)
+	response, err = transport.RoundTrip(request)
+	if err != nil {
+		logging.LogWarnf("reverse proxy request failed: %s", err)
+	}
 	return
 }

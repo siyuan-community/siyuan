@@ -117,7 +117,7 @@ func Serve(fastMode bool) {
 	}
 	util.ServerPort = port
 
-	util.ServerURL, err = url.Parse("http://127.0.0.1:" + port)
+	util.ServerURL, err = url.Parse(util.Protocol + "://" + util.Hostname + ":" + util.ServerPort)
 	if err != nil {
 		logging.LogErrorf("parse server url failed: %s", err)
 	}
@@ -137,8 +137,6 @@ func Serve(fastMode bool) {
 		go proxy.InitPublishService()
 		// 反代服务器启动失败不影响核心服务器启动
 	}()
-
-	go util.HookUILoaded()
 
 	if util.TLSKernel {
 		if err = http.ServeTLS(ln, ginServer.Handler(), util.TLSCertFile, util.TLSKeyFile); nil != err {

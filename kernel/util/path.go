@@ -37,6 +37,7 @@ var (
 	TLSCertFile = ""
 	TLSKeyFile  = ""
 	Protocol    = "http"
+	Hostname    = "localhost"
 	UserAgent   = "SiYuan/" + Ver
 )
 

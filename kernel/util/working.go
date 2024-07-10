@@ -81,9 +81,11 @@ func Boot() {
 	lang := flag.String("lang", "", "zh_CN/zh_CHT/en_US/fr_FR/es_ES/ja_JP")
 	mode := flag.String("mode", "prod", "dev/prod")
 
-	tlsKernel := flag.Bool("tls-kernel", false, "enable SSL/TLS for kernel service")
-	tlsCertFile := flag.String("tls-cert-file", "", "SSL/TLS fullchain certificate file path, default to workspace/conf/tls/siyuan.pem.cer")
-	tlsKeyFile := flag.String("tls-key-file", "", "SSL/TLS private key file path, default to workspace/conf/tls/siyuan.pem.key")
+	hostname := flag.String("hostname", "localhost", "Hostname used for the reverse proxy (publishing services, etc), default to \"localhost\"")
+
+	tlsKernel := flag.Bool("tls-kernel", false, "enable SSL/TLS for kernel service, default to false")
+	tlsCertFile := flag.String("tls-cert-file", "", "SSL/TLS full-chain certificate file path, default to \"workspace/conf/tls/siyuan.pem.cer\"")
+	tlsKeyFile := flag.String("tls-key-file", "", "SSL/TLS private key file path, default to \"workspace/conf/tls/siyuan.pem.key\"")
 
 	flag.Parse()
 
@@ -130,6 +132,8 @@ func Boot() {
 
 	SSL = *ssl
 
+	Hostname = *hostname
+
 	TLSKernel = *tlsKernel
 	TLSCertFile = *tlsCertFile
 	TLSKeyFile = *tlsKeyFile
@@ -142,7 +146,7 @@ func Boot() {
 			TLSKeyFile = filepath.Join(ConfDir, "tls", "siyuan.pem.key")
 		}
 		if _, err := tls.LoadX509KeyPair(TLSCertFile, TLSKeyFile); nil != err {
-			logging.LogWarnf("load SSL/TLS certificate file failed: %s", err)
+			logging.LogErrorf("load SSL/TLS certificate file failed: %s", err)
 			TLSKernel = false
 		} else {
 			SSL = true

@@ -23,8 +23,8 @@ import (
 	"time"
 
 	"github.com/radovskyb/watcher"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 var emojisWatcher *watcher.Watcher

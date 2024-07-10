@@ -20,8 +20,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func InitFixedPortService(host string) {
@@ -33,8 +33,14 @@ func InitFixedPortService(host string) {
 		// 启动一个固定 6806 端口的反向代理服务器，这样浏览器扩展才能直接使用 127.0.0.1:6806，不用配置端口
 		proxy := httputil.NewSingleHostReverseProxy(util.ServerURL)
 		logging.LogInfof("fixed port service [%s:%s] is running", host, util.FixedPort)
-		if proxyErr := http.ListenAndServe(host+":"+util.FixedPort, proxy); nil != proxyErr {
-			logging.LogWarnf("boot fixed port service [%s] failed: %s", util.ServerURL, proxyErr)
+		if util.TLSKernel {
+			if proxyErr := http.ListenAndServeTLS(host+":"+util.FixedPort, util.TLSCertFile, util.TLSKeyFile, proxy); nil != proxyErr {
+				logging.LogWarnf("boot fixed port service [%s] with SSL/TLS failed: %s", util.ServerURL, proxyErr)
+			}
+		} else {
+			if proxyErr := http.ListenAndServe(host+":"+util.FixedPort, proxy); nil != proxyErr {
+				logging.LogWarnf("boot fixed port service [%s] failed: %s", util.ServerURL, proxyErr)
+			}
 		}
 		logging.LogInfof("fixed port service [%s:%s] is stopped", host, util.FixedPort)
 	}
