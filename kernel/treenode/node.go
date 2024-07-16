@@ -29,7 +29,6 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
 	"github.com/88250/vitess-sqlparser/sqlparser"
-	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
@@ -230,7 +229,6 @@ func CountBlockNodes(node *ast.Node) (ret int) {
 func ParentNodesWithHeadings(node *ast.Node) (parents []*ast.Node) {
 	const maxDepth = 255
 	i := 0
-	headingIDs := hashset.New()
 	for n := node; nil != n; n = n.Parent {
 		parent := n.Parent
 		if maxDepth < i {
@@ -247,9 +245,13 @@ func ParentNodesWithHeadings(node *ast.Node) (parents []*ast.Node) {
 		// The heading block update time is refreshed after editing the blocks under the heading https://github.com/siyuan-note/siyuan/issues/11374
 		parentHeadingLevel := 7
 		for prev := n.Previous; nil != prev; prev = prev.Previous {
-			if ast.NodeHeading == prev.Type && prev.HeadingLevel < parentHeadingLevel && !headingIDs.Contains(prev.ID) {
+			if ast.NodeHeading == prev.Type {
+				if prev.HeadingLevel >= parentHeadingLevel {
+					break
+				}
+
 				parents = append(parents, prev)
-				headingIDs.Add(prev.ID)
+				parentHeadingLevel = prev.HeadingLevel
 			}
 		}
 

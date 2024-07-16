@@ -21,7 +21,6 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"github.com/88250/pdfcpu/pkg/font"
 	"net/http"
 	"net/url"
 	"os"
@@ -38,9 +37,11 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/editor"
 	"github.com/88250/lute/html"
+	"github.com/88250/lute/lex"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
 	"github.com/88250/pdfcpu/pkg/api"
+	"github.com/88250/pdfcpu/pkg/font"
 	"github.com/88250/pdfcpu/pkg/pdfcpu"
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/emirpasic/gods/stacks/linkedliststack"
@@ -216,6 +217,8 @@ func Export2Liandi(id string) (err error) {
 	assets := assetsLinkDestsInTree(tree)
 	embedAssets := assetsLinkDestsInQueryEmbedNodes(tree)
 	assets = append(assets, embedAssets...)
+	avAssets := assetsLinkDestsInAttributeViewNodes(tree)
+	assets = append(assets, avAssets...)
 	assets = gulu.Str.RemoveDuplicatedElem(assets)
 	_, err = uploadAssets2Cloud(assets, bizTypeExport2Liandi)
 	if nil != err {
@@ -2216,7 +2219,10 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold bool,
 		mdTableHead.AppendChild(mdTableHeadRow)
 		for _, col := range table.Columns {
 			cell := &ast.Node{Type: ast.NodeTableCell}
-			cell.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(col.Name)})
+			name := string(lex.EscapeProtyleMarkers([]byte(col.Name)))
+			name = strings.ReplaceAll(name, "\\|", "|")
+			name = strings.ReplaceAll(name, "|", "\\|")
+			cell.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(name)})
 			mdTableHeadRow.AppendChild(cell)
 		}
 
@@ -2229,7 +2235,33 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold bool,
 				mdTableRow.AppendChild(mdTableCell)
 				var val string
 				if nil != cell.Value {
-					if av.KeyTypeDate == cell.Value.Type {
+					if av.KeyTypeBlock == cell.Value.Type {
+						if nil != cell.Value.Block {
+							val = cell.Value.Block.Content
+							val = string(lex.EscapeProtyleMarkers([]byte(val)))
+							val = strings.ReplaceAll(val, "\\|", "|")
+							val = strings.ReplaceAll(val, "|", "\\|")
+							lines := strings.Split(val, "\n")
+							for _, line := range lines {
+								mdTableCell.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(line)})
+								mdTableCell.AppendChild(&ast.Node{Type: ast.NodeHardBreak})
+							}
+							continue
+						}
+					} else if av.KeyTypeText == cell.Value.Type {
+						if nil != cell.Value.Text {
+							val = cell.Value.Text.Content
+							val = string(lex.EscapeProtyleMarkers([]byte(val)))
+							val = strings.ReplaceAll(val, "\\|", "|")
+							val = strings.ReplaceAll(val, "|", "\\|")
+							lines := strings.Split(val, "\n")
+							for _, line := range lines {
+								mdTableCell.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(line)})
+								mdTableCell.AppendChild(&ast.Node{Type: ast.NodeHardBreak})
+							}
+							continue
+						}
+					} else if av.KeyTypeDate == cell.Value.Type {
 						if nil != cell.Value.Date {
 							cell.Value.Date = av.NewFormattedValueDate(cell.Value.Date.Content, cell.Value.Date.Content2, av.DateFormatNone, cell.Value.Date.IsNotTime, cell.Value.Date.HasEndDate)
 						}
@@ -2243,26 +2275,29 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold bool,
 						}
 					} else if av.KeyTypeMAsset == cell.Value.Type {
 						if nil != cell.Value.MAsset {
-							buf := &bytes.Buffer{}
 							for _, a := range cell.Value.MAsset {
 								if av.AssetTypeImage == a.Type {
-									buf.WriteString("![")
-									buf.WriteString(a.Name)
-									buf.WriteString("](")
-									buf.WriteString(a.Content)
-									buf.WriteString(") ")
+									img := &ast.Node{Type: ast.NodeImage}
+									img.AppendChild(&ast.Node{Type: ast.NodeBang})
+									img.AppendChild(&ast.Node{Type: ast.NodeOpenBracket})
+									img.AppendChild(&ast.Node{Type: ast.NodeLinkText, Tokens: []byte(a.Name)})
+									img.AppendChild(&ast.Node{Type: ast.NodeCloseBracket})
+									img.AppendChild(&ast.Node{Type: ast.NodeOpenParen})
+									img.AppendChild(&ast.Node{Type: ast.NodeLinkDest, Tokens: []byte(a.Content)})
+									img.AppendChild(&ast.Node{Type: ast.NodeCloseParen})
+									mdTableCell.AppendChild(img)
 								} else if av.AssetTypeFile == a.Type {
-									buf.WriteString("[")
-									buf.WriteString(a.Name)
-									buf.WriteString("](")
-									buf.WriteString(a.Content)
-									buf.WriteString(") ")
-								} else {
-									buf.WriteString(a.Content)
-									buf.WriteString(" ")
+									file := &ast.Node{Type: ast.NodeLink}
+									file.AppendChild(&ast.Node{Type: ast.NodeOpenBracket})
+									file.AppendChild(&ast.Node{Type: ast.NodeLinkText, Tokens: []byte(a.Name)})
+									file.AppendChild(&ast.Node{Type: ast.NodeCloseBracket})
+									file.AppendChild(&ast.Node{Type: ast.NodeOpenParen})
+									file.AppendChild(&ast.Node{Type: ast.NodeLinkDest, Tokens: []byte(a.Content)})
+									file.AppendChild(&ast.Node{Type: ast.NodeCloseParen})
+									mdTableCell.AppendChild(file)
 								}
 							}
-							val = strings.TrimSpace(buf.String())
+							continue
 						}
 					} else if av.KeyTypeLineNumber == cell.Value.Type {
 						val = strconv.Itoa(rowNum)
