@@ -34,11 +34,11 @@ $ENV:CGO_ENABLED = '1'
 
 # $ENV:GOPROXY = 'https://goproxy.io'
 
-$ENV:GOOS = 'windows'
-$ENV:GOARCH = 'amd64'
-
 go generate
 goversioninfo -platform-specific=true -icon=resource/icon.ico -manifest=resource/goversioninfo.exe.manifest
+
+$ENV:GOOS = 'windows'
+$ENV:GOARCH = 'amd64'
 
 go mod tidy
 go build --tags fts5 -v -o "../app/kernel/SiYuan-Kernel.exe" -ldflags "-s -w -H=windowsgui" .
