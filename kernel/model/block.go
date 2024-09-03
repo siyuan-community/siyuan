@@ -25,7 +25,7 @@ import (
 
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
-	"github.com/open-spaced-repetition/go-fsrs"
+	"github.com/open-spaced-repetition/go-fsrs/v2"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
