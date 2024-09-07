@@ -163,44 +163,6 @@ func CheckReadonly(c *gin.Context) {
 	}
 }
 
-func CheckBasicAuth(c *gin.Context) {
-	if "" == Conf.AccessAuthCode {
-		localhost := isLocalhost(c)
-		if localhost {
-			c.Next()
-		} else {
-			abortWithUnauthorized(c)
-		}
-		return
-	}
-
-	// 通过 Cookies
-	if certified := checkCookies(c); certified {
-		c.Next()
-		return
-	}
-
-	// 通过 API token
-	if certified, ok := checkToken(c); ok {
-		if certified {
-			c.Next()
-		} else {
-			abortWithUnauthorized(c)
-		}
-		return
-	}
-
-	// 通过 HTTP Basic
-	if certified, ok := checkBasic(c); ok && certified {
-		c.Next()
-	} else {
-		c.Header("WWW-Authenticate", "Basic realm=\"Authorization Required\", charset=\"UTF-8\"")
-		c.AbortWithStatus(http.StatusUnauthorized)
-	}
-
-	return
-}
-
 func CheckAuth(c *gin.Context) {
 	// 已通过 JWT 认证
 	if role := GetGinContextRole(c); IsValidRole(role, []Role{
@@ -213,7 +175,7 @@ func CheckAuth(c *gin.Context) {
 	}
 
 	//logging.LogInfof("check auth for [%s]", c.Request.RequestURI)
-	localhost := isLocalhost(c)
+	localhost := util.IsLocalHost(c.Request.RemoteAddr)
 
 	// 未设置访问授权码
 	if "" == Conf.AccessAuthCode {
@@ -279,12 +241,23 @@ func CheckAuth(c *gin.Context) {
 		}
 	}
 
-	// 通过 Cookies
-	cookiesCertified := checkCookies(c)
-	if cookiesCertified {
+	// 通过 Cookie
+	session := util.GetSession(c)
+	workspaceSession := util.GetWorkspaceSession(session)
+	if workspaceSession.AccessAuthCode == Conf.AccessAuthCode {
 		c.Set(RoleContextKey, RoleAdministrator)
 		c.Next()
 		return
+	}
+
+	// 通过 BasicAuth (header: Authorization)
+	if username, password, ok := c.Request.BasicAuth(); ok {
+		// 使用访问授权码作为密码
+		if util.WorkspaceName == username && Conf.AccessAuthCode == password {
+			c.Set(RoleContextKey, RoleAdministrator)
+			c.Next()
+			return
+		}
 	}
 
 	// 通过 API token (header: Authorization)
@@ -311,7 +284,6 @@ func CheckAuth(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		return
 	}
 
 	// 通过 API token (query-params: token)
@@ -327,25 +299,20 @@ func CheckAuth(c *gin.Context) {
 		return
 	}
 
-	// 通过 HTTP Basic
-	if certified, ok := checkBasic(c); ok {
-		if certified {
-			c.Next()
-		} else {
-			abortWithUnauthorized(c)
-		}
-
-		c.JSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed [query: token]"})
-		c.Abort()
+	// WebDAV BasicAuth Authenticate
+	if strings.HasPrefix(c.Request.RequestURI, "/webdav") {
+		c.Header("WWW-Authenticate", "Basic realm=Authorization Required")
+		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
 
-	if "/check-auth" == c.Request.URL.Path { // 跳过访问授权页
+	// 跳过访问授权页
+	if "/check-auth" == c.Request.URL.Path {
 		c.Next()
 		return
 	}
 
-	if !cookiesCertified {
+	if workspaceSession.AccessAuthCode != Conf.AccessAuthCode {
 		userAgentHeader := c.GetHeader("User-Agent")
 		if strings.HasPrefix(userAgentHeader, "SiYuan/") || strings.HasPrefix(userAgentHeader, "Mozilla/") {
 			if "GET" != c.Request.Method || c.IsWebsocket() {
@@ -372,68 +339,6 @@ func CheckAuth(c *gin.Context) {
 
 	c.Set(RoleContextKey, RoleAdministrator)
 	c.Next()
-}
-
-func checkCookies(c *gin.Context) bool {
-	session := util.GetSession(c)
-	workspaceSession := util.GetWorkspaceSession(session)
-	return workspaceSession.AccessAuthCode == Conf.AccessAuthCode
-}
-
-func checkToken(c *gin.Context) (certified, ok bool) {
-	var token string
-	if authHeader := c.GetHeader("Authorization"); "" != authHeader {
-		// 通过 API token (header: Authorization)
-		if strings.HasPrefix(authHeader, "Token ") {
-			ok = true
-			token = strings.TrimPrefix(authHeader, "Token ")
-		}
-	} else {
-		// 通过 API token (query-params: token)
-		token, ok = c.GetQuery("token")
-	}
-
-	certified = Conf.Api.Token == token
-	return
-}
-
-func checkBasic(c *gin.Context) (certified, ok bool) {
-	_, password, ok := c.Request.BasicAuth()
-	certified = Conf.AccessAuthCode == password
-	return
-}
-
-func isLocalhost(c *gin.Context) bool {
-	if !util.IsLocalHost(c.Request.RemoteAddr) {
-		return false
-	}
-
-	host := c.GetHeader("Host")
-	if "" != host {
-		if !util.IsLocalHost(host) {
-			return false
-		}
-	}
-
-	origin := c.GetHeader("Origin")
-	if "" != origin {
-		if !util.IsLocalOrigin(origin) && !strings.HasPrefix(origin, "chrome-extension://") {
-			return false
-		}
-	}
-
-	forwardedHost := c.GetHeader("X-Forwarded-Host")
-	if "" != forwardedHost {
-		if !util.IsLocalHost(forwardedHost) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func abortWithUnauthorized(c *gin.Context) {
-	c.AbortWithStatusJSON(http.StatusUnauthorized, map[string]interface{}{"code": -1, "msg": "Auth failed"})
 }
 
 func CheckAdminRole(c *gin.Context) {
