@@ -94,7 +94,7 @@ func initPublishListener() (err error) {
 	}
 
 	_, Port, err = net.SplitHostPort(listener.Addr().String())
-	if nil != err {
+	if err != nil {
 		logging.LogErrorf("split host and port failed: %s", err)
 		return
 	}

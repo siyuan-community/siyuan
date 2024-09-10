@@ -114,7 +114,7 @@ func EncloseHighlighting(text string, keywords []string, openMark, closeMark str
 	re += ")"
 	ret = text
 
-	if reg, err := regexp.Compile(re); nil == err {
+	if reg, err := regexp.Compile(re); err == nil {
 		ret = reg.ReplaceAllStringFunc(text, func(s string) string { return openMark + s + closeMark })
 	}
 

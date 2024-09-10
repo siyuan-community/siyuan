@@ -5,7 +5,7 @@ import {Constants} from "../../constants";
 import {blockRender} from "../render/blockRender";
 import {processRender} from "../util/processCode";
 import {highlightRender} from "../render/highlightRender";
-import {hasClosestBlock, hasClosestByAttribute, isInEmbedBlock} from "../util/hasClosest";
+import {hasClosestByAttribute, isInEmbedBlock} from "../util/hasClosest";
 import {setFold, zoomOut} from "../../menus/protyle";
 import {disabledProtyle, enableProtyle, onGet} from "../util/onGet";
 /// #if !MOBILE
@@ -109,8 +109,6 @@ const promiseTransaction = () => {
                 }
                 // 当前编辑器中更新嵌入块
                 updateEmbed(protyle, operation);
-                // 更新块引用
-                updateRef(protyle, operation.id);
                 return;
             }
             if (operation.action === "delete" || operation.action === "append") {
@@ -230,8 +228,6 @@ const promiseTransaction = () => {
                 //         blockRender(protyle, item);
                 //     }
                 // });
-                // 更新块引用
-                updateRef(protyle, operation.id);
             }
         });
 
@@ -328,8 +324,6 @@ const updateBlock = (updateElements: Element[], protyle: IProtyle, operation: IO
     blockRender(protyle, updateElements.length === 1 ? updateElements[0] : protyle.wysiwyg.element);
     // 更新 ws 嵌入块
     updateEmbed(protyle, operation);
-    // 更新 ws 块引用
-    updateRef(protyle, operation.id);
 };
 
 // 用于推送和撤销
@@ -388,6 +382,14 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                     item.remove();
                 });
             });
+            if (protyle.wysiwyg.element.childElementCount === 0) {
+                zoomOut({
+                    protyle,
+                    id: protyle.block.rootID,
+                    isPushBack: false,
+                    focusId: operation.id,
+                });
+            }
         }
         return;
     }
@@ -433,8 +435,6 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         } else { // updateElements 没有包含嵌入块，在悬浮层编辑嵌入块时，嵌入块也需要更新
             // 更新 ws 嵌入块
             updateEmbed(protyle, operation);
-            // 更新 ws 块引用
-            updateRef(protyle, operation.id);
         }
         return;
     }
@@ -691,8 +691,6 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                 wbrElement.remove();
             }
         });
-        // 更新 ws 块引用
-        updateRef(protyle, operation.id);
         return;
     }
     if (operation.action === "append") {
@@ -1058,23 +1056,6 @@ export const turnsOneInto = async (options: {
     processRender(options.protyle.wysiwyg.element);
     highlightRender(options.protyle.wysiwyg.element);
     avRender(options.protyle.wysiwyg.element, options.protyle);
-};
-
-const updateRef = (protyle: IProtyle, id: string, index = 0) => {
-    if (index > 6) {
-        return;
-    }
-    protyle.wysiwyg.element.querySelectorAll(`[data-type~="block-ref"][data-id="${id}"]`).forEach(item => {
-        if (item.getAttribute("data-subtype") === "d") {
-            fetchPost("/api/block/getRefText", {id: id}, (response) => {
-                item.innerHTML = response.data;
-                const blockElement = hasClosestBlock(item);
-                if (blockElement) {
-                    updateRef(protyle, blockElement.getAttribute("data-node-id"), index + 1);
-                }
-            });
-        }
-    });
 };
 
 let transactionsTimeout: number;
