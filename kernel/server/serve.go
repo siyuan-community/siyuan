@@ -155,6 +155,7 @@ func Serve(fastMode bool) {
 				os.Exit(logging.ExitCodeUnavailablePort)
 			}
 		}
+	} else {
 		if err = http.Serve(ln, ginServer.Handler()); err != nil {
 			if !fastMode {
 				logging.LogErrorf("boot kernel failed: %s", err)
@@ -162,6 +163,12 @@ func Serve(fastMode bool) {
 			}
 		}
 	}
+}
+
+func rewritePortJSON(pid, port string) {
+	portJSON := filepath.Join(util.HomeDir, ".config", "siyuan", "port.json")
+	pidPorts := map[string]string{}
+	var data []byte
 	var err error
 
 	if gulu.File.IsExist(portJSON) {
