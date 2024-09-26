@@ -19,7 +19,6 @@ package model
 import (
 	"errors"
 	"fmt"
-	"github.com/siyuan-note/siyuan/kernel/task"
 	"path"
 	"path/filepath"
 	"strings"
@@ -29,6 +28,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/siyuan-community/siyuan/kernel/bazaar"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-note/logging"
 	"golang.org/x/mod/semver"
 )

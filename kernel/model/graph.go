@@ -22,8 +22,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/siyuan-community/siyuan/kernel/util"
-
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/html"
