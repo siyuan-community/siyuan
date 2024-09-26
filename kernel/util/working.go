@@ -43,7 +43,7 @@ import (
 var Mode = "prod"
 
 const (
-	Ver       = "3.1.6"
+	Ver       = "3.1.7"
 	IsInsider = false
 )
 
@@ -78,7 +78,7 @@ func Boot() {
 	readOnly := flag.String("readonly", "false", "read-only mode")
 	accessAuthCode := flag.String("accessAuthCode", "", "access auth code")
 	ssl := flag.Bool("ssl", false, "for https and wss")
-	lang := flag.String("lang", "", "zh_CN/zh_CHT/en_US/fr_FR/es_ES/ja_JP")
+	lang := flag.String("lang", "", "zh_CN/zh_CHT/en_US/fr_FR/es_ES/ja_JP/it_IT")
 	mode := flag.String("mode", "prod", "dev/prod")
 
 	hostname := flag.String("hostname", "localhost", "Hostname used for the reverse proxy (publishing services, etc), default to \"localhost\"")

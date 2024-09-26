@@ -28,6 +28,7 @@ import (
 	"github.com/djherbis/times"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 )
@@ -128,6 +129,14 @@ func setImageOCRText(c *gin.Context) {
 	path := arg["path"].(string)
 	text := arg["text"].(string)
 	util.SetAssetText(path, text)
+
+	// 刷新 OCR 结果到数据库
+	util.NodeOCRQueueLock.Lock()
+	defer util.NodeOCRQueueLock.Unlock()
+	for _, id := range util.NodeOCRQueue {
+		sql.IndexNodeQueue(id)
+	}
+	util.NodeOCRQueue = nil
 }
 
 func ocr(c *gin.Context) {
