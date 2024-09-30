@@ -1,6 +1,7 @@
-FROM node:21 as NODE_BUILD
-WORKDIR /go/src/github.com/siyuan-note/siyuan/
-ADD . /go/src/github.com/siyuan-note/siyuan/
+FROM node:21 AS NODE_BUILD
+
+WORKDIR /go/src/github.com/siyuan-community/siyuan/
+ADD . /go/src/github.com/siyuan-community/siyuan/
 RUN apt-get update && \
     apt-get install -y jq
 RUN cd app && \
@@ -17,7 +18,7 @@ RUN apt-get purge -y jq
 RUN apt-get autoremove -y
 RUN rm -rf /var/lib/apt/lists/*
 
-FROM golang:alpine as GO_BUILD
+FROM golang:alpine AS GO_BUILD
 WORKDIR /go/src/github.com/siyuan-community/siyuan/
 COPY --from=NODE_BUILD /go/src/github.com/siyuan-community/siyuan/ /go/src/github.com/siyuan-community/siyuan/
 ENV GO111MODULE=on
@@ -30,6 +31,7 @@ RUN apk add --no-cache gcc musl-dev && \
     mv /go/src/github.com/siyuan-community/siyuan/app/guide/ /opt/siyuan/ && \
     mv /go/src/github.com/siyuan-community/siyuan/app/changelogs/ /opt/siyuan/ && \
     mv /go/src/github.com/siyuan-community/siyuan/kernel/kernel /opt/siyuan/ && \
+    mv /go/src/github.com/siyuan-community/siyuan/kernel/entrypoint.sh /opt/siyuan/entrypoint.sh && \
     find /opt/siyuan/ -name .git | xargs rm -rf
 
 FROM alpine:latest
@@ -37,11 +39,14 @@ LABEL maintainer="Liang Ding<845765@qq.com>"
 
 WORKDIR /opt/siyuan/
 COPY --from=GO_BUILD /opt/siyuan/ /opt/siyuan/
-RUN addgroup --gid 1000 siyuan && adduser --uid 1000 --ingroup siyuan --disabled-password siyuan && apk add --no-cache ca-certificates tzdata && chown -R siyuan:siyuan /opt/siyuan/
+
+RUN apk add --no-cache ca-certificates tzdata su-exec && \
+    chmod +x /opt/siyuan/entrypoint.sh
 
 ENV TZ=Asia/Shanghai
+ENV HOME=/home/siyuan
 ENV RUN_IN_CONTAINER=true
 EXPOSE 6806
 
-USER siyuan
-ENTRYPOINT ["/opt/siyuan/kernel"]
+ENTRYPOINT ["/opt/siyuan/entrypoint.sh"]
+CMD ["/opt/siyuan/kernel"]
