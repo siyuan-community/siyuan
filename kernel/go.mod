@@ -109,6 +109,8 @@ require (
 	github.com/go-resty/resty/v2 v2.14.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/pprof v0.0.0-20241009165004-a3522334989c // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
@@ -167,9 +169,11 @@ require (
 	golang.org/x/arch v0.10.0 // indirect
 	golang.org/x/crypto v0.28.0 // indirect
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c // indirect
+	golang.org/x/oauth2 v0.8.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
+	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
