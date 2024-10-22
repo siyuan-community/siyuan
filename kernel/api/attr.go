@@ -22,6 +22,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
@@ -48,7 +49,7 @@ func batchGetBlockAttrs(c *gin.Context) {
 		idList = append(idList, id.(string))
 	}
 
-	ret.Data = model.BatchGetBlockAttrs(idList)
+	ret.Data = sql.BatchGetBlockAttrs(idList)
 }
 
 func getBlockAttrs(c *gin.Context) {
@@ -65,7 +66,7 @@ func getBlockAttrs(c *gin.Context) {
 		return
 	}
 
-	ret.Data = model.GetBlockAttrs(id)
+	ret.Data = sql.GetBlockAttrs(id)
 }
 
 func setBlockAttrs(c *gin.Context) {
