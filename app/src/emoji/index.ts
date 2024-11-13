@@ -93,7 +93,7 @@ export const filterEmoji = (key = "", max?: number) => {
     const customStore: IEmojiItem[] = [];
     window.siyuan.emojis.forEach((category, index) => {
         if (!key) {
-            html += `<div class="emojis__title" data-type="${index + 1}">${getEmojiTitle(index)}</div><div style="min-height:${index === 0 ? "28px" : "336px"}" class="emojis__content"${index > 1 ? ' data-index="' + index + '"' : ""}>`;
+            html += `<div class="emojis__title" data-type="${index + 1}">${getEmojiTitle(index)}</div><div style="min-height:${index === 0 ? "30px" : "300px"}" class="emojis__content"${index > 1 ? ' data-index="' + index + '"' : ""}>`;
         }
         if (category.items.length === 0 && index === 0 && !key) {
             html += `<div style="margin-left: 4px">${window.siyuan.languages.setEmojiTip}</div>`;
@@ -482,7 +482,7 @@ export const updateOutlineEmoji = (unicode: string, id: string) => {
     /// #if !MOBILE
     getAllModels().outline.forEach(model => {
         if (model.blockId === id) {
-            model.headerElement.nextElementSibling.firstElementChild.outerHTML = unicode2Emoji(unicode || Constants.SIYUAN_IMAGE_FILE, "b3-list-item__graphic", true);
+            model.headerElement.nextElementSibling.firstElementChild.outerHTML = unicode2Emoji(unicode || window.siyuan.storage[Constants.LOCAL_IMAGES].file, "b3-list-item__graphic", true);
         }
     });
     /// #endif
@@ -504,7 +504,7 @@ export const updateFileTreeEmoji = (unicode: string, id: string, icon = "iconFil
     }
     /// #endif
     if (emojiElement) {
-        emojiElement.innerHTML = unicode2Emoji(unicode || (icon === "iconFile" ? (emojiElement.previousElementSibling.classList.contains("fn__hidden") ? Constants.SIYUAN_IMAGE_FILE : Constants.SIYUAN_IMAGE_FOLDER) : Constants.SIYUAN_IMAGE_NOTE));
+        emojiElement.innerHTML = unicode2Emoji(unicode || (icon === "iconFile" ? (emojiElement.previousElementSibling.classList.contains("fn__hidden") ? window.siyuan.storage[Constants.LOCAL_IMAGES].file : window.siyuan.storage[Constants.LOCAL_IMAGES].folder) : window.siyuan.storage[Constants.LOCAL_IMAGES].note));
     }
     if (icon !== "iconFile") {
         setNoteBook();
