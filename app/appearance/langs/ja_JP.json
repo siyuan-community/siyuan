@@ -1,4 +1,10 @@
 {
+  "keyContent": "キーコンテンツ",
+  "addDesc": "説明を追加",
+  "dataRepoAutoPurgeIndexRetentionDays": "データスナップショットの保持日数",
+  "dataRepoAutoPurgeRetentionIndexesDaily": "データスナップショットの毎日の保持数",
+  "fields": "属性",
+  "dynamicEmoji": "動的アイコン",
   "backlinkContainChildren": "バックリンクに子ブロックを含めるかどうか",
   "backlinkContainChildrenTip": "有効にすると、子ブロックがバックリンク計算に含まれます",
   "entryNum": "エントリ数",
@@ -480,7 +486,7 @@
   "floatWindowMode": "フローティングウィンドウのトリガー方法",
   "floatWindowModeTip": "ブロックアイコンやパンくずリストアイコンなどにマウスカーソルを合わせたときにフローティングウィンドウを表示する方法を選択します",
   "floatWindowMode0": "ホバー",
-  "floatWindowMode1": "<code class='fn__code'>${hotkey}</code> を押しながらホバー",
+  "floatWindowMode1": "${hotkey} を押しながらホバー",
   "floatWindowMode2": "表示しない",
   "codeSnippet": "コードスニペット",
   "codeSnippetTip": "コードスニペットを使用してインターフェースや機能を微調整します",
@@ -520,7 +526,7 @@
   "htmlBlockError": "次のスクリプトはインターフェースの表示に影響するため実行が停止されました",
   "fileHistory": "ファイル履歴",
   "htmlBlockTip": "複数の HTML ブロックが形成されています。データの損失を防ぐために <code class='fn__code'>&lt;div&gt;</code> タグで囲んで空白行を削除してください",
-  "katexMacros": "KaTex マクロ定義",
+  "katexMacros": "KaTeX マクロ定義",
   "katexMacrosTip": "JSON オブジェクト形式 (<code class='fn__code'>{}</code>) を使用してマクロ定義を囲んでください (例: <code class='fn__code'>{ \"\\\\foo\": \"{x^2}\" }</code>)",
   "systemLogTip": "プログラムの実行記録はシステムログに保存されます。システムログをエクスポートして開発者に送信することで開発者がプログラムの問題を診断するのに役立ちます",
   "systemLog": "システムログ",
@@ -1564,6 +1570,7 @@
     "247": "ファイル [%s] は制限サイズ [%s] を超えているためアップロードされませんでした",
     "248": "目標の見出しがコンテナブロック内にあるためドロップできません",
     "249": "設定エラーのためデータにアクセスできません。設定を一つずつ確認し、クラウドストレージの権限を確認してください",
-    "250": "リクエストがクラウドストレージによって制限されました。設定を一つずつ確認し、クラウドストレージの権限を確認してください"
+    "250": "リクエストがクラウドストレージによって制限されました。設定を一つずつ確認し、クラウドストレージの権限を確認してください",
+    "251": "未使用のアセットの合計 [%d]、ここにリストされているのは [%d] のみ"
   }
 }

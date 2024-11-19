@@ -1527,6 +1527,7 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 			Hidden: col.Hidden,
 			Pin:    col.Pin,
 			Width:  col.Width,
+			Desc:   col.Desc,
 			Calc:   col.Calc,
 		})
 	}
@@ -1651,6 +1652,30 @@ func (tx *Transaction) doSetAttrViewViewIcon(operation *Operation) (ret *TxErr) 
 	}
 
 	view.Icon = operation.Data.(string)
+	if err = av.SaveAttributeView(attrView); err != nil {
+		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
+		return &TxErr{code: TxErrWriteAttributeView, msg: err.Error(), id: avID}
+	}
+	return
+}
+
+func (tx *Transaction) doSetAttrViewViewDesc(operation *Operation) (ret *TxErr) {
+	var err error
+	avID := operation.AvID
+	attrView, err := av.ParseAttributeView(avID)
+	if err != nil {
+		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
+		return &TxErr{code: TxErrWriteAttributeView, id: avID}
+	}
+
+	viewID := operation.ID
+	view := attrView.GetView(viewID)
+	if nil == view {
+		logging.LogErrorf("get view [%s] failed: %s", viewID, err)
+		return &TxErr{code: TxErrWriteAttributeView, id: viewID}
+	}
+
+	view.Desc = strings.TrimSpace(operation.Data.(string))
 	if err = av.SaveAttributeView(attrView); err != nil {
 		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
 		return &TxErr{code: TxErrWriteAttributeView, msg: err.Error(), id: avID}
@@ -1956,7 +1981,7 @@ func addAttributeViewBlock(now int64, avID, blockID, previousBlockID, addingBloc
 	}
 
 	if !isDetached {
-		addingBlockContent = getNodeRefText(node)
+		addingBlockContent = getNodeAvBlockText(node)
 	}
 
 	// 检查是否重复添加相同的块
@@ -2247,6 +2272,7 @@ func duplicateAttributeViewKey(operation *Operation) (err error) {
 							Hidden: column.Hidden,
 							Pin:    column.Pin,
 							Width:  column.Width,
+							Desc:   column.Desc,
 						},
 					}, view.Table.Columns[i+1:]...)...)
 					break
@@ -2408,6 +2434,31 @@ func setAttributeViewColIcon(operation *Operation) (err error) {
 	for _, keyValues := range attrView.KeyValues {
 		if keyValues.Key.ID == operation.ID {
 			keyValues.Key.Icon = operation.Data.(string)
+			break
+		}
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func (tx *Transaction) doSetAttrViewColumnDesc(operation *Operation) (ret *TxErr) {
+	err := setAttributeViewColDesc(operation)
+	if err != nil {
+		return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttributeViewColDesc(operation *Operation) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+
+	for _, keyValues := range attrView.KeyValues {
+		if keyValues.Key.ID == operation.ID {
+			keyValues.Key.Desc = operation.Data.(string)
 			break
 		}
 	}
@@ -2885,7 +2936,7 @@ func replaceAttributeViewBlock(operation *Operation, tx *Transaction) (err error
 				if !operation.IsDetached {
 					bindBlockAv0(tx, operation.AvID, node, tree)
 					value.IsDetached = false
-					value.Block.Content = getNodeRefText(node)
+					value.Block.Content = getNodeAvBlockText(node)
 					value.UpdatedAt = now
 					err = av.SaveAttributeView(attrView)
 				}
@@ -2922,7 +2973,7 @@ func replaceAttributeViewBlock(operation *Operation, tx *Transaction) (err error
 				value.Block.ID = operation.NextID
 				value.IsDetached = operation.IsDetached
 				if !operation.IsDetached {
-					value.Block.Content = getNodeRefText(node)
+					value.Block.Content = getNodeAvBlockText(node)
 				}
 			}
 
@@ -3410,15 +3461,34 @@ func updateAttributeViewColumnOption(operation *Operation) (err error) {
 
 	data := operation.Data.(map[string]interface{})
 
-	oldName := data["oldName"].(string)
-	newName := data["newName"].(string)
+	rename := false
+	oldName := strings.TrimSpace(data["oldName"].(string))
+	newName := strings.TrimSpace(data["newName"].(string))
+	newDesc := strings.TrimSpace(data["newDesc"].(string))
 	newColor := data["newColor"].(string)
 
-	for i, opt := range key.Options {
-		if oldName == opt.Name {
-			key.Options[i].Name = newName
-			key.Options[i].Color = newColor
-			break
+	found := false
+	if oldName != newName {
+		rename = true
+
+		for _, opt := range key.Options {
+			if newName == opt.Name { // 如果选项已经存在则直接使用
+				found = true
+				newColor = opt.Color
+				newDesc = opt.Desc
+				break
+			}
+		}
+	}
+
+	if !found {
+		for i, opt := range key.Options {
+			if oldName == opt.Name {
+				key.Options[i].Name = newName
+				key.Options[i].Color = newColor
+				key.Options[i].Desc = newDesc
+				break
+			}
 		}
 	}
 
@@ -3433,11 +3503,31 @@ func updateAttributeViewColumnOption(operation *Operation) (err error) {
 				continue
 			}
 
-			for i, opt := range value.MSelect {
-				if oldName == opt.Content {
-					value.MSelect[i].Content = newName
-					value.MSelect[i].Color = newColor
+			found = false
+			for _, opt := range value.MSelect {
+				if newName == opt.Content {
+					found = true
 					break
+				}
+			}
+			if found && rename {
+				idx := -1
+				for i, opt := range value.MSelect {
+					if oldName == opt.Content {
+						idx = i
+						break
+					}
+				}
+				if 0 <= idx {
+					value.MSelect = util.RemoveElem(value.MSelect, idx)
+				}
+			} else {
+				for i, opt := range value.MSelect {
+					if oldName == opt.Content {
+						value.MSelect[i].Content = newName
+						value.MSelect[i].Color = newColor
+						break
+					}
 				}
 			}
 		}
@@ -3465,6 +3555,40 @@ func updateAttributeViewColumnOption(operation *Operation) (err error) {
 					}
 				}
 			}
+		}
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func (tx *Transaction) doSetAttrViewColOptionDesc(operation *Operation) (ret *TxErr) {
+	err := setAttributeViewColumnOptionDesc(operation)
+	if err != nil {
+		return &TxErr{code: TxErrWriteAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttributeViewColumnOptionDesc(operation *Operation) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+
+	key, err := attrView.GetKey(operation.ID)
+	if err != nil {
+		return
+	}
+
+	data := operation.Data.(map[string]interface{})
+	name := data["name"].(string)
+	desc := data["desc"].(string)
+
+	for i, opt := range key.Options {
+		if name == opt.Name {
+			key.Options[i].Desc = desc
+			break
 		}
 	}
 

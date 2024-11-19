@@ -21,11 +21,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/siyuan-note/filelock"
-
 	"github.com/88250/lute/ast"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 )
 
@@ -45,14 +44,15 @@ func docTagSpans(n *ast.Node) (ret []*Span) {
 	if tagsVal := n.IALAttr("tags"); "" != tagsVal {
 		tags := strings.Split(tagsVal, ",")
 		for _, tag := range tags {
-			markdown := "#" + tag + "#"
+			escaped := util.EscapeHTML(tag)
+			markdown := "#" + escaped + "#"
 			span := &Span{
 				ID:       ast.NewNodeID(),
 				BlockID:  n.ID,
 				RootID:   n.ID,
 				Box:      n.Box,
 				Path:     n.Path,
-				Content:  tag,
+				Content:  escaped,
 				Markdown: markdown,
 				Type:     "tag",
 				IAL:      "",

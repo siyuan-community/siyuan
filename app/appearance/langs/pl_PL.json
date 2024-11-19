@@ -1,4 +1,10 @@
 {
+  "keyContent": "Zawartość klucza",
+  "addDesc": "Dodaj opis",
+  "dataRepoAutoPurgeIndexRetentionDays": "Dni przechowywania migawek danych",
+  "dataRepoAutoPurgeRetentionIndexesDaily": "Liczba migawek danych dziennie",
+  "fields": "Atrybut",
+  "dynamicEmoji": "Ikona dynamiczna",
   "backlinkContainChildren": "Czy linki zwrotne zawierają bloki podrzędne",
   "backlinkContainChildrenTip": "Po włączeniu bloki podrzędne zostaną uwzględnione w obliczeniach linków zwrotnych",
   "entryNum": "Количество записей",
@@ -480,7 +486,7 @@
   "floatWindowMode": "Metoda wywoływania okna pływającego",
   "floatWindowModeTip": "Wybierz, jak wywoływać pływające okno, gdy mysz znajduje się nad ikoną bloku, ikoną okruszków, itp.",
   "floatWindowMode0": "Najedź",
-  "floatWindowMode1": "Naciśnij i przytrzymaj <code class='fn__code'>${hotkey}</code>+Najedź",
+  "floatWindowMode1": "Naciśnij i przytrzymaj ${hotkey} + Najedź",
   "floatWindowMode2": "Nie wywołuj",
   "codeSnippet": "Fragment kodu",
   "codeSnippetTip": "Dostosuj interfejs lub funkcjonalność za pomocą fragmentów kodu",
@@ -520,7 +526,7 @@
   "htmlBlockError": "Wykonanie następującego skryptu wpłynie na wygląd interfejsu i skrypt przestał działać",
   "fileHistory": "Historia pliku",
   "htmlBlockTip": "Tworzone są wiele bloków HTML. Aby zapobiec utracie danych, proszę używać znaczników <code class='fn__code'>&lt;div&gt;</code> do opakowania i usunięcia pustych linii",
-  "katexMacros": "Definicja makr KaTex",
+  "katexMacros": "Definicja makr KaTeX",
   "katexMacrosTip": "Proszę używać formatu obiektu JSON (<code class='fn__code'>{}</code>) do opakowania definicji makr, np. <code class='fn__code'>{ \"\\\\foo\": \"{x^2}\" }</code>",
   "systemLogTip": "Rekordy działania programu są zapisywane w dzienniku systemowym. Eksportując dziennik systemowy i przesyłając go programistom, można lepiej pomóc w diagnozowaniu problemów z programem",
   "systemLog": "Dziennik systemowy",
@@ -1564,6 +1570,7 @@
     "247": "Plik [%s] jest większy niż maksymalne ograniczenie [%s], i został zignorowany przy przesyłaniu do chmury",
     "248": "Docelowy nagłówek znajduje się w bloku kontenera i nie może być użyty jako punkt upuszczenia",
     "249": "Z powodu błędu konfiguracji nie można uzyskać dostępu do danych. Proszę dokładnie sprawdzić ustawienia i uprawnienia do przechowywania w chmurze",
-    "250": "Żądanie zostało ograniczone przez przechowywanie w chmurze. Proszę dokładnie sprawdzić ustawienia i uprawnienia do przechowywania w chmurze"
+    "250": "Żądanie zostało ograniczone przez przechowywanie w chmurze. Proszę dokładnie sprawdzić ustawienia i uprawnienia do przechowywania w chmurze",
+    "251": "Łączna liczba nieużywanych zasobów [%d], tutaj wymieniono tylko [%d]"
   }
 }
