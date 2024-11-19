@@ -18,7 +18,6 @@ package api
 
 import (
 	"fmt"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"math"
 	"net/http"
 	"regexp"
@@ -27,7 +26,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 type ColorScheme struct {
