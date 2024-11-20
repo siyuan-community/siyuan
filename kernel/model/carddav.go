@@ -31,8 +31,8 @@ import (
 	"github.com/88250/gulu"
 	"github.com/emersion/go-vcard"
 	"github.com/emersion/go-webdav/carddav"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 const (

@@ -368,8 +368,6 @@ github.com/siyuan-note/logging v0.0.0-20240505035402-6430d57006a2 h1:/2+tlOThVB8
 github.com/siyuan-note/logging v0.0.0-20240505035402-6430d57006a2/go.mod h1:3Osd2/nwzXZFl6ZcDE4hA0HD83Wyv1fds47nVuapyOM=
 github.com/siyuan-note/riff v0.0.0-20240912073907-1e89a5f8e7dc h1:5AFQ9sx+baB6nBHdabWwGsGf4QWrarIyocsn/DUc+Tc=
 github.com/siyuan-note/riff v0.0.0-20240912073907-1e89a5f8e7dc/go.mod h1:tS939PAGtZQNvwWf/6pC5mzFUYuo7onl9rjKUuXanCI=
-github.com/siyuan-note/siyuan/kernel v0.0.0-20241119154831-928c1d476a4b h1:aoOlIIbpb1WJgTLSLW2/k23QmgiwxOB9pmrYBEQkcsc=
-github.com/siyuan-note/siyuan/kernel v0.0.0-20241119154831-928c1d476a4b/go.mod h1:wKwfQzVjg1rxewhbIbCuY8ZT02lcaJirNxCf4LltiuA=
 github.com/spf13/cast v1.7.0 h1:ntdiHjuueXFgm5nzDRdOS4yfT43P5Fnud6DH50rz/7w=
 github.com/spf13/cast v1.7.0/go.mod h1:ancEpBxwJDODSW/UG4rDrAqiKolqNNh2DX3mk86cAdo=
 github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf h1:pvbZ0lM0XWPBqUKqFU8cmavspvIl9nulOYwdy6IFRRo=

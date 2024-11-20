@@ -26,12 +26,12 @@ import (
 
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/cache"
-	"github.com/siyuan-note/siyuan/kernel/job"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/server"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/job"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/server"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 //export StartKernelFast

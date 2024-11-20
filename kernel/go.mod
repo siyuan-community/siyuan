@@ -64,7 +64,6 @@ require (
 	github.com/siyuan-note/httpclient v0.0.0-20241113084556-839baaab03f6
 	github.com/siyuan-note/logging v0.0.0-20240505035402-6430d57006a2
 	github.com/siyuan-note/riff v0.0.0-20240912073907-1e89a5f8e7dc
-	github.com/siyuan-note/siyuan/kernel v0.0.0-20241119154831-928c1d476a4b
 	github.com/spf13/cast v1.7.0
 	github.com/steambap/captcha v1.4.1
 	github.com/studio-b12/gowebdav v0.9.0
