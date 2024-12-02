@@ -23,7 +23,7 @@ import {setEmpty} from "../mobile/util/setEmpty";
 import {hideAllElements, hideElements} from "../protyle/ui/hideElements";
 import {App} from "../index";
 import {saveScroll} from "../protyle/scroll/saveScroll";
-import {isInAndroid, isInIOS, isLocalhost, setStorageVal} from "../protyle/util/compatibility";
+import {isInAndroid, isInHarmony, isInIOS, setStorageVal} from "../protyle/util/compatibility";
 import {Plugin} from "../plugin";
 
 const updateTitle = (rootID: string, tab: Tab, protyle?: IProtyle) => {
@@ -307,7 +307,7 @@ export const exitSiYuan = async () => {
                         /// #if !BROWSER
                         ipcRenderer.send(Constants.SIYUAN_QUIT, location.port);
                         /// #else
-                        if (isInIOS() || isInAndroid()) {
+                        if (isInIOS() || isInAndroid() || isInHarmony()) {
                             window.location.href = "siyuan://api/system/exit";
                         }
                         /// #endif
@@ -347,7 +347,7 @@ export const exitSiYuan = async () => {
             /// #if !BROWSER
             ipcRenderer.send(Constants.SIYUAN_QUIT, location.port);
             /// #else
-            if (isInIOS() || isInAndroid()) {
+            if (isInIOS() || isInAndroid() || isInHarmony()) {
                 window.location.href = "siyuan://api/system/exit";
             }
             /// #endif
@@ -414,7 +414,7 @@ export const progressStatus = (data: IWebSocketData) => {
         statusElement.style.bottom = "0";
         statusTimeout = window.setTimeout(() => {
             statusElement.style.bottom = "";
-        }, 7000);
+        }, 12000);
     } else {
         const msgElement = statusElement.querySelector(".status__msg");
         if (msgElement) {
@@ -422,7 +422,7 @@ export const progressStatus = (data: IWebSocketData) => {
             msgElement.innerHTML = data.msg;
             statusTimeout = window.setTimeout(() => {
                 msgElement.innerHTML = "";
-            }, 7000);
+            }, 12000);
         }
     }
 };

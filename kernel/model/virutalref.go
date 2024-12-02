@@ -33,6 +33,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // virtualBlockRefCache 用于保存块关联的虚拟引用关键字。
@@ -170,7 +171,7 @@ func processVirtualRef(n *ast.Node, unlinks *[]*ast.Node, virtualBlockRefKeyword
 	}
 
 	content := string(n.Tokens)
-	tmp := gulu.Str.RemoveInvisible(content)
+	tmp := util.RemoveInvalid(content)
 	tmp = strings.TrimSpace(tmp)
 	if "" == tmp {
 		return false
