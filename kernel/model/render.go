@@ -21,8 +21,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/88250/lute/editor"
-
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
