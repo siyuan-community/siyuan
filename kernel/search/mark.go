@@ -24,7 +24,7 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/lex"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func MarkText(text string, keyword string, beforeLen int, caseSensitive bool) (pos int, marked string) {

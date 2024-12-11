@@ -20,11 +20,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"os"
 	"path"
 	"strings"
 	"sync"
+
+	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/88250/gulu"
 	"github.com/emersion/go-ical"
