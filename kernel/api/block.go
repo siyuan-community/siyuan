@@ -376,7 +376,10 @@ func getRefText(c *gin.Context) {
 	}
 
 	id := arg["id"].(string)
-	model.FlushTxQueue()
+	if util.InvalidIDPattern(id, ret) {
+		return
+	}
+
 	refText := model.GetBlockRefText(id)
 	if "" == refText {
 		// 空块返回 id https://github.com/siyuan-note/siyuan/issues/10259
@@ -409,7 +412,7 @@ func getRefIDs(c *gin.Context) {
 	}
 
 	id := arg["id"].(string)
-	refIDs, refTexts, defIDs := model.GetBlockRefs(id)
+	refIDs, refTexts, defIDs := model.GetBlockRefs(id, true)
 	ret.Data = map[string][]string{
 		"refIDs":   refIDs,
 		"refTexts": refTexts,
