@@ -3,7 +3,7 @@ echo 'pwsh -f ./scripts/build.ps1'
 echo 'Building UI'
 
 # nvm on
-# nvm use 20
+# nvm use 22
 
 cd app
 
