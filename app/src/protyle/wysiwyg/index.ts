@@ -672,6 +672,8 @@ export class WYSIWYG {
                 documentSelf.onmousemove = (moveEvent: MouseEvent) => {
                     if (dragElement.tagName === "IMG") {
                         dragElement.style.height = "";
+                        // 历史兼容
+                        dragElement.parentElement.parentElement.removeAttribute("style");
                     }
                     if (moveEvent.clientX > x - dragWidth + 8 && moveEvent.clientX < mostRight) {
                         const multiple = ((dragElement.tagName === "IMG" && !dragElement.parentElement.parentElement.style.minWidth && nodeElement.style.textAlign !== "center") || !isCenter) ? 1 : 2;
@@ -1482,7 +1484,14 @@ export class WYSIWYG {
                     }
                 });
                 tableSelectElement.removeAttribute("style");
+                if (getSelection().rangeCount>0) {
+                    const range = getSelection().getRangeAt(0);
+                    if (nodeElement.contains(range.startContainer)) {
+                        range.insertNode(document.createElement("wbr"));
+                    }
+                }
                 const oldHTML = nodeElement.outerHTML;
+                nodeElement.querySelector("wbr")?.remove();
                 nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
                 selectCellElements.forEach((item, index) => {
                     if (index === 0 || !item.previousElementSibling ||

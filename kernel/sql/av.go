@@ -26,6 +26,7 @@ import (
 
 	"github.com/88250/lute/ast"
 	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
@@ -420,7 +421,7 @@ func RenderTemplateCol(ial map[string]string, rowValues []*av.KeyValues, tplCont
 	}
 
 	goTpl := template.New("").Delims(".action{", "}")
-	tplFuncMap := treenode.BuiltInTemplateFuncs()
+	tplFuncMap := filesys.BuiltInTemplateFuncs()
 	SQLTemplateFuncs(&tplFuncMap)
 	goTpl = goTpl.Funcs(tplFuncMap)
 	tpl, err := goTpl.Parse(tplContent)

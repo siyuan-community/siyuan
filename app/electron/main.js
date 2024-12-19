@@ -54,7 +54,7 @@ let proxyURL;
 let latestActiveWindow;
 let localhost = true;
 let firstOpen = false;
-let workspaces = []; // workspaceDir, id, browserWindow, tray
+let workspaces = []; // workspaceDir, id, browserWindow, tray, hideShortcut
 let kernelProtocol = "http";
 let kernelHostname = LOOPBACK_ADDRESS;
 let kernelPort = 6806;
@@ -1151,6 +1151,12 @@ app.whenReady().then(() => {
         if (!data.hotkeys || data.hotkeys.length === 0) {
             return;
         }
+        workspaces.find(workspaceItem => {
+            if (event.sender.id === workspaceItem.browserWindow.webContents.id) {
+                workspaceItem.hotkeys = data.hotkeys;
+                return true;
+            }
+        });
         data.hotkeys.forEach((item, index) => {
             const shortcut = hotKey2Electron(item);
             if (!shortcut) {
@@ -1164,11 +1170,19 @@ app.whenReady().then(() => {
                     let currentWorkspace;
                     const currentWebContentsId = (latestActiveWindow && !latestActiveWindow.isDestroyed()) ? latestActiveWindow.webContents.id : undefined;
                     workspaces.find(workspaceItem => {
-                        if ((currentWebContentsId || event.sender.id) === workspaceItem.browserWindow.webContents.id) {
+                        if (currentWebContentsId === workspaceItem.browserWindow.webContents.id && workspaceItem.hotkeys[0] === item) {
                             currentWorkspace = workspaceItem;
                             return true;
                         }
                     });
+                    if (!currentWorkspace) {
+                        workspaces.find(workspaceItem => {
+                            if (workspaceItem.hotkeys[0] === item && event.sender.id === workspaceItem.browserWindow.webContents.id) {
+                                currentWorkspace = workspaceItem;
+                                return true;
+                            }
+                        });
+                    }
                     if (!currentWorkspace) {
                         return;
                     }

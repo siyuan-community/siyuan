@@ -592,7 +592,7 @@ func FindReplace(keyword, replacement string, replaceTypes map[string]bool, ids 
 						return ast.WalkContinue
 					}
 
-					replaceNodeTokens(n, method, keyword, replacement, r)
+					replaceNodeTokens(n, method, keyword, strings.TrimSpace(replacement), r)
 				case ast.NodeLinkText:
 					if !replaceTypes["imgText"] {
 						return ast.WalkContinue
@@ -673,11 +673,11 @@ func FindReplace(keyword, replacement string, replaceTypes map[string]bool, ids 
 						if replaceTypes["aHref"] {
 							if 0 == method {
 								if strings.Contains(n.TextMarkAHref, keyword) {
-									n.TextMarkAHref = strings.ReplaceAll(n.TextMarkAHref, keyword, replacement)
+									n.TextMarkAHref = strings.ReplaceAll(n.TextMarkAHref, keyword, strings.TrimSpace(replacement))
 								}
 							} else if 3 == method {
 								if nil != r && r.MatchString(n.TextMarkAHref) {
-									n.TextMarkAHref = r.ReplaceAllString(n.TextMarkAHref, replacement)
+									n.TextMarkAHref = r.ReplaceAllString(n.TextMarkAHref, strings.TrimSpace(replacement))
 								}
 							}
 						}
@@ -1027,6 +1027,7 @@ func FullTextSearchBlock(query string, boxes, paths []string, types map[string]b
 		boxFilter := buildBoxesFilter(boxes)
 		pathFilter := buildPathsFilter(paths)
 		if 2 > len(strings.Split(strings.TrimSpace(query), " ")) {
+			query = stringQuery(query)
 			blocks, matchedBlockCount, matchedRootCount = fullTextSearchByQuerySyntax(query, boxFilter, pathFilter, typeFilter, ignoreFilter, orderByClause, beforeLen, page, pageSize)
 		} else {
 			docMode = true // 文档全文搜索模式 https://github.com/siyuan-note/siyuan/issues/10584
@@ -1124,7 +1125,9 @@ func FullTextSearchBlock(query string, boxes, paths []string, types map[string]b
 		ret = []*Block{}
 	}
 
-	filterSelfHPath(ret)
+	if 0 == groupBy {
+		filterSelfHPath(ret)
+	}
 	return
 }
 
@@ -1412,7 +1415,6 @@ func fullTextSearchCountByRegexp(exp, boxFilter, pathFilter, typeFilter, ignoreF
 }
 
 func fullTextSearchByFTS(query, boxFilter, pathFilter, typeFilter, ignoreFilter, orderBy string, beforeLen, page, pageSize int) (ret []*Block, matchedBlockCount, matchedRootCount int) {
-	query = stringQuery(query)
 	table := "blocks_fts" // 大小写敏感
 	if !Conf.Search.CaseSensitive {
 		table = "blocks_fts_case_insensitive"
@@ -1506,6 +1508,7 @@ func fullTextSearchByLikeWithRoot(query, boxFilter, pathFilter, typeFilter, igno
 
 	keywords = gulu.Str.RemoveDuplicatedElem(keywords)
 	terms := strings.Join(keywords, search.TermSep)
+	terms = strings.ReplaceAll(terms, "''", "'")
 	ret = fromSQLBlocks(&resultBlocks, terms, beforeLen)
 	if 1 > len(ret) {
 		ret = []*Block{}
@@ -1514,6 +1517,7 @@ func fullTextSearchByLikeWithRoot(query, boxFilter, pathFilter, typeFilter, igno
 }
 
 func highlightByFTS(query, typeFilter, id string) (ret []string) {
+	query = stringQuery(query)
 	const limit = 256
 	table := "blocks_fts"
 	if !Conf.Search.CaseSensitive {

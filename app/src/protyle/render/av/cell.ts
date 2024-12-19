@@ -307,7 +307,6 @@ export const cellScrollIntoView = (blockElement: HTMLElement, cellElement: Eleme
     if (contentElement && cellElement.getAttribute("data-dtype") !== "checkbox") {
         const keyboardToolbarElement = document.getElementById("keyboardToolbar");
         const keyboardH = parseInt(keyboardToolbarElement.getAttribute("data-keyboardheight")) || (window.outerHeight / 2 - 42);
-        console.log(keyboardH, window.innerHeight, cellRect.bottom);
         if (cellRect.bottom > window.innerHeight - keyboardH - 42) {
             contentElement.scrollTop += cellRect.bottom - window.innerHeight + 42 + keyboardH;
         } else if (cellRect.top < 110) {
@@ -790,7 +789,7 @@ export const renderCell = (cellValue: IAVCellValue, rowIndex = 0) => {
         if (cellValue?.isDetached) {
             text = `<span class="av__celltext">${cellValue.block.content || ""}</span><span class="b3-chip b3-chip--info b3-chip--small" data-type="block-more">${window.siyuan.languages.more}</span>`;
         } else {
-            text = `<span data-type="block-ref" data-id="${cellValue.block.id}" data-subtype="s" class="av__celltext av__celltext--ref">${cellValue.block.content || window.siyuan.languages.untitled}</span><span class="b3-chip b3-chip--info b3-chip--small" data-type="block-more">${window.siyuan.languages.update}</span>`;
+            text = `${cellValue.block.icon ? `<span class="b3-menu__avemoji">${unicode2Emoji(cellValue.block.icon)}</span>` : ""}<span data-type="block-ref" data-id="${cellValue.block.id}" data-subtype="s" class="av__celltext av__celltext--ref">${cellValue.block.content || window.siyuan.languages.untitled}</span><span class="b3-chip b3-chip--info b3-chip--small" data-type="block-more">${window.siyuan.languages.update}</span>`;
         }
     } else if (cellValue.type === "number") {
         text = `<span class="av__celltext" data-content="${cellValue?.number.isNotEmpty ? cellValue?.number.content : ""}">${cellValue?.number.formattedContent || cellValue?.number.content || ""}</span>`;
@@ -878,7 +877,7 @@ const renderRollup = (cellValue: IAVCellValue) => {
         if (cellValue?.isDetached) {
             text = `<span class="av__celltext" data-id="${cellValue.block?.id}">${cellValue.block?.content || window.siyuan.languages.untitled}</span>`;
         } else {
-            text = `<span data-type="block-ref" data-id="${cellValue.block?.id}" data-subtype="s" class="av__celltext av__celltext--ref">${cellValue.block?.content || window.siyuan.languages.untitled}</span>`;
+            text = `${cellValue.block.icon ? `<span class="b3-menu__avemoji">${unicode2Emoji(cellValue.block.icon)}</span>` : ""}<span data-type="block-ref" data-id="${cellValue.block?.id}" data-subtype="s" class="av__celltext av__celltext--ref">${cellValue.block?.content || window.siyuan.languages.untitled}</span>`;
         }
     } else if (cellValue.type === "number") {
         text = cellValue?.number.formattedContent || cellValue?.number.content.toString() || "";

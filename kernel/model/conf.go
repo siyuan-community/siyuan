@@ -34,7 +34,6 @@ import (
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
 	"github.com/Xuanwo/go-locale"
-	"github.com/getsentry/sentry-go"
 	"github.com/sashabaranov/go-openai"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/sql"
@@ -346,6 +345,12 @@ func InitConf() {
 	if 0 == Conf.Sync.Mode {
 		Conf.Sync.Mode = 1
 	}
+	if 30 > Conf.Sync.Interval {
+		Conf.Sync.Interval = 30
+	}
+	if 60*60*12 < Conf.Sync.Interval {
+		Conf.Sync.Interval = 60 * 60 * 12
+	}
 	if nil == Conf.Sync.S3 {
 		Conf.Sync.S3 = &conf.S3{PathStyle: true, SkipTlsVerify: true}
 	}
@@ -508,15 +513,6 @@ func InitConf() {
 
 	Conf.Save()
 	logging.SetLogLevel(Conf.LogLevel)
-
-	if Conf.System.UploadErrLog {
-		logging.LogInfof("user has enabled [Automatically upload error messages and diagnostic data]")
-		sentry.Init(sentry.ClientOptions{
-			Dsn:         "https://bdff135f14654ae58a054adeceb2c308@o1173696.ingest.sentry.io/6269178",
-			Release:     util.Ver,
-			Environment: util.Mode,
-		})
-	}
 
 	if Conf.System.DisableGoogleAnalytics {
 		logging.LogInfof("user has disabled [Google Analytics]")

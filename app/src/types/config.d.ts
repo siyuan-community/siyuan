@@ -279,7 +279,8 @@ declare namespace Config {
         | "de_DE"
         | "he_IL"
         | "ru_RU"
-        | "pl_PL";
+        | "pl_PL"
+        | "ar_SA";
 
     /**
      * SiYuan bazaar related configuration
@@ -1350,6 +1351,10 @@ declare namespace Config {
          */
         mode: number;
         /**
+         * Synchronization interval (unit: seconds)
+         */
+        interval: number;
+        /**
          * Whether to enable synchronization perception
          */
         perception: boolean;
@@ -1532,10 +1537,6 @@ declare namespace Config {
          * Operating system platform name
          */
         osPlatform: string;
-        /**
-         * Whether to upload error logs
-         */
-        uploadErrLog: boolean;
         /**
          * The absolute path of the workspace directory
          */
