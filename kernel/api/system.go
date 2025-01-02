@@ -35,6 +35,21 @@ import (
 	"github.com/siyuan-note/logging"
 )
 
+func addMicrosoftDefenderExclusion(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	if !gulu.OS.IsWindows() {
+		return
+	}
+
+	err := model.AddMicrosoftDefenderExclusion()
+	if nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+	}
+}
+
 func reloadUI(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -147,7 +162,7 @@ func getEmojiConf(c *gin.Context) {
 		} else {
 			for _, customEmoji := range customEmojis {
 				name := customEmoji.Name()
-				if strings.HasPrefix(name, ".") {
+				if strings.HasPrefix(name, ".") || strings.Contains(name, "<") {
 					continue
 				}
 
@@ -165,7 +180,7 @@ func getEmojiConf(c *gin.Context) {
 						}
 
 						name = subCustomEmoji.Name()
-						if strings.HasPrefix(name, ".") {
+						if strings.HasPrefix(name, ".") || strings.Contains(name, "<") {
 							continue
 						}
 

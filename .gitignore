@@ -3,6 +3,7 @@
 
 # Binaries for programs and plugins
 *.exe
+!app/elevator/elevator-*.exe
 *.dll
 *.so
 *.dylib

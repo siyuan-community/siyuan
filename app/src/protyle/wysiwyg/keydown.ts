@@ -8,7 +8,7 @@ import {
     getSelectionOffset,
     getSelectionPosition,
     selectAll,
-    setFirstNodeRange,
+    setFirstNodeRange, setInsertWbrHTML,
     setLastNodeRange,
 } from "../util/selection";
 import {
@@ -103,7 +103,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             event.code !== "") { // 悬浮工具会触发但 code 为空 https://github.com/siyuan-note/siyuan/issues/6573
             hideElements(["toolbar"], protyle);
         }
-        let range = getEditorRange(protyle.wysiwyg.element);
+        const range = getEditorRange(protyle.wysiwyg.element);
         const nodeElement = hasClosestBlock(range.startContainer);
         if (!nodeElement) {
             return;
@@ -169,15 +169,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             !isNotEditBlock(nodeElement) && !/^F\d{1,2}$/.test(event.key) &&
             // 微软双拼使用 compositionstart，否则 focusByRange 导致无法输入文字
             event.key !== "Process") {
-            const cloneRange = range.cloneRange();
-            range.collapse(false);
-            range.insertNode(document.createElement("wbr"));
-            protyle.wysiwyg.lastHTMLs[nodeElement.getAttribute("data-node-id")] = nodeElement.outerHTML;
-            nodeElement.querySelector("wbr").remove();
-            // 光标位于引用结尾后 ctrl+b 偶尔会失效
-            range = cloneRange;
-            focusByRange(cloneRange);
-            protyle.toolbar.range = cloneRange;
+            setInsertWbrHTML(nodeElement, range, protyle);
             protyle.wysiwyg.preventKeyup = true;
         }
 
@@ -957,16 +949,10 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             if (event.altKey) {
                 addSubList(protyle, nodeElement, range);
             } else {
-                if (!event.shiftKey) {
-                    enter(nodeElement, range, protyle);
-                    event.stopPropagation();
-                    event.preventDefault();
-                    return;
-                } else if (nodeElement.getAttribute("data-type") === "NodeAttributeView") {
-                    event.stopPropagation();
-                    event.preventDefault();
-                    return;
-                }
+                enter(nodeElement, range, protyle);
+                event.stopPropagation();
+                event.preventDefault();
+                return;
             }
         }
 
