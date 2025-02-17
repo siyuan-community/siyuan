@@ -353,7 +353,7 @@ func ListDocTree(boxID, listPath string, sortMode int, flashcard, showHidden boo
 	}
 	elapsed = time.Now().Sub(start).Milliseconds()
 	if 500 < elapsed {
-		logging.LogWarnf("build docs [%d] elapsed [%dms]", len(docs), elapsed)
+		logging.LogWarnf("list doc tree [%s] build docs [%d] elapsed [%dms]", listPath, len(docs), elapsed)
 	}
 
 	start = time.Now()
@@ -441,7 +441,7 @@ func ListDocTree(boxID, listPath string, sortMode int, flashcard, showHidden boo
 	return
 }
 
-func GetDoc(startID, endID, id string, index int, query string, queryTypes map[string]bool, queryMethod, mode int, size int, isBacklink, highlight bool) (
+func GetDoc(startID, endID, id string, index int, query string, queryTypes map[string]bool, queryMethod, mode int, size int, isBacklink bool, originalRefBlockIDs map[string]string, highlight bool) (
 	blockCount int, dom, parentID, parent2ID, rootID, typ string, eof, scroll bool, boxID, docPath string, isBacklinkExpand bool, keywords []string, err error) {
 	//os.MkdirAll("pprof", 0755)
 	//cpuProfile, _ := os.Create("pprof/GetDoc")
@@ -603,7 +603,7 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes map[s
 	var nodes []*ast.Node
 	if isBacklink {
 		// 引用计数浮窗请求，需要按照反链逻辑组装 https://github.com/siyuan-note/siyuan/issues/6853
-		nodes, isBacklinkExpand = getBacklinkRenderNodes(node)
+		nodes, isBacklinkExpand = getBacklinkRenderNodes(node, originalRefBlockIDs)
 	} else {
 		// 如果同时存在 startID 和 endID，并且是动态加载的情况，则只加载 startID 和 endID 之间的块 [startID, endID]
 		if "" != startID && "" != endID && scroll {
@@ -1036,13 +1036,7 @@ func CreateWithMarkdown(tags, boxID, hPath, md, parentID, id string, withMath bo
 	luteEngine.SetHTMLTag2TextMark(true)
 	if strings.HasPrefix(clippingHref, "https://ld246.com/article/") || strings.HasPrefix(clippingHref, "https://liuyun.io/article/") {
 		// 改进链滴剪藏 https://github.com/siyuan-note/siyuan/issues/13117
-		luteEngine.SetInlineAsterisk(true)
-		luteEngine.SetInlineUnderscore(true)
-		luteEngine.SetSup(true)
-		luteEngine.SetSub(true)
-		luteEngine.SetTag(true)
-		luteEngine.SetInlineMath(true)
-		luteEngine.SetGFMStrikethrough(true)
+		enableLuteInlineSyntax(luteEngine)
 	}
 	dom := luteEngine.Md2BlockDOM(md, false)
 	retID, err = createDocsByHPath(box.ID, hPath, dom, parentID, id)

@@ -1,6 +1,6 @@
 import {getAllEditor, getAllModels} from "../../layout/getAll";
 import {isWindow} from "../../util/functions";
-import {hasClosestBlock, hasClosestByClassName, hasClosestByMatchTag} from "../../protyle/util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName, hasClosestByTag} from "../../protyle/util/hasClosest";
 import {getColIndex} from "../../protyle/util/table";
 
 const getRightBlock = (element: HTMLElement, x: number, y: number) => {
@@ -57,7 +57,10 @@ export const windowMouseMove = (event: MouseEvent & { target: HTMLElement }, mou
                 (window.siyuan.layout.leftDock.element.clientWidth > 0 || (window.siyuan.layout.leftDock.element.clientWidth === 0 && event.clientX < 8))) {
                 if (event.clientY > document.getElementById("toolbar").clientHeight &&
                     event.clientY < window.innerHeight - document.getElementById("status").clientHeight - document.getElementById("dockBottom").clientHeight) {
-                    if (!hasClosestByClassName(event.target, "b3-menu") && !hasClosestByClassName(event.target, "protyle-toolbar") &&
+                    if (!hasClosestByClassName(event.target, "b3-menu") &&
+                        !hasClosestByClassName(event.target, "protyle-toolbar") &&
+                        !hasClosestByClassName(event.target, "protyle-util") &&
+                        !hasClosestByClassName(event.target, "b3-dialog", true) &&
                         !hasClosestByClassName(event.target, "layout--float")) {
                         window.siyuan.layout.leftDock.showDock();
                     }
@@ -70,7 +73,11 @@ export const windowMouseMove = (event: MouseEvent & { target: HTMLElement }, mou
                 (window.siyuan.layout.rightDock.element.clientWidth > 0 || (window.siyuan.layout.rightDock.element.clientWidth === 0 && event.clientX > window.innerWidth - 8))) {
                 if (event.clientY > document.getElementById("toolbar").clientHeight &&
                     event.clientY < window.innerHeight - document.getElementById("status").clientHeight - document.getElementById("dockBottom").clientHeight) {
-                    if (!hasClosestByClassName(event.target, "layout--float") && !hasClosestByClassName(event.target, "protyle-toolbar")) {
+                    if (!hasClosestByClassName(event.target, "b3-menu") &&
+                        !hasClosestByClassName(event.target, "layout--float") &&
+                        !hasClosestByClassName(event.target, "protyle-toolbar") &&
+                        !hasClosestByClassName(event.target, "protyle-util") &&
+                        !hasClosestByClassName(event.target, "b3-dialog", true)) {
                         window.siyuan.layout.rightDock.showDock();
                     }
                 } else {
@@ -194,7 +201,7 @@ export const windowMouseMove = (event: MouseEvent & { target: HTMLElement }, mou
     const target = event.target as Element;
     const blockElement = hasClosestByClassName(target, "table");
     if (blockElement && blockElement.style.cursor !== "col-resize" && !hasClosestByClassName(blockElement, "protyle-wysiwyg__embed")) {
-        const cellElement = (hasClosestByMatchTag(target, "TH") || hasClosestByMatchTag(target, "TD")) as HTMLTableCellElement;
+        const cellElement = (hasClosestByTag(target, "TH") || hasClosestByTag(target, "TD")) as HTMLTableCellElement;
         if (cellElement) {
             const tableElement = blockElement.querySelector("table");
             const tableHeight = blockElement.querySelector("table").clientHeight;

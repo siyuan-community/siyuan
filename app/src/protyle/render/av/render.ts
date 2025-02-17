@@ -134,7 +134,7 @@ export const avRender = (element: Element, protyle: IProtyle, cb?: () => void, v
                     }
                     tableHTML += `<div class="av__cell av__cell--header" data-col-id="${column.id}"  draggable="true" 
 data-icon="${column.icon}" data-dtype="${column.type}" data-wrap="${column.wrap}" data-pin="${column.pin}" 
-data-desc="${escapeAttr(column.desc)}" data-position="top"
+data-desc="${escapeAttr(column.desc)}" 
 style="width: ${column.width || "200px"};">
     ${column.icon ? unicode2Emoji(column.icon, "av__cellheadericon", true) : `<svg class="av__cellheadericon"><use xlink:href="#${getColIconByType(column.type)}"></use></svg>`}
     <span class="av__celltext fn__flex-1">${escapeHtml(column.name)}</span>
@@ -297,12 +297,18 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, rowIndex)}
                 if (headerTransform) {
                     (e.querySelector(".av__row--header") as HTMLElement).style.transform = headerTransform;
                 } else {
-                    stickyRow(e, editRect, "top");
+                    // 需等待渲染完，否则 getBoundingClientRect 错误 https://github.com/siyuan-note/siyuan/issues/13787
+                    setTimeout(() => {
+                        stickyRow(e, editRect, "top");
+                    }, Constants.TIMEOUT_LOAD);
                 }
                 if (footerTransform) {
                     (e.querySelector(".av__row--footer") as HTMLElement).style.transform = footerTransform;
                 } else {
-                    stickyRow(e, editRect, "bottom");
+                    // 需等待渲染完，否则 getBoundingClientRect 错误 https://github.com/siyuan-note/siyuan/issues/13787
+                    setTimeout(() => {
+                        stickyRow(e, editRect, "bottom");
+                    }, Constants.TIMEOUT_LOAD);
                 }
                 if (selectCellId) {
                     const newCellElement = e.querySelector(`.av__row[data-id="${selectCellId.split(Constants.ZWSP)[0]}"] .av__cell[data-col-id="${selectCellId.split(Constants.ZWSP)[1]}"]`);

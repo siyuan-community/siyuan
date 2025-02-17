@@ -275,8 +275,7 @@ func GetUnfoldedParentID(id string) (parentID string) {
 		if "1" == parent.IALAttr("fold") {
 			firstFoldedParent = parent
 			parentID = firstFoldedParent.ID
-		}
-		if "1" != parent.IALAttr("fold") {
+		} else {
 			if nil != firstFoldedParent {
 				parentID = firstFoldedParent.ID
 			} else {
@@ -284,6 +283,9 @@ func GetUnfoldedParentID(id string) (parentID string) {
 			}
 			return
 		}
+	}
+	if "" == parentID {
+		parentID = id
 	}
 	return
 }
@@ -359,7 +361,7 @@ func TransferBlockRef(fromID, toID string, refIDs []string) (err error) {
 	util.PushMsg(Conf.Language(116), 7000)
 
 	if 1 > len(refIDs) { // 如果不指定 refIDs，则转移所有引用了 fromID 的块
-		refIDs, _ = sql.QueryRefIDsByDefID(fromID, false)
+		refIDs = sql.QueryRefIDsByDefID(fromID, false)
 	}
 
 	trees := filesys.LoadTrees(refIDs)

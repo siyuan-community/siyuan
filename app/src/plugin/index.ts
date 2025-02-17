@@ -28,7 +28,7 @@ export class Plugin {
         filter: string[],
         html: string,
         id: string,
-        callback: (protyle: import("../protyle").Protyle) => void
+        callback: (protyle: import("../protyle").Protyle, nodeElement: HTMLElement) => void
     }[] = [];
     // TODO
     public customBlockRenders: {
@@ -379,11 +379,11 @@ export class Plugin {
     }
 
     public addFloatLayer = (options: {
-        ids: string[],
-        defIds?: string[],
+        refDefs: IRefDefs[],
         x?: number,
         y?: number,
         targetElement?: HTMLElement,
+        originalRefBlockIDs?: IObject,
         isBacklink: boolean,
     }) => {
         window.siyuan.blockPanels.push(new BlockPanel({
@@ -392,8 +392,7 @@ export class Plugin {
             isBacklink: options.isBacklink,
             x: options.x,
             y: options.y,
-            nodeIds: options.ids,
-            defIds: options.defIds,
+            refDefs: options.refDefs,
         }));
     };
 

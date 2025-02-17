@@ -61,7 +61,7 @@ export const genAVValueHTML = (value: IAVCellValue) => {
     let html = "";
     switch (value.type) {
         case "block":
-            html = `<input value="${value.block.content}" type="text" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">`;
+            html = `<input value="${escapeAttr(value.block.content)}" type="text" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">`;
             break;
         case "text":
             html = `<textarea style="resize: vertical" rows="${value.text.content.split("\n").length}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">${value.text.content}</textarea>`;
@@ -181,11 +181,11 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             avName: string
         }) => {
             let innerHTML = `<div class="custom-attr__avheader">
-    <div class="block__logo popover__block" data-id='${JSON.stringify(table.blockIDs)}'>
-        <svg class="block__logoicon"><use xlink:href="#iconDatabase"></use></svg><span>${table.avName || window.siyuan.languages.database}</span>
+    <div class="block__logo popover__block" style="max-width:calc(100% - 40px)" data-id='${JSON.stringify(table.blockIDs)}'>
+        <svg class="block__logoicon"><use xlink:href="#iconDatabase"></use></svg>
+        <span class="fn__ellipsis">${table.avName || window.siyuan.languages.database}</span>
     </div>
     <div class="fn__flex-1"></div>
-    <span class="fn__space"></span>
     <span data-type="remove" class="block__icon block__icon--warning block__icon--show b3-tooltips__w b3-tooltips" aria-label="${window.siyuan.languages.removeAV}"><svg><use xlink:href="#iconTrashcan"></use></svg></span>
 </div>`;
             table.keyValues?.forEach(item => {

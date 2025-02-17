@@ -174,11 +174,11 @@ export class Outline extends Model {
                     const type = target.getAttribute("data-type");
                     switch (type) {
                         case "min":
-                            getDockByType("outline").toggleModel("outline");
+                            getDockByType("outline").toggleModel("outline", false, true);
                             break;
                     }
                     break;
-                } else if (target.isSameNode(this.headerElement.nextElementSibling) || target.classList.contains("block__icons")) {
+                } else if (this.blockId && (target.isSameNode(this.headerElement.nextElementSibling) || target.classList.contains("block__icons"))) {
                     openFileById({
                         app: options.app,
                         id: this.blockId,
@@ -232,6 +232,7 @@ export class Outline extends Model {
                     return true;
                 }
             });
+            const contentRect = this.element.getBoundingClientRect();
             documentSelf.onmousemove = (moveEvent: MouseEvent) => {
                 if (!editor || editor.disabled || Math.abs(moveEvent.clientY - event.clientY) < 3 &&
                     Math.abs(moveEvent.clientX - event.clientX) < 3) {
@@ -249,17 +250,34 @@ export class Outline extends Model {
                 }
                 ghostElement.style.top = moveEvent.clientY + "px";
                 ghostElement.style.left = moveEvent.clientX + "px";
-                selectItem = hasClosestByClassName(moveEvent.target as HTMLElement, "b3-list-item") as HTMLElement;
-                if (!selectItem || selectItem.tagName !== "LI" || selectItem.isSameNode(item) || selectItem.style.position === "fixed" || !this.element.contains(selectItem)) {
+                if (!this.element.contains(moveEvent.target as Element)) {
+                    this.element.querySelectorAll(".dragover__top, .dragover__bottom, .dragover, .dragover__current").forEach(item => {
+                        item.classList.remove("dragover__top", "dragover__bottom", "dragover", "dragover__current");
+                    });
                     return;
                 }
-                this.element.querySelectorAll(".dragover__top, .dragover__bottom, .dragover").forEach(item => {
-                    item.classList.remove("dragover__top", "dragover__bottom", "dragover");
+                if (moveEvent.clientY < contentRect.top + Constants.SIZE_SCROLL_TB || moveEvent.clientY > contentRect.bottom - Constants.SIZE_SCROLL_TB) {
+                    this.element.scroll({
+                        top: this.element.scrollTop + (moveEvent.clientY < contentRect.top + Constants.SIZE_SCROLL_TB ? -Constants.SIZE_SCROLL_STEP : Constants.SIZE_SCROLL_STEP),
+                        behavior: "smooth"
+                    });
+                }
+                selectItem = hasClosestByClassName(moveEvent.target as HTMLElement, "b3-list-item") as HTMLElement;
+                if (!selectItem || selectItem.tagName !== "LI" || selectItem.style.position === "fixed") {
+                    return;
+                }
+                this.element.querySelectorAll(".dragover__top, .dragover__bottom, .dragover, .dragover__current").forEach(item => {
+                    item.classList.remove("dragover__top", "dragover__bottom", "dragover", "dragover__current");
                 });
+                if (selectItem.isSameNode(item)) {
+                    selectItem.classList.add("dragover__current");
+                    return;
+                }
                 const selectRect = selectItem.getBoundingClientRect();
-                if (moveEvent.clientY > selectRect.bottom - 10) {
+                const dragHeight = selectRect.height * .2;
+                if (moveEvent.clientY > selectRect.bottom - dragHeight) {
                     selectItem.classList.add("dragover__bottom");
-                } else if (moveEvent.clientY < selectRect.top + 10) {
+                } else if (moveEvent.clientY < selectRect.top + dragHeight) {
                     selectItem.classList.add("dragover__top");
                 } else {
                     selectItem.classList.add("dragover");
@@ -278,7 +296,8 @@ export class Outline extends Model {
                     selectItem = this.element.querySelector(".dragover__top, .dragover__bottom, .dragover");
                 }
                 let hasChange = true;
-                if (selectItem && selectItem.className.indexOf("dragover") > -1 && editor) {
+                if (selectItem && editor &&
+                    (selectItem.classList.contains("dragover__top") || selectItem.classList.contains("dragover__bottom") || selectItem.classList.contains("dragover"))) {
                     let previousID;
                     let parentID;
                     const undoPreviousID = (item.previousElementSibling && item.previousElementSibling.tagName === "UL") ? item.previousElementSibling.previousElementSibling.getAttribute("data-node-id") : item.previousElementSibling?.getAttribute("data-node-id");
@@ -331,8 +350,8 @@ export class Outline extends Model {
                         return true;
                     }
                 }
-                this.element.querySelectorAll(".dragover__top, .dragover__bottom, .dragover").forEach(item => {
-                    item.classList.remove("dragover__top", "dragover__bottom", "dragover");
+                this.element.querySelectorAll(".dragover__top, .dragover__bottom, .dragover, .dragover__current").forEach(item => {
+                    item.classList.remove("dragover__top", "dragover__bottom", "dragover", "dragover__current");
                 });
             };
         });

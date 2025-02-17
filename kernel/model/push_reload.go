@@ -28,8 +28,10 @@ import (
 
 	"github.com/88250/go-humanize"
 	"github.com/88250/gulu"
+	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
+	"github.com/88250/lute/render"
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
@@ -129,7 +131,7 @@ func refreshProtyle(rootID string) {
 	}
 
 	// 刷新关联的嵌入块
-	refIDs, _ := sql.QueryRefIDsByDefID(rootID, true)
+	refIDs := sql.QueryRefIDsByDefID(rootID, true)
 	var rootIDs []string
 	bts := treenode.GetBlockTrees(refIDs)
 	for _, bt := range bts {
@@ -152,14 +154,25 @@ func refreshRefCount(rootID, blockID string) {
 		return
 	}
 
-	refCounts := sql.QueryRootChildrenRefCount(bt.RootID)
-	refCount := refCounts[blockID]
-	var rootRefCount int
-	for _, count := range refCounts {
-		rootRefCount += count
+	isDoc := bt.ID == bt.RootID
+	var rootRefIDs []string
+	var refCount, rootRefCount int
+	refIDs := sql.QueryRefIDsByDefID(bt.ID, isDoc)
+	if isDoc {
+		rootRefIDs = refIDs
+	} else {
+		rootRefIDs = sql.QueryRefIDsByDefID(bt.RootID, true)
 	}
-	refIDs, _, _ := GetBlockRefs(blockID, false)
-	util.PushSetDefRefCount(rootID, blockID, refIDs, refCount, rootRefCount)
+	refCount = len(refIDs)
+	rootRefCount = len(rootRefIDs)
+	var defIDs []string
+	if isDoc {
+		defIDs = sql.QueryChildDefIDsByRootDefID(bt.ID)
+	} else {
+		defIDs = append(defIDs, bt.ID)
+	}
+
+	util.PushSetDefRefCount(rootID, blockID, defIDs, refCount, rootRefCount)
 }
 
 // refreshDynamicRefText 用于刷新块引用的动态锚文本。
@@ -239,6 +252,15 @@ func refreshDynamicRefTexts(updatedDefNodes map[string]*ast.Node, updatedTrees m
 	}
 
 	// 2. 更新属性视图主键内容
+	updateAttributeViewBlockText(updatedDefNodes)
+
+	// 3. 保存变更
+	for _, tree := range changedRefTree {
+		indexWriteTreeUpsertQueue(tree)
+	}
+}
+
+func updateAttributeViewBlockText(updatedDefNodes map[string]*ast.Node) {
 	var parents []*ast.Node
 	for _, updatedDefNode := range updatedDefNodes {
 		for parent := updatedDefNode.Parent; nil != parent && ast.NodeDocument != parent.Type; parent = parent.Parent {
@@ -276,7 +298,7 @@ func refreshDynamicRefTexts(updatedDefNodes map[string]*ast.Node, updatedTrees m
 						changedAv = true
 					}
 					if newContent != blockValue.Block.Content {
-						blockValue.Block.Content = newContent
+						blockValue.Block.Content = util.UnescapeHTML(newContent)
 						changedAv = true
 					}
 					break
@@ -287,11 +309,6 @@ func refreshDynamicRefTexts(updatedDefNodes map[string]*ast.Node, updatedTrees m
 				ReloadAttrView(avID)
 			}
 		}
-	}
-
-	// 3. 保存变更
-	for _, tree := range changedRefTree {
-		indexWriteTreeUpsertQueue(tree)
 	}
 }
 

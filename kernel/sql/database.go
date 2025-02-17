@@ -741,11 +741,15 @@ func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string) (
 
 		if ast.NodeInlineHTML == n.Type {
 			// 没有行级 HTML，只有块级 HTML，这里转换为块
+			n.ID = ast.NewNodeID()
+			n.SetIALAttr("id", n.ID)
+			n.SetIALAttr("updated", n.ID[:14])
 			b, attrs := buildBlockFromNode(n, tree)
 			b.Type = ast.NodeHTMLBlock.String()
 			blocks = append(blocks, b)
 			attributes = append(attributes, attrs...)
 			walkStatus = ast.WalkContinue
+			logging.LogWarnf("inline HTML [%s] is converted to HTML block ", n.Tokens)
 			return
 		}
 
@@ -929,7 +933,7 @@ func tagFromNode(node *ast.Node) (ret string) {
 
 		if n.IsTextMarkType("tag") {
 			tagBuilder.WriteString("#")
-			tagBuilder.WriteString(n.Text())
+			tagBuilder.WriteString(n.Content())
 			tagBuilder.WriteString("# ")
 		}
 		return ast.WalkContinue
