@@ -26,7 +26,7 @@ import (
 	"github.com/jinzhu/copier"
 	gcache "github.com/patrickmn/go-cache"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/search"
+	"github.com/siyuan-community/siyuan/kernel/search"
 )
 
 var cacheDisabled = true

@@ -24,7 +24,7 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func ShortcutsAppendToDailynote() {

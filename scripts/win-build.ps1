@@ -8,7 +8,7 @@ echo 'Building UI'
 cd app
 
 $ENV:COREPACK_ENABLE_STRICT = '0'
-$ENV:ELECTRON_MIRROR = 'https://cnpmjs.org/mirrors/electron/'
+$ENV:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
 
 pnpm install
 pnpm run build
