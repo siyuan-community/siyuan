@@ -143,7 +143,7 @@ func getUpdatePkg() (downloadPkgURLs []string, checksum string, err error) {
 	// b3logURL := "https://release.b3log.org/siyuan/" + pkg
 	// b3logURL := "https://release.liuyun.io/siyuan/" + pkg
 	githubURL := "https://github.com/siyuan-community/siyuan/releases/download/v" + ver + "/" + pkg
-	// ghproxyURL := "https://mirror.ghproxy.com/" + githubURL
+	// ghproxyURL := "https://ghfast.top/" + githubURL
 
 	// downloadPkgURLs = append(downloadPkgURLs, b3logURL)
 	downloadPkgURLs = append(downloadPkgURLs, githubURL)

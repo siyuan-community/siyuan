@@ -17,6 +17,7 @@ app/stage/build
 app/build
 app/src/types/dist
 app/kernel*
+app/SiYuan-Kernel
 ios
 pprof
 
@@ -33,12 +34,7 @@ electron/dist
 
 # Log
 logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+*.log*
 
 # NPM Package
 package-lock.json

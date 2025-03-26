@@ -79,7 +79,10 @@ export const genCellValueByElement = (colType: TAVCol, cellElement: HTMLElement)
         if (colType === "block" && textElement.dataset.id) {
             cellValue.block.id = textElement.dataset.id;
             if (textElement.previousElementSibling?.classList.contains("b3-menu__avemoji")) {
-                cellValue.block.icon = textElement.previousElementSibling.getAttribute("data-unicode");
+                const unicode = textElement.previousElementSibling.getAttribute("data-unicode");
+                if (unicode) {
+                    cellValue.block.icon = unicode;
+                }
             }
         }
     } else if (colType === "mSelect" || colType === "select") {
@@ -347,7 +350,7 @@ export const cellScrollIntoView = (blockElement: HTMLElement, cellElement: Eleme
             if (contentElement) {
                 const contentRect = contentElement.getBoundingClientRect();
                 if (cellRect.bottom > contentRect.bottom) {
-                    contentElement.scrollTop = contentElement.scrollTop + (cellRect.top - contentRect.top - 33);
+                    contentElement.scrollTop = contentElement.scrollTop + (cellRect.bottom - contentRect.bottom);
                 }
             }
         }

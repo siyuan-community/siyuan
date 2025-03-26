@@ -49,6 +49,11 @@ func Themes() (ret []*Theme) {
 		return
 	}
 	bazaarIndex := getBazaarIndex()
+	if 1 > len(bazaarIndex) {
+		return
+	}
+
+	requestFailed := false
 	waitGroup := &sync.WaitGroup{}
 	lock := &sync.Mutex{}
 	p, _ := ants.NewPoolWithFunc(8, func(arg interface{}) {
@@ -61,6 +66,10 @@ func Themes() (ret []*Theme) {
 			lock.Lock()
 			ret = append(ret, pkg.(*Theme))
 			lock.Unlock()
+			return
+		}
+
+		if requestFailed {
 			return
 		}
 
@@ -84,10 +93,12 @@ func Themes() (ret []*Theme) {
 		innerResp, innerErr := httpclient.NewBrowserRequest().SetSuccessResult(theme).Get(innerU)
 		if nil != innerErr {
 			logging.LogErrorf("get bazaar package [%s] failed: %s", innerU, innerErr)
+			requestFailed = true
 			return
 		}
 		if 200 != innerResp.StatusCode {
 			logging.LogErrorf("get bazaar package [%s] failed: %d", innerU, innerResp.StatusCode)
+			requestFailed = true
 			return
 		}
 
