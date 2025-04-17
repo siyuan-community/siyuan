@@ -44,7 +44,7 @@ import (
 
 type DisplayName struct {
 	Default string `json:"default"`
-	ArSA	string `json:"ar_SA"`
+	ArSA    string `json:"ar_SA"`
 	DeDE    string `json:"de_DE"`
 	EnUS    string `json:"en_US"`
 	EsES    string `json:"es_ES"`
@@ -60,7 +60,7 @@ type DisplayName struct {
 
 type Description struct {
 	Default string `json:"default"`
-	ArSA	string `json:"ar_SA"`
+	ArSA    string `json:"ar_SA"`
 	DeDE    string `json:"de_DE"`
 	EnUS    string `json:"en_US"`
 	EsES    string `json:"es_ES"`
@@ -76,7 +76,7 @@ type Description struct {
 
 type Readme struct {
 	Default string `json:"default"`
-	ArSA	string `json:"ar_SA"`
+	ArSA    string `json:"ar_SA"`
 	DeDE    string `json:"de_DE"`
 	EnUS    string `json:"en_US"`
 	EsES    string `json:"es_ES"`
@@ -187,7 +187,7 @@ func getPreferredReadme(readme *Readme) string {
 	case "ar_SA":
 		if "" != readme.ArSA {
 			ret = readme.ArSA
-		}		
+		}
 	case "de_DE":
 		if "" != readme.DeDE {
 			ret = readme.DeDE
@@ -778,6 +778,17 @@ func getPackageDownloadURL(owner, repo, hash string) (url string, err error) {
 			return
 		}
 	}
+}
+
+func renderLocalREADME(basePath string, mdData []byte) (ret string, err error) {
+	luteEngine := lute.New()
+	luteEngine.SetSoftBreak2HardBreak(false)
+	luteEngine.SetCodeSyntaxHighlight(false)
+	linkBase := basePath
+	luteEngine.SetLinkBase(linkBase)
+	ret = luteEngine.Md2HTML(string(mdData))
+	ret = util.LinkTarget(ret, linkBase)
+	return
 }
 
 var (

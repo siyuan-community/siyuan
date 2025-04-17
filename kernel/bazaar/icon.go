@@ -210,7 +210,7 @@ func InstalledIcons() (ret []*Icon) {
 			continue
 		}
 
-		icon.PreferredReadme, _ = renderREADME(icon.URL, readme)
+		icon.PreferredReadme, _ = renderLocalREADME("/appearance/icons/"+dirName+"/", readme)
 		icon.Outdated = isOutdatedIcon(icon, bazaarIcons)
 		ret = append(ret, icon)
 	}
