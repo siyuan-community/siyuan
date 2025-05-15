@@ -272,7 +272,7 @@ func Export2Liandi(id string) (err error) {
 		".md", 3, 1, 1,
 		"#", "#",
 		"", "",
-		false, nil, true, &map[string]*parse.Tree{})
+		false, false, nil, true, &map[string]*parse.Tree{})
 	result := gulu.Ret.NewResult()
 	request := httpclient.NewCloudRequest30s()
 	request = request.
@@ -578,7 +578,7 @@ func Preview(id string) (retStdHTML string) {
 		blockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		"#", "#", // 这里固定使用 # 包裹标签，否则无法正确解析标签 https://github.com/siyuan-note/siyuan/issues/13857
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, true, true, &map[string]*parse.Tree{})
+		Conf.Export.AddTitle, Conf.Export.InlineMemo, true, true, &map[string]*parse.Tree{})
 	luteEngine := NewLute()
 	enableLuteInlineSyntax(luteEngine)
 	luteEngine.SetFootnotes(true)
@@ -697,7 +697,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool) (name, dom string
 		blockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, true, true, &map[string]*parse.Tree{})
+		Conf.Export.AddTitle, Conf.Export.InlineMemo, true, true, &map[string]*parse.Tree{})
 	name = path.Base(tree.HPath)
 	name = util.FilterFileName(name) // 导出 PDF、HTML 和 Word 时未移除不支持的文件名符号 https://github.com/siyuan-note/siyuan/issues/5614
 	savePath = strings.TrimSpace(savePath)
@@ -854,7 +854,7 @@ func ExportHTML(id, savePath string, pdf, image, keepFold, merge bool) (name, do
 		blockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, true, true, &map[string]*parse.Tree{})
+		Conf.Export.AddTitle, Conf.Export.InlineMemo, true, true, &map[string]*parse.Tree{})
 	name = path.Base(tree.HPath)
 	name = util.FilterFileName(name) // 导出 PDF、HTML 和 Word 时未移除不支持的文件名符号 https://github.com/siyuan-note/siyuan/issues/5614
 
@@ -1041,6 +1041,10 @@ func ProcessPDF(id, p string, merge, removeAssets, watermark bool) (err error) {
 		logging.LogErrorf("mkdir [%s] failed: %s", font.UserFontDir, mkdirErr)
 		return
 	}
+	if loadErr := api.LoadUserFonts(); nil != loadErr {
+		logging.LogErrorf("load user fonts failed: %s", loadErr)
+	}
+
 	pdfCtx, ctxErr := api.ReadContextFile(p)
 	if nil != ctxErr {
 		logging.LogErrorf("read pdf context failed: %s", ctxErr)
@@ -1098,7 +1102,43 @@ func processPDFWatermark(pdfCtx *model.Context, watermark bool) {
 			}
 			m[kv[0]] = kv[1]
 		}
-		m["fontname"] = "LXGWWenKaiLite-Regular"
+
+		useDefaultFont := true
+		if "" != m["fontname"] {
+			listFonts, e := api.ListFonts()
+			var builtInFontNames []string
+			if nil != e {
+				logging.LogInfof("listFont failed: %s", e)
+			} else {
+				for _, f := range listFonts {
+					if strings.Contains(f, "(") {
+						f = f[:strings.Index(f, "(")]
+					}
+					f = strings.TrimSpace(f)
+					if strings.Contains(f, ":") || "" == f || strings.Contains(f, "Corefonts") || strings.Contains(f, "Userfonts") {
+						continue
+					}
+
+					builtInFontNames = append(builtInFontNames, f)
+				}
+
+				for _, font := range builtInFontNames {
+					if font == m["fontname"] {
+						useDefaultFont = false
+						break
+					}
+				}
+			}
+		}
+		if useDefaultFont {
+			m["fontname"] = "LXGWWenKaiLite-Regular"
+			fontPath := filepath.Join(util.AppearancePath, "fonts", "LxgwWenKai-Lite-1.501", "LXGWWenKaiLite-Regular.ttf")
+			err := api.InstallFonts([]string{fontPath})
+			if err != nil {
+				logging.LogErrorf("install font [%s] failed: %s", fontPath, err)
+			}
+		}
+
 		descBuilder := bytes.Buffer{}
 		for k, v := range m {
 			descBuilder.WriteString(k)
@@ -1108,12 +1148,6 @@ func processPDFWatermark(pdfCtx *model.Context, watermark bool) {
 		}
 		desc = descBuilder.String()
 		desc = desc[:len(desc)-1]
-
-		fontPath := filepath.Join(util.AppearancePath, "fonts", "LxgwWenKai-Lite-1.501", "LXGWWenKaiLite-Regular.ttf")
-		err := api.InstallFonts([]string{fontPath})
-		if err != nil {
-			logging.LogErrorf("install font [%s] failed: %s", fontPath, err)
-		}
 	}
 
 	logging.LogInfof("add PDF watermark [mode=%s, str=%s, desc=%s]", mode, str, desc)
@@ -1452,7 +1486,7 @@ func ExportStdMarkdown(id string) string {
 		".md", Conf.Export.BlockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, defBlockIDs, true, &map[string]*parse.Tree{})
+		Conf.Export.AddTitle, Conf.Export.InlineMemo, defBlockIDs, true, &map[string]*parse.Tree{})
 }
 
 func ExportPandocConvertZip(ids []string, pandocTo, ext string) (name, zipPath string) {
@@ -1946,7 +1980,7 @@ func ExportMarkdownContent(id string, refMode, embedMode int, addYfm bool) (hPat
 		".md", refMode, embedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, nil, true, &map[string]*parse.Tree{})
+		Conf.Export.AddTitle, Conf.Export.InlineMemo, nil, true, &map[string]*parse.Tree{})
 	docIAL := parse.IAL2Map(tree.Root.KramdownIAL)
 	if addYfm {
 		exportedMd = yfm(docIAL) + exportedMd
@@ -1965,7 +1999,7 @@ func exportMarkdownContent(id, ext string, exportRefMode int, defBlockIDs []stri
 		ext, exportRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, defBlockIDs, singleFile, treeCache)
+		Conf.Export.AddTitle, Conf.Export.InlineMemo, defBlockIDs, singleFile, treeCache)
 	docIAL := parse.IAL2Map(tree.Root.KramdownIAL)
 	if Conf.Export.MarkdownYFM {
 		// 导出 Markdown 时在文档头添加 YFM 开关 https://github.com/siyuan-note/siyuan/issues/7727
@@ -1977,12 +2011,12 @@ func exportMarkdownContent(id, ext string, exportRefMode int, defBlockIDs []stri
 func exportMarkdownContent0(tree *parse.Tree, cloudAssetsBase string, assetsDestSpace2Underscore bool,
 	ext string, blockRefMode, blockEmbedMode, fileAnnotationRefMode int,
 	tagOpenMarker, tagCloseMarker string, blockRefTextLeft, blockRefTextRight string,
-	addTitle bool, defBlockIDs []string, singleFile bool, treeCache *map[string]*parse.Tree) (ret string) {
+	addTitle, inlineMemo bool, defBlockIDs []string, singleFile bool, treeCache *map[string]*parse.Tree) (ret string) {
 	tree = exportTree(tree, false, false, false,
 		blockRefMode, blockEmbedMode, fileAnnotationRefMode,
 		tagOpenMarker, tagCloseMarker,
 		blockRefTextLeft, blockRefTextRight,
-		addTitle, 0 < len(defBlockIDs), singleFile, treeCache)
+		addTitle, inlineMemo, 0 < len(defBlockIDs), singleFile, treeCache)
 	luteEngine := NewLute()
 	luteEngine.SetFootnotes(true)
 	luteEngine.SetKramdownIAL(false)
@@ -2084,6 +2118,7 @@ func exportMarkdownContent0(tree *parse.Tree, cloudAssetsBase string, assetsDest
 		unlink.Unlink()
 	}
 
+	luteEngine.SetUnorderedListMarker("-")
 	renderer := render.NewProtyleExportMdRenderer(tree, luteEngine.RenderOptions)
 	ret = gulu.Str.FromBytes(renderer.Render())
 	return
@@ -2093,7 +2128,7 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 	blockRefMode, blockEmbedMode, fileAnnotationRefMode int,
 	tagOpenMarker, tagCloseMarker string,
 	blockRefTextLeft, blockRefTextRight string,
-	addTitle, addDocAnchorSpan, singleFile bool, treeCache *map[string]*parse.Tree) (ret *parse.Tree) {
+	addTitle, inlineMemo, addDocAnchorSpan, singleFile bool, treeCache *map[string]*parse.Tree) (ret *parse.Tree) {
 	luteEngine := NewLute()
 	ret = tree
 	id := tree.Root.ID
@@ -2144,6 +2179,12 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 			n.Tokens = bytes.TrimSpace(n.Tokens) // 导出 Markdown 时去除公式内容中的首尾空格 https://github.com/siyuan-note/siyuan/issues/4666
 			return ast.WalkContinue
 		case ast.NodeTextMark:
+			if n.IsTextMarkType("inline-memo") {
+				if !inlineMemo {
+					n.TextMarkInlineMemoContent = ""
+				}
+			}
+
 			if n.IsTextMarkType("inline-math") {
 				n.TextMarkInlineMathContent = strings.TrimSpace(n.TextMarkInlineMathContent)
 				return ast.WalkContinue
@@ -2176,6 +2217,10 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 		case 2: // 锚文本块链
 			blockRefLink := &ast.Node{Type: ast.NodeTextMark, TextMarkType: "a", TextMarkTextContent: linkText, TextMarkAHref: "siyuan://blocks/" + defID}
 			blockRefLink.KramdownIAL = n.KramdownIAL
+			if n.IsTextMarkType("inline-memo") {
+				blockRefLink.TextMarkInlineMemoContent = n.TextMarkInlineMemoContent
+				blockRefLink.TextMarkType = "a inline-memo"
+			}
 			n.InsertBefore(blockRefLink)
 			unlinks = append(unlinks, n)
 		case 3: // 仅锚文本
@@ -2183,8 +2228,19 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 			if 0 < len(n.KramdownIAL) {
 				blockRefLink = &ast.Node{Type: ast.NodeTextMark, TextMarkType: "text", TextMarkTextContent: linkText}
 				blockRefLink.KramdownIAL = n.KramdownIAL
+
+				if n.IsTextMarkType("inline-memo") {
+					blockRefLink.TextMarkInlineMemoContent = n.TextMarkInlineMemoContent
+					blockRefLink.TextMarkType = "text inline-memo"
+				}
 			} else {
 				blockRefLink = &ast.Node{Type: ast.NodeText, Tokens: []byte(linkText)}
+				if n.IsTextMarkType("inline-memo") {
+					blockRefLink.Type = ast.NodeTextMark
+					blockRefLink.TextMarkInlineMemoContent = n.TextMarkInlineMemoContent
+					blockRefLink.TextMarkType = "inline-memo"
+					blockRefLink.TextMarkTextContent = linkText
+				}
 			}
 			n.InsertBefore(blockRefLink)
 			unlinks = append(unlinks, n)
@@ -2202,7 +2258,14 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 				return ast.WalkContinue
 			}
 
-			n.InsertBefore(&ast.Node{Type: ast.NodeText, Tokens: []byte(linkText)})
+			text := &ast.Node{Type: ast.NodeText, Tokens: []byte(linkText)}
+			n.InsertBefore(text)
+			if n.IsTextMarkType("inline-memo") {
+				text.Type = ast.NodeTextMark
+				text.TextMarkType = "inline-memo"
+				text.TextMarkTextContent = linkText
+				text.TextMarkInlineMemoContent = n.TextMarkInlineMemoContent
+			}
 			n.InsertBefore(&ast.Node{Type: ast.NodeFootnotesRef, Tokens: []byte("^" + refFoot.refNum), FootnotesRefId: refFoot.refNum, FootnotesRefLabel: []byte("^" + refFoot.refNum)})
 			unlinks = append(unlinks, n)
 		}
@@ -2268,7 +2331,31 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 		}
 	} else {
 		if 4 == blockRefMode { // 脚注+锚点哈希
-			if addDocAnchorSpan {
+			refRoot := false
+
+			for _, refFoot := range refFootnotes {
+				if id == refFoot.defID {
+					refRoot = true
+					break
+				}
+			}
+
+			footnotesDefs := tree.Root.ChildrenByType(ast.NodeFootnotesDef)
+			for _, footnotesDef := range footnotesDefs {
+				ast.Walk(footnotesDef, func(n *ast.Node, entering bool) ast.WalkStatus {
+					if !entering {
+						return ast.WalkContinue
+					}
+
+					if id == n.TextMarkBlockRefID {
+						refRoot = true
+						return ast.WalkStop
+					}
+					return ast.WalkContinue
+				})
+			}
+
+			if refRoot && addDocAnchorSpan {
 				anchorSpan := treenode.NewSpanAnchor(id)
 				ret.Root.PrependChild(anchorSpan)
 			}
@@ -3084,9 +3171,9 @@ func exportPandocConvertZip(baseFolderName string, docPaths, defBlockIDs []strin
 		}
 
 		// 调用 Pandoc 进行格式转换
-		err := util.Pandoc(pandocFrom, pandocTo, writePath, md)
-		if err != nil {
-			logging.LogErrorf("pandoc failed: %s", err)
+		pandocErr := util.Pandoc(pandocFrom, pandocTo, writePath, md)
+		if pandocErr != nil {
+			logging.LogErrorf("pandoc failed: %s", pandocErr)
 			continue
 		}
 

@@ -398,6 +398,44 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         // 编辑器内部粘贴
         const tempElement = document.createElement("div");
         tempElement.innerHTML = siyuanHTML;
+        if (range.toString()) {
+            let types: string[] = [];
+            let linkElement: HTMLElement;
+            if (tempElement.childNodes.length === 1 && tempElement.childElementCount === 1) {
+                types = (tempElement.firstElementChild.getAttribute("data-type") || "").split(" ");
+                if ((types.includes("block-ref") || types.includes("a"))) {
+                    linkElement = tempElement.firstElementChild as HTMLElement;
+                }
+            }
+            if (!linkElement) {
+                const linkTemp = document.createElement("template");
+                linkTemp.innerHTML = protyle.lute.SpinBlockDOM(siyuanHTML);
+                if (linkTemp.content.firstChild.nodeType !== 3 && linkTemp.content.firstElementChild.classList.contains("p")) {
+                    linkTemp.innerHTML = linkTemp.content.firstElementChild.firstElementChild.innerHTML.trim();
+                }
+                if (linkTemp.content.childNodes.length === 1 && linkTemp.content.childElementCount === 1) {
+                    types = (linkTemp.content.firstElementChild.getAttribute("data-type") || "").split(" ");
+                    if ((types.includes("block-ref") || types.includes("a"))) {
+                        linkElement = linkTemp.content.firstElementChild as HTMLElement;
+                    }
+                }
+            }
+
+            if (types.includes("block-ref")) {
+                protyle.toolbar.setInlineMark(protyle, "block-ref", "range", {
+                    type: "id",
+                    color: `${linkElement.dataset.id}${Constants.ZWSP}s${Constants.ZWSP}${range.toString()}`
+                });
+                return;
+            }
+            if (types.includes("a")) {
+                protyle.toolbar.setInlineMark(protyle, "a", "range", {
+                    type: "a",
+                    color: `${linkElement.dataset.href}${Constants.ZWSP}${range.toString()}`
+                });
+                return;
+            }
+        }
         let isBlock = false;
         tempElement.querySelectorAll("[data-node-id]").forEach((e) => {
             const newId = Lute.NewNodeID();
@@ -466,7 +504,17 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 isHTML = true;
             }
 
-            if (textPlain && "" !== textPlain.trim() && (textHTML.startsWith("<span") || textHTML.startsWith("<br")) && (0 > textHTML.toLowerCase().indexOf("class=\"katex") && 0 > textHTML.toLowerCase().indexOf("class=\"math"))) {
+            const textHTMLLowercase = textHTML.toLowerCase();
+            if (textPlain && "" !== textPlain.trim() && (textHTML.startsWith("<span") || textHTML.startsWith("<br")) &&
+                (0 > textHTMLLowercase.indexOf("class=\"katex") && 0 > textHTMLLowercase.indexOf("class=\"math") &&
+                    0 > textHTMLLowercase.indexOf("</a>") && 0 > textHTMLLowercase.indexOf("</img>") &&
+                    0 > textHTMLLowercase.indexOf("</b>") && 0 > textHTMLLowercase.indexOf("</strong>") &&
+                    0 > textHTMLLowercase.indexOf("</i>") && 0 > textHTMLLowercase.indexOf("</em>") &&
+                    0 > textHTMLLowercase.indexOf("</ol>") && 0 > textHTMLLowercase.indexOf("</ul>") &&
+                    0 > textHTMLLowercase.indexOf("</table>") && 0 > textHTMLLowercase.indexOf("</blockquote>") &&
+                    0 > textHTMLLowercase.indexOf("</h1>") && 0 > textHTMLLowercase.indexOf("</h2>") &&
+                    0 > textHTMLLowercase.indexOf("</h3>") && 0 > textHTMLLowercase.indexOf("</h4>") &&
+                    0 > textHTMLLowercase.indexOf("</h5>") && 0 > textHTMLLowercase.indexOf("</h6>"))) {
                 // 豆包复制粘贴问题 https://github.com/siyuan-note/siyuan/issues/13265 https://github.com/siyuan-note/siyuan/issues/14313
                 isHTML = false;
             }
@@ -483,6 +531,25 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                     e.remove();
                 }
             });
+            // https://github.com/siyuan-note/siyuan/issues/14625#issuecomment-2869618067
+            let linkElement;
+            if (tempElement.childElementCount === 1 && tempElement.childNodes.length === 1) {
+                if (tempElement.firstElementChild.tagName === "A") {
+                    linkElement = tempElement.firstElementChild;
+                } else if (tempElement.firstElementChild.tagName === "P" &&
+                    tempElement.firstElementChild.childElementCount === 1 &&
+                    tempElement.firstElementChild.childNodes.length === 1 &&
+                    tempElement.firstElementChild.firstElementChild.tagName === "A") {
+                    linkElement = tempElement.firstElementChild.firstElementChild;
+                }
+            }
+            if (linkElement) {
+                protyle.toolbar.setInlineMark(protyle, "a", "range", {
+                    type: "a",
+                    color: `${linkElement.getAttribute("href")}${Constants.ZWSP}${range.toString() || linkElement.textContent}`
+                });
+                return;
+            }
             fetchPost("/api/lute/html2BlockDOM", {
                 dom: tempElement.innerHTML
             }, (response) => {

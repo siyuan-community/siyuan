@@ -86,7 +86,7 @@ func AddMicrosoftDefenderExclusion() (err error) {
 	return
 }
 
-func AutoCheckMicrosoftDefender() {
+func AutoCheckMicrosoftDefenderJob() {
 	time.Sleep(7 * time.Second)
 	microsoftDefenderLock.Lock()
 	defer microsoftDefenderLock.Unlock()

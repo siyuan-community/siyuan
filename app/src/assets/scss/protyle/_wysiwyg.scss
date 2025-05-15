@@ -352,8 +352,13 @@
           }
         }
 
-        & > .protyle-icons + .protyle-wysiwyg__embed {
-          border-top: 0;
+        & > .protyle-icons {
+          // https://github.com/siyuan-note/siyuan/issues/14678
+          z-index: 2;
+
+          & + .protyle-wysiwyg__embed {
+            border-top: 0;
+          }
         }
       }
     }
@@ -536,8 +541,15 @@
     transition: var(--b3-background-transition);
   }
 
-  &--hiderange ::selection {
-    background-color: transparent;
+  &--hiderange {
+    ::selection {
+      background-color: transparent;
+    }
+
+    .hljs ::selection {
+      background-color: transparent;
+      color: inherit;
+    }
   }
 
   // https://github.com/siyuan-note/siyuan/issues/11589
