@@ -693,6 +693,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 		time.Sleep(500 * time.Millisecond)
 		logging.LogInfof("exited kernel")
 		util.WebSocketServer.Close()
+		util.HttpServing = false
 		os.Exit(logging.ExitCodeOk)
 	}()
 	return

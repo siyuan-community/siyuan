@@ -793,6 +793,11 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool) (name, dom string
 					n.ListData.Start = li.ListData.Num
 				}
 			}
+		} else if n.IsTextMarkType("code") {
+			if nil != n.Next && ast.NodeText == n.Next.Type {
+				// 行级代码导出 word 之后会有多余的零宽空格 https://github.com/siyuan-note/siyuan/issues/14825
+				n.Next.Tokens = bytes.TrimPrefix(n.Tokens, []byte(editor.Zwsp))
+			}
 		}
 		return ast.WalkContinue
 	})
@@ -1444,7 +1449,7 @@ func processPDFLinkEmbedAssets(pdfCtx *model.Context, assetDests []string, remov
 	}
 }
 
-func ExportStdMarkdown(id string) string {
+func ExportStdMarkdown(id string, assetsDestSpace2Underscore bool) string {
 	tree, err := LoadTreeByBlockID(id)
 	if err != nil {
 		logging.LogErrorf("load tree by block id [%s] failed: %s", id, err)
@@ -1482,7 +1487,7 @@ func ExportStdMarkdown(id string) string {
 	}
 	defBlockIDs = gulu.Str.RemoveDuplicatedElem(defBlockIDs)
 
-	return exportMarkdownContent0(tree, cloudAssetsBase, false,
+	return exportMarkdownContent0(tree, cloudAssetsBase, assetsDestSpace2Underscore,
 		".md", Conf.Export.BlockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
@@ -2324,7 +2329,6 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 				title.SetIALAttr(k, v)
 			}
 			title.InsertAfter(&ast.Node{Type: ast.NodeKramdownBlockIAL, Tokens: parse.IAL2Tokens(title.KramdownIAL)})
-
 			content := html.UnescapeString(root.Content)
 			title.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(content)})
 			ret.Root.PrependChild(title)

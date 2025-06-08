@@ -99,7 +99,7 @@ export class Preview {
                             openBy(linkAddress, "folder");
                         } else if (event.shiftKey) {
                             openBy(linkAddress, "app");
-                        } else if (Constants.SIYUAN_ASSETS_EXTS.includes(pathPosix().extname((linkAddress.split("?page")[0])))) {
+                        } else if (Constants.SIYUAN_ASSETS_EXTS.includes(pathPosix().extname((linkAddress).split("?")[0]))) {
                             openAsset(protyle.app, linkAddress.split("?page")[0], parseInt(getSearch("page", linkAddress)));
                         }
                         /// #endif
@@ -266,6 +266,7 @@ export class Preview {
         } else if (type === "yuque") {
             fetchPost("/api/lute/copyStdMarkdown", {
                 id: protyle.block.rootID,
+                assetsDestSpace2Underscore: true,
             }, (response) => {
                 writeText(response.data);
                 showMessage(`${window.siyuan.languages.pasteToYuque}`);

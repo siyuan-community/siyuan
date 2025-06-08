@@ -320,6 +320,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/export/exportAttributeView", model.CheckAuth, model.CheckAdminRole, exportAttributeView)
 
 	ginServer.Handle("POST", "/api/import/importStdMd", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importStdMd)
+	ginServer.Handle("POST", "/api/import/importZipMd", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importZipMd)
 	ginServer.Handle("POST", "/api/import/importData", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importData)
 	ginServer.Handle("POST", "/api/import/importSY", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importSY)
 
@@ -452,6 +453,8 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/av/getAttributeViewKeysByAvID", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getAttributeViewKeysByAvID)
 	ginServer.Handle("POST", "/api/av/duplicateAttributeViewBlock", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, duplicateAttributeViewBlock)
 	ginServer.Handle("POST", "/api/av/appendAttributeViewDetachedBlocksWithValues", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, appendAttributeViewDetachedBlocksWithValues)
+	ginServer.Handle("POST", "/api/av/getCurrentAttrViewImages", model.CheckAuth, getCurrentAttrViewImages)
+
 
 	ginServer.Handle("POST", "/api/ai/chatGPT", model.CheckAuth, model.CheckAdminRole, chatGPT)
 	ginServer.Handle("POST", "/api/ai/chatGPTWithAction", model.CheckAuth, model.CheckAdminRole, chatGPTWithAction)

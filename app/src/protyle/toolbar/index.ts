@@ -193,7 +193,7 @@ export class Toolbar {
             startElement = startElement.parentElement;
         } else if (startElement.childElementCount > 0 && startElement.childNodes[range.startOffset]?.nodeType !== 3) {
             startElement = startElement.childNodes[range.startOffset] as HTMLElement;
-            if (startElement.tagName === "WBR") {
+            if (startElement?.tagName === "WBR") {
                 startElement = startElement.parentElement;
             }
         }
@@ -250,10 +250,31 @@ export class Toolbar {
                 rangeTypes = rangeTypes.concat((item.getAttribute("data-type") || "").split(" "));
             }
         });
+        const rangeStartNextSibling = hasNextSibling(this.range.startContainer);
+        const isSameNode = this.range.startContainer.isSameNode(this.range.endContainer) ||
+            (rangeStartNextSibling && rangeStartNextSibling.isSameNode(this.range.endContainer) &&
+                this.range.startContainer.parentElement.isSameNode(this.range.endContainer.parentElement));
         if (this.range.startContainer.nodeType === 3 && this.range.startContainer.parentElement.tagName === "SPAN" &&
-            this.range.startContainer.isSameNode(this.range.endContainer) &&
-            this.range.startOffset > -1 && this.range.endOffset <= this.range.startContainer.textContent.length) {
+            isSameNode &&
+            this.range.startOffset > -1 && this.range.endOffset <= this.range.endContainer.textContent.length) {
             rangeTypes = rangeTypes.concat((this.range.startContainer.parentElement.getAttribute("data-type") || "").split(" "));
+        }
+        const selectText = this.range.toString();
+        let keepZWPS = false;
+        // ctrl+b/u/i  https://github.com/siyuan-note/siyuan/issues/14820
+        if (!selectText && this.range.startOffset === 1 && this.range.startContainer.textContent === Constants.ZWSP) {
+            let newElement;
+            if (this.range.startContainer.nodeType === 1) {
+                newElement = this.range.startContainer as HTMLElement;
+            } else {
+                newElement = this.range.startContainer.parentElement;
+            }
+            if (newElement.tagName === "SPAN") {
+                rangeTypes = rangeTypes.concat((newElement.getAttribute("data-type") || "").split(" "));
+                this.range.setStart(newElement.firstChild, 0);
+                this.range.setEnd(newElement.lastChild, newElement.lastChild.textContent.length || 0);
+                keepZWPS = true;
+            }
         }
         if (rangeTypes.length === 1) {
             // https://github.com/siyuan-note/siyuan/issues/6501
@@ -269,18 +290,30 @@ export class Toolbar {
                 return;
             }
         }
-        const selectText = this.range.toString();
         fixTableRange(this.range);
 
         let contents;
         let html;
         let needWrapTarget;
         if (this.range.startContainer.nodeType === 3 && this.range.startContainer.parentElement.tagName === "SPAN" &&
-            this.range.startContainer.isSameNode(this.range.endContainer)) {
-            if (this.range.startOffset > -1 && this.range.endOffset <= this.range.startContainer.textContent.length) {
+            isSameNode) {
+            if (this.range.startOffset > -1 && this.range.endOffset <= this.range.endContainer.textContent.length) {
                 needWrapTarget = this.range.startContainer.parentElement;
             }
-            if (this.range.startOffset !== 0 && this.range.endOffset !== this.range.startContainer.textContent.length &&
+            if ((
+                    this.range.startOffset !== 0 ||
+                    // https://github.com/siyuan-note/siyuan/issues/14869
+                    (this.range.startOffset === 0 && this.range.startContainer.previousSibling?.nodeType === 3 &&
+                        this.range.startContainer.previousSibling.parentElement.isSameNode(this.range.startContainer.parentElement))
+                ) && (
+                    this.range.endOffset !== this.range.endContainer.textContent.length ||
+                    // https://github.com/siyuan-note/siyuan/issues/14869#issuecomment-2911553387
+                    (
+                        this.range.endOffset === this.range.endContainer.textContent.length &&
+                        this.range.endContainer.nextSibling?.nodeType === 3 &&
+                        this.range.endContainer.nextSibling.parentElement.isSameNode(this.range.endContainer.parentElement)
+                    )
+                ) &&
                 !(this.range.startOffset === 1 && this.range.startContainer.textContent.startsWith(Constants.ZWSP))) {
                 // 切割元素
                 const parentElement = this.range.startContainer.parentElement;
@@ -326,8 +359,11 @@ export class Toolbar {
                 item.remove();
             }
         });
-        if (this.range.startContainer.nodeType !== 3) {
+        if (selectText && this.range.startContainer.nodeType !== 3) {
             let emptyNode: Element = this.range.startContainer.childNodes[this.range.startOffset] as HTMLElement;
+            if (!emptyNode) {
+                emptyNode = this.range.startContainer.childNodes[this.range.startOffset - 1] as HTMLElement;
+            }
             if (emptyNode && emptyNode.nodeType === 3) {
                 if ((this.range.startContainer as HTMLElement).tagName === "DIV") {
                     emptyNode = emptyNode.previousSibling as HTMLElement;
@@ -335,7 +371,8 @@ export class Toolbar {
                     emptyNode = this.range.startContainer as HTMLElement;
                 }
             }
-            if (emptyNode && emptyNode.nodeType !== 3 && emptyNode.textContent.replace(Constants.ZWSP, "") === "") {
+            if (emptyNode && emptyNode.nodeType !== 3 && emptyNode.textContent.replace(Constants.ZWSP, "") === "" &&
+                !["TD", "TH"].includes(emptyNode.tagName)) {
                 emptyNode.remove();
             }
         }
@@ -356,7 +393,6 @@ export class Toolbar {
         const toolbarElement = isMobile() ? document.querySelector("#keyboardToolbar .keyboard__dynamic").nextElementSibling : this.element;
         const actionBtn = action === "toolbar" ? toolbarElement.querySelector(`[data-type="${type}"]`) : undefined;
         const newNodes: Node[] = [];
-        let keepZWPS = false;
         let startContainer: Node;
         let endContainer: Node;
         let startOffset: number;
@@ -491,7 +527,13 @@ export class Toolbar {
                         if (item.textContent) {
                             const inlineElement = document.createElement("span");
                             inlineElement.setAttribute("data-type", type);
-                            inlineElement.textContent = type === "a" ? (item.textContent.trim() || "*") : item.textContent;
+                            inlineElement.textContent = item.textContent;
+                            if (type === "a") {
+                                if (!inlineElement.textContent) {
+                                    inlineElement.textContent = "*";
+                                }
+                                textObj.color = textObj.color.split(Constants.ZWSP)[0];
+                            }
                             setFontStyle(inlineElement, textObj);
 
                             if (type === "text" && !inlineElement.getAttribute("style")) {
@@ -577,6 +619,12 @@ export class Toolbar {
                         types = [...new Set(types)];
                         if (item.tagName !== "BR" && item.tagName !== "IMG" && !types.includes("img")) {
                             item.setAttribute("data-type", types.join(" "));
+                            if (type === "a") {
+                                if (!item.textContent) {
+                                    item.textContent = "*";
+                                }
+                                textObj.color = textObj.color.split(Constants.ZWSP)[0];
+                            }
                             setFontStyle(item, textObj);
                             if (types.includes("text") && !item.getAttribute("style")) {
                                 if (types.length === 1) {
@@ -604,11 +652,16 @@ export class Toolbar {
         for (let i = newNodes.length - 1; i > -1; i--) {
             this.range.insertNode(newNodes[i]);
         }
-        // 不选中后，ctrl+g 光标重置
         if (newNodes.length === 1 && newNodes[0].textContent === Constants.ZWSP) {
             this.range.setStart(newNodes[0], 1);
             this.range.collapse(true);
-            keepZWPS = false;
+            if (newNodes[0].nodeType !== 3) {
+                // 不选中后，ctrl+g 光标重置
+                const currentType = ((newNodes[0] as HTMLElement).getAttribute("data-type") || "").split(" ");
+                if (currentType.includes("code") || currentType.includes("tag") || currentType.includes("kbd")) {
+                    keepZWPS = false;
+                }
+            }
         }
         if (!keepZWPS) {
             // 合并元素
@@ -636,7 +689,7 @@ export class Toolbar {
                         previousElement && previousElement.nodeType !== 3 &&
                         currentNode.nodeType !== 3 &&
                         isArrayEqual(currentType, (previousElement.getAttribute("data-type") || "").split(" ")) &&
-                        hasSameTextStyle(currentNode, previousElement, textObj)) {
+                        hasSameTextStyle(currentNode, previousElement)) {
                         if (currentType.includes("code") || currentType.includes("tag") || currentType.includes("kbd")) {
                             if (currentNode.textContent.startsWith(Constants.ZWSP)) {
                                 currentNode.textContent = currentNode.textContent.substring(1);
@@ -783,6 +836,7 @@ export class Toolbar {
                 }
             }
         }
+        return newNodes;
     }
 
     public showRender(protyle: IProtyle, renderElement: Element, updateElements?: Element[], oldHTML?: string) {
@@ -977,7 +1031,7 @@ export class Toolbar {
         } else {
             textElement.value = Lute.UnEscapeHTMLStr(renderElement.getAttribute("data-content") || "");
         }
-
+        const oldTextValue = textElement.value;
         textElement.addEventListener("input", (event) => {
             if (!renderElement.parentElement) {
                 return;
@@ -1033,7 +1087,8 @@ export class Toolbar {
             }
         });
         this.subElementCloseCB = () => {
-            if (!renderElement.parentElement || protyle.disabled) {
+            if (!renderElement.parentElement || protyle.disabled ||
+                (oldTextValue === textElement.value && textElement.value)) {
                 return;
             }
             let inlineLastNode: Element;

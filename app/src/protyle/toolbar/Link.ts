@@ -27,6 +27,7 @@ export class Link extends ToolbarItem {
 
             let dataHref = "";
             let dataText = range.toString().trim().replace(Constants.ZWSP, "");
+            let showMenu = false;
             try {
                 // 选中链接时需忽略剪切板内容 https://ld246.com/article/1643035329737
                 dataHref = protyle.lute.GetLinkDest(dataText);
@@ -59,21 +60,25 @@ export class Link extends ToolbarItem {
                     if (!dataHref && clipObject.textPlain.startsWith("assets/")) {
                         dataHref = clipObject.textPlain;
                     }
-                    // https://github.com/siyuan-note/siyuan/issues/14704 & https://github.com/siyuan-note/siyuan/issues/6798
+                    // https://github.com/siyuan-note/siyuan/issues/14704#issuecomment-2867555769 第一点 & https://github.com/siyuan-note/siyuan/issues/6798
                     if (dataHref && !dataText) {
                         dataText = decodeURIComponent(dataHref.replace("https://", "").replace("http://", ""));
                         if (dataHref.length > Constants.SIZE_LINK_TEXT_MAX) {
                             dataText = dataHref.substring(0, Constants.SIZE_LINK_TEXT_MAX) + "...";
                         }
+                        showMenu = true;
                     }
                 }
             } catch (e) {
                 console.log(e);
             }
-            protyle.toolbar.setInlineMark(protyle, "a", "range", {
+            const linkElements = protyle.toolbar.setInlineMark(protyle, "a", "range", {
                 type: "a",
                 color: dataHref + (dataText ? Constants.ZWSP + dataText : "")
             });
+            if (showMenu) {
+                linkMenu(protyle, linkElements[0] as HTMLElement, true);
+            }
         });
     }
 }

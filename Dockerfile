@@ -18,9 +18,10 @@ RUN apt-get purge -y jq
 RUN apt-get autoremove -y
 RUN rm -rf /var/lib/apt/lists/*
 
-FROM golang:alpine AS GO_BUILD
+FROM golang:1.24-alpine AS GO_BUILD
 WORKDIR /go/src/github.com/siyuan-community/siyuan/
 COPY --from=NODE_BUILD /go/src/github.com/siyuan-community/siyuan/ /go/src/github.com/siyuan-community/siyuan/
+
 ENV GO111MODULE=on
 ENV CGO_ENABLED=1
 RUN apk add --no-cache gcc musl-dev && \

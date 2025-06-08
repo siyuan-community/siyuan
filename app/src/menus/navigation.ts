@@ -1,10 +1,10 @@
 import {copySubMenu, exportMd, movePathToMenu, openFileAttr, renameMenu,} from "./commonMenuItem";
 /// #if !BROWSER
-import {FileFilter, ipcRenderer, shell} from "electron";
+import {FileFilter, ipcRenderer} from "electron";
 import * as path from "path";
 /// #endif
 import {MenuItem} from "./Menu";
-import {getDisplayName, getNotebookName, getTopPaths, pathPosix} from "../util/pathName";
+import {getDisplayName, getNotebookName, getTopPaths, useShell, pathPosix} from "../util/pathName";
 import {hideMessage, showMessage} from "../dialog/message";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {onGetnotebookconf} from "./onGetnotebookconf";
@@ -158,7 +158,7 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
         icon: "iconUpload",
         submenu: [{
             id: "exportMarkdown",
-            label: "Markdown",
+            label: "Markdown .zip",
             icon: "iconMarkdown",
             click: () => {
                 const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -362,7 +362,7 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
         icon: "iconFolder",
         label: window.siyuan.languages.showInFolder,
         click: () => {
-            shell.openPath(path.join(window.siyuan.config.system.dataDir, notebookId));
+            useShell("openPath", path.join(window.siyuan.config.system.dataDir, notebookId));
         }
     }).element);
     /// #endif
@@ -374,19 +374,6 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
         type: "submenu",
         icon: "iconUpload",
         submenu: [{
-            id: "exportMarkdown",
-            label: "Markdown",
-            icon: "iconMarkdown",
-            click: () => {
-                const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost("/api/export/exportNotebookMd", {
-                    notebook: notebookId
-                }, response => {
-                    hideMessage(msgId);
-                    openByMobile(response.data.zip);
-                });
-            }
-        }, {
             id: "exportSiYuanZip",
             label: "SiYuan .sy.zip",
             icon: "iconSiYuan",
@@ -394,6 +381,19 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
                 const msgId = showMessage(window.siyuan.languages.exporting, -1);
                 fetchPost("/api/export/exportNotebookSY", {
                     id: notebookId,
+                }, response => {
+                    hideMessage(msgId);
+                    openByMobile(response.data.zip);
+                });
+            }
+        }, {
+            id: "exportMarkdown",
+            label: "Markdown .zip",
+            icon: "iconMarkdown",
+            click: () => {
+                const msgId = showMessage(window.siyuan.languages.exporting, -1);
+                fetchPost("/api/export/exportNotebookMd", {
+                    notebook: notebookId
                 }, response => {
                     hideMessage(msgId);
                     openByMobile(response.data.zip);
@@ -761,24 +761,43 @@ export const genImportMenu = (notebookId: string, pathString: string) => {
         id: "import",
         icon: "iconDownload",
         label: window.siyuan.languages.import,
-        submenu: [{
-            id: "importSiYuanZip",
-            icon: "iconSiYuan",
-            label: 'SiYuan .sy.zip<input class="b3-form__upload" type="file" accept="application/zip">',
-            bind: (element) => {
-                element.querySelector(".b3-form__upload").addEventListener("change", (event: InputEvent & {
-                    target: HTMLInputElement
-                }) => {
-                    const formData = new FormData();
-                    formData.append("file", event.target.files[0]);
-                    formData.append("notebook", notebookId);
-                    formData.append("toPath", pathString);
-                    fetchPost("/api/import/importSY", formData, () => {
-                        reloadDocTree();
+        submenu: [
+            {
+                id: "importSiYuanZip",
+                icon: "iconSiYuan",
+                label: 'SiYuan .sy.zip<input class="b3-form__upload" type="file" accept="application/zip">',
+                bind: (element) => {
+                    element.querySelector(".b3-form__upload").addEventListener("change", (event: InputEvent & {
+                        target: HTMLInputElement
+                    }) => {
+                        const formData = new FormData();
+                        formData.append("file", event.target.files[0]);
+                        formData.append("notebook", notebookId);
+                        formData.append("toPath", pathString);
+                        fetchPost("/api/import/importSY", formData, () => {
+                            reloadDocTree();
+                        });
                     });
-                });
-            }
-        },
+                }
+            },
+            {
+                id: "importMarkdownZip",
+                icon: "iconMarkdown",
+                label: 'Markdown .zip<input class="b3-form__upload" type="file" accept="application/zip">',
+                bind: (element) => {
+                    element.querySelector(".b3-form__upload").addEventListener("change", (event: InputEvent & {
+                        target: HTMLInputElement
+                    }) => {
+                        const formData = new FormData();
+                        formData.append("file", event.target.files[0]);
+                        formData.append("notebook", notebookId);
+                        formData.append("toPath", pathString);
+                        fetchPost("/api/import/importZipMd", formData, () => {
+                            reloadDocTree();
+                        });
+                    });
+                }
+            },
             /// #if !BROWSER
             importstdmd("Markdown " + window.siyuan.languages.doc, true),
             importstdmd("Markdown " + window.siyuan.languages.folder)

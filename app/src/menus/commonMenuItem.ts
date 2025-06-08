@@ -530,12 +530,12 @@ export const exportMd = (id: string) => {
                 });
             }
         }, {
-            id: "exportMarkdown",
-            label: "Markdown",
-            icon: "iconMarkdown",
+            id: "exportSiYuanZip",
+            label: "SiYuan .sy.zip",
+            icon: "iconSiYuan",
             click: () => {
                 const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost("/api/export/exportMd", {
+                fetchPost("/api/export/exportSY", {
                     id,
                 }, response => {
                     hideMessage(msgId);
@@ -543,12 +543,12 @@ export const exportMd = (id: string) => {
                 });
             }
         }, {
-            id: "exportSiYuanZip",
-            label: "SiYuan .sy.zip",
-            icon: "iconSiYuan",
+            id: "exportMarkdown",
+            label: "Markdown .zip",
+            icon: "iconMarkdown",
             click: () => {
                 const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost("/api/export/exportSY", {
+                fetchPost("/api/export/exportMd", {
                     id,
                 }, response => {
                     hideMessage(msgId);
@@ -727,7 +727,7 @@ export const openMenu = (app: App, src: string, onlyMenu: boolean, showAccelerat
     });
     /// #else
     if (isLocalPath(src)) {
-        if (Constants.SIYUAN_ASSETS_EXTS.includes(pathPosix().extname(src)) &&
+        if (Constants.SIYUAN_ASSETS_EXTS.includes(pathPosix().extname(src).split("?")[0]) &&
             (!src.endsWith(".pdf") ||
                 (src.endsWith(".pdf") && !src.startsWith("file://")))
         ) {

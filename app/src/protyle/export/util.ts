@@ -11,7 +11,7 @@ import {Constants} from "../../constants";
 import {highlightRender} from "../render/highlightRender";
 import {processRender} from "../util/processCode";
 import {isIPhone, isSafari, openByMobile, setStorageVal} from "../util/compatibility";
-import {showFileInFolder} from "../../util/pathName";
+import {useShell} from "../../util/pathName";
 import {isPaidUser} from "../../util/needSubscribe";
 import {getCloudURL} from "../../config/util/about";
 
@@ -21,7 +21,7 @@ export const afterExport = (exportPath: string, msgId: string) => {
 <div class="fn__space"></div>
 <button class="b3-button b3-button--white">${window.siyuan.languages.showInFolder}</button>`, 6000, "info", msgId);
     document.querySelector(`#message [data-id="${msgId}"] button`).addEventListener("click", () => {
-        showFileInFolder(path.join(exportPath));
+        useShell("showItemInFolder", path.join(exportPath));
         hideMessage(msgId);
     });
     /// #endif
@@ -155,18 +155,9 @@ export const exportImage = (id: string) => {
     const refreshPreview = (response: IWebSocketData) => {
         previewElement.innerHTML = response.data.content;
         previewElement.setAttribute("data-doc-type", response.data.type || "NodeDocument");
-        if (response.data.attrs.memo) {
-            previewElement.setAttribute("memo", response.data.attrs.memo);
-        }
-        if (response.data.attrs.name) {
-            previewElement.setAttribute("name", response.data.attrs.name);
-        }
-        if (response.data.attrs.bookmark) {
-            previewElement.setAttribute("bookmark", response.data.attrs.bookmark);
-        }
-        if (response.data.attrs.alias) {
-            previewElement.setAttribute("alias", response.data.attrs.alias);
-        }
+        Object.keys(response.data.attrs).forEach(key => {
+            previewElement.setAttribute(key, response.data.attrs[key]);
+        });
         previewElement.querySelectorAll(".code-block").forEach(item => {
             item.setAttribute("linewrap", "true");
         });

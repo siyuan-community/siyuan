@@ -142,19 +142,6 @@ export const pasteEscaped = async (protyle: IProtyle, nodeElement: Element) => {
     }
 };
 
-const filterClipboardHint = (protyle: IProtyle, textPlain: string) => {
-    let needRender = true;
-    protyle.options.hint.extend.find(item => {
-        if (item.key === textPlain) {
-            needRender = false;
-            return true;
-        }
-    });
-    if (needRender) {
-        protyle.hint.render(protyle);
-    }
-};
-
 export const pasteAsPlainText = async (protyle: IProtyle) => {
     let localFiles: string[] = [];
     /// #if !BROWSER
@@ -210,7 +197,6 @@ export const pasteAsPlainText = async (protyle: IProtyle) => {
 
         // insertHTML 会进行内部反转义
         insertHTML(content, protyle, false, false, true);
-        filterClipboardHint(protyle, textPlain);
     }
 };
 
@@ -383,7 +369,8 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         }
         return;
     }
-    hideElements(["select"], protyle);
+    protyle.hint.enableExtend = Constants.BLOCK_HINT_KEYS.includes(protyle.hint.splitChar);
+    hideElements(protyle.hint.enableExtend ? ["select"] : ["select", "hint"], protyle);
     protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl").forEach(item => {
         item.classList.remove("protyle-wysiwyg--hl");
     });
@@ -476,7 +463,6 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
 
             insertHTML(tempInnerHTML, protyle, isBlock, false, true);
         }
-        filterClipboardHint(protyle, protyle.lute.BlockDOM2StdMd(tempInnerHTML));
         blockRender(protyle, protyle.wysiwyg.element);
         processRender(protyle.wysiwyg.element);
         highlightRender(protyle.wysiwyg.element);
@@ -544,10 +530,14 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 }
             }
             if (linkElement) {
+                const selectText = range.toString();
                 protyle.toolbar.setInlineMark(protyle, "a", "range", {
                     type: "a",
-                    color: `${linkElement.getAttribute("href")}${Constants.ZWSP}${range.toString() || linkElement.textContent}`
+                    color: `${linkElement.getAttribute("href")}${Constants.ZWSP}${selectText || linkElement.textContent}`
                 });
+                if (!selectText) {
+                    range.collapse(false);
+                }
                 return;
             }
             fetchPost("/api/lute/html2BlockDOM", {
@@ -565,7 +555,6 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 processRender(protyle.wysiwyg.element);
                 highlightRender(protyle.wysiwyg.element);
                 avRender(protyle.wysiwyg.element, protyle);
-                filterClipboardHint(protyle, response.data);
                 scrollCenter(protyle, undefined, false, "smooth");
             });
             return;
@@ -606,7 +595,6 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
 
             const textPlainDom = protyle.lute.Md2BlockDOM(textPlain);
             insertHTML(textPlainDom, protyle, false, false, true);
-            filterClipboardHint(protyle, textPlain);
         }
         blockRender(protyle, protyle.wysiwyg.element);
         processRender(protyle.wysiwyg.element);
