@@ -33,6 +33,7 @@ $ENV:GO111MODULE = 'on'
 $ENV:CGO_ENABLED = '1'
 
 # $ENV:GOPROXY = 'https://goproxy.io'
+# $ENV:GOPROXY = 'https://mirrors.aliyun.com/goproxy/'
 
 go generate
 goversioninfo -platform-specific=true -icon=resource/icon.ico -manifest=resource/goversioninfo.exe.manifest
