@@ -59,7 +59,7 @@ const processAV = (range: Range, html: string, protyle: IProtyle, blockElement: 
             const firstColIndex = cellElements[0].getAttribute("data-col-id");
             values.find(rowItem => {
                 if (!currentRowElement) {
-                    currentRowElement = cellElements[0].parentElement;
+                    currentRowElement = hasClosestByClassName(cellElements[0].parentElement, "av__row") as HTMLElement;
                 } else {
                     currentRowElement = currentRowElement.nextElementSibling;
                 }
@@ -71,7 +71,11 @@ const processAV = (range: Range, html: string, protyle: IProtyle, blockElement: 
                     if (!cellElement) {
                         cellElement = currentRowElement.querySelector(`.av__cell[data-col-id="${firstColIndex}"]`) as HTMLElement;
                     } else {
-                        cellElement = cellElement.nextElementSibling as HTMLElement;
+                        if (cellElement.nextElementSibling) {
+                            cellElement = cellElement.nextElementSibling as HTMLElement;
+                        } else if (cellElement.parentElement.classList.contains("av__colsticky")) {
+                            cellElement = cellElement.parentElement.nextElementSibling as HTMLElement;
+                        }
                     }
                     if (!cellElement.classList.contains("av__cell")) {
                         return true;
@@ -156,7 +160,7 @@ const processAV = (range: Range, html: string, protyle: IProtyle, blockElement: 
                 const firstColIndex = cellElements[0].getAttribute("data-col-id");
                 textJSON.forEach((rowValue) => {
                     if (!currentRowElement) {
-                        currentRowElement = cellElements[0].parentElement;
+                        currentRowElement = hasClosestByClassName(cellElements[0].parentElement, "av__row") as HTMLElement;
                     } else {
                         currentRowElement = currentRowElement.nextElementSibling;
                     }
@@ -168,7 +172,11 @@ const processAV = (range: Range, html: string, protyle: IProtyle, blockElement: 
                         if (!cellElement) {
                             cellElement = currentRowElement.querySelector(`.av__cell[data-col-id="${firstColIndex}"]`) as HTMLElement;
                         } else {
-                            cellElement = cellElement.nextElementSibling as HTMLElement;
+                            if (cellElement.nextElementSibling) {
+                                cellElement = cellElement.nextElementSibling as HTMLElement;
+                            } else if (cellElement.parentElement.classList.contains("av__colsticky")) {
+                                cellElement = cellElement.parentElement.nextElementSibling as HTMLElement;
+                            }
                         }
                         if (!cellElement.classList.contains("av__cell")) {
                             return true;
@@ -290,7 +298,8 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
     let id = blockElement.getAttribute("data-node-id");
     range.insertNode(document.createElement("wbr"));
     let oldHTML = blockElement.outerHTML;
-    const isNodeCodeBlock = blockElement.getAttribute("data-type") === "NodeCodeBlock";
+    const type = blockElement.getAttribute("data-type");
+    const isNodeCodeBlock = type === "NodeCodeBlock";
     const editableElement = getContenteditableElement(blockElement);
     if (!isBlock &&
         (isNodeCodeBlock || protyle.toolbar.getCurrentType(range).includes("code"))) {
@@ -348,8 +357,9 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
     }
     const tempElement = document.createElement("template");
 
-    // https://github.com/siyuan-note/siyuan/issues/14162
-    if (html.startsWith("&gt;") && editableElement.textContent.replace(Constants.ZWSP, "") !== "") {
+    // https://github.com/siyuan-note/siyuan/issues/14162 & https://github.com/siyuan-note/siyuan/issues/14965
+    if (/^\s*&gt;|\*|-|\+|\d*.|\[ \]|[x]/.test(html) &&
+        editableElement.textContent.replace(Constants.ZWSP, "") !== "") {
         unSpinHTML = html;
     }
 
@@ -360,19 +370,31 @@ export const insertHTML = (html: string, protyle: IProtyle, isBlock = false,
     innerHTML = innerHTML.replace(/;;;lt;;;/g, "&lt;").replace(/;;;gt;;;/g, "&gt;");
     tempElement.innerHTML = innerHTML;
 
-    // https://github.com/siyuan-note/siyuan/issues/14114
-    let heading2text = false;
-    if ((editableElement.textContent.replace(Constants.ZWSP, "") !== "" || blockElement.getAttribute("data-type") === "NodeHeading") &&
+    let block2text = false;
+    if ((
+            editableElement.textContent.replace(Constants.ZWSP, "") !== "" ||
+            type === "NodeHeading"
+        ) &&
         tempElement.content.childElementCount === 1 &&
         tempElement.content.firstChild.nodeType !== 3 &&
         tempElement.content.firstElementChild.getAttribute("data-type") === "NodeHeading") {
+        // https://github.com/siyuan-note/siyuan/issues/14114
         isBlock = false;
-        heading2text = true;
+        block2text = true;
     }
-
+    if (!isBlock && tempElement && tempElement.content.childElementCount === 1) {
+        // 通过右键粘贴包含属性的块需保留整个块 https://github.com/siyuan-note/siyuan/issues/15268
+        for (let i = 0; i < tempElement.content.firstElementChild.attributes.length; i++) {
+            const attribute = tempElement.content.firstElementChild.attributes[i];
+            if (["memo", "name", "alias", "bookmark"].includes(attribute.name) || attribute.name.startsWith("custom-")) {
+                isBlock = true;
+                break;
+            }
+        }
+    }
     // 使用 lute 方法会添加 p 元素，只有一个 p 元素或者只有一个字符串或者为 <u>b</u> 时的时候只拷贝内部
     if (!isBlock) {
-        if (tempElement.content.firstChild.nodeType === 3 || heading2text ||
+        if (tempElement.content.firstChild.nodeType === 3 || block2text ||
             (tempElement.content.firstChild.nodeType !== 3 &&
                 ((tempElement.content.firstElementChild.classList.contains("p") && tempElement.content.childElementCount === 1) ||
                     tempElement.content.firstElementChild.tagName !== "DIV"))) {

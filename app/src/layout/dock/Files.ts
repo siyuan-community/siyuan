@@ -140,7 +140,7 @@ export class Files extends Model {
             <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
         </span>
         <span class="b3-list-item__text">${window.siyuan.languages.closeNotebook}</span>
-        <span class="counter fn__none" style="cursor: auto"></span>
+        <span class="counter" style="cursor: auto"></span>
     </li>
     <ul class="fn__none fn__flex-1"></ul>
 </ul>`;
@@ -428,6 +428,7 @@ export class Files extends Model {
             hideTooltip();
             const liElement = hasClosestByTag(event.target, "LI");
             if (liElement) {
+                this.parent.panelElement.classList.add("sy__file--disablehover");
                 let selectElements: Element[] = Array.from(this.element.querySelectorAll(".b3-list-item--focus"));
                 if (!liElement.classList.contains("b3-list-item--focus")) {
                     selectElements.forEach((item) => {
@@ -464,6 +465,7 @@ export class Files extends Model {
             }
         });
         this.element.addEventListener("dragend", () => {
+            this.parent.panelElement.classList.remove("sy__file--disablehover");
             this.element.querySelectorAll(".b3-list-item--focus").forEach((item: HTMLElement, index) => {
                 item.style.opacity = "";
                 // https://github.com/siyuan-note/siyuan/issues/11587
@@ -858,9 +860,9 @@ data-type="navigation-root" data-path="/">
         const counterElement = this.closeElement.querySelector(".counter");
         counterElement.textContent = closeCounter.toString();
         if (closeCounter) {
-            counterElement.classList.remove("fn__none");
+            this.closeElement.classList.remove("fn__none");
         } else {
-            counterElement.classList.add("fn__none");
+            this.closeElement.classList.add("fn__none");
         }
         window.siyuan.storage[Constants.LOCAL_FILESPATHS].forEach((item: IFilesPath) => {
             item.openPaths.forEach((openPath) => {
@@ -899,7 +901,7 @@ data-type="navigation-root" data-path="/">
                         this.closeElement.lastElementChild.innerHTML = closeHTML;
                         const counterElement = this.closeElement.querySelector(".counter");
                         counterElement.textContent = (parseInt(counterElement.textContent) + 1).toString();
-                        counterElement.classList.remove("fn__none");
+                        this.closeElement.classList.remove("fn__none");
                     }
                 }
             });
@@ -910,7 +912,7 @@ data-type="navigation-root" data-path="/">
                     const counterElement = this.closeElement.querySelector(".counter");
                     counterElement.textContent = (parseInt(counterElement.textContent) - 1).toString();
                     if (counterElement.textContent === "0") {
-                        counterElement.classList.add("fn__none");
+                        this.closeElement.classList.add("fn__none");
                     }
                 }
             }
@@ -954,7 +956,7 @@ data-type="navigation-root" data-path="/">
             const counterElement = this.closeElement.querySelector(".counter");
             counterElement.textContent = (parseInt(counterElement.textContent) - 1).toString();
             if (counterElement.textContent === "0") {
-                counterElement.classList.add("fn__none");
+                this.closeElement.classList.add("fn__none");
             }
             liElement.remove();
         }
@@ -1315,4 +1317,3 @@ aria-label="${ariaLabel}">${getDisplayName(item.name, true, true)}</span>
         return window.siyuan.menus.menu;
     }
 }
-

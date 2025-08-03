@@ -24,16 +24,13 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
-type Filterable interface {
-	FilterRows(attrView *AttributeView)
-}
-
+// ViewFilter 描述了视图过滤规则的结构。
 type ViewFilter struct {
-	Column        string         `json:"column"`
-	Operator      FilterOperator `json:"operator"`
-	Value         *Value         `json:"value"`
-	RelativeDate  *RelativeDate  `json:"relativeDate"`
-	RelativeDate2 *RelativeDate  `json:"relativeDate2"`
+	Column        string         `json:"column"`        // 列（字段）ID
+	Operator      FilterOperator `json:"operator"`      // 过滤操作符
+	Value         *Value         `json:"value"`         // 过滤值
+	RelativeDate  *RelativeDate  `json:"relativeDate"`  // 相对时间
+	RelativeDate2 *RelativeDate  `json:"relativeDate2"` // 第二个相对时间，用于某些操作符，比如 FilterOperatorIsBetween
 }
 
 type RelativeDateUnit int
@@ -79,13 +76,65 @@ const (
 	FilterOperatorIsFalse          FilterOperator = "Is false"
 )
 
+func Filter(viewable Viewable, attrView *AttributeView) {
+	collection := viewable.(Collection)
+	filters := collection.GetFilters()
+	if 1 > len(filters) {
+		return
+	}
+
+	var colIndexes []int
+	for _, f := range filters {
+		for i, c := range collection.GetFields() {
+			if c.GetID() == f.Column {
+				colIndexes = append(colIndexes, i)
+				break
+			}
+		}
+	}
+
+	var items []Item
+	attrViewCache := map[string]*AttributeView{}
+	attrViewCache[attrView.ID] = attrView
+	for _, item := range collection.GetItems() {
+		pass := true
+		values := item.GetValues()
+		for j, index := range colIndexes {
+			operator := filters[j].Operator
+
+			if nil == values[index] {
+				if FilterOperatorIsNotEmpty == operator {
+					pass = false
+				} else if FilterOperatorIsEmpty == operator {
+					pass = true
+					break
+				}
+
+				if KeyTypeText != values[index].Type {
+					pass = false
+				}
+				break
+			}
+
+			if !values[index].Filter(filters[j], attrView, item.GetID(), &attrViewCache) {
+				pass = false
+				break
+			}
+		}
+		if pass {
+			items = append(items, item)
+		}
+	}
+	collection.SetItems(items)
+}
+
 func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, rowID string, attrViewCache *map[string]*AttributeView) bool {
 	if nil == filter || (nil == filter.Value && nil == filter.RelativeDate) {
 		return true
 	}
 
 	if nil != filter.Value && value.Type != filter.Value.Type {
-		// 由于字段类型被用户编辑过导致和过滤器值类型不匹配，该情况下不过滤
+		// 由于字段类型被用户编辑过导致和过滤规则值类型不匹配，该情况下不过滤
 		return true
 	}
 

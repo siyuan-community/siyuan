@@ -4,7 +4,7 @@ import {transaction} from "../../wysiwyg/transaction";
 import {openEditorTab} from "../../../menus/util";
 import {openFileAttr} from "../../../menus/commonMenuItem";
 import {
-    addDragFill,
+    addDragFill, cellValueIsEmpty,
     genCellValueByElement,
     getCellText,
     getTypeByCellElement,
@@ -34,6 +34,9 @@ import {hideElements} from "../../ui/hideElements";
 import {fetchPost, fetchSyncPost} from "../../../util/fetch";
 import {scrollCenter} from "../../../util/highlightById";
 import {escapeHtml} from "../../../util/escape";
+import {editGalleryItem, openGalleryItemMenu} from "./gallery/util";
+import {clearSelect} from "../../util/clearSelect";
+import {removeCompressURL} from "../../../util/image";
 
 export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLElement }) => {
     if (isOnlyMeta(event)) {
@@ -46,7 +49,10 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
 
     const loadMoreElement = hasClosestByAttribute(event.target, "data-type", "av-load-more");
     if (loadMoreElement && !hasClosestByAttribute(event.target, "data-type", "set-page-size")) {
-        (blockElement.querySelector(".av__row--footer") as HTMLElement).style.transform = "";
+        const rowFooterElement = blockElement.querySelector(".av__row--footer") as HTMLElement;
+        if (rowFooterElement) {
+            rowFooterElement.style.transform = "";
+        }
         blockElement.removeAttribute("data-render");
         blockElement.dataset.pageSize = (parseInt(blockElement.dataset.pageSize) + parseInt(blockElement.querySelector('[data-type="set-page-size"]').getAttribute("data-size"))).toString();
         avRender(blockElement, protyle);
@@ -65,7 +71,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
     const imgElement = hasClosestByClassName(event.target, "av__cellassetimg");
     if (imgElement) {
         previewAttrViewImages(
-            (imgElement as HTMLImageElement).src,
+            removeCompressURL((imgElement as HTMLImageElement).getAttribute("src")),
             blockElement.getAttribute("data-av-id"),
             blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW),
             (blockElement.querySelector('[data-type="av-search"]') as HTMLInputElement)?.value.trim() || ""
@@ -114,8 +120,12 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
         if (viewItemElement.classList.contains("item--focus")) {
             openViewMenu({protyle, blockElement, element: viewItemElement});
         } else {
-            blockElement.removeAttribute("data-render");
-            avRender(blockElement, protyle, undefined, viewItemElement.dataset.id);
+            transaction(protyle, [{
+                action: "setAttrViewBlockView",
+                blockID: blockElement.getAttribute("data-node-id"),
+                id: viewItemElement.dataset.id,
+                avID: blockElement.getAttribute("data-av-id"),
+            }]);
         }
         event.preventDefault();
         event.stopPropagation();
@@ -126,7 +136,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
     if (protyle.disabled) {
         return false;
     }
-
+    const viewType = blockElement.getAttribute("data-av-type") as TAVView;
     let target = event.target;
     while (target && !target.isEqualNode(blockElement)) {
         const type = target.getAttribute("data-type");
@@ -181,8 +191,10 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             protyle.toolbar.range = document.createRange();
             protyle.toolbar.range.selectNodeContents(target);
             focusByRange(protyle.toolbar.range);
-            target.parentElement.classList.add("av__cell--select");
-            addDragFill(target.parentElement);
+            if (viewType === "table") {
+                target.parentElement.classList.add("av__cell--select");
+                addDragFill(target.parentElement);
+            }
             hintRef(target.previousElementSibling.textContent.trim(), protyle, "av");
             event.preventDefault();
             event.stopPropagation();
@@ -198,7 +210,10 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.stopPropagation();
             return true;
         } else if (type === "av-add-bottom") {
-            insertRows(blockElement, protyle, 1, blockElement.querySelector(".av__row--util").previousElementSibling.getAttribute("data-id") || "");
+            insertRows(blockElement, protyle, 1,
+                blockElement.querySelector(".av__row--util")?.previousElementSibling?.getAttribute("data-id") ||
+                target.previousElementSibling?.getAttribute("data-id") || undefined
+            );
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -209,25 +224,35 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             return true;
         } else if (target.classList.contains("av__cell")) {
             if (!hasClosestByClassName(target, "av__row--header")) {
-                const scrollElement = hasClosestByClassName(target, "av__scroll");
-                if (!scrollElement || target.querySelector(".av__pulse")) {
-                    return;
-                }
-                const rowElement = hasClosestByClassName(target, "av__row");
-                if (!rowElement) {
+                if (target.querySelector(".av__pulse")) {
                     return;
                 }
                 const cellType = getTypeByCellElement(target);
-                // TODO 点击单元格的时候， lineNumber 选中整行
-                if (cellType === "updated" || cellType === "created" || cellType === "lineNumber") {
-                    selectRow(rowElement.querySelector(".av__firstcol"), "toggle");
+                if (viewType === "gallery") {
+                    const itemElement = hasClosestByClassName(target, "av__gallery-item");
+                    if (itemElement && cellType !== "updated" && cellType !== "created" && cellType !== "lineNumber") {
+                        popTextCell(protyle, [target]);
+                    }
                 } else {
-                    scrollElement.querySelectorAll(".av__row--select").forEach(item => {
-                        item.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconUncheck");
-                        item.classList.remove("av__row--select");
-                    });
-                    updateHeader(rowElement);
-                    popTextCell(protyle, [target]);
+                    const scrollElement = hasClosestByClassName(target, "av__scroll");
+                    if (!scrollElement) {
+                        return;
+                    }
+                    const rowElement = hasClosestByClassName(target, "av__row");
+                    if (!rowElement) {
+                        return;
+                    }
+                    // TODO 点击单元格的时候， lineNumber 选中整行
+                    if (cellType === "updated" || cellType === "created" || cellType === "lineNumber") {
+                        selectRow(rowElement.querySelector(".av__firstcol"), "toggle");
+                    } else {
+                        scrollElement.querySelectorAll(".av__row--select").forEach(item => {
+                            item.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconUncheck");
+                            item.classList.remove("av__row--select");
+                        });
+                        updateHeader(rowElement);
+                        popTextCell(protyle, [target]);
+                    }
                 }
             }
             event.preventDefault();
@@ -251,6 +276,24 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.preventDefault();
             event.stopPropagation();
             return true;
+        } else if (type === "av-gallery-edit") {
+            editGalleryItem(target);
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (type === "av-gallery-more") {
+            const rect = target.getBoundingClientRect();
+            openGalleryItemMenu({
+                target,
+                protyle,
+                position: {
+                    x: rect.left,
+                    y: rect.bottom
+                }
+            });
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
         }
         target = target.parentElement;
     }
@@ -266,24 +309,23 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement, positi
     if (!blockElement) {
         return false;
     }
-    blockElement.querySelectorAll(".av__cell--select, .av__cell--active").forEach(item => {
-        item.classList.remove("av__cell--select", "av__cell--active");
-        item.querySelector(".av__drag-fill")?.remove();
-    });
-    if (!rowElement.classList.contains("av__row--select")) {
-        blockElement.querySelectorAll(".av__row--select").forEach(item => {
-            item.classList.remove("av__row--select");
-        });
-        blockElement.querySelectorAll(".av__firstcol use").forEach(item => {
-            item.setAttribute("xlink:href", "#iconUncheck");
-        });
+    const avType = blockElement.getAttribute("data-av-type") as TAVView;
+    if (avType === "table") {
+        if (!rowElement.classList.contains("av__row--select")) {
+            clearSelect(["row"], blockElement);
+        }
+        clearSelect(["cell"], blockElement);
+        rowElement.classList.add("av__row--select");
+        rowElement.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconCheck");
+        updateHeader(rowElement);
+    } else {
+        if (!rowElement.classList.contains("av__gallery-item--select")) {
+            clearSelect(["galleryItem"], blockElement);
+        }
+        rowElement.classList.add("av__gallery-item--select");
     }
-
     const menu = new Menu();
-    rowElement.classList.add("av__row--select");
-    rowElement.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconCheck");
-    const rowElements = blockElement.querySelectorAll(".av__row--select:not(.av__row--header)");
-    updateHeader(rowElement);
+    const rowElements = blockElement.querySelectorAll(".av__row--select:not(.av__row--header), .av__gallery-item--select");
     const keyCellElement = rowElements[0].querySelector(".av__cell[data-block-id]") as HTMLElement;
     const ids = Array.from(rowElements).map(item => item.getAttribute("data-id"));
     if (rowElements.length === 1 && keyCellElement.getAttribute("data-detached") !== "true") {
@@ -533,7 +575,7 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement, positi
                 id: "insertRowBefore",
                 icon: "iconBefore",
                 label: `<div class="fn__flex" style="align-items: center;">
-${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
+${window.siyuan.languages[avType === "table" ? "insertRowBefore" : "insertItemBefore"].replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
 </div>`,
                 bind(element) {
                     const inputElement = element.querySelector("input");
@@ -556,7 +598,7 @@ ${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__spac
                 id: "insertRowAfter",
                 icon: "iconAfter",
                 label: `<div class="fn__flex" style="align-items: center;">
-${window.siyuan.languages.insertRowAfter.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field" value="1"><span class="fn__space"></span>`)}
+${window.siyuan.languages[avType === "table" ? "insertRowAfter" : "insertItemAfter"].replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field" value="1"><span class="fn__space"></span>`)}
 </div>`,
                 bind(element) {
                     const inputElement = element.querySelector("input");
@@ -598,20 +640,40 @@ ${window.siyuan.languages.insertRowAfter.replace("${x}", `<span class="fn__space
             }
         });
         const editAttrSubmenu: IMenu[] = [];
-        rowElement.parentElement.querySelectorAll(".av__row--header .av__cell").forEach((cellElement: HTMLElement) => {
-            const selectElements: HTMLElement[] = Array.from(blockElement.querySelectorAll(`.av__row--select:not(.av__row--header) .av__cell[data-col-id="${cellElement.dataset.colId}"]`));
-            const type = cellElement.getAttribute("data-dtype") as TAVCol;
-            if (!["updated", "created"].includes(type)) {
-                const icon = cellElement.dataset.icon;
-                editAttrSubmenu.push({
-                    iconHTML: icon ? unicode2Emoji(icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(type)}"></use></svg>`,
-                    label: escapeHtml(cellElement.querySelector(".av__celltext").textContent.trim()),
-                    click() {
-                        popTextCell(protyle, selectElements);
-                    }
-                });
-            }
-        });
+        if (avType === "table") {
+            rowElement.parentElement.querySelectorAll(".av__row--header .av__cell").forEach((cellElement: HTMLElement) => {
+                const selectElements: HTMLElement[] = Array.from(blockElement.querySelectorAll(`.av__row--select:not(.av__row--header) .av__cell[data-col-id="${cellElement.dataset.colId}"]`));
+                const type = cellElement.getAttribute("data-dtype") as TAVCol;
+                if (!["updated", "created"].includes(type)) {
+                    const icon = cellElement.dataset.icon;
+                    editAttrSubmenu.push({
+                        iconHTML: icon ? unicode2Emoji(icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(type)}"></use></svg>`,
+                        label: escapeHtml(cellElement.querySelector(".av__celltext").textContent.trim()),
+                        click() {
+                            popTextCell(protyle, selectElements);
+                        }
+                    });
+                }
+            });
+        } else {
+            rowElement.querySelectorAll(".av__cell").forEach((cellElement: HTMLElement) => {
+                const selectElements: HTMLElement[] = Array.from(blockElement.querySelectorAll(`.av__gallery-item--select .av__cell[data-field-id="${cellElement.dataset.fieldId}"]`));
+                const type = cellElement.getAttribute("data-dtype") as TAVCol;
+                if (!["updated", "created"].includes(type)) {
+                    const iconElement = cellElement.querySelector(".av__gallery-tip").firstElementChild.cloneNode(true) as HTMLElement;
+                    iconElement.classList.add("b3-menu__icon");
+                    editAttrSubmenu.push({
+                        iconHTML: iconElement.outerHTML,
+                        label: escapeHtml(cellElement.getAttribute("aria-label")),
+                        click() {
+                            rowElement.querySelector(".av__gallery-fields").classList.add("av__gallery-fields--edit");
+                            rowElement.querySelector('[data-type="av-gallery-edit"]').setAttribute("aria-label", window.siyuan.languages.hideEmptyFields);
+                            popTextCell(protyle, selectElements);
+                        }
+                    });
+                }
+            });
+        }
         menu.addItem({
             id: "fields",
             icon: "iconAttr",
@@ -699,7 +761,19 @@ export const updateAttrViewCellAnimation = (cellElement: HTMLElement, value: IAV
         updateHeaderCell(cellElement, headerValue);
     } else {
         const hasDragFill = cellElement.querySelector(".av__drag-fill");
-        cellElement.innerHTML = renderCell(value);
+        const blockElement = hasClosestBlock(cellElement);
+        if (!blockElement) {
+            return;
+        }
+        const viewType = blockElement.getAttribute("data-av-type") as TAVView;
+        const iconElement = cellElement.querySelector(".b3-menu__avemoji");
+        if (viewType === "gallery") {
+            cellElement.innerHTML = renderCell(value, 0, iconElement ? !iconElement.classList.contains("fn__none") : false, viewType) +
+                cellElement.querySelector(".av__gallery-tip").outerHTML;
+            cellElement.setAttribute("data-empty", cellValueIsEmpty(value).toString());
+        } else {
+            cellElement.innerHTML = renderCell(value, 0, iconElement ? !iconElement.classList.contains("fn__none") : false);
+        }
         if (hasDragFill) {
             addDragFill(cellElement);
         }

@@ -101,7 +101,7 @@ export const initConfigSearch = (element: HTMLElement, app: App) => {
             "systemLog", "importKey", "genKey", "genKeyByPW", "copyKey", "resetRepo", "systemLogTip", "export",
             "downloadLatestVer", "safeQuit", "directConnection", "siyuanNote", "key", "password", "copied", "resetRepoTip",
             "autoDownloadUpdatePkg", "autoDownloadUpdatePkgTip", "networkProxy", "keyPlaceholder", "initRepoKeyTip",
-            "googleAnalytics", "googleAnalyticsTip", "dataRepoPurge", "dataRepoPurgeTip", "dataRepoAutoPurgeIndexRetentionDays",
+            "dataRepoPurge", "dataRepoPurgeTip", "dataRepoAutoPurgeIndexRetentionDays",
             "dataRepoAutoPurgeRetentionIndexesDaily"]),
     ];
     const inputElement = element.querySelector(".b3-form__icon input") as HTMLInputElement;
@@ -147,10 +147,15 @@ export const initConfigSearch = (element: HTMLElement, app: App) => {
                 } else if (type === "search") {
                     panelElement.querySelectorAll(`.config__tab-container[data-name="${type}"] .b3-label`).forEach((itemElement: HTMLElement) => {
                         let showItemElement = false;
-                        itemElement.querySelectorAll("label > .fn__flex-1").forEach(labelItem => {
+                        let showItemParent = false;
+                        const itemText = itemElement.firstElementChild.textContent.toLowerCase();
+                        if (itemText.indexOf(inputValue.toLowerCase()) > -1 || inputValue.toLowerCase().indexOf(itemText) > -1) {
+                            showItemParent = true;
+                        }
+                        itemElement.querySelectorAll(".fn__flex-1").forEach(labelItem => {
                             if (!labelItem.parentElement.classList.contains("fn__none")) {
                                 const text = labelItem.textContent.toLowerCase();
-                                if (text.indexOf(inputValue.toLowerCase()) > -1 || inputValue.toLowerCase().indexOf(text) > -1) {
+                                if (text.indexOf(inputValue.toLowerCase()) > -1 || inputValue.toLowerCase().indexOf(text) > -1 || showItemParent) {
                                     labelItem.parentElement.style.display = "";
                                     showItemElement = true;
                                 } else {

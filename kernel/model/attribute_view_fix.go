@@ -17,11 +17,86 @@
 package model
 
 import (
+	"time"
+
 	"github.com/88250/gulu"
+	"github.com/88250/lute/ast"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
+
+func checkAttrView(attrView *av.AttributeView, view *av.View) {
+	// 字段删除以后需要删除设置的过滤和排序
+	tmpFilters := []*av.ViewFilter{}
+	for _, f := range view.Filters {
+		if k, _ := attrView.GetKey(f.Column); nil != k {
+			tmpFilters = append(tmpFilters, f)
+		}
+	}
+	changed := len(tmpFilters) != len(view.Filters)
+	view.Filters = tmpFilters
+
+	tmpSorts := []*av.ViewSort{}
+	for _, s := range view.Sorts {
+		if k, _ := attrView.GetKey(s.Column); nil != k {
+			tmpSorts = append(tmpSorts, s)
+		}
+	}
+	if !changed {
+		changed = len(tmpSorts) != len(view.Sorts)
+	}
+	view.Sorts = tmpSorts
+
+	// 订正视图类型
+	for i, v := range attrView.Views {
+		if av.LayoutTypeGallery == v.LayoutType && nil == v.Gallery {
+			// 切换为卡片视图时可能没有初始化卡片实例 https://github.com/siyuan-note/siyuan/issues/15122
+			if nil != v.Table {
+				v.LayoutType = av.LayoutTypeTable
+				changed = true
+			} else {
+				attrView.Views = append(attrView.Views[:i], attrView.Views[i+1:]...)
+				changed = true
+			}
+		}
+	}
+
+	now := util.CurrentTimeMillis()
+
+	// 订正字段类型
+	for _, kv := range attrView.KeyValues {
+		for _, v := range kv.Values {
+			if v.Type != kv.Key.Type {
+				v.Type = kv.Key.Type
+				if av.KeyTypeBlock == v.Type && nil == v.Block {
+					v.Block = &av.ValueBlock{ID: v.BlockID}
+					if nil != v.Text {
+						v.Block.Content = v.Text.Content
+					}
+					if "" == v.Block.ID {
+						v.Block.ID = ast.NewNodeID()
+						v.BlockID = v.Block.ID
+					}
+					createdStr := v.Block.ID[:len("20060102150405")]
+					created, parseErr := time.ParseInLocation("20060102150405", createdStr, time.Local)
+					if nil == parseErr {
+						v.Block.Created = created.UnixMilli()
+					} else {
+						v.Block.Created = now
+					}
+					v.Block.Updated = v.Block.Created
+				}
+				changed = true
+			}
+		}
+	}
+
+	if changed {
+		av.SaveAttributeView(attrView)
+	}
+}
 
 func upgradeAttributeViewSpec(attrView *av.AttributeView) {
 	currentSpec := attrView.Spec

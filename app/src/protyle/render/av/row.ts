@@ -14,6 +14,15 @@ import {fetchPost} from "../../../util/fetch";
 import {showMessage} from "../../../dialog/message";
 import * as dayjs from "dayjs";
 import {Constants} from "../../../constants";
+import {insertGalleryItemAnimation} from "./gallery/item";
+import {clearSelect} from "../../util/clearSelect";
+
+export const getFieldIdByCellElement = (cellElement: Element, viewType: TAVView): string => {
+    if (hasClosestByClassName(cellElement, "custom-attr")) {
+        return (hasClosestByClassName(cellElement, "av__row") as HTMLElement).dataset.id;
+    }
+    return (hasClosestByClassName(cellElement, viewType === "table" ? "av__row" : "av__gallery-item") as HTMLElement).dataset.id;
+};
 
 export const selectRow = (checkElement: Element, type: "toggle" | "select" | "unselect" | "unselectAll") => {
     const rowElement = hasClosestByClassName(checkElement, "av__row");
@@ -81,10 +90,11 @@ export const updateHeader = (rowElement: HTMLElement) => {
     avHeadElement.style.position = "sticky";
 };
 
-const setPage = (blockElement: Element) => {
+export const setPage = (blockElement: Element) => {
     const pageSize = parseInt(blockElement.getAttribute("data-page-size"));
     if (pageSize) {
-        const currentCount = blockElement.querySelectorAll(".av__row:not(.av__row--header)").length;
+        const avType = blockElement.getAttribute("data-av-type") as TAVView;
+        const currentCount = blockElement.querySelectorAll(avType === "table" ? ".av__row:not(.av__row--header)" : ".av__gallery-item").length;
         if (pageSize < currentCount) {
             blockElement.setAttribute("data-page-size", currentCount.toString());
         }
@@ -137,10 +147,7 @@ ${getTypeByCellElement(item) === "block" ? ' data-detached="true"' : ""}><span c
     ${colHTML}
 </div>`;
         } else {
-            blockElement.querySelectorAll(".av__cell--select, .av__cell--active").forEach(item => {
-                item.classList.remove("av__cell--select", "av__cell--active");
-                item.querySelector(".av__drag-fill")?.remove();
-            });
+            clearSelect(["cell"], blockElement);
             addDragFill(blockCellElement);
             blockCellElement.classList.add("av__cell--select");
         }
@@ -235,7 +242,8 @@ ${getTypeByCellElement(item) === "block" ? ' data-detached="true"' : ""}><span c
                     const sideRowCellElement = sideRow.querySelector(`.av__cell[data-col-id="${item.column}"]`) as HTMLElement;
                     const cellElement = currentRow.querySelector(`.av__cell[data-col-id="${item.column}"]`);
                     const cellValue = genCellValueByElement(getTypeByCellElement(sideRowCellElement), sideRowCellElement);
-                    cellElement.innerHTML = renderCell(cellValue);
+                    const iconElement = cellElement.querySelector(".b3-menu__avemoji");
+                    cellElement.innerHTML = renderCell(cellValue, 0, iconElement ? !iconElement.classList.contains("fn__none") : false);
                     renderCellAttr(cellElement, cellValue);
                 }
             });
@@ -252,6 +260,9 @@ ${getTypeByCellElement(item) === "block" ? ' data-detached="true"' : ""}><span c
 };
 
 export const stickyRow = (blockElement: HTMLElement, elementRect: DOMRect, status: "top" | "bottom" | "all") => {
+    if (blockElement.dataset.avType !== "table") {
+        return;
+    }
     // 只读模式下也需固定 https://github.com/siyuan-note/siyuan/issues/11338
     const scrollRect = blockElement.querySelector(".av__scroll").getBoundingClientRect();
     const headerElement = blockElement.querySelector(".av__row--header") as HTMLElement;
@@ -394,7 +405,7 @@ export const setPageSize = (options: {
 };
 
 export const deleteRow = (blockElement: HTMLElement, protyle: IProtyle) => {
-    const rowElements = blockElement.querySelectorAll(".av__row--select:not(.av__row--header)");
+    const rowElements = blockElement.querySelectorAll(".av__row--select:not(.av__row--header), .av__gallery-item--select");
     if (rowElements.length === 0) {
         return;
     }
@@ -474,6 +485,15 @@ export const insertRows = (blockElement: HTMLElement, protyle: IProtyle, count: 
         id: blockElement.dataset.nodeId,
         data: blockElement.getAttribute("updated")
     }]);
-    insertAttrViewBlockAnimation(protyle, blockElement, srcIDs, previousID, avID);
+    if (blockElement.getAttribute("data-av-type") === "gallery") {
+        insertGalleryItemAnimation({
+            blockElement,
+            protyle,
+            srcIDs,
+            previousId: previousID
+        });
+    } else {
+        insertAttrViewBlockAnimation(protyle, blockElement, srcIDs, previousID, avID);
+    }
     blockElement.setAttribute("updated", newUpdated);
 };

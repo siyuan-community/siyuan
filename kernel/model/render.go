@@ -29,6 +29,7 @@ import (
 	"github.com/88250/lute/html"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
+	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -177,10 +178,22 @@ func fillBlockRefCount(nodes []*ast.Node) {
 func renderBlockDOMByNodes(nodes []*ast.Node, luteEngine *lute.Lute) string {
 	tree := &parse.Tree{Root: &ast.Node{Type: ast.NodeDocument}, Context: &parse.Context{ParseOption: luteEngine.ParseOptions}}
 	blockRenderer := render.NewProtyleRenderer(tree, luteEngine.RenderOptions)
-	for _, n := range nodes {
-		ast.Walk(n, func(node *ast.Node, entering bool) ast.WalkStatus {
-			rendererFunc := blockRenderer.RendererFuncs[node.Type]
-			return rendererFunc(node, entering)
+	for _, node := range nodes {
+		ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if entering {
+				if n.IsBlock() {
+					if avs := n.IALAttr(av.NodeAttrNameAvs); "" != avs {
+						// 填充属性视图角标 Display the database title on the block superscript https://github.com/siyuan-note/siyuan/issues/10545
+						avNames := getAvNames(n.IALAttr(av.NodeAttrNameAvs))
+						if "" != avNames {
+							n.SetIALAttr(av.NodeAttrViewNames, avNames)
+						}
+					}
+				}
+			}
+
+			rendererFunc := blockRenderer.RendererFuncs[n.Type]
+			return rendererFunc(n, entering)
 		})
 	}
 	h := strings.TrimSpace(blockRenderer.Writer.String())

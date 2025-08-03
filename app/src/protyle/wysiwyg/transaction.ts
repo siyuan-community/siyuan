@@ -294,7 +294,7 @@ const updateEmbed = (protyle: IProtyle, operation: IOperation) => {
         } else {
             item.querySelectorAll(".protyle-wysiwyg__embed").forEach(embedBlockItem => {
                 const newTempElement = allTempElement.content.querySelector(`[data-node-id="${embedBlockItem.getAttribute("data-id")}"]`);
-                if (newTempElement) {
+                if (newTempElement && !isInEmbedBlock(newTempElement)) {
                     updateHTML(embedBlockItem.querySelector("[data-node-id]"), newTempElement.outerHTML);
                 }
             });
@@ -607,6 +607,11 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                 data.new.style += ";animation:addCard 450ms linear";
             }
             Object.keys(data.new).forEach(key => {
+                if ("id" === key) {
+                    // 设置属性以后不应该给块元素添加 id 属性 No longer add the `id` attribute to block elements after setting the attribute https://github.com/siyuan-note/siyuan/issues/15327
+                    return;
+                }
+
                 item.setAttribute(key, data.new[key]);
                 if (key === Constants.CUSTOM_RIFF_DECKS && data.new[Constants.CUSTOM_RIFF_DECKS] !== data.old[Constants.CUSTOM_RIFF_DECKS]) {
                     item.style.animation = "addCard 450ms linear";
@@ -621,6 +626,9 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
                     }, 450);
                 }
             });
+            if (data["data-av-type"]) {
+                item.setAttribute("data-av-type", data["data-av-type"]);
+            }
             const attrElements = item.querySelectorAll(".protyle-attr");
             const attrElement = attrElements[attrElements.length - 1];
             if (data.new["custom-avs"] && !data.new["av-names"]) {
@@ -849,8 +857,10 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         "setAttrViewSorts", "setAttrViewColCalc", "removeAttrViewCol", "updateAttrViewColNumberFormat", "removeAttrViewBlock",
         "replaceAttrViewBlock", "updateAttrViewColTemplate", "setAttrViewColPin", "addAttrViewView", "setAttrViewColIcon",
         "removeAttrViewView", "setAttrViewViewName", "setAttrViewViewIcon", "duplicateAttrViewView", "sortAttrViewView",
-        "updateAttrViewColRelation", "setAttrViewPageSize", "updateAttrViewColRollup", "sortAttrViewKey",
-        "duplicateAttrViewKey", "setAttrViewViewDesc", "setAttrViewColDesc"].includes(operation.action)) {
+        "updateAttrViewColRelation", "setAttrViewPageSize", "updateAttrViewColRollup", "sortAttrViewKey", "setAttrViewColDesc",
+        "duplicateAttrViewKey", "setAttrViewViewDesc", "setAttrViewCoverFrom", "setAttrViewCoverFromAssetKeyID",
+        "setAttrViewBlockView", "setAttrViewCardSize", "setAttrViewCardAspectRatio", "hideAttrViewName", "setAttrViewShowIcon",
+        "setAttrViewWrapField", "setAttrViewGroup"].includes(operation.action)) {
         if (!isUndo) {
             // 撤销 transaction 会进行推送，需使用推送来进行刷新最新数据 https://github.com/siyuan-note/siyuan/issues/13607
             refreshAV(protyle, operation);
@@ -1282,7 +1292,7 @@ export const transaction = (protyle: IProtyle, doOperations: IOperation[], undoO
     window.clearTimeout(transactionsTimeout);
     // 加速折叠 https://github.com/siyuan-note/siyuan/issues/11828
     if (doOperations.length === 1 && (
-        doOperations[0].action === "unfoldHeading" ||
+        doOperations[0].action === "unfoldHeading" || doOperations[0].action === "setAttrViewBlockView" ||
         (doOperations[0].action === "setAttrs" && doOperations[0].data.startsWith('{"fold":'))
     )) {
         // 防止 needDebounce 为 true

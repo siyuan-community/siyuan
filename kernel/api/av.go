@@ -27,6 +27,93 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
+func batchReplaceAttributeViewBlocks(c *gin.Context) {
+	// Add kernel API `/api/av/batchReplaceAttributeViewBlocks` https://github.com/siyuan-note/siyuan/issues/15313
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	avID := arg["avID"].(string)
+	isDetached := arg["isDetached"].(bool)
+	oldNewArg := arg["oldNew"].([]interface{})
+	var oldNew []map[string]string
+	for _, v := range oldNewArg {
+		for o, n := range v.(map[string]interface{}) {
+			oldNew = append(oldNew, map[string]string{o: n.(string)})
+		}
+	}
+
+	err := model.BatchReplaceAttributeViewBlocks(avID, isDetached, oldNew)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	model.ReloadAttrView(avID)
+}
+
+func setAttrViewGroup(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	avID := arg["avID"].(string)
+	blockID := arg["blockID"].(string)
+	groupArg := arg["group"].(map[string]interface{})
+
+	data, err := gulu.JSON.MarshalJSON(groupArg)
+	if nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	group := &av.ViewGroup{}
+	if err = gulu.JSON.UnmarshalJSON(data, group); nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	err = model.SetAttributeViewGroup(avID, blockID, group)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+}
+
+func changeAttrViewLayout(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	blockID := arg["blockID"].(string)
+	avID := arg["avID"].(string)
+	layoutType := arg["layoutType"].(string)
+	err := model.ChangeAttrViewLayout(blockID, avID, av.LayoutType(layoutType))
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	ret = renderAttrView(blockID, avID, "", "", 1, -1)
+	c.JSON(http.StatusOK, ret)
+}
+
 func duplicateAttributeViewBlock(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -97,8 +184,9 @@ func setDatabaseBlockView(c *gin.Context) {
 
 	blockID := arg["id"].(string)
 	viewID := arg["viewID"].(string)
+	avID := arg["avID"].(string)
 
-	err := model.SetDatabaseBlockView(blockID, viewID)
+	err := model.SetDatabaseBlockView(blockID, avID, viewID)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
@@ -531,14 +619,18 @@ func renderHistoryAttributeView(c *gin.Context) {
 
 func renderAttributeView(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
-	defer c.JSON(http.StatusOK, ret)
-
 	arg, ok := util.JsonArg(c, ret)
 	if !ok {
+		c.JSON(http.StatusOK, ret)
 		return
 	}
 
 	id := arg["id"].(string)
+	blockIDArg := arg["blockID"]
+	var blockID string
+	if nil != blockIDArg {
+		blockID = blockIDArg.(string)
+	}
 	viewIDArg := arg["viewID"]
 	var viewID string
 	if nil != viewIDArg {
@@ -562,7 +654,13 @@ func renderAttributeView(c *gin.Context) {
 		query = queryArg.(string)
 	}
 
-	view, attrView, err := model.RenderAttributeView(id, viewID, query, page, pageSize)
+	ret = renderAttrView(blockID, id, viewID, query, page, pageSize)
+	c.JSON(http.StatusOK, ret)
+}
+
+func renderAttrView(blockID, avID, viewID, query string, page, pageSize int) (ret *gulu.Result) {
+	ret = gulu.Ret.NewResult()
+	view, attrView, err := model.RenderAttributeView(blockID, avID, viewID, query, page, pageSize)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
@@ -571,11 +669,6 @@ func renderAttributeView(c *gin.Context) {
 
 	var views []map[string]interface{}
 	for _, v := range attrView.Views {
-		pSize := 10
-		if nil != v.Table && av.LayoutTypeTable == v.LayoutType {
-			pSize = v.Table.PageSize
-		}
-
 		view := map[string]interface{}{
 			"id":               v.ID,
 			"icon":             v.Icon,
@@ -583,7 +676,7 @@ func renderAttributeView(c *gin.Context) {
 			"desc":             v.Desc,
 			"hideAttrViewName": v.HideAttrViewName,
 			"type":             v.LayoutType,
-			"pageSize":         pSize,
+			"pageSize":         v.PageSize,
 		}
 
 		views = append(views, view)
@@ -598,6 +691,7 @@ func renderAttributeView(c *gin.Context) {
 		"view":     view,
 		"isMirror": av.IsMirror(attrView.ID),
 	}
+	return
 }
 
 func getCurrentAttrViewImages(c *gin.Context) {
@@ -667,6 +761,28 @@ func setAttributeViewBlockAttr(c *gin.Context) {
 
 	ret.Data = map[string]interface{}{
 		"value": updatedVal,
+	}
+
+	model.ReloadAttrView(avID)
+}
+
+func batchSetAttributeViewBlockAttrs(c *gin.Context) {
+	// Add kernel API `/api/av/batchSetAttributeViewBlockAttrs` https://github.com/siyuan-note/siyuan/issues/15310
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	avID := arg["avID"].(string)
+	values := arg["values"].([]interface{})
+	err := model.BatchUpdateAttributeViewCells(nil, avID, values)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
 	}
 
 	model.ReloadAttrView(avID)

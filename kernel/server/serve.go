@@ -36,7 +36,7 @@ import (
 	"github.com/emersion/go-webdav/carddav"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/memstore"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/mssola/useragent"
 	"github.com/olahol/melody"
@@ -61,8 +61,7 @@ const (
 )
 
 var (
-	// 这里用的是内存存储，意味着重启后所有 session 会丢失，需要重新登录
-	sessionStore = memstore.NewStore([]byte("ATN51UlxVq1Gcvdf"))
+	sessionStore = cookie.NewStore([]byte("ATN51UlxVq1Gcvdf"))
 
 	HttpMethods = []string{
 		http.MethodGet,
@@ -461,6 +460,7 @@ func serveAuthPage(c *gin.Context) {
 		"l7":                     template.HTML(model.Conf.Language(184)),
 		"l8":                     model.Conf.Language(95),
 		"l9":                     model.Conf.Language(83),
+		"l10":                    model.Conf.Language(257),
 		"appearanceMode":         model.Conf.Appearance.Mode,
 		"appearanceModeOS":       model.Conf.Appearance.ModeOS,
 		"workspace":              util.WorkspaceName,
@@ -484,6 +484,12 @@ func serveAssets(ginServer *gin.Engine) {
 
 	ginServer.GET("/assets/*path", model.CheckAuth, func(context *gin.Context) {
 		requestPath := context.Param("path")
+		if "/" == requestPath || "" == requestPath {
+			// 禁止访问根目录 Disable HTTP access to the /assets/ path https://github.com/siyuan-note/siyuan/issues/15257
+			context.Status(http.StatusForbidden)
+			return
+		}
+
 		relativePath := path.Join("assets", requestPath)
 		p, err := model.GetAssetAbsPath(relativePath)
 		if err != nil {
@@ -500,14 +506,40 @@ func serveAssets(ginServer *gin.Engine) {
 				return
 			}
 		}
+
+		if serveThumbnail(context, p, requestPath) {
+			// 如果请求缩略图服务成功则返回
+			return
+		}
+
+		// 返回原始文件
 		http.ServeFile(context.Writer, context.Request, p)
 		return
 	})
+
 	ginServer.GET("/history/*path", model.CheckAuth, model.CheckAdminRole, func(context *gin.Context) {
 		p := filepath.Join(util.HistoryDir, context.Param("path"))
 		http.ServeFile(context.Writer, context.Request, p)
 		return
 	})
+}
+
+func serveThumbnail(context *gin.Context, assetAbsPath, requestPath string) bool {
+	if style := context.Query("style"); style == "thumb" && model.NeedGenerateAssetsThumbnail(assetAbsPath) { // 请求缩略图
+		thumbnailPath := filepath.Join(util.TempDir, "thumbnails", "assets", requestPath)
+		if !gulu.File.IsExist(thumbnailPath) {
+			// 如果缩略图不存在，则生成缩略图
+			err := model.GenerateAssetsThumbnail(assetAbsPath, thumbnailPath)
+			if err != nil {
+				logging.LogErrorf("generate thumbnail failed: %s", err)
+				return false
+			}
+		}
+
+		http.ServeFile(context.Writer, context.Request, thumbnailPath)
+		return true
+	}
+	return false
 }
 
 func serveRepoDiff(ginServer *gin.Engine) {

@@ -233,6 +233,13 @@ func InitConf() {
 	if 1 > len(Conf.Editor.Emoji) {
 		Conf.Editor.Emoji = []string{}
 	}
+	for i, emoji := range Conf.Editor.Emoji {
+		if strings.Contains(emoji, ".") {
+			// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
+			emoji = util.FilterUploadEmojiFileName(emoji)
+			Conf.Editor.Emoji[i] = emoji
+		}
+	}
 	if 9 > Conf.Editor.FontSize || 72 < Conf.Editor.FontSize {
 		Conf.Editor.FontSize = 16
 	}
@@ -522,10 +529,6 @@ func InitConf() {
 
 	Conf.Save()
 	logging.SetLogLevel(Conf.LogLevel)
-
-	if Conf.System.DisableGoogleAnalytics {
-		logging.LogInfof("user has disabled [Google Analytics]")
-	}
 
 	util.SetNetworkProxy(Conf.System.NetworkProxy.String())
 

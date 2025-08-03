@@ -9,18 +9,6 @@ import {fetchPost} from "./fetch";
 import {appearance} from "../config/appearance";
 import {isInAndroid, isInHarmony, isInIOS, isIPad, isIPhone, isMac, isWin11} from "../protyle/util/compatibility";
 
-const loadThirdIcon = (iconURL: string, data: Config.IAppearance) => {
-    addScript(iconURL, "iconDefaultScript").then(() => {
-        if (!["ant", "material"].includes(data.icon)) {
-            const iconScriptElement = document.getElementById("iconScript");
-            if (iconScriptElement) {
-                iconScriptElement.remove();
-            }
-            addScript(`/appearance/icons/${data.icon}/icon.js?v=${data.iconVer}`, "iconScript");
-        }
-    });
-};
-
 export const loadAssets = (data: Config.IAppearance) => {
     const htmlElement = document.getElementsByTagName("html")[0];
     htmlElement.setAttribute("lang", window.siyuan.config.appearance.lang);
@@ -40,7 +28,17 @@ export const loadAssets = (data: Config.IAppearance) => {
     const defaultThemeAddress = `/appearance/themes/${data.mode === 1 ? "midnight" : "daylight"}/theme.css?v=${Constants.SIYUAN_VERSION}`;
     if (defaultStyleElement) {
         if (!defaultStyleElement.getAttribute("href").startsWith(defaultThemeAddress)) {
-            defaultStyleElement.setAttribute("href", defaultThemeAddress);
+            const newStyleElement = document.createElement("link");
+            // 等待新样式表加载完成再移除旧样式表
+            new Promise((resolve) => {
+                newStyleElement.rel = "stylesheet";
+                newStyleElement.href = defaultThemeAddress;
+                newStyleElement.onload = resolve;
+                defaultStyleElement.parentNode.insertBefore(newStyleElement, defaultStyleElement);
+            }).then(() => {
+                defaultStyleElement.remove();
+                newStyleElement.id = "themeDefaultStyle";
+            });
         }
     } else {
         addStyle(defaultThemeAddress, "themeDefaultStyle");
@@ -98,25 +96,56 @@ export const loadAssets = (data: Config.IAppearance) => {
         addScript(themeScriptAddress, "themeScript");
     }
 
+    // load icons
+    const isBuiltInIcon = ["ant", "material"].includes(data.icon);
+    const iconScriptElement = document.getElementById("iconScript");
     const iconDefaultScriptElement = document.getElementById("iconDefaultScript");
     // 不能使用 data.iconVer，因为其他主题也需要加载默认图标，此时 data.iconVer 为其他图标的版本号
-    const iconURL = `/appearance/icons/${["ant", "material"].includes(data.icon) ? data.icon : "material"}/icon.js?v=${Constants.SIYUAN_VERSION}`;
-    if (iconDefaultScriptElement) {
-        if (!iconDefaultScriptElement.getAttribute("src").startsWith(iconURL)) {
-            iconDefaultScriptElement.remove();
-            let svgElement = document.body.firstElementChild;
-            while (svgElement.tagName === "svg") {
-                const currentSvgElement = svgElement;
-                svgElement = svgElement.nextElementSibling;
-                if (!currentSvgElement.getAttribute("data-name")) {
-                    currentSvgElement.remove();
+    const iconDefaultURL = `/appearance/icons/${isBuiltInIcon ? data.icon : "material"}/icon.js?v=${Constants.SIYUAN_VERSION}`;
+    const iconThirdURL = `/appearance/icons/${data.icon}/icon.js?v=${data.iconVer}`;
+
+    if ((isBuiltInIcon && iconDefaultScriptElement && iconDefaultScriptElement.getAttribute("src").startsWith(iconDefaultURL)) ||
+        (!isBuiltInIcon && iconScriptElement && iconScriptElement.getAttribute("src").startsWith(iconThirdURL))) {
+        // 第三方图标切换到 material
+        if (isBuiltInIcon) {
+            iconScriptElement?.remove();
+            Array.from(document.body.children).forEach((item) => {
+                if (item.tagName === "svg" &&
+                    !item.getAttribute("data-name") &&
+                    !["iconsMaterial", "iconsAnt"].includes(item.id)) {
+                    item.remove();
                 }
-            }
-            loadThirdIcon(iconURL, data);
+            });
         }
-    } else {
-        loadThirdIcon(iconURL, data);
+        return;
     }
+    if (iconDefaultScriptElement && !iconDefaultScriptElement.getAttribute("src").startsWith(iconDefaultURL)) {
+        iconDefaultScriptElement.remove();
+        if (data.icon === "ant") {
+            document.querySelectorAll("#iconsMaterial").forEach(item => {
+                item.remove();
+            });
+        } else {
+            document.querySelectorAll("#iconsAnt").forEach(item => {
+                item.remove();
+            });
+        }
+    }
+    addScript(iconDefaultURL, "iconDefaultScript").then(() => {
+        iconScriptElement?.remove();
+        if (!isBuiltInIcon) {
+            addScript(iconThirdURL, "iconScript").then(() => {
+                Array.from(document.body.children).forEach((item, index) => {
+                    if (item.tagName === "svg" &&
+                        index !== 0 &&
+                        !item.getAttribute("data-name") &&
+                        !["iconsMaterial", "iconsAnt"].includes(item.id)) {
+                        item.remove();
+                    }
+                });
+            });
+        }
+    });
 };
 
 export const initAssets = () => {
@@ -167,49 +196,6 @@ export const initAssets = () => {
             loadAssets(response.data.appearance);
         });
     });
-};
-
-export const addGA = () => {
-    if (!window.siyuan.config.system.disableGoogleAnalytics) {
-        addScript("https://www.googletagmanager.com/gtag/js?id=G-L7WEXVQCR9", "gaScript");
-        window.dataLayer = window.dataLayer || [];
-        /*eslint-disable */
-        const gtag = function (...args: any[]) {
-            window.dataLayer.push(arguments);
-        };
-        /*eslint-enable */
-        gtag("js", new Date());
-        gtag("config", "G-L7WEXVQCR9", {send_page_view: false});
-        const para = {
-            version: Constants.SIYUAN_VERSION,
-            container: window.siyuan.config.system.container,
-            os: window.siyuan.config.system.os,
-            osPlatform: window.siyuan.config.system.osPlatform,
-            isLoggedIn: false,
-            subscriptionStatus: -1,
-            subscriptionPlan: -1,
-            subscriptionType: -1,
-            oneTimePayStatus: -1,
-            syncEnabled: false,
-            syncProvider: -1,
-            cTreeCount: window.siyuan.config.stat.cTreeCount,
-            cBlockCount: window.siyuan.config.stat.cBlockCount,
-            cDataSize: window.siyuan.config.stat.cDataSize,
-            cAssetsSize: window.siyuan.config.stat.cAssetsSize,
-        };
-        if (window.siyuan.user) {
-            para.isLoggedIn = true;
-            para.subscriptionStatus = window.siyuan.user.userSiYuanSubscriptionStatus;
-            para.subscriptionPlan = window.siyuan.user.userSiYuanSubscriptionPlan;
-            para.subscriptionType = window.siyuan.user.userSiYuanSubscriptionType;
-            para.oneTimePayStatus = window.siyuan.user.userSiYuanOneTimePayStatus;
-        }
-        if (window.siyuan.config.sync) {
-            para.syncEnabled = window.siyuan.config.sync.enabled;
-            para.syncProvider = window.siyuan.config.sync.provider;
-        }
-        gtag("event", Constants.ANALYTICS_EVT_ON_GET_CONFIG, para);
-    }
 };
 
 export const setInlineStyle = async (set = true) => {
@@ -315,18 +301,15 @@ export const setInlineStyle = async (set = true) => {
 .protyle-wysiwyg [data-node-id].li::before {
     right: 17px;
     left: auto;
+}
+.b3-typography table:not([style*="text-align: left"]) {
+  margin-left: auto;
 }`;
     }
     style += `\n:root{--b3-font-size-editor:${window.siyuan.config.editor.fontSize}px}
 .b3-typography code:not(.hljs), .protyle-wysiwyg span[data-type~=code] { font-variant-ligatures: ${window.siyuan.config.editor.codeLigatures ? "normal" : "none"} }
-.li > .protyle-action {height:${height + 8}px;line-height: ${height + 8}px}
-/* 列表项后的内容和列表项对齐 https://github.com/siyuan-note/siyuan/issues/2803 */
-.protyle-wysiwyg [data-node-id].li > .protyle-action ~ div {line-height:${height}px}
-.protyle-wysiwyg [data-node-id].li > .protyle-action ~ div > [spellcheck] {min-height:${height}px}
-.protyle-wysiwyg [data-node-id].li::before {height: calc(100% - ${height + 12}px);top:${(height + 12)}px}
 ${rtlCSS}
 .protyle-wysiwyg [data-node-id] {${window.siyuan.config.editor.justify ? " text-align: justify;" : ""}}
-.protyle-wysiwyg .li {min-height:${height + 8}px}
 .protyle-gutters button svg {height:${height}px}`;
     if (window.siyuan.config.editor.fontFamily) {
         style += `\n.b3-typography:not(.b3-typography--default), .protyle-wysiwyg, .protyle-title {font-family: "Emojis Additional", "Emojis Reset", "${window.siyuan.config.editor.fontFamily}", var(--b3-font-family)}`;
@@ -409,7 +392,7 @@ export const setMode = (modeElementValue: number) => {
                 }
             }
         }
-        appearance.onSetappearance(response.data);
+        appearance.onSetAppearance(response.data);
     });
     /// #endif
 };

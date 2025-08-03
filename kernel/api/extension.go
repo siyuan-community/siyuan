@@ -62,13 +62,29 @@ func extensionCopy(c *gin.Context) {
 
 	clippingSym := false
 	symArticleHref := ""
-	if nil != form.Value["href"] {
+	hasHref := nil != form.Value["href"]
+	isPartClip := nil != form.Value["clipType"] && form.Value["clipType"][0] == "part"
+	if hasHref && !isPartClip {
 		// 剪藏链滴帖子时直接使用 Markdown 接口的返回
 		// https://ld246.com/article/raw/1724850322251
 		symArticleHref = form.Value["href"][0]
-		if strings.HasPrefix(symArticleHref, "https://ld246.com/article/") || strings.HasPrefix(symArticleHref, "https://liuyun.io/article/") {
-			symArticleHref = strings.ReplaceAll(symArticleHref, "https://ld246.com/article/", "https://ld246.com/article/raw/")
-			symArticleHref = strings.ReplaceAll(symArticleHref, "https://liuyun.io/article/", "https://liuyun.io/article/raw/")
+
+		var baseURL, originalPrefix string
+		if strings.HasPrefix(symArticleHref, "https://ld246.com/article/") {
+			baseURL = "https://ld246.com/article/raw/"
+			originalPrefix = "https://ld246.com/article/"
+		} else if strings.HasPrefix(symArticleHref, "https://liuyun.io/article/") {
+			baseURL = "https://liuyun.io/article/raw/"
+			originalPrefix = "https://liuyun.io/article/"
+		}
+
+		if "" != baseURL {
+			articleID := strings.TrimPrefix(symArticleHref, originalPrefix)
+			if idx := strings.IndexAny(articleID, "/?#"); -1 != idx {
+				articleID = articleID[:idx]
+			}
+
+			symArticleHref = baseURL + articleID
 			clippingSym = true
 		}
 	}
@@ -126,8 +142,8 @@ func extensionCopy(c *gin.Context) {
 
 		fName = util.FilterUploadFileName(fName)
 		ext := util.Ext(fName)
-		if "" == ext || strings.Contains(ext, "!") {
-			// 改进浏览器剪藏扩展转换本地图片后缀 https://github.com/siyuan-note/siyuan/issues/7467
+		if !util.IsCommonExt(ext) || strings.Contains(ext, "!") {
+			// 改进浏览器剪藏扩展转换本地图片后缀 https://github.com/siyuan-note/siyuan/issues/7467 https://github.com/siyuan-note/siyuan/issues/15320
 			if mtype := mimetype.Detect(data); nil != mtype {
 				ext = mtype.Extension()
 				fName += ext

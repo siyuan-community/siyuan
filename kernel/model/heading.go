@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
@@ -199,6 +200,7 @@ func Doc2Heading(srcID, targetID string, after bool) (srcTreeBox, srcTreePath st
 	heading := &ast.Node{ID: srcTree.Root.ID, Type: ast.NodeHeading, HeadingLevel: headingLevel, KramdownIAL: srcTree.Root.KramdownIAL}
 	heading.SetIALAttr("updated", util.CurrentTimeSecondsStr())
 	heading.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(srcTree.Root.IALAttr("title"))})
+	heading.RemoveIALAttr("title")
 	heading.Box, heading.Path = targetTree.Box, targetTree.Path
 	if "" != tagIAL && 0 < len(tags) {
 		// 带标签的文档块转换为标题块时将标签移动到标题块下方 https://github.com/siyuan-note/siyuan/issues/6550
@@ -272,10 +274,10 @@ func Doc2Heading(srcID, targetID string, after bool) (srcTreeBox, srcTreePath st
 	treenode.RemoveBlockTreesByRootID(targetTree.ID)
 	err = indexWriteTreeUpsertQueue(targetTree)
 	IncSync()
-	RefreshBacklink(srcTree.ID)
-	RefreshBacklink(targetTree.ID)
 	go func() {
-		sql.FlushQueue()
+		time.Sleep(util.SQLFlushInterval)
+		RefreshBacklink(srcTree.ID)
+		RefreshBacklink(targetTree.ID)
 		ResetVirtualBlockRefCache()
 	}()
 	return
@@ -412,10 +414,9 @@ func Heading2Doc(srcHeadingID, targetBoxID, targetPath, previousPath string) (sr
 		return "", "", err
 	}
 	IncSync()
-	RefreshBacklink(srcTree.ID)
-	RefreshBacklink(newTree.ID)
 	go func() {
-		sql.FlushQueue()
+		RefreshBacklink(srcTree.ID)
+		RefreshBacklink(newTree.ID)
 		ResetVirtualBlockRefCache()
 	}()
 	return

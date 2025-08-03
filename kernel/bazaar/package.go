@@ -53,6 +53,7 @@ type DisplayName struct {
 	ItIT    string `json:"it_IT"`
 	JaJP    string `json:"ja_JP"`
 	PlPL    string `json:"pl_PL"`
+	ptBR    string `json:"pt_BR"`
 	RuRU    string `json:"ru_RU"`
 	ZhCHT   string `json:"zh_CHT"`
 	ZhCN    string `json:"zh_CN"`
@@ -69,6 +70,7 @@ type Description struct {
 	ItIT    string `json:"it_IT"`
 	JaJP    string `json:"ja_JP"`
 	PlPL    string `json:"pl_PL"`
+	ptBR    string `json:"pt_BR"`
 	RuRU    string `json:"ru_RU"`
 	ZhCHT   string `json:"zh_CHT"`
 	ZhCN    string `json:"zh_CN"`
@@ -85,6 +87,7 @@ type Readme struct {
 	ItIT    string `json:"it_IT"`
 	JaJP    string `json:"ja_JP"`
 	PlPL    string `json:"pl_PL"`
+	ptBR    string `json:"pt_BR"`
 	RuRU    string `json:"ru_RU"`
 	ZhCHT   string `json:"zh_CHT"`
 	ZhCN    string `json:"zh_CN"`
@@ -220,6 +223,10 @@ func getPreferredReadme(readme *Readme) string {
 		if "" != readme.PlPL {
 			ret = readme.PlPL
 		}
+	case "pt_BR":
+		if "" != readme.ptBR {
+			ret = readme.ptBR
+		}
 	case "ru_RU":
 		if "" != readme.RuRU {
 			ret = readme.RuRU
@@ -286,6 +293,10 @@ func GetPreferredName(pkg *Package) string {
 		if "" != pkg.DisplayName.PlPL {
 			ret = pkg.DisplayName.PlPL
 		}
+	case "pt_BR":
+		if "" != pkg.DisplayName.ptBR {
+			ret = pkg.DisplayName.ptBR
+		}
 	case "ru_RU":
 		if "" != pkg.DisplayName.RuRU {
 			ret = pkg.DisplayName.RuRU
@@ -351,6 +362,10 @@ func getPreferredDesc(desc *Description) string {
 	case "pl_PL":
 		if "" != desc.PlPL {
 			ret = desc.PlPL
+		}
+	case "pt_BR":
+		if "" != desc.ptBR {
+			ret = desc.ptBR
 		}
 	case "ru_RU":
 		if "" != desc.RuRU {

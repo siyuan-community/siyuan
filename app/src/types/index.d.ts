@@ -51,10 +51,20 @@ type TOperation =
     | "moveOutlineHeading"
     | "updateAttrViewColRollup"
     | "hideAttrViewName"
+    | "setAttrViewCardSize"
+    | "setAttrViewCardAspectRatio"
+    | "setAttrViewCoverFrom"
+    | "setAttrViewCoverFromAssetKeyID"
+    | "setAttrViewFitImage"
+    | "setAttrViewShowIcon"
+    | "setAttrViewWrapField"
     | "setAttrViewColDate"
     | "unbindAttrViewBlock"
     | "setAttrViewViewDesc"
     | "setAttrViewColDesc"
+    | "setAttrViewBlockView"
+    | "setAttrViewGroup"
+    | "syncAttrViewTableColWidth"
 type TBazaarType = "templates" | "icons" | "widgets" | "themes" | "plugins"
 type TCardType = "doc" | "notebook" | "all"
 type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
@@ -71,6 +81,7 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "destroy-protyle" |
     "lock-screen" |
     "mobile-keyboard-show" | "mobile-keyboard-hide"
+type TAVView = "table" | "gallery"
 type TAVCol =
     "text"
     | "date"
@@ -129,8 +140,11 @@ interface CSSStyleDeclarationElectron extends CSSStyleDeclaration {
 }
 
 interface Window {
+    DOMPurify: {
+        sanitize(dirty: string): string;
+    };
     echarts: {
-        init(element: HTMLElement, theme?: string, options?: {
+        init(element: Element, theme?: string, options?: {
             width: number
         }): {
             setOption(option: any): void;
@@ -247,6 +261,13 @@ interface Window {
     openFileByURL(URL: string): boolean;
 
     destroyTheme(): Promise<void>;
+}
+
+interface IClipboardData {
+    textHTML?: string,
+    textPlain?: string,
+    siyuanHTML?: string,
+    files?: File[],
 }
 
 interface IRefDefs {
@@ -526,6 +547,7 @@ interface IOperation {
     deckID?: string // add/removeFlashcards 专享
     blockIDs?: string[] // add/removeFlashcards 专享
     removeDest?: boolean // removeAttrViewCol 专享
+    layout?: string // addAttrViewView 专享
 }
 
 interface IOperationSrcs {
@@ -813,9 +835,9 @@ interface IBazaarItem {
 interface IAV {
     id: string;
     name: string;
-    view: IAVTable;
+    view: IAVTable | IAVGallery;
     viewID: string;
-    viewType: string;
+    viewType: TAVView;
     views: IAVView[];
 }
 
@@ -823,19 +845,34 @@ interface IAVView {
     name: string;
     desc: string;
     id: string;
-    type: string;
+    type: TAVView;
     icon: string;
     hideAttrViewName: boolean;
     pageSize: number;
+    showIcon: boolean;
+    wrapField: boolean;
+    filters: IAVFilter[],
+    sorts: IAVSort[],
+    groups: IAVView[]
+    group: IAVGroup
 }
 
 interface IAVTable extends IAVView {
     columns: IAVColumn[],
-    filters: IAVFilter[],
-    sorts: IAVSort[],
     rows: IAVRow[],
     rowCount: number,
-    pageSize: number,
+}
+
+interface IAVGallery extends IAVView {
+    coverFrom: number;    // 0：无，1：内容图，2：资源字段，3：内容块
+    coverFromAssetKeyID?: string;
+    cardSize: number;   // 0：小卡片，1：中卡片，2：大卡片
+    cardAspectRatio: number;
+    fitImage: boolean;
+    cards: IAVGalleryItem[],
+    desc: string
+    fields: IAVColumn[]
+    cardCount: number,
 }
 
 interface IAVFilter {
@@ -850,6 +887,17 @@ interface relativeDate {
     count: number;   // 数量
     unit: number;    // 单位：0: 天、1: 周、2: 月、3: 年
     direction: number;   // 方向：-1: 前、0: 现在、1: 后
+}
+
+interface IAVGroup {
+    field: string,
+    method?: number //  0: 按值分组、1: 按数字范围分组、2: 按相对日期分组、3: 按天日期分组、4: 按周日期分组、5: 按月日期分组、6: 按年日期分组
+    range?: {
+        numStart: number // 数字范围起始值
+        numEnd: number   // 数字范围结束值
+        numStep: number  // 数字范围步长
+    }
+    order?: number  // 升序: 0(默认), 降序: 1, 手动排序: 2
 }
 
 interface IAVSort {
@@ -886,6 +934,13 @@ interface IAVColumn {
 interface IAVRow {
     id: string,
     cells: IAVCell[]
+}
+
+interface IAVGalleryItem {
+    coverURL?: string;
+    coverContent?: string;
+    id: string;
+    values: IAVCell[];
 }
 
 interface IAVCell {

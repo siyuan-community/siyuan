@@ -17,7 +17,6 @@
 package model
 
 import (
-	"github.com/emirpasic/gods/sets/hashset"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,6 +27,7 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/editor"
 	"github.com/88250/lute/parse"
+	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"

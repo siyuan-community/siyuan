@@ -22,8 +22,6 @@
 <a title="Discord" target="_blank" href="https://discord.gg/dmMbCqVX7G"><img alt="Chat on Discord" src="https://img.shields.io/discord/808152298789666826?label=Discord&logo=Discord&style=social"></a>
 <br><br>
 <a href="https://trendshift.io/repositories/3949" target="_blank"><img src="https://trendshift.io/api/badge/repositories/3949" alt="siyuan-note%2Fsiyuan | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-<br><br>
-<a href="https://www.producthunt.com/products/siyuan/reviews?utm_source=badge-product_rating&utm_medium=badge&utm_souce=badge-siyuan" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/product_rating.svg?product_id=534576&theme=light" alt="SiYuan - A&#0032;privacy&#0045;first&#0032;personal&#0032;knowledge&#0032;management&#0032;software | Product Hunt" style="width: 242px; height: 108px;" width="242" height="108" /></a>
 </p>
 
 <p align="center">
@@ -206,9 +204,10 @@ docker run -d \
 * `PGID`: カスタムグループID（オプション、指定しない場合はデフォルトで `1000`）
 * `workspace_dir_host`: ホスト上のワークスペースフォルダーのパス
 * `workspace_dir_container`: コンテナ内のワークスペースフォルダーのパス、`--workspace` で指定されたものと同じ
-  * あるいは、`SIYUAN_WORKSPACE_PATH` 環境変数を使用してパスを設定することもできます。両方が設定されている場合は、コマンドラインの値が優先されます。
+  * あるいは、`SIYUAN_WORKSPACE_PATH` 環境変数を使用してパスを設定することもできます。両方が設定されている場合は、コマンドラインの値が優先されます
 * `accessAuthCode`: アクセス認証コード（**必ず変更してください**、そうしないと誰でもデータにアクセスできます）
-  * また、`SIYUAN_ACCESS_AUTH_CODE` 環境変数を設定することで認証コードを指定することもできます。両方が設定されている場合、コマンドラインの値が優先されます。
+  * また、`SIYUAN_ACCESS_AUTH_CODE` 環境変数を設定することで認証コードを指定することもできます。両方が設定されている場合、コマンドラインの値が優先されます
+  * 環境変数 `SIYUAN_ACCESS_AUTH_CODE_BYPASS=true` を設定することで、アクセス認証コードを無効にすることができます
 
 簡略化するために、ホストとコンテナでワークスペースフォルダーのパスを一致させることをお勧めします。たとえば、`workspace_dir_host` と `workspace_dir_container` の両方を `/siyuan/workspace` に設定します。対応する起動コマンドは次のようになります：
 

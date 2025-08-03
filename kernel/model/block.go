@@ -655,6 +655,7 @@ func GetHeadingLevelTransaction(id string, level int) (transaction *Transaction,
 		ccH := c.ChildrenByType(ast.NodeHeading)
 		childrenHeadings = append(childrenHeadings, ccH...)
 	}
+	fillBlockRefCount(childrenHeadings)
 
 	transaction = &Transaction{}
 	luteEngine := util.NewLute()
@@ -693,6 +694,24 @@ func GetBlockDOM(id string) (ret string) {
 	node := treenode.GetNodeInTree(tree, id)
 	luteEngine := NewLute()
 	ret = luteEngine.RenderNodeBlockDOM(node)
+	return
+}
+
+func GetBlockDOMs(ids []string) (ret map[string]string) {
+	ret = map[string]string{}
+	if 0 == len(ids) {
+		return
+	}
+
+	luteEngine := NewLute()
+	trees := filesys.LoadTrees(ids)
+	for id, tree := range trees {
+		node := treenode.GetNodeInTree(tree, id)
+		if nil == node {
+			continue
+		}
+		ret[id] = luteEngine.RenderNodeBlockDOM(node)
+	}
 	return
 }
 

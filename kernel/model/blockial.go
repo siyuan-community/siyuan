@@ -24,6 +24,7 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
+	"github.com/88250/lute/editor"
 	"github.com/88250/lute/lex"
 	"github.com/88250/lute/parse"
 	"github.com/araddon/dateparse"
@@ -69,6 +70,7 @@ func SetBlockReminder(id string, timed string) (err error) {
 	}
 	content := sql.NodeStaticContent(node, nil, false, false, false)
 	content = gulu.Str.SubStr(content, 128)
+	content = strings.ReplaceAll(content, editor.Zwsp, "")
 	err = SetCloudBlockReminder(id, content, timedMills)
 	if err != nil {
 		return
@@ -250,7 +252,11 @@ func setNodeAttrs0(node *ast.Node, nameValues map[string]string) (oldAttrs map[s
 
 func pushBroadcastAttrTransactions(oldAttrs map[string]string, node *ast.Node) {
 	newAttrs := parse.IAL2Map(node.KramdownIAL)
-	doOp := &Operation{Action: "updateAttrs", Data: map[string]interface{}{"old": oldAttrs, "new": newAttrs}, ID: node.ID}
+	data := map[string]interface{}{"old": oldAttrs, "new": newAttrs}
+	if "" != node.AttributeViewType {
+		data["data-av-type"] = node.AttributeViewType
+	}
+	doOp := &Operation{Action: "updateAttrs", Data: data, ID: node.ID}
 	evt := util.NewCmdResult("transactions", 0, util.PushModeBroadcast)
 	evt.Data = []*Transaction{{
 		DoOperations:   []*Operation{doOp},

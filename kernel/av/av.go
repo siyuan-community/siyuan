@@ -43,10 +43,10 @@ type AttributeView struct {
 	Views     []*View      `json:"views"`     // 视图
 }
 
-// KeyValues 描述了属性视图属性列值的结构。
+// KeyValues 描述了属性视图属性键值列表的结构。
 type KeyValues struct {
-	Key    *Key     `json:"key"`              // 属性视图属性列
-	Values []*Value `json:"values,omitempty"` // 属性视图属性列值
+	Key    *Key     `json:"key"`              // 属性视图属性键
+	Values []*Value `json:"values,omitempty"` // 属性视图属性值列表
 }
 
 func (kValues *KeyValues) GetValue(blockID string) (ret *Value) {
@@ -61,7 +61,7 @@ func (kValues *KeyValues) GetValue(blockID string) (ret *Value) {
 
 func (kValues *KeyValues) GetBlockValue() (ret *Value) {
 	for _, v := range kValues.Values {
-		if KeyTypeBlock != v.Type {
+		if KeyTypeBlock == v.Type {
 			ret = v
 			return
 		}
@@ -178,75 +178,125 @@ type SelectOption struct {
 
 // View 描述了视图的结构。
 type View struct {
-	ID               string `json:"id"`               // 视图 ID
-	Icon             string `json:"icon"`             // 视图图标
-	Name             string `json:"name"`             // 视图名称
-	HideAttrViewName bool   `json:"hideAttrViewName"` // 是否隐藏属性视图名称
-	Desc             string `json:"desc"`             // 视图描述
+	ID               string         `json:"id"`                // 视图 ID
+	Icon             string         `json:"icon"`              // 视图图标
+	Name             string         `json:"name"`              // 视图名称
+	HideAttrViewName bool           `json:"hideAttrViewName"`  // 是否隐藏属性视图名称
+	Desc             string         `json:"desc"`              // 视图描述
+	Filters          []*ViewFilter  `json:"filters,omitempty"` // 过滤规则
+	Sorts            []*ViewSort    `json:"sorts,omitempty"`   // 排序规则
+	PageSize         int            `json:"pageSize"`          // 每页条目数
+	LayoutType       LayoutType     `json:"type"`              // 当前布局类型
+	Table            *LayoutTable   `json:"table,omitempty"`   // 表格布局
+	Gallery          *LayoutGallery `json:"gallery,omitempty"` // 卡片布局
+	ItemIDs          []string       `json:"itemIds,omitempty"` // 项目 ID 列表，用于维护所有项目
 
-	LayoutType LayoutType   `json:"type"`            // 当前布局类型
-	Table      *LayoutTable `json:"table,omitempty"` // 表格布局
+	Group          *ViewGroup `json:"group,omitempty"`          // 分组规则
+	GroupUpdated   int64      `json:"groupUpdated"`             // 分组规则更新时间戳
+	Groups         []*View    `json:"groups,omitempty"`         // 分组视图列表
+	GroupItemIDs   []string   `json:"groupItemIds,omitempty"`   // 分组项目 ID 列表，用于维护分组中的所有项目
+	GroupCalc      *GroupCalc `json:"groupCalc,omitempty"`      // 分组计算规则
+	GroupName      string     `json:"groupName,omitempty"`      // 分组名称
+	GroupFolded    bool       `json:"groupFolded,omitempty"`    // 分组是否折叠
+	GroupHidden    bool       `json:"groupHidden,omitempty"`    // 分组是否隐藏
+	GroupHideEmpty bool       `json:"groupHideEmpty,omitempty"` // 分组是否隐藏空分组
 }
 
-// LayoutType 描述了视图布局的类型。
+// GroupCalc 描述了分组计算规则和结果的结构。
+type GroupCalc struct {
+	Field     string     `json:"field"` // 字段 ID
+	FieldCalc *FieldCalc `json:"calc"`  // 计算规则和结果
+}
+
+// LayoutType 描述了视图布局类型。
 type LayoutType string
 
 const (
-	LayoutTypeTable LayoutType = "table" // 属性视图类型 - 表格
+	LayoutTypeTable   LayoutType = "table"   // 属性视图类型 - 表格
+	LayoutTypeGallery LayoutType = "gallery" // 属性视图类型 - 卡片
+)
+
+const (
+	ViewDefaultPageSize = 50 // 视图默认分页大小
 )
 
 func NewTableView() (ret *View) {
 	ret = &View{
 		ID:         ast.NewNodeID(),
-		Name:       getI18nName("table"),
+		Name:       GetAttributeViewI18n("table"),
+		Filters:    []*ViewFilter{},
+		Sorts:      []*ViewSort{},
+		PageSize:   ViewDefaultPageSize,
 		LayoutType: LayoutTypeTable,
-		Table: &LayoutTable{
-			Spec:     0,
-			ID:       ast.NewNodeID(),
-			Filters:  []*ViewFilter{},
-			Sorts:    []*ViewSort{},
-			PageSize: 50,
-		},
+		Table:      NewLayoutTable(),
 	}
 	return
 }
 
 func NewTableViewWithBlockKey(blockKeyID string) (view *View, blockKey, selectKey *Key) {
-	name := getI18nName("table")
+	name := GetAttributeViewI18n("table")
 	view = &View{
 		ID:         ast.NewNodeID(),
 		Name:       name,
+		Filters:    []*ViewFilter{},
+		Sorts:      []*ViewSort{},
 		LayoutType: LayoutTypeTable,
-		Table: &LayoutTable{
-			Spec:     0,
-			ID:       ast.NewNodeID(),
-			Filters:  []*ViewFilter{},
-			Sorts:    []*ViewSort{},
-			PageSize: 50,
-		},
+		Table:      NewLayoutTable(),
+		PageSize:   ViewDefaultPageSize,
 	}
-	blockKey = NewKey(blockKeyID, getI18nName("key"), "", KeyTypeBlock)
-	view.Table.Columns = []*ViewTableColumn{{ID: blockKeyID}}
+	blockKey = NewKey(blockKeyID, GetAttributeViewI18n("key"), "", KeyTypeBlock)
+	view.Table.Columns = []*ViewTableColumn{{BaseField: &BaseField{ID: blockKeyID}}}
 
-	selectKey = NewKey(ast.NewNodeID(), getI18nName("select"), "", KeyTypeSelect)
-	view.Table.Columns = append(view.Table.Columns, &ViewTableColumn{ID: selectKey.ID})
+	selectKey = NewKey(ast.NewNodeID(), GetAttributeViewI18n("select"), "", KeyTypeSelect)
+	view.Table.Columns = append(view.Table.Columns, &ViewTableColumn{BaseField: &BaseField{ID: selectKey.ID}})
+	return
+}
+
+func NewGalleryView() (ret *View) {
+	ret = &View{
+		ID:         ast.NewNodeID(),
+		Name:       GetAttributeViewI18n("gallery"),
+		Filters:    []*ViewFilter{},
+		Sorts:      []*ViewSort{},
+		PageSize:   ViewDefaultPageSize,
+		LayoutType: LayoutTypeGallery,
+		Gallery:    NewLayoutGallery(),
+	}
 	return
 }
 
 // Viewable 描述了视图的接口。
 type Viewable interface {
-	Filterable
-	Sortable
-	Calculable
 
+	// GetType 获取视图的布局类型。
 	GetType() LayoutType
+
+	// GetID 获取视图的 ID。
 	GetID() string
+
+	// SetGroups 设置视图分组列表。
+	SetGroups(viewables []Viewable)
+
+	// SetGroupCalc 设置视图分组计算规则和结果。
+	SetGroupCalc(group *GroupCalc)
+
+	// GetGroupCalc 获取视图分组计算规则和结果。
+	GetGroupCalc() *GroupCalc
+
+	// SetGroupName 设置分组名称。
+	SetGroupName(name string)
+
+	// SetGroupFolded 设置分组是否折叠。
+	SetGroupFolded(folded bool)
+
+	// SetGroupHidden 设置分组是否隐藏。
+	SetGroupHidden(hidden bool)
 }
 
 func NewAttributeView(id string) (ret *AttributeView) {
 	view, blockKey, selectKey := NewTableViewWithBlockKey(ast.NewNodeID())
 	ret = &AttributeView{
-		Spec:      0,
+		Spec:      3,
 		ID:        id,
 		KeyValues: []*KeyValues{{Key: blockKey}, {Key: selectKey}},
 		ViewID:    view.ID,
@@ -388,13 +438,12 @@ func SaveAttributeView(av *AttributeView) (err error) {
 
 	// 视图值去重
 	for _, view := range av.Views {
-		if nil != view.Table {
-			// 行去重
-			view.Table.RowIDs = gulu.Str.RemoveDuplicatedElem(view.Table.RowIDs)
-			// 分页大小
-			if 1 > view.Table.PageSize {
-				view.Table.PageSize = 50
-			}
+		// 项目自定义排序去重
+		view.ItemIDs = gulu.Str.RemoveDuplicatedElem(view.ItemIDs)
+
+		// 分页大小
+		if 1 > view.PageSize {
+			view.PageSize = ViewDefaultPageSize
 		}
 	}
 
@@ -522,7 +571,7 @@ func (av *AttributeView) GetBlockKey() (ret *Key) {
 	return
 }
 
-func (av *AttributeView) ShallowClone() (ret *AttributeView) {
+func (av *AttributeView) Clone() (ret *AttributeView) {
 	ret = &AttributeView{}
 	data, err := gulu.JSON.MarshalJSON(av)
 	if err != nil {
@@ -561,18 +610,31 @@ func (av *AttributeView) ShallowClone() (ret *AttributeView) {
 
 	for _, view := range ret.Views {
 		view.ID = ast.NewNodeID()
-		view.Table.ID = ast.NewNodeID()
-		for _, column := range view.Table.Columns {
-			column.ID = keyIDMap[column.ID]
-		}
-		view.Table.RowIDs = []string{}
 
-		for _, f := range view.Table.Filters {
+		for _, f := range view.Filters {
 			f.Column = keyIDMap[f.Column]
 		}
-		for _, s := range view.Table.Sorts {
+		for _, s := range view.Sorts {
 			s.Column = keyIDMap[s.Column]
 		}
+
+		if nil != view.Group {
+			view.Group.Field = keyIDMap[view.Group.Field]
+		}
+
+		switch view.LayoutType {
+		case LayoutTypeTable:
+			view.Table.ID = ast.NewNodeID()
+			for _, column := range view.Table.Columns {
+				column.ID = keyIDMap[column.ID]
+			}
+		case LayoutTypeGallery:
+			view.Gallery.ID = ast.NewNodeID()
+			for _, cardField := range view.Gallery.CardFields {
+				cardField.ID = keyIDMap[cardField.ID]
+			}
+		}
+		view.ItemIDs = []string{}
 	}
 	ret.ViewID = ret.Views[0].ID
 
@@ -596,13 +658,14 @@ func GetAttributeViewDataPath(avID string) (ret string) {
 	return
 }
 
-func getI18nName(name string) string {
-	return util.AttrViewLangs[util.Lang][name].(string)
+func GetAttributeViewI18n(key string) string {
+	return util.AttrViewLangs[util.Lang][key].(string)
 }
 
 var (
-	ErrViewNotFound = errors.New("view not found")
-	ErrKeyNotFound  = errors.New("key not found")
+	ErrViewNotFound    = errors.New("view not found")
+	ErrKeyNotFound     = errors.New("key not found")
+	ErrWrongLayoutType = errors.New("wrong layout type")
 )
 
 const (

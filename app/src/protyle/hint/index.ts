@@ -6,7 +6,7 @@ import {
     focusByWbr,
     getEditorRange,
     getSelectionOffset,
-    getSelectionPosition
+    getSelectionPosition, setLastNodeRange
 } from "../util/selection";
 import {genHintItemHTML, hintEmbed, hintRef, hintSlash} from "./extend";
 import {getSavePath, newFile} from "../../util/newFile";
@@ -275,11 +275,19 @@ ${unicode2Emoji(emoji.unicode)}</button>`;
             const cellElement = hasClosestByClassName(protyle.toolbar.range.startContainer, "av__cell");
             if (cellElement) {
                 const cellRect = cellElement.getBoundingClientRect();
+                /// #if !MOBILE
                 setPosition(this.element, cellRect.left, cellRect.bottom, cellRect.height);
+                /// #else
+                setPosition(this.element, 0, 0);
+                /// #endif
             }
         } else {
             const textareaPosition = getSelectionPosition(protyle.wysiwyg.element);
+            /// #if !MOBILE
             setPosition(this.element, textareaPosition.left, textareaPosition.top + 26, 30);
+            /// #else
+            setPosition(this.element, 0, 0);
+            /// #endif
         }
         this.element.scrollTop = 0;
         this.bindUploadEvent(protyle, this.element);
@@ -427,7 +435,7 @@ ${genHintItemHTML(item)}
             if (!cellElement) {
                 return;
             }
-            const rowElement = hasClosestByClassName(cellElement, "av__row");
+            const rowElement = hasClosestByClassName(cellElement, nodeElement.getAttribute("data-av-type") === "table" ? "av__row" : "av__gallery-item");
             if (!rowElement) {
                 return;
             }
@@ -555,6 +563,13 @@ ${genHintItemHTML(item)}
                         type: "id",
                         color: `${response.data}${Constants.ZWSP}${refIsS ? "s" : "d"}${Constants.ZWSP}${(refIsS ? fileNames[0] : realFileName).substring(0, window.siyuan.config.editor.blockRefDynamicAnchorTextMaxLen)}`
                     });
+                    if (protyle.toolbar.range.endContainer.nodeType === 1 &&
+                        protyle.toolbar.range.endContainer.childNodes[protyle.toolbar.range.endOffset]) {
+                        const refElement = hasPreviousSibling(protyle.toolbar.range.endContainer.childNodes[protyle.toolbar.range.endOffset]) as HTMLElement;
+                        if (refElement && refElement.nodeType === 1 && refElement.getAttribute("data-type") === "block-ref") {
+                            setLastNodeRange(refElement as HTMLElement, protyle.toolbar.range, false);
+                        }
+                    }
                     protyle.toolbar.range.collapse(false);
                 });
             });
@@ -589,6 +604,13 @@ ${genHintItemHTML(item)}
                 type: "id",
                 color: `${tempElement.getAttribute("data-id")}${Constants.ZWSP}${tempElement.getAttribute("data-subtype")}${Constants.ZWSP}${tempElement.textContent}`
             });
+            if (protyle.toolbar.range.endContainer.nodeType === 1 &&
+                protyle.toolbar.range.endContainer.childNodes[protyle.toolbar.range.endOffset]) {
+                const refElement = hasPreviousSibling(protyle.toolbar.range.endContainer.childNodes[protyle.toolbar.range.endOffset]) as HTMLElement;
+                if (refElement && refElement.nodeType === 1 && refElement.getAttribute("data-type") === "block-ref") {
+                    setLastNodeRange(refElement as HTMLElement, protyle.toolbar.range, false);
+                }
+            }
             protyle.toolbar.range.collapse(false);
             return;
         } else if (this.splitChar === ":") {

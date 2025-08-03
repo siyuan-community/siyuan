@@ -1,3 +1,5 @@
+@use "../util/function";
+
 @font-face {
   font-family: 'JetBrainsMono-Regular';
   /*! /* webpackIgnore: true */
@@ -305,15 +307,13 @@
         color: var(--b3-theme-on-surface);
         margin-top: -4px;
         align-self: center;
+        margin-left: 1em;
+        opacity: 0;
+        transition: var(--b3-transition);
+        line-height: calc(1.625 / 0.85);
       }
 
       .protyle-icon {
-        opacity: 0;
-        transition: var(--b3-transition);
-      }
-
-      .protyle-action__language {
-        margin-left: 1em;
         opacity: 0;
         transition: var(--b3-transition);
       }
@@ -438,7 +438,6 @@
     vertical-align: top; // https://ld246.com/article/1647522074722
     margin: 0 auto;
     max-width: 100%;
-    user-select: none;
     word-break: keep-all;
     white-space: nowrap;
 
@@ -506,6 +505,20 @@
 
   table {
     margin: 1em 0;
+
+    &[style*="direction: rtl"]:not([style*="text-align: left"]),
+    &[style*="text-align: right"] {
+      margin-left: auto;
+    }
+
+    &[style*="text-align: center"] {
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    &[style*="direction: ltr"]:not([style*="text-align: right"]) {
+      margin-left: initial;
+    }
   }
 
   div[data-subtype="math"] {
