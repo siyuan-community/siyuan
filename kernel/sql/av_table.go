@@ -18,8 +18,8 @@ import (
 	"fmt"
 
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func RenderAttributeViewTable(attrView *av.AttributeView, view *av.View, query string) (ret *av.Table) {

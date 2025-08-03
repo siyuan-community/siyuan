@@ -11,11 +11,11 @@ import (
 	"github.com/88250/lute/html"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/filesys"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func RenderAttributeViewGallery(attrView *av.AttributeView, view *av.View, query string) (ret *av.Gallery) {

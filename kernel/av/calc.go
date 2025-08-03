@@ -20,7 +20,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // FieldCalc 描述了字段计算操作和结果的结构。
