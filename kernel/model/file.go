@@ -187,7 +187,7 @@ func SearchDocsByKeyword(keyword string, flashcard bool) (ret []map[string]strin
 			}
 		}
 
-		rootBlocks = sql.QueryRootBlockByCondition(condition)
+		rootBlocks = sql.QueryRootBlockByCondition(condition, Conf.Search.Limit)
 	} else {
 		for _, box := range boxes {
 			if flashcard {
@@ -764,6 +764,11 @@ func loadNodesByStartEnd(tree *parse.Tree, startID, endID string) (nodes []*ast.
 			}
 			break
 		}
+
+		if len(nodes) >= Conf.Editor.DynamicLoadBlocks {
+			// 如果加载到指定数量的块则停止加载
+			break
+		}
 	}
 	return
 }
@@ -928,7 +933,7 @@ func writeTreeUpsertQueue(tree *parse.Tree) (err error) {
 		return
 	}
 	sql.UpsertTreeQueue(tree)
-	refreshDocInfo(tree, size)
+	refreshDocInfoWithSize(tree, size)
 	return
 }
 
@@ -954,7 +959,7 @@ func renameWriteJSONQueue(tree *parse.Tree) (err error) {
 	}
 	sql.RenameTreeQueue(tree)
 	treenode.UpsertBlockTree(tree)
-	refreshDocInfo(tree, size)
+	refreshDocInfoWithSize(tree, size)
 	return
 }
 
@@ -962,8 +967,13 @@ func DuplicateDoc(tree *parse.Tree) {
 	msgId := util.PushMsg(Conf.Language(116), 30000)
 	defer util.PushClearMsg(msgId)
 
+	previousPath := tree.Path
 	resetTree(tree, "Duplicated", false)
 	createTreeTx(tree)
+	box := Conf.Box(tree.Box)
+	if nil != box {
+		box.addSort(previousPath, tree.ID)
+	}
 	FlushTxQueue()
 
 	// 复制为副本时将该副本块插入到数据库中 https://github.com/siyuan-note/siyuan/issues/11959
@@ -981,7 +991,7 @@ func DuplicateDoc(tree *parse.Tree) {
 			AddAttributeViewBlock(nil, []map[string]interface{}{{
 				"id":         n.ID,
 				"isDetached": false,
-			}}, avID, "", "", false)
+			}}, avID, "", "", "", "", false, map[string]interface{}{})
 			ReloadAttrView(avID)
 		}
 		return ast.WalkContinue
@@ -1014,7 +1024,11 @@ func CreateDocByMd(boxID, p, title, md string, sorts []string) (tree *parse.Tree
 	}
 
 	FlushTxQueue()
-	ChangeFileTreeSort(box.ID, sorts)
+	if 0 < len(sorts) {
+		ChangeFileTreeSort(box.ID, sorts)
+	} else {
+		box.addMinSort(path.Dir(tree.Path), tree.ID)
+	}
 	return
 }
 
@@ -1357,6 +1371,8 @@ func moveDoc(fromBox *Box, fromPath string, toBox *Box, toPath string, luteEngin
 		return
 	}
 
+	fromParentTree := loadParentTree(tree)
+
 	moveToRoot := "/" == toPath
 	toBlockID := tree.ID
 	fromFolder := path.Join(path.Dir(fromPath), tree.ID)
@@ -1475,6 +1491,8 @@ func moveDoc(fromBox *Box, fromPath string, toBox *Box, toPath string, luteEngin
 	}
 	evt.Callback = callback
 	util.PushEvent(evt)
+
+	refreshDocInfo(fromParentTree)
 	return
 }
 

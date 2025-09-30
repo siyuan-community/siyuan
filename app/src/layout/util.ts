@@ -578,7 +578,7 @@ export const layoutToJSON = (layout: Layout | Wnd | Tab | Model, json: any, brea
         json.blockId = layout.editor.protyle.block.id;
         json.rootId = layout.editor.protyle.block.rootID;
         json.mode = layout.editor.protyle.preview.element.classList.contains("fn__none") ? "wysiwyg" : "preview";
-        json.action = layout.editor.protyle.block.showAll ? Constants.CB_GET_ALL : Constants.CB_GET_SCROLL;
+        json.action = (layout.editor.protyle.block.showAll && layout.editor.protyle.block.id !== layout.editor.protyle.block.rootID) ? Constants.CB_GET_ALL : Constants.CB_GET_SCROLL;
         json.instance = "Editor";
     } else if (layout instanceof Asset) {
         json.path = layout.path;
@@ -667,7 +667,9 @@ export const resizeTopBar = () => {
         return;
     }
     const dragElement = toolbarElement.querySelector("#drag") as HTMLElement;
-
+    if (!dragElement) {
+        return;
+    }
     dragElement.style.padding = "";
     const barMoreElement = toolbarElement.querySelector("#barMore");
     barMoreElement.classList.remove("fn__none");
@@ -742,13 +744,20 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
             });
         }
     } else if (json.instance === "Editor") {
+        if (json.rootId === json.blockId && json.action) {
+            if (typeof json.action === "string") {
+                json.action = json.action.replace(Constants.CB_GET_ALL, "");
+            } else if (typeof json.action === "object" && Array.isArray(json.action)) {
+                json.action = json.action.filter((item: string) => item !== Constants.CB_GET_ALL);
+            }
+        }
         model = new Editor({
             app,
             tab,
             rootId: json.rootId,
             blockId: json.blockId,
             mode: json.mode,
-            action: typeof json.action === "string" ? [json.action] : json.action,
+            action: typeof json.action === "string" ? (json.action ? [json.action, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS]) : json.action.concat(Constants.CB_GET_FOCUS),
         });
     }
     return model;
@@ -857,17 +866,17 @@ export const addResize = (obj: Layout | Wnd) => {
                 if (previousNowSize < 8 || nextNowSize < 8) {
                     return;
                 }
-                if (window.siyuan.layout.leftDock?.layout.element.isSameNode(previousElement) &&
+                if (window.siyuan.layout.leftDock && window.siyuan.layout.leftDock.layout.element === previousElement &&
                     previousNowSize < getMinSize(previousElement) &&
                     // https://github.com/siyuan-note/siyuan/issues/10506
                     previousNowSize < previousSize) {
                     return;
                 }
-                if (window.siyuan.layout.rightDock?.layout.element.isSameNode(nextElement) &&
+                if (window.siyuan.layout.rightDock && window.siyuan.layout.rightDock.layout.element === nextElement &&
                     nextNowSize < getMinSize(nextElement) && nextNowSize < nextSize) {
                     return;
                 }
-                if (window.siyuan.layout.bottomDock?.layout.element.isSameNode(nextElement) &&
+                if (window.siyuan.layout.bottomDock && window.siyuan.layout.bottomDock.layout.element === nextElement &&
                     nextNowSize < 64 && nextNowSize < nextSize) {
                     return;
                 }

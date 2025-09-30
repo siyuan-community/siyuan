@@ -392,7 +392,7 @@ export const transactionError = () => {
 export const refreshFileTree = (cb?: () => void) => {
     window.siyuan.storage[Constants.LOCAL_FILEPOSITION] = {};
     setStorageVal(Constants.LOCAL_FILEPOSITION, window.siyuan.storage[Constants.LOCAL_FILEPOSITION]);
-    fetchPost("/api/filetree/refreshFiletree", {}, () => {
+    fetchPost("/api/system/rebuildDataIndex", {}, () => {
         if (cb) {
             cb();
         }

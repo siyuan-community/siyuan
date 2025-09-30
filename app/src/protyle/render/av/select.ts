@@ -59,7 +59,7 @@ const filterSelectHTML = (key: string, options: {
         <span class="fn__ellipsis">${escapeHtml(key)}</span>
     </span>
 </div>
-<span class="b3-menu__accelerator">${window.siyuan.languages.enterKey}</span>
+<span class="b3-menu__accelerator b3-menu__accelerator--hotkey">${window.siyuan.languages.enterKey}</span>
 </button>${html}`;
     } else if (html.indexOf("b3-menu__item--current") === -1) {
         html = html.replace('class="b3-menu__item"', 'class="b3-menu__item b3-menu__item--current"');
@@ -633,6 +633,7 @@ export const addColOptionOrCell = (protyle: IProtyle, data: IAV, cellElements: H
         transaction(protyle, cellDoOperations, cellUndoOperations);
     }
     if (colData.type === "select") {
+        blockElement.setAttribute("data-rendering", "true");
         menuElement.parentElement.dispatchEvent(new CustomEvent("click", {detail: "close"}));
     } else {
         const oldScroll = menuElement.querySelector(".b3-menu__items").scrollTop;

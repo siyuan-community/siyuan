@@ -153,7 +153,8 @@ const setHTML = (options: {
         if (!protyle.wysiwyg.element.querySelector(".protyle-wysiwyg--select") && !protyle.scroll.keepLazyLoad && protyle.contentElement.scrollHeight > REMOVED_OVER_HEIGHT) {
             let removeElement = protyle.wysiwyg.element.firstElementChild as HTMLElement;
             const removeElements = [];
-            while (protyle.wysiwyg.element.childElementCount > 2 && removeElements && !protyle.wysiwyg.element.lastElementChild.isSameNode(removeElement)) {
+            while (protyle.wysiwyg.element.childElementCount > 2 && removeElements &&
+            protyle.wysiwyg.element.lastElementChild !== removeElement) {
                 if (protyle.contentElement.scrollHeight - removeElement.offsetTop > REMOVED_OVER_HEIGHT) {
                     removeElements.push(removeElement);
                 } else {
@@ -165,7 +166,7 @@ const setHTML = (options: {
             removeElements.forEach(item => {
                 item.remove();
             });
-            protyle.contentElement.scrollTop = protyle.contentElement.scrollTop + (removeElement.getBoundingClientRect().top - lastRemoveTop);
+            protyle.contentElement.scrollTop = protyle.contentElement.scrollTop + (removeElement.getBoundingClientRect().top - lastRemoveTop) - 1;
             protyle.scroll.lastScrollTop = protyle.contentElement.scrollTop;
             hideElements(["toolbar"], protyle);
         }
@@ -367,8 +368,10 @@ export const disabledProtyle = (protyle: IProtyle) => {
         item.setAttribute("draggable", "false");
     });
     if (protyle.breadcrumb) {
-        protyle.breadcrumb.element.parentElement.querySelector('[data-type="readonly"] use').setAttribute("xlink:href", "#iconLock");
-        protyle.breadcrumb.element.parentElement.querySelector('[data-type="readonly"]').setAttribute("aria-label", window.siyuan.config.editor.readOnly ? window.siyuan.languages.tempUnlock : window.siyuan.languages.unlockEdit);
+        const readonlyButton = protyle.breadcrumb.element.parentElement.querySelector('[data-type="readonly"]');
+        readonlyButton.querySelector("use").setAttribute("xlink:href", "#iconLock");
+        readonlyButton.setAttribute("aria-label", window.siyuan.config.editor.readOnly ? window.siyuan.languages.tempUnlock : window.siyuan.languages.unlockEdit);
+        readonlyButton.setAttribute("data-subtype", "lock");
         const undoElement = protyle.breadcrumb.element.parentElement.querySelector('[data-type="undo"]');
         if (undoElement && !undoElement.classList.contains("fn__none")) {
             undoElement.classList.add("fn__none");
@@ -425,8 +428,10 @@ export const enableProtyle = (protyle: IProtyle) => {
         }
     });
     if (protyle.breadcrumb) {
-        protyle.breadcrumb.element.parentElement.querySelector('[data-type="readonly"] use').setAttribute("xlink:href", "#iconUnlock");
-        protyle.breadcrumb.element.parentElement.querySelector('[data-type="readonly"]').setAttribute("aria-label", window.siyuan.config.editor.readOnly ? window.siyuan.languages.cancelTempUnlock : window.siyuan.languages.lockEdit);
+        const readonlyButton = protyle.breadcrumb.element.parentElement.querySelector('[data-type="readonly"]');
+        readonlyButton.querySelector("use").setAttribute("xlink:href", "#iconUnlock");
+        readonlyButton.setAttribute("aria-label", window.siyuan.config.editor.readOnly ? window.siyuan.languages.cancelTempUnlock : window.siyuan.languages.lockEdit);
+        readonlyButton.setAttribute("data-subtype", "unlock");
         const undoElement = protyle.breadcrumb.element.parentElement.querySelector('[data-type="undo"]');
         if (undoElement && undoElement.classList.contains("fn__none")) {
             undoElement.classList.remove("fn__none");
@@ -508,7 +513,7 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
         protyle.observer.observe(protyle.wysiwyg.element);
     }, 1000 * 3);
 
-    if (focusElement.isSameNode(protyle.wysiwyg.element.firstElementChild) && !hasScrollTop) {
+    if (focusElement === protyle.wysiwyg.element.firstElementChild && !hasScrollTop) {
         protyle.observerLoad.disconnect();
     }
 };

@@ -220,6 +220,10 @@ func InitConf() {
 	Conf.FileTree.DocCreateSavePath = util.TrimSpaceInPath(Conf.FileTree.DocCreateSavePath)
 	Conf.FileTree.RefCreateSavePath = util.TrimSpaceInPath(Conf.FileTree.RefCreateSavePath)
 	util.UseSingleLineSave = Conf.FileTree.UseSingleLineSave
+	if 2 > Conf.FileTree.LargeFileWarningSize {
+		Conf.FileTree.LargeFileWarningSize = 8
+	}
+	util.LargeFileWarningSize = Conf.FileTree.LargeFileWarningSize
 
 	util.CurrentCloudRegion = Conf.CloudRegion
 
@@ -876,7 +880,7 @@ func InitBoxes() {
 		box.UpdateHistoryGenerated() // 初始化历史生成时间为当前时间
 
 		if !initialized {
-			index(box.ID)
+			indexBox(box.ID)
 		}
 	}
 

@@ -9,7 +9,7 @@ import {lineNumberRender} from "../render/highlightRender";
 import {hideMessage, showMessage} from "../../dialog/message";
 import {genUUID} from "../../util/genID";
 import {getContenteditableElement, getLastBlock} from "../wysiwyg/getBlock";
-import {genEmptyElement} from "../../block/util";
+import {genEmptyElement, genHeadingElement} from "../../block/util";
 import {transaction} from "../wysiwyg/transaction";
 import {focusByRange} from "../util/selection";
 /// #if !MOBILE
@@ -137,16 +137,22 @@ export const initUI = (protyle: IProtyle) => {
                     return;
                 }
             }
-            const lastRect = protyle.wysiwyg.element.lastElementChild.getBoundingClientRect();
+            const lastElement = protyle.wysiwyg.element.lastElementChild;
+            const lastRect = lastElement.getBoundingClientRect();
             const range = document.createRange();
             if (event.y > lastRect.bottom) {
-                const lastEditElement = getContenteditableElement(getLastBlock(protyle.wysiwyg.element.lastElementChild));
+                const lastEditElement = getContenteditableElement(getLastBlock(lastElement));
                 if (!protyle.options.click.preventInsetEmptyBlock && (
                     !lastEditElement ||
-                    (protyle.wysiwyg.element.lastElementChild.getAttribute("data-type") !== "NodeParagraph" && protyle.wysiwyg.element.getAttribute("data-doc-type") !== "NodeListItem") ||
-                    (protyle.wysiwyg.element.lastElementChild.getAttribute("data-type") === "NodeParagraph" && getContenteditableElement(lastEditElement).innerHTML !== ""))
+                    (lastElement.getAttribute("data-type") !== "NodeParagraph" && protyle.wysiwyg.element.getAttribute("data-doc-type") !== "NodeListItem") ||
+                    (lastElement.getAttribute("data-type") === "NodeParagraph" && getContenteditableElement(lastEditElement).innerHTML !== ""))
                 ) {
-                    const emptyElement = genEmptyElement(false, false);
+                    let emptyElement:Element;
+                    if (lastElement.getAttribute("data-type") === "NodeHeading" && lastElement.getAttribute("fold") === "1") {
+                        emptyElement = genHeadingElement(lastElement) as Element;
+                    } else {
+                        emptyElement = genEmptyElement(false, false);
+                    }
                     protyle.wysiwyg.element.insertAdjacentElement("beforeend", emptyElement);
                     transaction(protyle, [{
                         action: "insert",
@@ -224,12 +230,13 @@ export const initUI = (protyle: IProtyle) => {
             }
             Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${buttonElement.getAttribute("data-node-id")}"]`)).find(item => {
                 if (!isInEmbedBlock(item) && protyle.gutter.isMatchNode(item)) {
-                    const rowItem = item.querySelector(`.av__row[data-id="${buttonElement.dataset.rowId}"]`);
+                    const bodyQueryClass = (buttonElement.dataset.groupId && buttonElement.dataset.groupId !== "undefined") ? `.av__body[data-group-id="${buttonElement.dataset.groupId}"] ` : "";
+                    const rowItem = item.querySelector(bodyQueryClass + `.av__row[data-id="${buttonElement.dataset.rowId}"]`);
                     Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(hlItem => {
-                        if (!item.isSameNode(hlItem)) {
+                        if (item !== hlItem) {
                             hlItem.classList.remove("protyle-wysiwyg--hl");
                         }
-                        if (rowItem && !rowItem.isSameNode(hlItem)) {
+                        if (rowItem && rowItem !== hlItem) {
                             rowItem.classList.remove("av__row--hl");
                         }
                     });

@@ -106,7 +106,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
         </span>
         <span class="fn__space"></span>
         <span data-position="9south" id="searchInclude" ${enableIncludeChild ? "" : "disabled"} aria-label="${window.siyuan.languages.includeChildDoc}" class="block__icon block__icon--show ariaLabel">
-            <svg${includeChild ? ' class="ft__primary"' : ""}><use xlink:href="#iconCopy"></use></svg>
+            <svg${includeChild ? ' class="ft__primary"' : ""}><use xlink:href="#iconInclude"></use></svg>
         </span>
         <span class="fn__space"></span>
         <span id="searchPath" aria-label="${window.siyuan.languages.specifyPath}" class="block__icon block__icon--show ariaLabel" data-position="9south">
@@ -337,7 +337,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
     element.addEventListener("click", (event: MouseEvent) => {
         let target = event.target as HTMLElement;
         const searchPathInputElement = element.querySelector("#searchPathInput");
-        while (target && !target.isSameNode(element)) {
+        while (target && target !== element) {
             const type = target.getAttribute("data-type");
             if (type === "removeCriterion") {
                 updateConfig(element, {
@@ -494,6 +494,11 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                 event.preventDefault();
                 break;
             } else if (target.id === "searchInclude") {
+                event.stopPropagation();
+                event.preventDefault();
+                if (target.hasAttribute("disabled")) {
+                    return;
+                }
                 const svgElement = target.firstElementChild;
                 svgElement.classList.toggle("ft__primary");
                 if (!svgElement.classList.contains("ft__primary")) {
@@ -511,8 +516,6 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                 }
                 config.page = 1;
                 inputEvent(element, config, edit, true);
-                event.stopPropagation();
-                event.preventDefault();
                 break;
             } else if (target.id === "searchReplace") {
                 // ctrl+P 不需要保存
@@ -1324,6 +1327,7 @@ const onSearch = (data: IBlock[], edit: Protyle, element: Element, config: Confi
     let newData;
     data.forEach((item) => {
         const title = getNotebookName(item.box) + getDisplayName(item.hPath, false);
+        let countHTML = "";
         if (item.children) {
             resultHTML += `<div class="b3-list-item">
 <span class="b3-list-item__toggle b3-list-item__toggle--hl">
@@ -1341,12 +1345,16 @@ ${unicode2Emoji(getNotebookIcon(item.box) || window.siyuan.storage[Constants.LOC
                         newData = childItem;
                     }
                 }
+                if (childItem.refCount) {
+                    countHTML = `<span class="popover__block counter b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.ref}">${childItem.refCount}</span>`;
+                }
                 resultHTML += `<div style="padding-left: 36px" data-type="search-item" class="b3-list-item" data-node-id="${childItem.id}" data-root-id="${childItem.rootID}">
 <svg class="b3-list-item__graphic popover__block" data-id="${childItem.id}"><use xlink:href="#${getIconByType(childItem.type)}"></use></svg>
 ${unicode2Emoji(childItem.ial.icon, "b3-list-item__graphic", true)}
 <span class="b3-list-item__text">${childItem.content}</span>
 ${getAttr(childItem)}
-${childItem.tag ? `<span class="b3-list-item__meta b3-list-item__meta--ellipsis">${childItem.tag.split("# #").map(tag => `${tag.replace("#", "")}`).join(" ").replace("#", "")}</span>` : ""}
+${childItem.tag ? `<span class="b3-list-item__meta b3-list-item__meta--ellipsis">${childItem.tag.replace(/#/g, "")}</span>` : ""}
+${countHTML}
 </div>`;
             });
             resultHTML += "</div>";
@@ -1359,13 +1367,17 @@ ${childItem.tag ? `<span class="b3-list-item__meta b3-list-item__meta--ellipsis"
                     newData = item;
                 }
             }
+            if (item.refCount) {
+                countHTML = `<span class="popover__block counter b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.ref}">${item.refCount}</span>`;
+            }
             resultHTML += `<div data-type="search-item" class="b3-list-item" data-node-id="${item.id}" data-root-id="${item.rootID}">
 <svg class="b3-list-item__graphic popover__block" data-id="${item.id}"><use xlink:href="#${getIconByType(item.type)}"></use></svg>
 ${unicode2Emoji(item.ial.icon, "b3-list-item__graphic", true)}
 <span class="b3-list-item__text">${item.content}</span>
 ${getAttr(item)}
-${item.tag ? `<span class="b3-list-item__meta b3-list-item__meta--ellipsis">${item.tag.split("# #").map(tag => `${tag.replace("#", "")}`).join(" ").replace("#", "")}</span>` : ""}
+${item.tag ? `<span class="b3-list-item__meta b3-list-item__meta--ellipsis">${item.tag.replace(/#/g, "")}</span>` : ""}
 <span class="b3-list-item__meta b3-list-item__meta--ellipsis ariaLabel" aria-label="${escapeAriaLabel(title)}">${escapeGreat(title)}</span>
+${countHTML}
 </div>`;
         }
     });

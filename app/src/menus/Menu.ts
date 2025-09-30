@@ -42,7 +42,7 @@ export class Menu {
             }
             const subMenuElement = itemElement.querySelector(".b3-menu__submenu") as HTMLElement;
             this.element.querySelectorAll(".b3-menu__item--show").forEach((item) => {
-                if (!item.contains(itemElement) && !item.isSameNode(itemElement) && !itemElement.contains(item)) {
+                if (!item.contains(itemElement) && item !== itemElement && !itemElement.contains(item)) {
                     item.classList.remove("b3-menu__item--show");
                 }
             });
@@ -236,7 +236,7 @@ export class MenuItem {
                 html = `<svg class="b3-menu__icon ${options.iconClass || ""}" style="${options.icon === "iconClose" ? "height:10px;" : ""}"><use xlink:href="#${options.icon || ""}"></use></svg>${html}`;
             }
             if (options.accelerator) {
-                html += `<span class="b3-menu__accelerator">${updateHotkeyTip(options.accelerator)}</span>`;
+                html += `<span class="b3-menu__accelerator b3-menu__accelerator--hotkey">${updateHotkeyTip(options.accelerator)}</span>`;
             }
             if (options.action) {
                 html += `<svg class="b3-menu__action${options.action === "iconCloseRound" ? " b3-menu__action--close" : ""}"><use xlink:href="#${options.action}"></use></svg>`;

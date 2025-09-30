@@ -29,6 +29,11 @@
       &:hover {
         background-color: transparent;
       }
+
+      svg, img {
+        height: 20px;
+        width: 20px;
+      }
     }
 
     &__graphic {
@@ -427,7 +432,7 @@
 }
 
 .b3-menu {
-  &__accelerator {
+  &__accelerator--hotkey {
     display: none;
   }
 

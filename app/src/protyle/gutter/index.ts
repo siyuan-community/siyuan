@@ -95,16 +95,30 @@ export class Gutter {
                     }
                 });
                 if (avElement.querySelector('.block__icon[data-type="av-sort"]')?.classList.contains("block__icon--active")) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    return;
+                    const bodyElements = avElement.querySelectorAll(".av__body");
+                    if (bodyElements.length === 1) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                    } else if (["template", "created", "updated"].includes(bodyElements[0].getAttribute("data-dtype"))) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                    }
                 }
-                const rowElement = avElement.querySelector(`.av__row[data-id="${buttonElement.dataset.rowId}"]`);
+                const rowElement = avElement.querySelector(`.av__body${buttonElement.dataset.groupId ? `[data-group-id="${buttonElement.dataset.groupId}"]` : ""} .av__row[data-id="${buttonElement.dataset.rowId}"]`);
+                if (!rowElement.classList.contains("av__row--select")) {
+                    avElement.querySelectorAll(".av__row--select:not(.av__row--header)").forEach(item => {
+                        item.classList.remove("av__row--select");
+                        item.querySelector("use").setAttribute("xlink:href", "#iconUncheck");
+                    });
+                }
                 rowElement.classList.add("av__row--select");
                 rowElement.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconCheck");
                 updateHeader(rowElement as HTMLElement);
                 avElement.querySelectorAll(".av__row--select:not(.av__row--header)").forEach(item => {
-                    selectIds.push(item.getAttribute("data-id"));
+                    const groupId = (hasClosestByClassName(item, "av__body") as HTMLElement)?.dataset.groupId || "";
+                    selectIds.push(item.getAttribute("data-id") + (groupId ? "@" + groupId : ""));
                     selectElements.push(item);
                 });
             } else {
@@ -269,16 +283,19 @@ export class Gutter {
                     const srcIDs = [Lute.NewNodeID()];
                     const previousID = event.altKey ? (rowElement.previousElementSibling.getAttribute("data-id") || "") : buttonElement.dataset.rowId;
                     const newUpdated = dayjs().format("YYYYMMDDHHmmss");
+                    const groupID = rowElement.parentElement.getAttribute("data-group-id");
                     transaction(protyle, [{
                         action: "insertAttrViewBlock",
                         avID,
                         previousID,
                         srcs: [{
+                            itemID: Lute.NewNodeID(),
                             id: srcIDs[0],
                             isDetached: true,
                             content: ""
                         }],
                         blockID: id,
+                        groupID,
                     }, {
                         action: "doUpdateUpdated",
                         id,
@@ -292,7 +309,7 @@ export class Gutter {
                         id,
                         data: blockElement.getAttribute("updated")
                     }]);
-                    insertAttrViewBlockAnimation(protyle, blockElement, srcIDs, previousID, avID);
+                    insertAttrViewBlockAnimation({protyle, blockElement, srcIDs, previousId: previousID, groupID});
                     if (event.altKey) {
                         this.element.querySelectorAll("button").forEach(item => {
                             item.dataset.rowId = srcIDs[0];
@@ -553,17 +570,13 @@ export class Gutter {
     public renderMultipleMenu(protyle: IProtyle, selectsElement: Element[]) {
         let isList = false;
         let isContinue = false;
-        let hasEmbedBlock = false;
         selectsElement.find((item, index) => {
             if (item.classList.contains("li")) {
                 isList = true;
                 return true;
             }
-            if (item.classList.contains("sb") || item.classList.contains("p")) {
-                hasEmbedBlock = true;
-            }
             if (item.nextElementSibling && selectsElement[index + 1] &&
-                item.nextElementSibling.isSameNode(selectsElement[index + 1])) {
+                item.nextElementSibling === selectsElement[index + 1]) {
                 isContinue = true;
             } else if (index !== selectsElement.length - 1) {
                 isContinue = false;
@@ -610,19 +623,16 @@ export class Gutter {
                     type: "Blocks2Blockquote"
                 }));
             }
-            // 多选引用转换为块的时候 id 不一致
-            if (!hasEmbedBlock) {
-                turnIntoSubmenu.push(this.turnsInto({
-                    menuId: "paragraph",
-                    icon: "iconParagraph",
-                    label: window.siyuan.languages.paragraph,
-                    accelerator: window.siyuan.config.keymap.editor.heading.paragraph.custom,
-                    protyle,
-                    selectsElement,
-                    type: "Blocks2Ps",
-                    isContinue
-                }));
-            }
+            turnIntoSubmenu.push(this.turnsInto({
+                menuId: "paragraph",
+                icon: "iconParagraph",
+                label: window.siyuan.languages.paragraph,
+                accelerator: window.siyuan.config.keymap.editor.heading.paragraph.custom,
+                protyle,
+                selectsElement,
+                type: "Blocks2Ps",
+                isContinue
+            }));
             turnIntoSubmenu.push(this.turnsInto({
                 menuId: "heading1",
                 icon: "iconH1",
@@ -1672,7 +1682,10 @@ export class Gutter {
                 icon: "iconCopy",
                 label: `${window.siyuan.languages.copy} ${window.siyuan.languages.headings1}`,
                 click() {
-                    fetchPost("/api/block/getHeadingChildrenDOM", {id}, (response) => {
+                    fetchPost("/api/block/getHeadingChildrenDOM", {
+                        id,
+                        removeFoldAttr: nodeElement.getAttribute("fold") !== "1"
+                    }, (response) => {
                         if (isInAndroid()) {
                             window.JSAndroid.writeHTMLClipboard(protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
                         } else if (isInHarmony()) {
@@ -1688,7 +1701,10 @@ export class Gutter {
                 icon: "iconCut",
                 label: `${window.siyuan.languages.cut} ${window.siyuan.languages.headings1}`,
                 click() {
-                    fetchPost("/api/block/getHeadingChildrenDOM", {id}, (response) => {
+                    fetchPost("/api/block/getHeadingChildrenDOM", {
+                        id,
+                        removeFoldAttr: nodeElement.getAttribute("fold") !== "1"
+                    }, (response) => {
                         if (isInAndroid()) {
                             window.JSAndroid.writeHTMLClipboard(protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
                         } else if (isInHarmony()) {
@@ -1704,6 +1720,22 @@ export class Gutter {
                                     itemElement.remove();
                                 });
                             });
+                            if (protyle.wysiwyg.element.childElementCount === 0) {
+                                const newID = Lute.NewNodeID();
+                                const emptyElement = genEmptyElement(false, false, newID);
+                                protyle.wysiwyg.element.insertAdjacentElement("afterbegin", emptyElement);
+                                response.data.doOperations.push({
+                                    action: "insert",
+                                    data: emptyElement.outerHTML,
+                                    id: newID,
+                                    parentID: protyle.block.parentID
+                                });
+                                response.data.undoOperations.push({
+                                    action: "delete",
+                                    id: newID,
+                                });
+                                focusBlock(emptyElement);
+                            }
                             transaction(protyle, response.data.doOperations, response.data.undoOperations);
                         });
                     });
@@ -1722,6 +1754,22 @@ export class Gutter {
                                 itemElement.remove();
                             });
                         });
+                        if (protyle.wysiwyg.element.childElementCount === 0) {
+                            const newID = Lute.NewNodeID();
+                            const emptyElement = genEmptyElement(false, false, newID);
+                            protyle.wysiwyg.element.insertAdjacentElement("afterbegin", emptyElement);
+                            response.data.doOperations.push({
+                                action: "insert",
+                                data: emptyElement.outerHTML,
+                                id: newID,
+                                parentID: protyle.block.parentID
+                            });
+                            response.data.undoOperations.push({
+                                action: "delete",
+                                id: newID,
+                            });
+                            focusBlock(emptyElement);
+                        }
                         transaction(protyle, response.data.doOperations, response.data.undoOperations);
                     });
                 }
@@ -1793,21 +1841,21 @@ export class Gutter {
             }
         }
         window.siyuan.menus.menu.append(new MenuItem({
-            id: "jumpToParentNext",
-            label: window.siyuan.languages.jumpToParentNext,
-            accelerator: window.siyuan.config.keymap.editor.general.jumpToParentNext.custom,
-            click() {
-                hideElements(["select"], protyle);
-                jumpToParent(protyle, nodeElement, "next");
-            }
-        }).element);
-        window.siyuan.menus.menu.append(new MenuItem({
             id: "jumpToParentPrev",
             label: window.siyuan.languages.jumpToParentPrev,
             accelerator: window.siyuan.config.keymap.editor.general.jumpToParentPrev.custom,
             click() {
                 hideElements(["select"], protyle);
                 jumpToParent(protyle, nodeElement, "previous");
+            }
+        }).element);
+        window.siyuan.menus.menu.append(new MenuItem({
+            id: "jumpToParentNext",
+            label: window.siyuan.languages.jumpToParentNext,
+            accelerator: window.siyuan.config.keymap.editor.general.jumpToParentNext.custom,
+            click() {
+                hideElements(["select"], protyle);
+                jumpToParent(protyle, nodeElement, "next");
             }
         }).element);
         window.siyuan.menus.menu.append(new MenuItem({
@@ -2302,17 +2350,18 @@ export class Gutter {
                 let dataNodeId = nodeElement.getAttribute("data-node-id");
                 if (type === "NodeAttributeView" && target) {
                     const rowElement = hasClosestByClassName(target, "av__row");
-                    if (rowElement && !rowElement.classList.contains("av__row--header")) {
+                    if (rowElement && !rowElement.classList.contains("av__row--header") && rowElement.dataset.id) {
                         element = rowElement;
+                        const bodyElement = hasClosestByClassName(rowElement, "av__body") as HTMLElement;
                         let iconAriaLabel = isMac() ? window.siyuan.languages.rowTip : window.siyuan.languages.rowTip.replace("⇧", "Shift+");
                         if (protyle.disabled) {
                             iconAriaLabel = window.siyuan.languages.rowTip.substring(0, window.siyuan.languages.rowTip.indexOf("<br"));
                         } else if (rowElement.querySelector('[data-dtype="block"]')?.getAttribute("data-detached") === "true") {
                             iconAriaLabel = window.siyuan.languages.rowTip.substring(0, window.siyuan.languages.rowTip.lastIndexOf("<br"));
                         }
-                        html = `<button data-type="NodeAttributeViewRowMenu" data-node-id="${dataNodeId}" data-row-id="${rowElement.dataset.id}" class="ariaLabel" data-position="parentW" aria-label="${iconAriaLabel}"><svg><use xlink:href="#iconDrag"></use></svg><span ${protyle.disabled ? "" : 'draggable="true" class="fn__grab"'}></span></button>`;
+                        html = `<button data-type="NodeAttributeViewRowMenu" data-node-id="${dataNodeId}" data-row-id="${rowElement.dataset.id}" data-group-id="${bodyElement.dataset.groupId || ""}" class="ariaLabel" data-position="parentW" aria-label="${iconAriaLabel}"><svg><use xlink:href="#iconDrag"></use></svg><span ${protyle.disabled ? "" : 'draggable="true" class="fn__grab"'}></span></button>`;
                         if (!protyle.disabled) {
-                            html = `<button data-type="NodeAttributeViewRow" data-node-id="${dataNodeId}" data-row-id="${rowElement.dataset.id}" class="ariaLabel" data-position="parentW" aria-label="${isMac() ? window.siyuan.languages.addBelowAbove : window.siyuan.languages.addBelowAbove.replace("⌥", "Alt+")}"><svg><use xlink:href="#iconAdd"></use></svg></button>${html}`;
+                            html = `<button data-type="NodeAttributeViewRow" data-node-id="${dataNodeId}" data-row-id="${rowElement.dataset.id}" data-group-id="${bodyElement.dataset.groupId || ""}" class="ariaLabel" data-position="parentW" aria-label="${isMac() ? window.siyuan.languages.addBelowAbove : window.siyuan.languages.addBelowAbove.replace("⌥", "Alt+")}"><svg><use xlink:href="#iconAdd"></use></svg></button>${html}`;
                         }
                         break;
                     }
@@ -2329,7 +2378,7 @@ export class Gutter {
                         listItem = undefined;
                     }
                     // 标题必须显示
-                    if (!topElement.isSameNode(nodeElement) && type !== "NodeHeading") {
+                    if (topElement !== nodeElement && type !== "NodeHeading") {
                         nodeElement = topElement;
                         parentElement = hasClosestBlock(nodeElement.parentElement);
                         type = nodeElement.getAttribute("data-type");

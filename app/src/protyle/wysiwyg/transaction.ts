@@ -26,7 +26,7 @@ const removeTopElement = (updateElement: Element, protyle: IProtyle) => {
     // TODO 文档没有打开时，需要通过后台获取 getTopAloneElement
     const topAloneElement = getTopAloneElement(updateElement);
     const doOperations: IOperation[] = [];
-    if (!topAloneElement.isSameNode(updateElement)) {
+    if (topAloneElement !== updateElement) {
         updateElement.remove();
         doOperations.push({
             action: "delete",
@@ -104,7 +104,7 @@ const promiseTransaction = () => {
                     // 反链中有多个相同块的情况
                     Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`)).forEach(item => {
                         if (!isInEmbedBlock(item)) {
-                            if (range && (item.isSameNode(range.startContainer) || item.contains(range.startContainer))) {
+                            if (range && (item === range.startContainer || item.contains(range.startContainer))) {
                                 // 正在编辑的块不能进行更新
                             } else {
                                 item.outerHTML = operation.data.replace("<wbr>", "");
@@ -643,6 +643,9 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         return;
     }
     if (operation.action === "move") {
+        if (operation.context?.ignoreProcess === "true") {
+            return;
+        }
         /// #if !MOBILE
         if (updateElements.length === 0) {
             // 打开两个相同的文档 A、A1，从 A 拖拽块 B 到 A1，在后续 ws 处理中，无法获取到拖拽出去的 B
@@ -754,10 +757,16 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         return;
     }
     if (operation.action === "insert") {
+        if (operation.context?.ignoreProcess === "true") {
+            return;
+        }
         const cursorElements = [];
         if (operation.previousID) {
             const previousElement = protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.previousID}"]`);
-            if (previousElement.length === 0 && protyle.options.backlinkData && isUndo && getSelection().rangeCount > 0) {
+            if (previousElement.length === 0 && isUndo && protyle.wysiwyg.element.childElementCount === 0) {
+                // https://github.com/siyuan-note/siyuan/issues/15396 操作后撤销
+                protyle.wysiwyg.element.innerHTML = operation.data;
+            } else if (previousElement.length === 0 && protyle.options.backlinkData && isUndo && getSelection().rangeCount > 0) {
                 // 反链面板删除超级块中的最后一个段落块后撤销
                 const blockElement = hasClosestBlock(getSelection().getRangeAt(0).startContainer);
                 if (blockElement) {
@@ -851,7 +860,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         }
         return;
     }
-    if (["addAttrViewCol", "insertAttrViewBlock", "updateAttrViewCol", "updateAttrViewColOptions",
+    if (["addAttrViewCol", "updateAttrViewCol", "updateAttrViewColOptions",
         "updateAttrViewColOption", "updateAttrViewCell", "sortAttrViewRow", "sortAttrViewCol", "setAttrViewColHidden",
         "setAttrViewColWrap", "setAttrViewColWidth", "removeAttrViewColOption", "setAttrViewName", "setAttrViewFilters",
         "setAttrViewSorts", "setAttrViewColCalc", "removeAttrViewCol", "updateAttrViewColNumberFormat", "removeAttrViewBlock",
@@ -860,13 +869,15 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         "updateAttrViewColRelation", "setAttrViewPageSize", "updateAttrViewColRollup", "sortAttrViewKey", "setAttrViewColDesc",
         "duplicateAttrViewKey", "setAttrViewViewDesc", "setAttrViewCoverFrom", "setAttrViewCoverFromAssetKeyID",
         "setAttrViewBlockView", "setAttrViewCardSize", "setAttrViewCardAspectRatio", "hideAttrViewName", "setAttrViewShowIcon",
-        "setAttrViewWrapField", "setAttrViewGroup"].includes(operation.action)) {
+        "setAttrViewWrapField", "setAttrViewGroup", "removeAttrViewGroup", "hideAttrViewGroup", "sortAttrViewGroup",
+        "foldAttrViewGroup", "hideAttrViewAllGroups", "setAttrViewFitImage", "setAttrViewDisplayFieldName",
+        "insertAttrViewBlock"].includes(operation.action)) {
+        // 撤销 transaction 会进行推送，需使用推送来进行刷新最新数据 https://github.com/siyuan-note/siyuan/issues/13607
         if (!isUndo) {
-            // 撤销 transaction 会进行推送，需使用推送来进行刷新最新数据 https://github.com/siyuan-note/siyuan/issues/13607
             refreshAV(protyle, operation);
         } else if (operation.action === "setAttrViewName") {
             // setAttrViewName 同文档不会推送，需手动刷新
-            Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-av-id="${operation.id}"]`)).forEach((item: HTMLElement) => {
+            Array.from(protyle.wysiwyg.element.querySelectorAll(`.av[data-av-id="${operation.id}"]`)).forEach((item: HTMLElement) => {
                 const titleElement = item.querySelector(".av__title") as HTMLElement;
                 if (!titleElement) {
                     return;
@@ -1026,7 +1037,7 @@ export const turnsIntoTransaction = (options: {
                 hasEmbedBlock = true;
             }
             if (item.nextElementSibling && selectsElement[index + 1] &&
-                item.nextElementSibling.isSameNode(selectsElement[index + 1])) {
+                item.nextElementSibling === selectsElement[index + 1]) {
                 isContinue = true;
             } else if (index !== selectsElement.length - 1) {
                 isContinue = false;
@@ -1092,7 +1103,7 @@ export const turnsIntoTransaction = (options: {
                     action: "delete",
                     id,
                 });
-                if (item.isSameNode(selectsElement[index + 1]?.previousElementSibling)) {
+                if (item === selectsElement[index + 1]?.previousElementSibling) {
                     previousId = id;
                 } else {
                     previousId = undefined;
@@ -1198,7 +1209,11 @@ export const turnsOneInto = async (options: {
         }
     }
     const oldHTML = options.nodeElement.outerHTML;
-    const previousId = options.nodeElement.previousElementSibling?.getAttribute("data-node-id");
+    let previousId = options.nodeElement.previousElementSibling?.getAttribute("data-node-id");
+    if (!options.nodeElement.previousElementSibling && options.protyle.block.showAll) {
+        const response = await fetchSyncPost("/api/block/getBlockRelevantIDs", {id: options.id});
+        previousId = response.data.previousID;
+    }
     const parentId = options.nodeElement.parentElement.getAttribute("data-node-id") || options.protyle.block.parentID;
     // @ts-ignore
     const newHTML = options.protyle.lute[options.type](options.nodeElement.outerHTML, options.level);
@@ -1289,12 +1304,11 @@ export const transaction = (protyle: IProtyle, doOperations: IOperation[], undoO
             protyle.undo.add(doOperations, undoOperations, protyle);
         }
     }
-    window.clearTimeout(transactionsTimeout);
     // 加速折叠 https://github.com/siyuan-note/siyuan/issues/11828
-    if (doOperations.length === 1 && (
+    if ((doOperations.length === 1 && (
         doOperations[0].action === "unfoldHeading" || doOperations[0].action === "setAttrViewBlockView" ||
         (doOperations[0].action === "setAttrs" && doOperations[0].data.startsWith('{"fold":'))
-    )) {
+    )) || (doOperations.length === 2 && doOperations[0].action === "insertAttrViewBlock")) {
         // 防止 needDebounce 为 true
         protyle.transactionTime = time + Constants.TIMEOUT_INPUT * 2;
         fetchPost("/api/transactions", {
@@ -1325,6 +1339,7 @@ export const transaction = (protyle: IProtyle, doOperations: IOperation[], undoO
         });
         return;
     }
+    window.clearTimeout(transactionsTimeout);
     if (needDebounce) {
         // 不能覆盖 undoOperations https://github.com/siyuan-note/siyuan/issues/3727
         window.siyuan.transactions[window.siyuan.transactions.length - 1].protyle = protyle;

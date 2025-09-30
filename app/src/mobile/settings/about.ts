@@ -95,6 +95,22 @@ export const initAbout = () => {
     <div class="b3-label__text">${window.siyuan.languages.dataRepoAutoPurgeRetentionIndexesDaily}</div>
 </div>
 <div class="b3-label">
+    ${window.siyuan.languages.vacuumDataIndex}
+    <div class="fn__hr"></div>
+    <button class="b3-button b3-button--outline fn__block" id="vacuumDataIndex">
+       <svg><use xlink:href="#iconRefresh"></use></svg>${window.siyuan.languages.vacuumDataIndex}
+    </button>
+    <div class="b3-label__text">${window.siyuan.languages.vacuumDataIndexTip}</div>
+</div>
+<div class="b3-label">
+    ${window.siyuan.languages.rebuildDataIndex}
+    <div class="fn__hr"></div>
+    <button class="b3-button b3-button--outline fn__block" id="rebuildDataIndex">
+       <svg><use xlink:href="#iconRefresh"></use></svg>${window.siyuan.languages.rebuildDataIndex}
+    </button>
+    <div class="b3-label__text">${window.siyuan.languages.rebuildDataIndexTip}</div>
+</div>
+<div class="b3-label">
     ${window.siyuan.languages.systemLog}
     <div class="fn__hr"></div>
     <button class="b3-button b3-button--outline fn__block" id="exportLog">
@@ -182,7 +198,7 @@ export const initAbout = () => {
             const importKeyElement = modelMainElement.querySelector("#importKey");
             modelMainElement.firstElementChild.addEventListener("click", (event) => {
                 let target = event.target as HTMLElement;
-                while (target && !target.isSameNode(modelMainElement)) {
+                while (target && (target !== modelMainElement)) {
                     if (target.id === "authCode") {
                         setAccessAuthCode();
                         event.preventDefault();
@@ -280,6 +296,16 @@ export const initAbout = () => {
                         fetchPost("/api/system/exportConf", {}, response => {
                             openByMobile(response.data.zip);
                         });
+                        event.preventDefault();
+                        event.stopPropagation();
+                        break;
+                    } else if (target.id === "vacuumDataIndex") {
+                        fetchPost("/api/system/vacuumDataIndex", {}, () => {});
+                        event.preventDefault();
+                        event.stopPropagation();
+                        break;
+                    } else if (target.id === "rebuildDataIndex") {
+                        fetchPost("/api/system/rebuildDataIndex", {}, () => {});
                         event.preventDefault();
                         event.stopPropagation();
                         break;

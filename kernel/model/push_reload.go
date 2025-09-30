@@ -18,7 +18,6 @@ package model
 
 import (
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -38,25 +37,22 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
-func refreshDocInfo(tree *parse.Tree, size uint64) {
+func refreshDocInfo(tree *parse.Tree) {
+	refreshDocInfoWithSize(tree, filesys.TreeSize(tree))
+}
+
+func refreshDocInfoWithSize(tree *parse.Tree, size uint64) {
 	refreshDocInfo0(tree, size)
 	refreshParentDocInfo(tree)
 }
 
 func refreshParentDocInfo(tree *parse.Tree) {
+	parentTree := loadParentTree(tree)
+	if nil == parentTree {
+		return
+	}
+
 	luteEngine := lute.New()
-	boxDir := filepath.Join(util.DataDir, tree.Box)
-	parentDir := path.Dir(tree.Path)
-	if parentDir == boxDir || parentDir == "/" {
-		return
-	}
-
-	parentPath := parentDir + ".sy"
-	parentTree, err := filesys.LoadTree(tree.Box, parentPath, luteEngine)
-	if err != nil {
-		return
-	}
-
 	renderer := render.NewJSONRenderer(parentTree, luteEngine.RenderOptions)
 	data := renderer.Render()
 	refreshDocInfo0(parentTree, uint64(len(data)))
@@ -310,7 +306,7 @@ func updateAttributeViewBlockText(updatedDefNodes map[string]*ast.Node) {
 
 			for _, blockValue := range blockValues.Values {
 				if blockValue.Block.ID == updatedDefNode.ID {
-					newIcon, newContent := getNodeAvBlockText(updatedDefNode)
+					newIcon, newContent := getNodeAvBlockText(updatedDefNode, avID)
 					if newIcon != blockValue.Block.Icon {
 						blockValue.Block.Icon = newIcon
 						changedAv = true
@@ -325,6 +321,8 @@ func updateAttributeViewBlockText(updatedDefNodes map[string]*ast.Node) {
 			if changedAv {
 				av.SaveAttributeView(attrView)
 				ReloadAttrView(avID)
+
+				refreshRelatedSrcAvs(avID)
 			}
 		}
 	}

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
+	"github.com/88250/lute/ast"
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/job"
 	"github.com/siyuan-community/siyuan/kernel/model"
@@ -289,5 +290,5 @@ func FilterUploadFileName(name string) string {
 }
 
 func AssetName(name string) string {
-	return util.AssetName(name)
+	return util.AssetName(name, ast.NewNodeID())
 }

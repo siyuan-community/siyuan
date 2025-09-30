@@ -58,7 +58,7 @@ export class Breadcrumb {
 <span class="protyle-breadcrumb__space"></span>
 <button class="protyle-breadcrumb__icon fn__none ariaLabel" aria-label="${updateHotkeyTip(window.siyuan.config.keymap.editor.general.exitFocus.custom)}" data-type="exit-focus">${window.siyuan.languages.exitFocus}</button>
 ${padHTML}
-<button class="block__icon fn__flex-center ariaLabel${window.siyuan.config.readonly ? " fn__none" : ""}" aria-label="${window.siyuan.languages.lockEdit}" data-type="readonly"><svg><use xlink:href="#iconUnlock"></use></svg></button>
+<button class="block__icon fn__flex-center ariaLabel${window.siyuan.config.readonly ? " fn__none" : ""}" aria-label="${window.siyuan.languages.lockEdit}" data-type="readonly" data-subtype="unlock"><svg><use xlink:href="#iconUnlock"></use></svg></button>
 <button class="block__icon fn__flex-center ariaLabel" data-type="doc" aria-label="${isMac() ? window.siyuan.languages.gutterTip2 : window.siyuan.languages.gutterTip2.replace("⇧", "Shift+")}"><svg><use xlink:href="#iconFile"></use></svg></button>
 <button class="block__icon fn__flex-center ariaLabel" data-type="more" aria-label="${window.siyuan.languages.more}"><svg><use xlink:href="#iconMore"></use></svg></button>
 <button class="block__icon fn__flex-center fn__none ariaLabel" data-type="context" aria-label="${window.siyuan.languages.context}"><svg><use xlink:href="#iconAlignCenter"></use></svg></button>`;
@@ -363,7 +363,7 @@ ${padHTML}
                     click() {
                         if (!needSubscribe()) {
                             confirmDialog("📦 " + window.siyuan.languages.uploadAssets2CDN, window.siyuan.languages.uploadAssets2CDNConfirmTip, () => {
-                                fetchPost("/api/asset/uploadCloud", {id: protyle.block.parentID});
+                                fetchPost("/api/asset/uploadCloud", {id: protyle.block.id});
                             });
                         }
                     }
@@ -444,10 +444,14 @@ ${padHTML}
                         setEditMode(protyle, "wysiwyg");
                         protyle.scroll.lastScrollTop = 0;
                         fetchPost("/api/filetree/getDoc", {
-                            id: protyle.block.parentID,
-                            size: window.siyuan.config.editor.dynamicLoadBlocks,
+                            id: protyle.block.id,
+                            size: protyle.block.id === protyle.block.rootID ? window.siyuan.config.editor.dynamicLoadBlocks : Constants.SIZE_GET_MAX,
                         }, getResponse => {
-                            onGet({data: getResponse, protyle});
+                            onGet({
+                                data: getResponse,
+                                protyle,
+                                action: protyle.block.id === protyle.block.rootID ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HTML, Constants.CB_GET_UNUNDO] : [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS, Constants.CB_GET_UNUNDO, Constants.CB_GET_HTML]
+                            });
                         });
                         /// #if !MOBILE
                         saveLayout();
