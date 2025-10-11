@@ -871,7 +871,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
         "setAttrViewBlockView", "setAttrViewCardSize", "setAttrViewCardAspectRatio", "hideAttrViewName", "setAttrViewShowIcon",
         "setAttrViewWrapField", "setAttrViewGroup", "removeAttrViewGroup", "hideAttrViewGroup", "sortAttrViewGroup",
         "foldAttrViewGroup", "hideAttrViewAllGroups", "setAttrViewFitImage", "setAttrViewDisplayFieldName",
-        "insertAttrViewBlock"].includes(operation.action)) {
+        "insertAttrViewBlock", "setAttrViewColDateFillSpecificTime"].includes(operation.action)) {
         // 撤销 transaction 会进行推送，需使用推送来进行刷新最新数据 https://github.com/siyuan-note/siyuan/issues/13607
         if (!isUndo) {
             refreshAV(protyle, operation);
@@ -1026,15 +1026,11 @@ export const turnsIntoTransaction = (options: {
             selectsElement = [options.nodeElement];
         }
         let isContinue = false;
-        let hasEmbedBlock = false;
         let isList = false;
         selectsElement.find((item, index) => {
             if (item.classList.contains("li")) {
                 isList = true;
                 return true;
-            }
-            if (item.classList.contains("bq") || item.classList.contains("sb") || item.classList.contains("p")) {
-                hasEmbedBlock = true;
             }
             if (item.nextElementSibling && selectsElement[index + 1] &&
                 item.nextElementSibling === selectsElement[index + 1]) {
@@ -1044,7 +1040,7 @@ export const turnsIntoTransaction = (options: {
                 return true;
             }
         });
-        if (isList || (hasEmbedBlock && options.type === "Blocks2Ps")) {
+        if (isList) {
             return;
         }
         if (selectsElement.length === 1 && options.type === "Blocks2Hs" &&

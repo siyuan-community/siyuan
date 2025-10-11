@@ -262,6 +262,9 @@ func InitConf() {
 	if 1 > Conf.Editor.HistoryRetentionDays {
 		Conf.Editor.HistoryRetentionDays = 30
 	}
+	if 3650 < Conf.Editor.HistoryRetentionDays {
+		Conf.Editor.HistoryRetentionDays = 3650
+	}
 	if conf.MinDynamicLoadBlocks > Conf.Editor.DynamicLoadBlocks {
 		Conf.Editor.DynamicLoadBlocks = conf.MinDynamicLoadBlocks
 	}
@@ -699,7 +702,9 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		logging.LogInfof("exited kernel")
-		util.WebSocketServer.Close()
+		if nil != util.WebSocketServer {
+			util.WebSocketServer.Close()
+		}
 		util.HttpServing = false
 		os.Exit(logging.ExitCodeOk)
 	}()

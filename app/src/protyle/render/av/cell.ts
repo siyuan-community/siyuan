@@ -4,7 +4,7 @@ import {openMenuPanel} from "./openMenuPanel";
 import {updateAttrViewCellAnimation} from "./action";
 import {isNotCtrl} from "../../util/compatibility";
 import {isDynamicRef, objEquals} from "../../../util/functions";
-import {fetchPost} from "../../../util/fetch";
+import {fetchPost, fetchSyncPost} from "../../../util/fetch";
 import {focusBlock, focusByRange} from "../../util/selection";
 import * as dayjs from "dayjs";
 import {unicode2Emoji} from "../../../emoji";
@@ -497,16 +497,17 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
     cellRect = cellElements[0].getBoundingClientRect();
     let html = "";
     let height = cellRect.height;
-    let style;
+    const cssStyle = getComputedStyle(cellElements[0]);
+    let style = `font-family:${cssStyle.fontFamily};font-size:${cssStyle.fontSize};line-height:${cssStyle.lineHeight};padding:${cssStyle.padding};position:absolute;top: ${cellRect.top}px;`;
     if (contentElement) {
         const contentRect = contentElement.getBoundingClientRect();
         if (cellRect.bottom > contentRect.bottom) {
             height = contentRect.bottom - cellRect.top;
         }
         const width = Math.min(Math.max(cellRect.width, 25), contentRect.width);
-        style = `style="padding: ${viewType === "table" ? 6 : 3}px 8px;position:absolute;left: ${(cellRect.left < contentRect.left || cellRect.left + width > contentRect.right) ? contentRect.left : cellRect.left}px;top: ${cellRect.top}px;width:${width}px;height: ${height}px"`;
+        style = `style='height: ${height}px;width:${width}px;left: ${(cellRect.left < contentRect.left || cellRect.left + width > contentRect.right) ? contentRect.left : cellRect.left}px;${style}'`;
     } else {
-        style = `style="padding: ${viewType === "table" ? 6 : 3}px 8px;position:absolute;left: ${cellRect.left}px;top: ${cellRect.top}px;width:${Math.max(cellRect.width, 25)}px;height: ${height}px"`;
+        style = `style='height: ${height}px;width:${Math.max(cellRect.width, 25)}px;left: ${cellRect.left}px;${style}'`;
     }
 
     if (["text", "email", "phone", "block", "template"].includes(type)) {
@@ -704,8 +705,8 @@ const updateCellValueByInput = (protyle: IProtyle, type: TAVCol, blockElement: H
     });
 };
 
-export const updateCellsValue = (protyle: IProtyle, nodeElement: HTMLElement, value?: any,
-                                 cElements?: HTMLElement[], columns?: IAVColumn[], html?: string, getOperations = false) => {
+export const updateCellsValue = async (protyle: IProtyle, nodeElement: HTMLElement, value?: any,
+                                       cElements?: HTMLElement[], columns?: IAVColumn[], html?: string, getOperations = false) => {
     const doOperations: IOperation[] = [];
     const undoOperations: IOperation[] = [];
 
@@ -728,7 +729,8 @@ export const updateCellsValue = (protyle: IProtyle, nodeElement: HTMLElement, va
     }
     const isCustomAttr = hasClosestByClassName(cellElements[0], "custom-attr");
     const viewType = nodeElement.getAttribute("data-av-type") as TAVView;
-    cellElements.forEach((item: HTMLElement, elementIndex) => {
+    for (let elementIndex = 0; elementIndex < cellElements.length; elementIndex++) {
+        let item = cellElements[elementIndex] as HTMLElement;
         const rowID = getFieldIdByCellElement(item, viewType);
         if (!rowID) {
             return;
@@ -865,6 +867,12 @@ export const updateCellsValue = (protyle: IProtyle, nodeElement: HTMLElement, va
         }
         // formattedContent 在单元格渲染时没有用到，需对比保持一致
         if (type === "date") {
+            if (!(value && typeof value === "object" && typeof value.isNotTime === "boolean")) {
+                const response = await fetchSyncPost("/api/av/getAttributeViewKeysByID", {avID: avID, keyIDs: [colId]});
+                if (response.data[0].date) {
+                    cellValue.date.isNotTime = !response.data[0].date.fillSpecificTime;
+                }
+            }
             cellValue.date.formattedContent = oldValue.date.formattedContent;
         }
         if (objEquals(cellValue, oldValue)) {
@@ -893,7 +901,7 @@ export const updateCellsValue = (protyle: IProtyle, nodeElement: HTMLElement, va
         } else {
             updateAttrViewCellAnimation(item, cellValue);
         }
-    });
+    }
     if (getOperations) {
         return {doOperations, undoOperations};
     }

@@ -154,8 +154,11 @@ func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, itemID s
 	}
 
 	// 单独处理汇总
-	if nil != value.Rollup && KeyTypeRollup == value.Type && nil != filter.Value && KeyTypeRollup == filter.Value.Type &&
-		nil != filter.Value.Rollup && 0 < len(filter.Value.Rollup.Contents) {
+	if nil != value.Rollup && KeyTypeRollup == value.Type && nil != filter.Value && KeyTypeRollup == filter.Value.Type && nil != filter.Value.Rollup {
+		if 1 > len(filter.Value.Rollup.Contents) {
+			return true
+		}
+
 		key, _ := attrView.GetKey(value.KeyID)
 		if nil == key {
 			return false
@@ -214,8 +217,11 @@ func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, itemID s
 	}
 
 	// 单独处理关联
-	if nil != value.Relation && KeyTypeRelation == value.Type && nil != filter.Value && KeyTypeRelation == filter.Value.Type &&
-		nil != filter.Value.Relation && 0 < len(filter.Value.Relation.BlockIDs) {
+	if nil != value.Relation && KeyTypeRelation == value.Type && nil != filter.Value && KeyTypeRelation == filter.Value.Type && nil != filter.Value.Relation {
+		if 1 > len(filter.Value.Relation.BlockIDs) {
+			return true
+		}
+
 		for _, relationValue := range value.Relation.Contents {
 			filterValue := &Value{Type: KeyTypeBlock, Block: &ValueBlock{Content: filter.Value.Relation.BlockIDs[0]}}
 
@@ -247,7 +253,11 @@ func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, itemID s
 	}
 
 	// 单独处理资源
-	if nil != value.MAsset && KeyTypeMAsset == value.Type && nil != filter.Value && KeyTypeMAsset == filter.Value.Type && 0 < len(filter.Value.MAsset) {
+	if nil != value.MAsset && KeyTypeMAsset == value.Type && nil != filter.Value && KeyTypeMAsset == filter.Value.Type {
+		if 1 > len(filter.Value.MAsset) {
+			return true
+		}
+
 		key, _ := attrView.GetKey(value.KeyID)
 		if nil == key {
 			return false
@@ -530,6 +540,12 @@ func (value *Value) filter(other *Value, relativeDate, relativeDate2 *RelativeDa
 			case FilterOperatorIsFalse:
 				return !value.Checkbox.Checked
 			}
+		}
+	case KeyTypeRelation: // 过滤汇总字段，并且汇总目标是关联字段时才会进入该分支
+		if nil != value.Relation && 0 < len(value.Relation.Contents) && nil != value.Relation.Contents[0].Block &&
+			nil != other && nil != other.Relation && 0 < len(other.Relation.BlockIDs) {
+			filterValue := &Value{Type: KeyTypeBlock, Block: &ValueBlock{Content: other.Relation.BlockIDs[0]}}
+			return filterTextContent(operator, value.Relation.Contents[0].Block.Content, filterValue.Block.Content)
 		}
 	}
 	return false
