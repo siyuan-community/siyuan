@@ -27,7 +27,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
@@ -90,9 +90,9 @@ func InsertLocalAssets(id string, assetAbsPaths []string, isUpload bool) (succMa
 			return
 		}
 
-		if existAsset := sql.QueryAssetByHash(hash); nil != existAsset {
+		if existAssetPath := GetAssetPathByHash(hash); "" != existAssetPath {
 			// 已经存在同样数据的资源文件的话不重复保存
-			succMap[baseName] = existAsset.Path
+			succMap[baseName] = existAssetPath
 		} else {
 			fName = util.AssetName(fName, ast.NewNodeID())
 			writePath := filepath.Join(assetsDirPath, fName)
@@ -105,7 +105,10 @@ func InsertLocalAssets(id string, assetAbsPaths []string, isUpload bool) (succMa
 				return
 			}
 			f.Close()
-			succMap[baseName] = "assets/" + fName
+
+			p := "assets/" + fName
+			succMap[baseName] = p
+			cache.SetAssetHash(hash, p)
 		}
 	}
 	IncSync()
@@ -197,9 +200,9 @@ func Upload(c *gin.Context) {
 			break
 		}
 
-		if existAsset := sql.QueryAssetByHash(hash); nil != existAsset {
+		if existAssetPath := GetAssetPathByHash(hash); "" != existAssetPath {
 			// 已经存在同样数据的资源文件的话不重复保存
-			succMap[baseName] = existAsset.Path
+			succMap[baseName] = existAssetPath
 		} else {
 			if skipIfDuplicated {
 				// 复制 PDF 矩形注解时不再重复插入图片 No longer upload image repeatedly when copying PDF rectangle annotation https://github.com/siyuan-note/siyuan/issues/10666
@@ -310,7 +313,9 @@ func Upload(c *gin.Context) {
 				os.RemoveAll(tmpDir2)
 			}
 
-			succMap[baseName] = strings.TrimPrefix(path.Join(relAssetsDirPath, fName), "/")
+			p := strings.TrimPrefix(path.Join(relAssetsDirPath, fName), "/")
+			succMap[baseName] = p
+			cache.SetAssetHash(hash, p)
 		}
 	}
 

@@ -1,8 +1,10 @@
 import {
     hasClosestBlock,
     hasClosestByAttribute,
-    hasClosestByClassName, hasClosestByTag,
-    hasTopClosestByClassName, isInEmbedBlock
+    hasClosestByClassName,
+    hasClosestByTag,
+    hasTopClosestByClassName,
+    isInEmbedBlock
 } from "../protyle/util/hasClosest";
 import {MenuItem} from "./Menu";
 import {focusBlock, focusByRange, focusByWbr, getEditorRange, selectAll,} from "../protyle/util/selection";
@@ -24,13 +26,7 @@ import {transaction, updateTransaction} from "../protyle/wysiwyg/transaction";
 import {openMenu} from "./commonMenuItem";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {Constants} from "../constants";
-import {
-    copyPlainText,
-    readClipboard,
-    setStorageVal,
-    updateHotkeyTip,
-    writeText
-} from "../protyle/util/compatibility";
+import {copyPlainText, readClipboard, setStorageVal, updateHotkeyTip, writeText} from "../protyle/util/compatibility";
 import {preventScroll} from "../protyle/scroll/preventScroll";
 import {onGet} from "../protyle/util/onGet";
 import {getAllModels} from "../layout/getAll";
@@ -99,7 +95,7 @@ const renderAssetList = (element: Element, k: string, position: IPosition, exts:
 };
 
 export const assetMenu = (protyle: IProtyle, position: IPosition, callback?: (url: string, name: string) => void, exts?: string[]) => {
-    const menu = new Menu("background-asset");
+    const menu = new Menu(Constants.MENU_BACKGROUND_ASSET);
     if (menu.isOpen) {
         return;
     }
@@ -218,6 +214,7 @@ export const fileAnnotationRefMenu = (protyle: IProtyle, refElement: HTMLElement
     const id = nodeElement.getAttribute("data-node-id");
     let oldHTML = nodeElement.outerHTML;
     window.siyuan.menus.menu.remove();
+    window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_FILE_ANNOTATION_REF);
     let anchorElement: HTMLInputElement;
     window.siyuan.menus.menu.append(new MenuItem({
         id: "idAndAnchor",
@@ -352,6 +349,7 @@ export const refMenu = (protyle: IProtyle, element: HTMLElement) => {
     const id = nodeElement.getAttribute("data-node-id");
     let oldHTML = nodeElement.outerHTML;
     window.siyuan.menus.menu.remove();
+    window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_REF);
     if (!protyle.disabled) {
         window.siyuan.menus.menu.append(new MenuItem({
             id: "anchor",
@@ -710,6 +708,7 @@ export const refMenu = (protyle: IProtyle, element: HTMLElement) => {
 export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
     const range = getEditorRange(nodeElement);
     window.siyuan.menus.menu.remove();
+    window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_CONTEXT);
     /// #if MOBILE
     protyle.toolbar.showContent(protyle, range, nodeElement);
     /// #else
@@ -826,6 +825,7 @@ export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
             icon: "iconPaste",
             accelerator: "⌘V",
             async click() {
+                focusByRange(getEditorRange(nodeElement));
                 if (document.queryCommandSupported("paste")) {
                     document.execCommand("paste");
                 } else {
@@ -851,6 +851,7 @@ export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
             id: "pasteEscaped",
             label: window.siyuan.languages.pasteEscaped,
             click() {
+                focusByRange(getEditorRange(nodeElement));
                 pasteEscaped(protyle, nodeElement);
             }
         }).element);
@@ -1078,6 +1079,7 @@ export const imgMenu = (protyle: IProtyle, range: Range, assetElement: HTMLEleme
     clientY: number
 }) => {
     window.siyuan.menus.menu.remove();
+    window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_IMG);
     const nodeElement = hasClosestBlock(assetElement);
     if (!nodeElement) {
         return;
@@ -1087,6 +1089,10 @@ export const imgMenu = (protyle: IProtyle, range: Range, assetElement: HTMLEleme
     const imgElement = assetElement.querySelector("img");
     const titleElement = assetElement.querySelector(".protyle-action__title span") as HTMLElement;
     const html = nodeElement.outerHTML;
+    let src = imgElement.getAttribute("src");
+    if (!src) {
+        src = "";
+    }
     if (!protyle.disabled) {
         window.siyuan.menus.menu.append(new MenuItem({
             id: "imageUrlAndTitleAndTooltipText",
@@ -1098,7 +1104,7 @@ export const imgMenu = (protyle: IProtyle, range: Range, assetElement: HTMLEleme
     <span data-action="copy" class="block__icon block__icon--show b3-tooltips b3-tooltips__e fn__flex-center" aria-label="${window.siyuan.languages.copy}">
         <svg><use xlink:href="#iconCopy"></use></svg>
     </span>   
-</div><textarea spellcheck="false" style="margin:4px 0;width: ${isMobile() ? "100%" : "360px"}" rows="1" class="b3-text-field">${imgElement.getAttribute("src")}</textarea><div class="fn__hr"></div><div class="fn__flex">
+</div><textarea spellcheck="false" style="margin:4px 0;width: ${isMobile() ? "100%" : "360px"}" rows="1" class="b3-text-field">${src}</textarea><div class="fn__hr"></div><div class="fn__flex">
     <span class="fn__flex-center">${window.siyuan.languages.title}</span>
     <span class="fn__space"></span>
     <span data-action="copy" class="block__icon block__icon--show b3-tooltips b3-tooltips__e fn__flex-center" aria-label="${window.siyuan.languages.copy}">
@@ -1454,6 +1460,7 @@ export const imgMenu = (protyle: IProtyle, range: Range, assetElement: HTMLEleme
 
 export const linkMenu = (protyle: IProtyle, linkElement: HTMLElement, focusText = false) => {
     window.siyuan.menus.menu.remove();
+    window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_A);
     const nodeElement = hasClosestBlock(linkElement);
     if (!nodeElement) {
         return;
@@ -1588,7 +1595,7 @@ style="margin:4px 0;width: ${isMobile() ? "100%" : "360px"}" class="b3-text-fiel
     if (protyle.disabled) {
         window.siyuan.menus.menu.append(new MenuItem({
             id: "copyAHref",
-            label: window.siyuan.languages.copy + " " + window.siyuan.languages.replaceTypes.aHref,
+            label: window.siyuan.languages.copyAHref,
             icon: "iconLink",
             click() {
                 writeText(linkAddress);
@@ -1742,6 +1749,7 @@ style="margin:4px 0;width: ${isMobile() ? "100%" : "360px"}" class="b3-text-fiel
 
 export const tagMenu = (protyle: IProtyle, tagElement: HTMLElement) => {
     window.siyuan.menus.menu.remove();
+    window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_TAG);
     const nodeElement = hasClosestBlock(tagElement);
     if (!nodeElement) {
         return;
@@ -1900,6 +1908,7 @@ export const tagMenu = (protyle: IProtyle, tagElement: HTMLElement) => {
 
 export const inlineMathMenu = (protyle: IProtyle, element: Element) => {
     window.siyuan.menus.menu.remove();
+    window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_MATH);
     const nodeElement = hasClosestBlock(element);
     if (!nodeElement) {
         return;

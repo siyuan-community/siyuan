@@ -26,9 +26,10 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
+	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/siyuan-community/siyuan/kernel/bazaar"
-	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-community/siyuan/kernel/task"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 	"golang.org/x/mod/semver"
 )
@@ -254,6 +255,9 @@ func UninstallBazaarPlugin(pluginName, frontend string) error {
 	}
 	petals = tmp
 	savePetals(petals)
+
+	removePluginSet := hashset.New(pluginName)
+	pushReloadPlugin(nil, removePluginSet, "")
 	return nil
 }
 

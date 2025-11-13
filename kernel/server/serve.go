@@ -408,7 +408,7 @@ func serveAppearance(ginServer *gin.Engine) {
 		c.File(filePath)
 	})
 
-	siyuan.Static("/stage/", filepath.Join(util.WorkingDir, "stage"))
+	siyuan.Static("/stage", filepath.Join(util.WorkingDir, "stage"))
 }
 
 func serveCheckAuth(ginServer *gin.Engine) {

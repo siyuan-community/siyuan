@@ -5,7 +5,7 @@ import {confirmDialog} from "../dialog/confirmDialog";
 import {getSearch, isMobile, isValidAttrName} from "../util/functions";
 import {isLocalPath, movePathTo, moveToPath, pathPosix} from "../util/pathName";
 import {MenuItem} from "./Menu";
-import {saveExport} from "../protyle/export";
+import {onExport, saveExport} from "../protyle/export";
 import {isInAndroid, isInHarmony, openByMobile, writeText} from "../protyle/util/compatibility";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {hideMessage, showMessage} from "../dialog/message";
@@ -752,7 +752,50 @@ export const exportMd = (id: string) => {
                     }
                 },
                 ]
-            }
+            },
+            /// #else
+            {
+                id: "exportPDF",
+                label: window.siyuan.languages.print,
+                icon: "iconPDF",
+                ignore: !isInAndroid() && !isInHarmony(),
+                click: () => {
+                    const msgId = showMessage(window.siyuan.languages.exporting);
+                    const localData = window.siyuan.storage[Constants.LOCAL_EXPORTPDF];
+                    fetchPost("/api/export/exportPreviewHTML", {
+                        id,
+                        keepFold: localData.keepFold,
+                        merge: localData.mergeSubdocs,
+                    }, async response => {
+                        const servePath = window.location.protocol + "//" + window.location.host + "/";
+                        const html = await onExport(response, undefined, servePath, {type: "pdf", id});
+                        if (isInAndroid()) {
+                            window.JSAndroid.print(html);
+                        } else if (isInHarmony()) {
+                            window.JSHarmony.print(html);
+                        }
+
+                        setTimeout(() => {
+                            hideMessage(msgId);
+                        }, 3000);
+                    });
+                }
+            }, {
+                id: "exportHTML_SiYuan",
+                label: "HTML (SiYuan)",
+                iconClass: "ft__error",
+                icon: "iconHTML5",
+                click: () => {
+                    saveExport({type: "html", id});
+                }
+            }, {
+                id: "exportHTML_Markdown",
+                label: "HTML (Markdown)",
+                icon: "iconHTML5",
+                click: () => {
+                    saveExport({type: "htmlmd", id});
+                }
+            },
             /// #endif
         ]
     }).element;

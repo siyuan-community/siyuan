@@ -404,7 +404,8 @@ export class Gutter {
                     }
                 }
                 foldElement.classList.remove("protyle-wysiwyg--hl");
-            } else if (window.siyuan.shiftIsPressed && !protyle.disabled) {
+            } else if (event.shiftKey && !protyle.disabled) {
+                // 不使用 window.siyuan.shiftIsPressed ，否则窗口未激活时按 Shift 点击块标无法打开属性面板 https://github.com/siyuan-note/siyuan/issues/15075
                 openAttr(protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`), "bookmark", protyle);
             } else if (!window.siyuan.ctrlIsPressed && !window.siyuan.altIsPressed && !window.siyuan.shiftIsPressed) {
                 this.renderMenu(protyle, buttonElement);
@@ -874,9 +875,10 @@ export class Gutter {
                 id: "separator_quickMakeCard",
                 type: "separator"
             }).element);
+            const allCardsMade = !selectsElement.some(item => !item.hasAttribute(Constants.CUSTOM_RIFF_DECKS) && item.getAttribute("data-type") !== "NodeThematicBreak");
             window.siyuan.menus.menu.append(new MenuItem({
-                id: "quickMakeCard",
-                label: window.siyuan.languages.quickMakeCard,
+                id: allCardsMade ? "removeCard" : "quickMakeCard",
+                label: allCardsMade ? window.siyuan.languages.removeCard : window.siyuan.languages.quickMakeCard,
                 accelerator: window.siyuan.config.keymap.editor.general.quickMakeCard.custom,
                 icon: "iconRiffCard",
                 click() {
@@ -928,6 +930,7 @@ export class Gutter {
         const id = buttonElement.getAttribute("data-node-id");
         const selectsElement = protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select");
         if (selectsElement.length > 1) {
+            window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_BLOCK_MULTI);
             const match = Array.from(selectsElement).find(item => {
                 if (id === item.getAttribute("data-node-id")) {
                     return true;
@@ -936,6 +939,8 @@ export class Gutter {
             if (match) {
                 return this.renderMultipleMenu(protyle, Array.from(selectsElement));
             }
+        } else {
+            window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_BLOCK_SINGLE);
         }
 
         let nodeElement: Element;
@@ -1674,8 +1679,8 @@ export class Gutter {
                             blockRender(protyle, nodeElement);
                         }
                     }, {
-                        id: "showHeadingWithBlocks",
-                        label: window.siyuan.languages.showHeadingWithBlocks,
+                        id: "showHeadingOnlyBlocks",
+                        label: window.siyuan.languages.showHeadingOnlyBlocks,
                         iconHTML: "",
                         checked: nodeElement.getAttribute("custom-heading-mode") === "2",
                         click() {
@@ -1693,7 +1698,7 @@ export class Gutter {
                         iconHTML: "",
                         checked: !nodeElement.getAttribute("custom-heading-mode"),
                         click() {
-                            nodeElement.setAttribute("custom-heading-mode", "0");
+                            nodeElement.removeAttribute("custom-heading-mode");
                             fetchPost("/api/attr/setBlockAttrs", {
                                 id,
                                 attrs: {"custom-heading-mode": ""}
@@ -1769,8 +1774,8 @@ export class Gutter {
                         }
                         fetchPost("/api/block/getHeadingDeleteTransaction", {
                             id,
-                        }, (response) => {
-                            response.data.doOperations.forEach((operation: IOperation) => {
+                        }, (deleteResponse) => {
+                            deleteResponse.data.doOperations.forEach((operation: IOperation) => {
                                 protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
                                     itemElement.remove();
                                 });
@@ -1779,19 +1784,19 @@ export class Gutter {
                                 const newID = Lute.NewNodeID();
                                 const emptyElement = genEmptyElement(false, false, newID);
                                 protyle.wysiwyg.element.insertAdjacentElement("afterbegin", emptyElement);
-                                response.data.doOperations.push({
+                                deleteResponse.data.doOperations.push({
                                     action: "insert",
                                     data: emptyElement.outerHTML,
                                     id: newID,
                                     parentID: protyle.block.parentID
                                 });
-                                response.data.undoOperations.push({
+                                deleteResponse.data.undoOperations.push({
                                     action: "delete",
                                     id: newID,
                                 });
                                 focusBlock(emptyElement);
                             }
-                            transaction(protyle, response.data.doOperations, response.data.undoOperations);
+                            transaction(protyle, deleteResponse.data.doOperations, deleteResponse.data.undoOperations);
                         });
                     });
                 }
@@ -2000,10 +2005,11 @@ export class Gutter {
             }).element);
         }
         if (type !== "NodeThematicBreak" && !window.siyuan.config.readonly) {
+            const isCardMade = nodeElement.hasAttribute(Constants.CUSTOM_RIFF_DECKS);
             window.siyuan.menus.menu.append(new MenuItem({
-                id: "quickMakeCard",
+                id: isCardMade ? "removeCard" : "quickMakeCard",
                 icon: "iconRiffCard",
-                label: window.siyuan.languages.quickMakeCard,
+                label: isCardMade ? window.siyuan.languages.removeCard : window.siyuan.languages.quickMakeCard,
                 accelerator: window.siyuan.config.keymap.editor.general.quickMakeCard.custom,
                 click() {
                     quickMakeCard(protyle, [nodeElement]);

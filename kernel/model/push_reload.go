@@ -35,7 +35,44 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
+
+func PushReloadPlugin(upsertPluginSet, removePluginNameSet *hashset.Set, excludeApp string) {
+	pushReloadPlugin(upsertPluginSet, removePluginNameSet, excludeApp)
+}
+
+func pushReloadPlugin(upsertPluginSet, removePluginNameSet *hashset.Set, excludeApp string) {
+	upsertPlugins, removePlugins := []string{}, []string{}
+	if nil != upsertPluginSet {
+		for _, n := range upsertPluginSet.Values() {
+			upsertPlugins = append(upsertPlugins, n.(string))
+		}
+	}
+	if nil != removePluginNameSet {
+		for _, n := range removePluginNameSet.Values() {
+			removePlugins = append(removePlugins, n.(string))
+		}
+	}
+
+	pushReloadPlugin0(upsertPlugins, removePlugins, excludeApp)
+}
+
+func pushReloadPlugin0(upsertPlugins, removePlugins []string, excludeApp string) {
+	logging.LogInfof("reload plugins [upserts=%v, removes=%v]", upsertPlugins, removePlugins)
+	if "" == excludeApp {
+		util.BroadcastByType("main", "reloadPlugin", 0, "", map[string]interface{}{
+			"upsertPlugins": upsertPlugins,
+			"removePlugins": removePlugins,
+		})
+		return
+	}
+
+	util.BroadcastByTypeAndExcludeApp(excludeApp, "main", "reloadPlugin", 0, "", map[string]interface{}{
+		"upsertPlugins": upsertPlugins,
+		"removePlugins": removePlugins,
+	})
+}
 
 func refreshDocInfo(tree *parse.Tree) {
 	if nil == tree {

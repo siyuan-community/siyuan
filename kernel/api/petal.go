@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/88250/gulu"
+	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -60,4 +61,16 @@ func setPetalEnabled(c *gin.Context) {
 	}
 
 	ret.Data = data
+
+	var app string
+	if nil != arg["app"] {
+		app = arg["app"].(string)
+	}
+	if enabled {
+		upsertPluginSet := hashset.New(packageName)
+		model.PushReloadPlugin(upsertPluginSet, nil, app)
+	} else {
+		removePluginSet := hashset.New(packageName)
+		model.PushReloadPlugin(nil, removePluginSet, app)
+	}
 }

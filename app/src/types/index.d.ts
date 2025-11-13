@@ -126,6 +126,8 @@ type TAVFilterOperator =
     | "Is true"
     | "Is false"
 
+type TRecentDocsSort = "viewedAt" | "closedAt" | "openAt" | "updated"
+
 declare module "blueimp-md5"
 
 declare class Highlight {
@@ -216,10 +218,6 @@ interface Window {
         encode(options: string): string,
     };
     pdfjsLib: any;
-
-    dataLayer: any[];
-
-    siyuan: ISiyuan;
     webkit: {
         messageHandlers: {
             openLink: { postMessage: (url: string) => void }
@@ -233,6 +231,8 @@ interface Window {
         toCanvas: (element: Element) => Promise<HTMLCanvasElement>
         toBlob: (element: Element) => Promise<Blob>
     };
+
+    siyuan: ISiyuan;
     JSAndroid: {
         returnDesktop(): void
         openExternal(url: string): void
@@ -245,6 +245,8 @@ interface Window {
         readHTMLClipboard(): string
         getBlockURL(): string
         hideKeyboard(): void
+        print(html: string): void
+        getScreenWidthPx(): number
     };
     JSHarmony: {
         openExternal(url: string): void
@@ -255,6 +257,8 @@ interface Window {
         readClipboard(): string
         readHTMLClipboard(): string
         returnDesktop(): void
+        print(html: string): void
+        getScreenWidthPx(): number
     };
 
     Protyle: import("../protyle/method").default;
@@ -458,6 +462,7 @@ interface ISiyuan {
     storage?: {
         [key: string]: any
     },
+    closedTabs?: ILayoutJSON[]
     transactions?: {
         protyle: IProtyle,
         doOperations: IOperation[],
@@ -592,6 +597,8 @@ interface ILayoutJSON extends ILayoutOptions {
     page?: string
     path?: string
     blockId?: string
+    mode?: TEditorMode
+    action?: TProtyleAction
     icon?: string
     rootId?: string
     active?: boolean
