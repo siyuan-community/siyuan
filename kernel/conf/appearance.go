@@ -16,7 +16,7 @@
 
 package conf
 
-import "github.com/siyuan-note/siyuan/kernel/util"
+import "github.com/siyuan-community/siyuan/kernel/util"
 
 type Appearance struct {
 	Mode                int                `json:"mode"`                // 模式：0：明亮，1：暗黑
