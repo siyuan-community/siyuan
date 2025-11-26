@@ -11,7 +11,7 @@ import {getThemeMode, setInlineStyle} from "../../util/assets";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {Dialog} from "../../dialog";
 import {replaceLocalPath} from "../../editor/rename";
-import {getScreenWidth, isInAndroid, isInHarmony, setStorageVal} from "../util/compatibility";
+import {getScreenWidth, isInAndroid, isInHarmony, isInIOS, setStorageVal} from "../util/compatibility";
 import {getFrontend} from "../../util/functions";
 
 const getPluginStyle = async () => {
@@ -117,11 +117,21 @@ export const saveExport = (option: IExportOptions) => {
 const getSnippetCSS = () => {
     let snippetCSS = "";
     document.querySelectorAll("style").forEach((item) => {
-        if (item.id.startsWith("snippet")) {
+        if (item.id.startsWith("snippetCSS")) {
             snippetCSS += item.outerHTML;
         }
     });
     return snippetCSS;
+};
+
+const getSnippetJS = () => {
+    let snippetScript = "";
+    document.querySelectorAll("script").forEach((item) => {
+        if (item.id.startsWith("snippetJS")) {
+            snippetScript += item.outerHTML;
+        }
+    });
+    return snippetScript;
 };
 
 /// #if !BROWSER
@@ -624,7 +634,9 @@ ${getIconScript(servePath)}
             }
         })
     });
-</script></body></html>`;
+</script>
+${getSnippetJS()}
+</body></html>`;
     fetchPost("/api/export/exportTempContent", {content: html}, (response) => {
         ipcRenderer.send(Constants.SIYUAN_EXPORT_NEWWINDOW, response.data.url);
     });
@@ -705,9 +717,14 @@ export const onExport = async (data: IWebSocketData, filePath: string, servePath
         themeStyle = `<link rel="stylesheet" type="text/css" id="themeStyle" href="${servePath}appearance/themes/${themeName}/theme.css?${Constants.SIYUAN_VERSION}"/>`;
     }
     const screenWidth = getScreenWidth();
-    const minWidthHtml = isInAndroid() || isInHarmony() ? `document.body.style.minWidth = "${screenWidth}px"` : "";
+    const isInMobile = isInAndroid() || isInHarmony() || isInIOS();
+    const mobileHtml = isInMobile ? {
+        js: `document.body.style.minWidth = "${screenWidth}px";`,
+        css: `@page { size: A4; margin: 10mm 0 10mm 0; }
+.protyle-wysiwyg {padding: 0; margin: 0;}`
+    } : {js: "", css: ""};
     const html = `<!DOCTYPE html>
-<html lang="${window.siyuan.config.appearance.lang}" data-theme-mode="${getThemeMode()}" data-light-theme="${window.siyuan.config.appearance.themeLight}" data-dark-theme="${window.siyuan.config.appearance.themeDark}">
+<html lang="${window.siyuan.config.appearance.lang}" data-theme-mode="${isInMobile ? "light" : getThemeMode()}" data-light-theme="${window.siyuan.config.appearance.themeLight}" data-dark-theme="${window.siyuan.config.appearance.themeDark}">
 <head>
     <base href="${servePath}">
     <meta charset="utf-8">
@@ -725,17 +742,18 @@ export const onExport = async (data: IWebSocketData, filePath: string, servePath
         body {font-family: var(--b3-font-family);background-color: var(--b3-theme-background);color: var(--b3-theme-on-background)}
         ${await setInlineStyle(false, servePath)}
         ${await getPluginStyle()}
+        ${mobileHtml.css}
     </style>
     ${getSnippetCSS()}
 </head>
 <body>
 <div class="${["htmlmd", "word"].includes(exportOption.type) ? "b3-typography" : "protyle-wysiwyg" + (window.siyuan.config.editor.displayBookmarkIcon ? " protyle-wysiwyg--attr" : "")}" 
-style="${isInAndroid() || isInHarmony() ? "margin: 0 16px;" : "max-width: 800px;margin: 0 auto;"}" id="preview">${data.data.content}</div>
+style="max-width: 800px;margin: 0 auto;" id="preview">${data.data.content}</div>
 ${getIconScript(servePath)}
 <script src="${servePath}stage/build/export/protyle-method.js?v=${Constants.SIYUAN_VERSION}"></script>
 <script src="${servePath}stage/protyle/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}"></script>  
 <script>
-    ${minWidthHtml};
+    ${mobileHtml.js}
     window.siyuan = {
       config: {
         appearance: { mode: ${mode}, codeBlockThemeDark: "${window.siyuan.config.appearance.codeBlockThemeDark}", codeBlockThemeLight: "${window.siyuan.config.appearance.codeBlockThemeLight}" },
@@ -770,7 +788,8 @@ ${getIconScript(servePath)}
             event.stopPropagation();
       })
     });
-</script></body></html>`;
+</script>
+${getSnippetJS()}</body></html>`;
     // 移动端导出 pdf、浏览器导出 HTML
     if (typeof filePath === "undefined") {
         return html;

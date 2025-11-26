@@ -90,7 +90,15 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, query strin
 func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView, view *av.View, query string, page, pageSize int, groupPaging map[string]interface{}) (err error) {
 	groupKey := view.GetGroupKey(attrView)
 	if nil == groupKey {
-		return
+		if view.LayoutType == av.LayoutTypeKanban {
+			preferredGroupKey := getKanbanPreferredGroupKey(attrView)
+			group := &av.ViewGroup{Field: preferredGroupKey.ID}
+			setAttributeViewGroup(attrView, view, group)
+			av.SaveAttributeView(attrView)
+			groupKey = view.GetGroupKey(attrView)
+		} else {
+			return
+		}
 	}
 
 	// 当前日期可能会变，所以如果是按日期分组则需要重新生成分组
@@ -406,7 +414,7 @@ func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.At
 		gallery.Cards = gallery.Cards[start:end]
 	case av.LayoutTypeKanban:
 		kanban := viewable.(*av.Kanban)
-		kanban.CardCount = 0
+		kanban.CardCount = len(kanban.Cards)
 		kanban.PageSize = view.PageSize
 		if 1 > pageSize {
 			pageSize = kanban.PageSize

@@ -16,7 +16,7 @@ import {
     isInHarmony,
     isMac,
     isOnlyMeta,
-    openByMobile,
+    openByMobile, updateHotkeyAfterTip,
     updateHotkeyTip,
     writeText
 } from "../util/compatibility";
@@ -62,7 +62,7 @@ import {openFileById} from "../../editor/util";
 import * as path from "path";
 /// #endif
 import {checkFold} from "../../util/noRelyPCFunction";
-import {clearSelect} from "../util/clearSelect";
+import {clearSelect} from "../util/clear";
 
 export class Gutter {
     public element: HTMLElement;
@@ -70,11 +70,13 @@ export class Gutter {
 
     constructor(protyle: IProtyle) {
         if (isMac()) {
-            this.gutterTip = window.siyuan.languages.gutterTip.replace("⌥→", updateHotkeyTip(window.siyuan.config.keymap.general.enter.custom));
+            this.gutterTip = window.siyuan.languages.gutterTip.replace("⌥→", updateHotkeyAfterTip(window.siyuan.config.keymap.general.enter.custom, "/"))
+                .replace("⌘↑", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.collapse.custom, "/"))
+                .replace("⌥⌘A", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.attr.custom, "/"));
         } else {
-            this.gutterTip = window.siyuan.languages.gutterTip.replace("⌥→", updateHotkeyTip(window.siyuan.config.keymap.general.enter.custom))
-                .replace("⌘↑", updateHotkeyTip(window.siyuan.config.keymap.editor.general.collapse.custom))
-                .replace("⌥⌘A", updateHotkeyTip(window.siyuan.config.keymap.editor.general.attr.custom))
+            this.gutterTip = window.siyuan.languages.gutterTip.replace("⌥→", updateHotkeyAfterTip(window.siyuan.config.keymap.general.enter.custom, "/"))
+                .replace("⌘↑", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.collapse.custom, "/"))
+                .replace("⌥⌘A", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.attr.custom, "/"))
                 .replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+").replace(/⌃/g, "Ctrl+");
         }
         if (protyle.options.backlinkData) {
@@ -1839,7 +1841,7 @@ export class Gutter {
         if (!protyle.options.backlinkData) {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "enter",
-                accelerator: `${updateHotkeyTip(window.siyuan.config.keymap.general.enter.custom)}/${updateHotkeyTip("⌘" + window.siyuan.languages.click)}`,
+                accelerator: `${window.siyuan.config.keymap.general.enter.custom ? updateHotkeyTip(window.siyuan.config.keymap.general.enter.custom) + "/" : ""}${updateHotkeyAfterTip("⌘" + window.siyuan.languages.click)}`,
                 label: window.siyuan.languages.enter,
                 click: () => {
                     zoomOut({protyle, id});
@@ -2100,6 +2102,8 @@ export class Gutter {
                     this.genClick(nodeElements, protyle, (e: HTMLElement) => {
                         if (e.classList.contains("av")) {
                             e.style.justifyContent = "";
+                        } else if (["NodeIFrame", "NodeWidget"].includes(e.getAttribute("data-type"))) {
+                            e.style.margin = "";
                         } else {
                             e.style.textAlign = "left";
                         }
@@ -2114,6 +2118,8 @@ export class Gutter {
                     this.genClick(nodeElements, protyle, (e: HTMLElement) => {
                         if (e.classList.contains("av")) {
                             e.style.justifyContent = "center";
+                        } else if (["NodeIFrame", "NodeWidget"].includes(e.getAttribute("data-type"))) {
+                            e.style.margin = "0 auto";
                         } else {
                             e.style.textAlign = "center";
                         }
@@ -2128,6 +2134,8 @@ export class Gutter {
                     this.genClick(nodeElements, protyle, (e: HTMLElement) => {
                         if (e.classList.contains("av")) {
                             e.style.justifyContent = "flex-end";
+                        } else if (["NodeIFrame", "NodeWidget"].includes(e.getAttribute("data-type"))) {
+                            e.style.margin = "0 0 0 auto";
                         } else {
                             e.style.textAlign = "right";
                         }
@@ -2178,6 +2186,8 @@ export class Gutter {
                     this.genClick(nodeElements, protyle, (e: HTMLElement) => {
                         if (e.classList.contains("av")) {
                             e.style.justifyContent = "";
+                        } else if (["NodeIFrame", "NodeWidget"].includes(e.getAttribute("data-type"))) {
+                            e.style.margin = "";
                         } else {
                             e.style.textAlign = "";
                             e.style.direction = "";

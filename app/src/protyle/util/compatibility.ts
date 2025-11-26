@@ -331,42 +331,33 @@ export const isInHarmony = () => {
     return window.siyuan.config.system.container === "harmony" && window.JSHarmony;
 };
 
-export const updateHotkeyAfterTip = (hotkey: string) => {
+export const updateHotkeyAfterTip = (hotkey: string, split = " ") => {
     if (hotkey) {
-        return " " + updateHotkeyTip(hotkey);
+        return split + updateHotkeyTip(hotkey);
     }
     return "";
 };
 
 // Mac，Windows 快捷键展示
 export const updateHotkeyTip = (hotkey: string) => {
-    if (isMac()) {
+    if (!hotkey || isMac()) {
         return hotkey;
     }
-
-    const KEY_MAP = new Map(Object.entries({
-        "⌘": "Ctrl",
-        "⌃": "Ctrl",
-        "⇧": "Shift",
-        "⌥": "Alt",
-        "⇥": "Tab",
-        "⌫": "Backspace",
-        "⌦": "Delete",
-        "↩": "Enter",
-    }));
-
     const keys = [];
-
-    if ((hotkey.indexOf("⌘") > -1 || hotkey.indexOf("⌃") > -1)) keys.push(KEY_MAP.get("⌘"));
-    if (hotkey.indexOf("⇧") > -1) keys.push(KEY_MAP.get("⇧"));
-    if (hotkey.indexOf("⌥") > -1) keys.push(KEY_MAP.get("⌥"));
+    if ((hotkey.indexOf("⌘") > -1 || hotkey.indexOf("⌃") > -1)) keys.push("Ctrl");
+    if (hotkey.indexOf("⇧") > -1) keys.push("Shift");
+    if (hotkey.indexOf("⌥") > -1) keys.push( "Alt");
 
     // 不能去最后一个，需匹配 F2
-    const lastKey = hotkey.replace(/⌘|⇧|⌥|⌃/g, "");
+    const lastKey = hotkey.replace(/[⌘⇧⌥⌃]/g, "");
     if (lastKey) {
-        keys.push(KEY_MAP.get(lastKey) || lastKey);
+        keys.push({
+            "⇥": "Tab",
+            "⌫": "Backspace",
+            "⌦": "Delete",
+            "↩": "Enter"
+        }[lastKey] || lastKey);
     }
-
     return keys.join("+");
 };
 

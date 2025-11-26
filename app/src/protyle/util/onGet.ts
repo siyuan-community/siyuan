@@ -26,7 +26,8 @@ export const onGet = (options: {
     protyle: IProtyle,
     action?: TProtyleAction[],
     scrollAttr?: IScrollAttr
-    updateReadonly?: boolean
+    updateReadonly?: boolean,
+    scrollPosition?: ScrollLogicalPosition,
     afterCB?: () => void
 }) => {
     if (!options.action) {
@@ -96,6 +97,7 @@ export const onGet = (options: {
             updateReadonly: options.updateReadonly,
             isSyncing: options.data.data.isSyncing,
             afterCB: options.afterCB,
+            scrollPosition: options.scrollPosition
         }, options.protyle);
         removeLoading(options.protyle);
         return;
@@ -122,6 +124,7 @@ export const onGet = (options: {
             updateReadonly: options.updateReadonly,
             isSyncing: options.data.data.isSyncing,
             afterCB: options.afterCB,
+            scrollPosition: options.scrollPosition
         }, options.protyle);
         removeLoading(options.protyle);
     });
@@ -133,7 +136,8 @@ const setHTML = (options: {
     isSyncing: boolean,
     expand: boolean,
     updateReadonly?: boolean,
-    scrollAttr?: IScrollAttr
+    scrollAttr?: IScrollAttr,
+    scrollPosition?: ScrollLogicalPosition,
     afterCB?: () => void
 }, protyle: IProtyle) => {
     if (protyle.contentElement.classList.contains("fn__none") && protyle.wysiwyg.element.innerHTML !== "") {
@@ -256,7 +260,7 @@ const setHTML = (options: {
         }
     }
 
-    focusElementById(protyle, options.action, options.scrollAttr);
+    focusElementById(protyle, options.action, options.scrollAttr, options.scrollPosition);
 
     if (options.action.includes(Constants.CB_GET_SETID)) {
         // 点击大纲后，如果需要动态加载，在定位后，需要重置 block.id https://github.com/siyuan-note/siyuan/issues/4487
@@ -448,7 +452,7 @@ export const enableProtyle = (protyle: IProtyle) => {
     hideTooltip();
 };
 
-const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScrollAttr) => {
+const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScrollAttr, scrollPosition?: ScrollLogicalPosition) => {
     let focusElement: Element;
     if (scrollAttr && scrollAttr.focusId) {
         focusElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${scrollAttr.focusId}"]`);
@@ -459,6 +463,9 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
                 return true;
             }
         });
+    }
+    if (!focusElement && protyle.block.id === protyle.block.rootID) {
+        focusElement = protyle.title.editElement;
     }
     if (protyle.block.mode === 4) {
         preventScroll(protyle);
@@ -490,10 +497,8 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
     // 下一个请求过来前需断开，否则 observerLoad 重新赋值后无法 disconnect https://ld246.com/article/1704612002446
     protyle.observerLoad?.disconnect();
     if (action.includes(Constants.CB_GET_FOCUS) || action.includes(Constants.CB_GET_SCROLL) || action.includes(Constants.CB_GET_HL) || action.includes(Constants.CB_GET_FOCUSFIRST)) {
-        const contentRect = protyle.contentElement.getBoundingClientRect();
-        const focusRect = focusElement.getBoundingClientRect();
-        if (!hasScrollTop && (contentRect.top > focusRect.top || contentRect.bottom < focusRect.bottom)) {
-            scrollCenter(protyle, focusElement, true);
+        if (!hasScrollTop) {
+            scrollCenter(protyle, focusElement, scrollPosition);
         }
     } else {
         return;
@@ -504,10 +509,8 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
             protyle.contentElement.scrollTop = scrollAttr.scrollTop;
         }
         if (action.includes(Constants.CB_GET_FOCUS) || action.includes(Constants.CB_GET_HL) || action.includes(Constants.CB_GET_FOCUSFIRST)) {
-            const contentRect = protyle.contentElement.getBoundingClientRect();
-            const focusRect = focusElement.getBoundingClientRect();
-            if (!hasScrollTop && (contentRect.top > focusRect.top || contentRect.bottom < focusRect.bottom)) {
-                scrollCenter(protyle, focusElement, true);
+            if (!hasScrollTop) {
+                scrollCenter(protyle, focusElement, scrollPosition);
             }
         }
     });

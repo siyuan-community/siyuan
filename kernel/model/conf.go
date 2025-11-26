@@ -205,6 +205,10 @@ func InitConf() {
 	if "" == Conf.Appearance.CodeBlockThemeLight {
 		Conf.Appearance.CodeBlockThemeLight = "github"
 	}
+	if nil == Conf.Appearance.StatusBar {
+		Conf.Appearance.StatusBar = &util.StatusBar{}
+	}
+	util.StatusBarCfg = Conf.Appearance.StatusBar
 	if nil == Conf.FileTree {
 		Conf.FileTree = conf.NewFileTree()
 	}
@@ -224,6 +228,9 @@ func InitConf() {
 		Conf.FileTree.LargeFileWarningSize = 8
 	}
 	util.LargeFileWarningSize = Conf.FileTree.LargeFileWarningSize
+	if nil == Conf.FileTree.CreateDocAtTop { // v3.4.0 之前的版本没有该字段，设置默认值为 true，即在顶部创建新文档，不改变用户习惯
+		Conf.FileTree.CreateDocAtTop = func() *bool { b := true; return &b }()
+	}
 
 	util.CurrentCloudRegion = Conf.CloudRegion
 
@@ -231,8 +238,17 @@ func InitConf() {
 		Conf.Tag = conf.NewTag()
 	}
 
+	defaultEditor := conf.NewEditor()
 	if nil == Conf.Editor {
-		Conf.Editor = conf.NewEditor()
+		Conf.Editor = defaultEditor
+	}
+	// 新增字段的默认值
+	// 使用指针类型来区分字段不存在（nil）和用户设置为 0（非 nil）
+	if nil == Conf.Editor.BacklinkSort {
+		Conf.Editor.BacklinkSort = defaultEditor.BacklinkSort
+	}
+	if nil == Conf.Editor.BackmentionSort {
+		Conf.Editor.BackmentionSort = defaultEditor.BackmentionSort
 	}
 	if 1 > len(Conf.Editor.Emoji) {
 		Conf.Editor.Emoji = []string{}
