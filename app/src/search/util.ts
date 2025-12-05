@@ -15,7 +15,7 @@ import {onGet} from "../protyle/util/onGet";
 import {addLoading} from "../protyle/ui/initUI";
 import {getIconByType} from "../editor/getIcon";
 import {unicode2Emoji} from "../emoji";
-import {hasClosestByClassName, hasClosestByTag} from "../protyle/util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName, hasClosestByTag} from "../protyle/util/hasClosest";
 import {isIPad, isNotCtrl, setStorageVal, updateHotkeyTip} from "../protyle/util/compatibility";
 import {newFileByName} from "../util/newFile";
 import {
@@ -45,6 +45,8 @@ import {getDefaultType} from "./getDefault";
 import {isSupportCSSHL, searchMarkRender} from "../protyle/render/searchMarkRender";
 import {saveKeyList, toggleAssetHistory, toggleReplaceHistory, toggleSearchHistory} from "./toggleHistory";
 import {highlightById} from "../util/highlightById";
+import {getSelectionOffset} from "../protyle/util/selection";
+import {electronUndo} from "../protyle/undo";
 
 export const openGlobalSearch = (app: App, text: string, replace: boolean, searchData?: Config.IUILayoutTabSearchConfig) => {
     text = text.trim();
@@ -342,7 +344,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
         while (target && target !== element) {
             const type = target.getAttribute("data-type");
             if (type === "removeCriterion") {
-                updateConfig(element, {
+                config = updateConfig(element, {
                     removed: true,
                     sort: 0,
                     group: 0,
@@ -391,7 +393,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                 target.classList.add("b3-chip--current");
                 criteriaData.find(item => {
                     if (item.name === target.innerText.trim()) {
-                        updateConfig(element, item, config, edit);
+                        config = updateConfig(element, item, config, edit);
                         return true;
                     }
                 });
@@ -408,7 +410,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                     }
                 });
                 if (target.parentElement.classList.contains("b3-chip--current")) {
-                    updateConfig(element, {
+                    config = updateConfig(element, {
                         removed: true,
                         sort: 0,
                         group: 0,
@@ -461,37 +463,41 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                 event.preventDefault();
                 break;
             } else if (target.id === "searchPath") {
-                movePathTo((toPath, toNotebook) => {
-                    fetchPost("/api/filetree/getHPathsByPaths", {paths: toPath}, (response) => {
-                        config.idPath = [];
-                        const hPathList: string[] = [];
-                        let enableIncludeChild = false;
-                        toPath.forEach((item, index) => {
-                            if (item === "/") {
-                                config.idPath.push(toNotebook[index]);
-                                hPathList.push(getNotebookName(toNotebook[index]));
-                            } else {
-                                enableIncludeChild = true;
-                                config.idPath.push(pathPosix().join(toNotebook[index], item.replace(".sy", "")));
+                movePathTo({
+                    cb: (toPath, toNotebook) => {
+                        fetchPost("/api/filetree/getHPathsByPaths", {paths: toPath}, (response) => {
+                            config.idPath = [];
+                            const hPathList: string[] = [];
+                            let enableIncludeChild = false;
+                            toPath.forEach((item, index) => {
+                                if (item === "/") {
+                                    config.idPath.push(toNotebook[index]);
+                                    hPathList.push(getNotebookName(toNotebook[index]));
+                                } else {
+                                    enableIncludeChild = true;
+                                    config.idPath.push(pathPosix().join(toNotebook[index], item.replace(".sy", "")));
+                                }
+                            });
+                            if (response.data) {
+                                hPathList.push(...response.data);
                             }
+                            config.hPath = hPathList.join(" ");
+                            config.page = 1;
+                            searchPathInputElement.innerHTML = `${escapeGreat(config.hPath)}<svg class="search__rmpath"><use xlink:href="#iconCloseRound"></use></svg>`;
+                            searchPathInputElement.setAttribute("aria-label", escapeHtml(config.hPath));
+                            const includeElement = element.querySelector("#searchInclude");
+                            includeElement.firstElementChild.classList.add("ft__primary");
+                            if (enableIncludeChild) {
+                                includeElement.removeAttribute("disabled");
+                            } else {
+                                includeElement.setAttribute("disabled", "disabled");
+                            }
+                            inputEvent(element, config, edit, true);
                         });
-                        if (response.data) {
-                            hPathList.push(...response.data);
-                        }
-                        config.hPath = hPathList.join(" ");
-                        config.page = 1;
-                        searchPathInputElement.innerHTML = `${escapeGreat(config.hPath)}<svg class="search__rmpath"><use xlink:href="#iconCloseRound"></use></svg>`;
-                        searchPathInputElement.setAttribute("aria-label", escapeHtml(config.hPath));
-                        const includeElement = element.querySelector("#searchInclude");
-                        includeElement.firstElementChild.classList.add("ft__primary");
-                        if (enableIncludeChild) {
-                            includeElement.removeAttribute("disabled");
-                        } else {
-                            includeElement.setAttribute("disabled", "disabled");
-                        }
-                        inputEvent(element, config, edit, true);
-                    });
-                }, [], undefined, window.siyuan.languages.specifyPath);
+                    },
+                    title: window.siyuan.languages.specifyPath,
+                    flashcard: false
+                });
                 event.stopPropagation();
                 event.preventDefault();
                 break;
@@ -604,7 +610,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                     config.page = 1;
                     inputEvent(element, config, edit, true);
                 }, () => {
-                    updateConfig(element, {
+                    config = updateConfig(element, {
                         removed: true,
                         sort: 0,
                         group: 0,
@@ -814,20 +820,12 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                                 }
                             } else {
                                 if (event.altKey) {
-                                    const id = target.getAttribute("data-node-id");
-                                    checkFold(id, (zoomIn) => {
-                                        openFileById({
-                                            app,
-                                            id,
-                                            action: zoomIn ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL, Constants.CB_GET_HL] :
-                                                [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_HL],
-                                            zoomIn,
-                                            position: "right",
-                                            scrollPosition: "center"
-                                        });
-                                        if (closeCB) {
-                                            closeCB();
-                                        }
+                                    openSearchEditor({
+                                        rootId: target.getAttribute("data-root-id"),
+                                        protyle: edit.protyle,
+                                        id: target.getAttribute("data-node-id"),
+                                        cb: closeCB,
+                                        openPosition: "right",
                                     });
                                 } else if (!target.classList.contains("b3-list-item--focus")) {
                                     (searchType === "doc" ? searchPanelElement : unRefPanelElement).querySelector(".b3-list-item--focus").classList.remove("b3-list-item--focus");
@@ -856,19 +854,11 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                             useShell("showItemInFolder", path.join(window.siyuan.config.system.dataDir, target.lastElementChild.getAttribute("aria-label")));
                             /// #endif
                         } else {
-                            const id = target.getAttribute("data-node-id");
-                            checkFold(id, (zoomIn) => {
-                                openFileById({
-                                    app,
-                                    id,
-                                    action: zoomIn ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL, Constants.CB_GET_HL] :
-                                        [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_HL],
-                                    zoomIn,
-                                    scrollPosition: "center"
-                                });
-                                if (closeCB) {
-                                    closeCB();
-                                }
+                            openSearchEditor({
+                                rootId: target.getAttribute("data-root-id"),
+                                protyle: edit.protyle,
+                                id: target.getAttribute("data-node-id"),
+                                cb: closeCB
                             });
                         }
                     }
@@ -907,6 +897,12 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
         }
         saveKeyList("keys", searchInputElement.value);
     });
+    searchInputElement.addEventListener("keydown", (event) => {
+        electronUndo(event);
+    });
+    replaceInputElement.addEventListener("keydown", (event) => {
+        electronUndo(event);
+    });
     addClearButton({
         inputElement: searchInputElement,
         right: 8,
@@ -923,6 +919,50 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
     });
     inputEvent(element, config, edit);
     return {edit, unRefEdit};
+};
+
+export const openSearchEditor = (options: {
+    protyle: IProtyle,
+    openPosition?: string,
+    id: string,
+    rootId: string,
+    cb: () => void
+}) => {
+    let currentRange = (options.rootId === options.protyle.block.rootID && options.id === options.protyle.block.id) ?
+        options.protyle.highlight.ranges[options.protyle.highlight.rangeIndex] : null;
+    if (currentRange) {
+        const rangeBlockElement = hasClosestBlock(currentRange.startContainer);
+        if (rangeBlockElement) {
+            options.id = rangeBlockElement.getAttribute("data-node-id");
+            const offset = getSelectionOffset(rangeBlockElement, null, options.protyle.highlight.ranges[options.protyle.highlight.rangeIndex]);
+            const scrollAttr: IScrollAttr = {
+                rootId: options.protyle.block.rootID,
+                focusId: options.id,
+                focusStart: offset.start,
+                focusEnd: offset.end,
+                zoomInId: options.protyle.block.showAll ? options.protyle.block.id : undefined
+            };
+            window.siyuan.storage[Constants.LOCAL_FILEPOSITION][options.protyle.block.rootID] = scrollAttr;
+            if (offset.start === offset.end) {
+                currentRange = null;
+            }
+        }
+    }
+    checkFold(options.id, (zoomIn) => {
+        openFileById({
+            app: options.protyle.app,
+            id: options.id,
+            action: currentRange ?
+                (zoomIn ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL, Constants.CB_GET_SCROLL, Constants.CB_GET_SEARCH] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_SCROLL, Constants.CB_GET_SEARCH]) :
+                (zoomIn ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL, Constants.CB_GET_HL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_HL]),
+            zoomIn,
+            position: options.openPosition,
+            scrollPosition: "center"
+        });
+        if (options.cb) {
+            options.cb();
+        }
+    });
 };
 
 export const genQueryHTML = (method: number, id: string) => {
@@ -1013,6 +1053,7 @@ export const updateConfig = (element: Element, item: Config.IUILayoutTabSearchCo
     setStorageVal(Constants.LOCAL_SEARCHDATA, window.siyuan.storage[Constants.LOCAL_SEARCHDATA]);
     inputEvent(element, config, edit);
     window.siyuan.menus.menu.remove();
+    return config;
 };
 
 const scrollToCurrent = (contentElement: HTMLElement, currentRange: Range, contentRect: DOMRect) => {

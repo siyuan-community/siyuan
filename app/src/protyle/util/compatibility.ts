@@ -4,6 +4,9 @@ import {Constants} from "../../constants";
 /// #if !BROWSER
 import {clipboard, ipcRenderer} from "electron";
 /// #endif
+/// #if MOBILE
+import {processSYLink} from "../../editor/openLink";
+/// #endif
 
 export const encodeBase64 = (text: string): string => {
     if (typeof Buffer !== "undefined") {
@@ -53,6 +56,11 @@ export const openByMobile = (uri: string) => {
     if (!uri) {
         return;
     }
+    /// #if MOBILE
+    if (processSYLink(window.siyuan.ws.app, uri)) {
+        return;
+    }
+    /// #endif
     if (isInIOS()) {
         if (uri.startsWith("assets/")) {
             // iOS 16.7 之前的版本，uri 需要 encodeURIComponent
@@ -346,7 +354,7 @@ export const updateHotkeyTip = (hotkey: string) => {
     const keys = [];
     if ((hotkey.indexOf("⌘") > -1 || hotkey.indexOf("⌃") > -1)) keys.push("Ctrl");
     if (hotkey.indexOf("⇧") > -1) keys.push("Shift");
-    if (hotkey.indexOf("⌥") > -1) keys.push( "Alt");
+    if (hotkey.indexOf("⌥") > -1) keys.push("Alt");
 
     // 不能去最后一个，需匹配 F2
     const lastKey = hotkey.replace(/[⌘⇧⌥⌃]/g, "");
@@ -563,3 +571,4 @@ export const initFocusFix = () => {
     };
 };
 /// #endif
+

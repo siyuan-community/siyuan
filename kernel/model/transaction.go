@@ -1073,7 +1073,6 @@ func (tx *Transaction) syncDelete2Block(node *ast.Node, nodeTree *parse.Tree) (c
 			oldAttrs := parse.IAL2Map(toChangNode.KramdownIAL)
 			toChangNode.SetIALAttr(av.NodeAttrViewNames, avNames)
 			pushBroadcastAttrTransactions(oldAttrs, toChangNode)
-			toChangNode.RemoveIALAttr(av.NodeAttrViewNames)
 		}
 
 		for _, tree := range trees {
@@ -1209,6 +1208,7 @@ func (tx *Transaction) doLargeInsert(previousID string) (ret *TxErr) {
 
 		// 复制为副本时移除数据库绑定状态 https://github.com/siyuan-note/siyuan/issues/12294
 		insertedNode.RemoveIALAttr(av.NodeAttrNameAvs)
+		insertedNode.RemoveIALAttr(av.NodeAttrViewNames)
 		insertedNode.RemoveIALAttrsByPrefix(av.NodeAttrViewStaticText)
 
 		if ast.NodeAttributeView == insertedNode.Type {
@@ -1387,6 +1387,7 @@ func (tx *Transaction) doInsert(operation *Operation) (ret *TxErr) {
 
 	// 复制为副本时移除数据库绑定状态 https://github.com/siyuan-note/siyuan/issues/12294
 	insertedNode.RemoveIALAttr(av.NodeAttrNameAvs)
+	insertedNode.RemoveIALAttr(av.NodeAttrViewNames)
 	insertedNode.RemoveIALAttrsByPrefix(av.NodeAttrViewStaticText)
 
 	if ast.NodeAttributeView == insertedNode.Type {
@@ -1923,8 +1924,9 @@ type Transaction struct {
 	DoOperations   []*Operation `json:"doOperations"`
 	UndoOperations []*Operation `json:"undoOperations"`
 
-	trees map[string]*parse.Tree // 事务中变更的树
-	nodes map[string]*ast.Node   // 事务中变更的节点
+	trees        map[string]*parse.Tree // 事务中变更的树
+	nodes        map[string]*ast.Node   // 事务中变更的节点
+	relatedAvIDs []string               // 事务中变更的属性视图 ID
 
 	isGlobalAssetsInit bool   // 是否初始化过全局资源判断
 	isGlobalAssets     bool   // 是否属于全局资源
@@ -1967,6 +1969,19 @@ func (tx *Transaction) commit() (err error) {
 		checkUpsertInUserGuide(tree)
 	}
 	refreshDynamicRefTexts(tx.nodes, tx.trees)
+
+	tx.relatedAvIDs = gulu.Str.RemoveDuplicatedElem(tx.relatedAvIDs)
+	for _, avID := range tx.relatedAvIDs {
+		destAv, _ := av.ParseAttributeView(avID)
+		if nil == destAv {
+			continue
+		}
+
+		regenAttrViewGroups(destAv)
+		av.SaveAttributeView(destAv)
+		ReloadAttrView(avID)
+	}
+
 	IncSync()
 	tx.state.Store(2)
 	tx.m.Unlock()

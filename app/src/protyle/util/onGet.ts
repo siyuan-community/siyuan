@@ -210,7 +210,6 @@ const setHTML = (options: {
     protyle.wysiwyg.element.querySelectorAll("video, audio").forEach(item => {
         item.addEventListener("playing", () => {
             activeBlur();
-            console.log("playing");
         });
     });
     /// #endif
@@ -464,7 +463,7 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
             }
         });
     }
-    if (!focusElement && protyle.block.id === protyle.block.rootID) {
+    if (!focusElement && protyle.block.id === protyle.block.rootID && protyle.title?.editElement) {
         focusElement = protyle.title.editElement;
     }
     if (protyle.block.mode === 4) {

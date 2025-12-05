@@ -29,22 +29,13 @@ const runCode = (code: string, sourceURL: string) => {
 
 export const loadPlugins = async (app: App, names?: string[]) => {
     const response = await fetchSyncPost("/api/petal/loadPetals", {frontend: getFrontend()});
-    let css = '<style id="pluginsStyle"></style>';  // 用于将内联样式插入到插件样式前的标识
-    // 为加快启动速度，不进行 await
+    const pluginsStyle = getPluginsStyle();
     response.data.forEach((item: IPluginData) => {
         if (!names || (names && names.includes(item.name))) {
             loadPluginJS(app, item);
-        }
-        if (item.css) {
-            css += `<style id="pluginsStyle${item.name}">${item.css}</style>`;
+            insertPluginCSS(item, pluginsStyle);
         }
     });
-    const pluginsStyle = document.getElementById("pluginsStyle");
-    if (pluginsStyle) {
-        pluginsStyle.insertAdjacentHTML("afterend", css);
-    } else {
-        document.head.insertAdjacentHTML("beforeend", css);
-    }
 };
 
 const loadPluginJS = async (app: App, item: IPluginData) => {
@@ -70,7 +61,7 @@ const loadPluginJS = async (app: App, item: IPluginData) => {
         displayName: item.displayName,
         name: item.name,
         i18n: item.i18n
-    });
+    }) as Plugin;
     app.plugins.push(plugin);
     try {
         await plugin.onload();
@@ -80,15 +71,30 @@ const loadPluginJS = async (app: App, item: IPluginData) => {
     return plugin;
 };
 
+const getPluginsStyle = () => {
+    let pluginsStyle = document.getElementById("pluginsStyle");
+    if (!pluginsStyle) {
+        pluginsStyle = document.createElement("style");
+        pluginsStyle.id = "pluginsStyle"; // 用于将内联样式插入到插件样式前的标识
+        document.head.append(pluginsStyle);
+    }
+    return pluginsStyle;
+};
+
+const insertPluginCSS = (item: IPluginData, pluginsStyle: HTMLElement) => {
+    if (!item.css) {
+        return;
+    }
+    const styleElement = document.createElement("style");
+    styleElement.id = "pluginsStyle" + item.name;
+    styleElement.textContent = item.css;
+    pluginsStyle.insertAdjacentElement("afterend", styleElement);
+};
+
 // 启用插件
 export const loadPlugin = async (app: App, item: IPluginData) => {
     const plugin = await loadPluginJS(app, item);
-    if (item.css) {
-        const styleElement = document.createElement("style");
-        styleElement.id = "pluginsStyle" + item.name;
-        styleElement.textContent = item.css;
-        document.head.append(styleElement);
-    }
+    insertPluginCSS(item, getPluginsStyle());
     afterLoadPlugin(plugin);
     saveLayout();
     getAllEditor().forEach(editor => {
@@ -210,17 +216,33 @@ export const afterLoadPlugin = (plugin: Plugin) => {
     /// #endif
 };
 
-export const reloadPlugin = async (app: App, data: { upsertPlugins: string[], removePlugins: string[] }) => {
-    data.removePlugins.forEach((item) => {
+export const reloadPlugin = async (app: App, data: {
+    upsertCodePlugins?: string[],
+    upsertDataPlugins?: string[],
+    removePlugins?: string[]
+} = {}) => {
+    const {upsertCodePlugins = [], upsertDataPlugins = [], removePlugins = []} = data;
+    removePlugins.forEach((item) => {
         uninstall(app, item, true);
     });
-    data.upsertPlugins.forEach((item) => {
+    upsertCodePlugins.forEach((item) => {
         uninstall(app, item, false);
     });
-    loadPlugins(this).then(() => {
+    loadPlugins(app, upsertCodePlugins).then(() => {
         app.plugins.forEach(item => {
-            afterLoadPlugin(item);
+            if (upsertCodePlugins.includes(item.name)) {
+                afterLoadPlugin(item);
+            }
         });
+    });
+    app.plugins.forEach(item => {
+        if (upsertDataPlugins.includes(item.name)) {
+            try {
+                item.onDataChanged();
+            } catch (e) {
+                console.error(`plugin ${item.name} onDataChanged error:`, e);
+            }
+        }
     });
     /// #if !MOBILE
     saveLayout();

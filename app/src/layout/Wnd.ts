@@ -335,7 +335,6 @@ export class Wnd {
                 dragElement.removeAttribute("style");
             }
         });
-
         dragElement.addEventListener("dragover", (event: DragEvent & { layerX: number, layerY: number }) => {
             document.querySelectorAll(".layout-tab-bars--drag").forEach(item => {
                 item.classList.remove("layout-tab-bars--drag");

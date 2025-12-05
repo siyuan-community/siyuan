@@ -139,7 +139,7 @@ func (box *Box) moveCorruptedData(filePath string) {
 	logging.LogWarnf("moved corrupted data file [%s] to [%s]", filePath, to)
 }
 
-func SearchDocsByKeyword(keyword string, flashcard bool) (ret []map[string]string) {
+func SearchDocsByKeyword(keyword string, flashcard bool, excludeIDs []string) (ret []map[string]string) {
 	ret = []map[string]string{}
 
 	var deck *riff.Deck
@@ -185,6 +185,10 @@ func SearchDocsByKeyword(keyword string, flashcard bool) (ret []map[string]strin
 			if i < len(keywords)-1 {
 				condition += " AND "
 			}
+		}
+
+		if 0 < len(excludeIDs) {
+			condition += fmt.Sprintf(" AND root_id NOT IN ('%s')", strings.Join(excludeIDs, "', '"))
 		}
 
 		rootBlocks = sql.QueryRootBlockByCondition(condition, Conf.Search.Limit)
@@ -988,6 +992,7 @@ func DuplicateDoc(tree *parse.Tree) {
 		}
 
 		n.RemoveIALAttr(av.NodeAttrNameAvs)
+		n.RemoveIALAttr(av.NodeAttrViewNames)
 		n.RemoveIALAttrsByPrefix(av.NodeAttrViewStaticText)
 		return ast.WalkContinue
 	})
@@ -1073,6 +1078,8 @@ func CreateWithMarkdown(tags, boxID, hPath, md, parentID, id string, withMath bo
 	return
 }
 
+const DailyNoteAttrPrefix = "custom-dailynote-"
+
 func CreateDailyNote(boxID string) (p string, existed bool, err error) {
 	createDocLock.Lock()
 	defer createDocLock.Unlock()
@@ -1109,8 +1116,8 @@ func CreateDailyNote(boxID string) (p string, existed bool, err error) {
 		}
 		p = tree.Path
 		date := time.Now().Format("20060102")
-		if tree.Root.IALAttr("custom-dailynote-"+date) == "" {
-			tree.Root.SetIALAttr("custom-dailynote-"+date, date)
+		if tree.Root.IALAttr(DailyNoteAttrPrefix+date) == "" {
+			tree.Root.SetIALAttr(DailyNoteAttrPrefix+date, date)
 			if err = indexWriteTreeUpsertQueue(tree); err != nil {
 				return
 			}
@@ -1178,7 +1185,7 @@ func CreateDailyNote(boxID string) (p string, existed bool, err error) {
 	}
 	p = tree.Path
 	date := time.Now().Format("20060102")
-	tree.Root.SetIALAttr("custom-dailynote-"+date, date)
+	tree.Root.SetIALAttr(DailyNoteAttrPrefix+date, date)
 	if err = indexWriteTreeUpsertQueue(tree); err != nil {
 		return
 	}
@@ -2181,6 +2188,10 @@ func (box *Box) setSort(sortIDVals map[string]int) {
 }
 
 func pushFiletreeSortChanged(sortIDs map[string]int) {
+	if 1 > len(sortIDs) {
+		return
+	}
+
 	var childIDs []string
 	for sortID := range sortIDs {
 		childIDs = append(childIDs, sortID)
