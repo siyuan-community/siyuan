@@ -31,6 +31,7 @@ import {exportLayout} from "../layout/util";
 import {saveScroll} from "../protyle/scroll/saveScroll";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
 import {Files} from "../layout/dock/Files";
+import {ProtyleMethod} from "./ProtyleMethod";
 
 let openTab;
 let openWindow;
@@ -320,6 +321,7 @@ export const API = {
     lockScreen,
     exitSiYuan,
     Protyle,
+    ProtyleMethod,
     Plugin,
     Dialog,
     Menu,

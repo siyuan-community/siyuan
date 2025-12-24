@@ -52,9 +52,11 @@ type DisplayName struct {
 	HeIL    string `json:"he_IL"`
 	ItIT    string `json:"it_IT"`
 	JaJP    string `json:"ja_JP"`
+	KoKR    string `json:"ko_KR"`
 	PlPL    string `json:"pl_PL"`
 	PtBR    string `json:"pt_BR"`
 	RuRU    string `json:"ru_RU"`
+	TrTR    string `json:"tr_TR"`
 	ZhCHT   string `json:"zh_CHT"`
 	ZhCN    string `json:"zh_CN"`
 }
@@ -69,9 +71,11 @@ type Description struct {
 	HeIL    string `json:"he_IL"`
 	ItIT    string `json:"it_IT"`
 	JaJP    string `json:"ja_JP"`
+	KoKR    string `json:"ko_KR"`
 	PlPL    string `json:"pl_PL"`
 	PtBR    string `json:"pt_BR"`
 	RuRU    string `json:"ru_RU"`
+	TrTR    string `json:"tr_TR"`
 	ZhCHT   string `json:"zh_CHT"`
 	ZhCN    string `json:"zh_CN"`
 }
@@ -86,9 +90,11 @@ type Readme struct {
 	HeIL    string `json:"he_IL"`
 	ItIT    string `json:"it_IT"`
 	JaJP    string `json:"ja_JP"`
+	KoKR    string `json:"ko_KR"`
 	PlPL    string `json:"pl_PL"`
 	PtBR    string `json:"pt_BR"`
 	RuRU    string `json:"ru_RU"`
+	TrTR    string `json:"tr_TR"`
 	ZhCHT   string `json:"zh_CHT"`
 	ZhCN    string `json:"zh_CN"`
 }
@@ -186,7 +192,7 @@ func getPreferredReadme(readme *Readme) string {
 		return "README.md"
 	}
 
-	ret := readme.Default
+	var ret string
 	switch util.Lang {
 	case "ar_SA":
 		if "" != readme.ArSA {
@@ -220,6 +226,10 @@ func getPreferredReadme(readme *Readme) string {
 		if "" != readme.JaJP {
 			ret = readme.JaJP
 		}
+	case "ko_KR":
+		if "" != readme.KoKR {
+			ret = readme.KoKR
+		}
 	case "pl_PL":
 		if "" != readme.PlPL {
 			ret = readme.PlPL
@@ -232,6 +242,10 @@ func getPreferredReadme(readme *Readme) string {
 		if "" != readme.RuRU {
 			ret = readme.RuRU
 		}
+	case "tr_TR":
+		if "" != readme.TrTR {
+			ret = readme.TrTR
+		}
 	case "zh_CHT":
 		if "" != readme.ZhCHT {
 			ret = readme.ZhCHT
@@ -240,15 +254,22 @@ func getPreferredReadme(readme *Readme) string {
 		if "" != readme.ZhCN {
 			ret = readme.ZhCN
 		}
-	default:
-		if "" != readme.EnUS {
-			ret = readme.EnUS
-		}
 	}
-	if "" == ret {
-		ret = "README.md"
+	if "" != strings.TrimSpace(ret) {
+		return ret
 	}
-	return ret
+
+	defaultReadme := strings.TrimSpace(readme.Default)
+	if "" != defaultReadme {
+		return defaultReadme
+	}
+
+	enUSReadme := strings.TrimSpace(readme.EnUS)
+	if "" != enUSReadme {
+		return enUSReadme
+	}
+
+	return "README.md"
 }
 
 func GetPreferredName(pkg *Package) string {
@@ -256,7 +277,7 @@ func GetPreferredName(pkg *Package) string {
 		return pkg.Name
 	}
 
-	ret := pkg.DisplayName.Default
+	var ret string
 	switch util.Lang {
 	case "ar_SA":
 		if "" != pkg.DisplayName.ArSA {
@@ -290,6 +311,10 @@ func GetPreferredName(pkg *Package) string {
 		if "" != pkg.DisplayName.JaJP {
 			ret = pkg.DisplayName.JaJP
 		}
+	case "ko_KR":
+		if "" != pkg.DisplayName.KoKR {
+			ret = pkg.DisplayName.KoKR
+		}
 	case "pl_PL":
 		if "" != pkg.DisplayName.PlPL {
 			ret = pkg.DisplayName.PlPL
@@ -302,6 +327,10 @@ func GetPreferredName(pkg *Package) string {
 		if "" != pkg.DisplayName.RuRU {
 			ret = pkg.DisplayName.RuRU
 		}
+	case "tr_TR":
+		if "" != pkg.DisplayName.TrTR {
+			ret = pkg.DisplayName.TrTR
+		}
 	case "zh_CHT":
 		if "" != pkg.DisplayName.ZhCHT {
 			ret = pkg.DisplayName.ZhCHT
@@ -310,15 +339,22 @@ func GetPreferredName(pkg *Package) string {
 		if "" != pkg.DisplayName.ZhCN {
 			ret = pkg.DisplayName.ZhCN
 		}
-	default:
-		if "" != pkg.DisplayName.EnUS {
-			ret = pkg.DisplayName.EnUS
-		}
 	}
-	if "" == ret {
-		ret = pkg.Name
+	if "" != strings.TrimSpace(ret) {
+		return ret
 	}
-	return ret
+
+	defaultName := strings.TrimSpace(pkg.DisplayName.Default)
+	if "" != defaultName {
+		return defaultName
+	}
+
+	enUSName := strings.TrimSpace(pkg.DisplayName.EnUS)
+	if "" != enUSName {
+		return enUSName
+	}
+
+	return pkg.Name
 }
 
 func getPreferredDesc(desc *Description) string {
@@ -326,7 +362,7 @@ func getPreferredDesc(desc *Description) string {
 		return ""
 	}
 
-	ret := desc.Default
+	var ret string
 	switch util.Lang {
 	case "ar_SA":
 		if "" != desc.ArSA {
@@ -360,6 +396,10 @@ func getPreferredDesc(desc *Description) string {
 		if "" != desc.JaJP {
 			ret = desc.JaJP
 		}
+	case "ko_KR":
+		if "" != desc.KoKR {
+			ret = desc.KoKR
+		}
 	case "pl_PL":
 		if "" != desc.PlPL {
 			ret = desc.PlPL
@@ -372,6 +412,10 @@ func getPreferredDesc(desc *Description) string {
 		if "" != desc.RuRU {
 			ret = desc.RuRU
 		}
+	case "tr_TR":
+		if "" != desc.TrTR {
+			ret = desc.TrTR
+		}
 	case "zh_CHT":
 		if "" != desc.ZhCHT {
 			ret = desc.ZhCHT
@@ -380,15 +424,22 @@ func getPreferredDesc(desc *Description) string {
 		if "" != desc.ZhCN {
 			ret = desc.ZhCN
 		}
-	default:
-		if "" != desc.EnUS {
-			ret = desc.EnUS
-		}
 	}
-	if "" == ret {
-		ret = desc.EnUS
+	if "" != strings.TrimSpace(ret) {
+		return ret
 	}
-	return ret
+
+	defaultDesc := strings.TrimSpace(desc.Default)
+	if "" != defaultDesc {
+		return defaultDesc
+	}
+
+	enUSDesc := strings.TrimSpace(desc.EnUS)
+	if "" != enUSDesc {
+		return enUSDesc
+	}
+
+	return ""
 }
 
 func getPreferredFunding(funding *Funding) string {
@@ -397,12 +448,21 @@ func getPreferredFunding(funding *Funding) string {
 	}
 
 	if "" != funding.OpenCollective {
+		if strings.HasPrefix(funding.OpenCollective, "http://") || strings.HasPrefix(funding.OpenCollective, "https://") {
+			return funding.OpenCollective
+		}
 		return "https://opencollective.com/" + funding.OpenCollective
 	}
 	if "" != funding.Patreon {
+		if strings.HasPrefix(funding.Patreon, "http://") || strings.HasPrefix(funding.Patreon, "https://") {
+			return funding.Patreon
+		}
 		return "https://www.patreon.com/" + funding.Patreon
 	}
 	if "" != funding.GitHub {
+		if strings.HasPrefix(funding.GitHub, "http://") || strings.HasPrefix(funding.GitHub, "https://") {
+			return funding.GitHub
+		}
 		return "https://github.com/sponsors/" + funding.GitHub
 	}
 	if 0 < len(funding.Custom) {
@@ -693,14 +753,29 @@ func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {
 
 	data, err := downloadPackage(repoURLHash+"/"+readme, false, "")
 	if err != nil {
-		ret = fmt.Sprintf("Load bazaar package's README.md(%s) failed: %s", readme, err.Error())
-		if readme == repo.Package.Readme.Default || "" == strings.TrimSpace(repo.Package.Readme.Default) {
-			return
+		ret = fmt.Sprintf("Load bazaar package's preferred README(%s) failed: %s", readme, err.Error())
+		// 回退到 Default README
+		var defaultReadme string
+		if nil != repo.Package.Readme {
+			defaultReadme = repo.Package.Readme.Default
 		}
-		readme = repo.Package.Readme.Default
-		data, err = downloadPackage(repoURLHash+"/"+readme, false, "")
-		if err != nil {
-			ret += fmt.Sprintf("<br>Load bazaar package's README.md(%s) failed: %s", readme, err.Error())
+		if "" == strings.TrimSpace(defaultReadme) {
+			defaultReadme = "README.md"
+		}
+		if readme != defaultReadme {
+			data, err = downloadPackage(repoURLHash+"/"+defaultReadme, false, "")
+			if err != nil {
+				ret += fmt.Sprintf("<br>Load bazaar package's default README(%s) failed: %s", defaultReadme, err.Error())
+			}
+		}
+		// 回退到 README.md
+		if err != nil && readme != "README.md" && defaultReadme != "README.md" {
+			data, err = downloadPackage(repoURLHash+"/README.md", false, "")
+			if err != nil {
+				ret += fmt.Sprintf("<br>Load bazaar package's README.md failed: %s", err.Error())
+				return
+			}
+		} else if err != nil {
 			return
 		}
 	}
@@ -714,6 +789,46 @@ func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {
 	}
 
 	ret, err = renderREADME(repoURL, data)
+	return
+}
+
+func loadInstalledReadme(installPath, basePath string, readme *Readme) (ret string) {
+	readmeFilename := getPreferredReadme(readme)
+	readmeData, readErr := os.ReadFile(filepath.Join(installPath, readmeFilename))
+	if nil == readErr {
+		ret, _ = renderLocalREADME(basePath, readmeData)
+		return
+	}
+
+	logging.LogWarnf("read installed %s failed: %s", readmeFilename, readErr)
+	ret = fmt.Sprintf("File %s not found", readmeFilename)
+	// 回退到 Default README
+	var defaultReadme string
+	if nil != readme {
+		defaultReadme = strings.TrimSpace(readme.Default)
+	}
+	if "" == defaultReadme {
+		defaultReadme = "README.md"
+	}
+	if readmeFilename != defaultReadme {
+		readmeData, readErr = os.ReadFile(filepath.Join(installPath, defaultReadme))
+		if nil == readErr {
+			ret, _ = renderLocalREADME(basePath, readmeData)
+			return
+		}
+		logging.LogWarnf("read installed %s failed: %s", defaultReadme, readErr)
+		ret += fmt.Sprintf("<br>File %s not found", defaultReadme)
+	}
+	// 回退到 README.md
+	if nil != readErr && readmeFilename != "README.md" && defaultReadme != "README.md" {
+		readmeData, readErr = os.ReadFile(filepath.Join(installPath, "README.md"))
+		if nil == readErr {
+			ret, _ = renderLocalREADME(basePath, readmeData)
+			return
+		}
+		logging.LogWarnf("read installed README.md failed: %s", readErr)
+		ret += "<br>File README.md not found"
+	}
 	return
 }
 

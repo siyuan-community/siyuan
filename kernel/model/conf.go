@@ -83,13 +83,18 @@ type AppConf struct {
 	Snippet        *conf.Snpt       `json:"snippet"`        // 代码片段
 	DataIndexState int              `json:"dataIndexState"` // 数据索引状态，0：已索引，1：未索引
 
-	Community *conf.Community `json:"community"` // 社区配置
+	m        *sync.RWMutex // 配置数据锁
+	userLock *sync.RWMutex // 用户数据独立锁，避免与配置保存操作竞争
 
-	m *sync.Mutex
+	Community *conf.Community `json:"community"` // 社区配置
 }
 
 func NewAppConf() *AppConf {
-	return &AppConf{LogLevel: "debug", m: &sync.Mutex{}}
+	return &AppConf{
+		LogLevel: "debug",
+		m:        &sync.RWMutex{},
+		userLock: &sync.RWMutex{},
+	}
 }
 
 func (conf *AppConf) GetUILayout() *conf.UILayout {
@@ -105,14 +110,14 @@ func (conf *AppConf) SetUILayout(uiLayout *conf.UILayout) {
 }
 
 func (conf *AppConf) GetUser() *conf.User {
-	conf.m.Lock()
-	defer conf.m.Unlock()
+	conf.userLock.RLock()
+	defer conf.userLock.RUnlock()
 	return conf.User
 }
 
 func (conf *AppConf) SetUser(user *conf.User) {
-	conf.m.Lock()
-	defer conf.m.Unlock()
+	conf.userLock.Lock()
+	defer conf.userLock.Unlock()
 	conf.User = user
 }
 
@@ -242,8 +247,8 @@ func InitConf() {
 	if nil == Conf.Editor {
 		Conf.Editor = defaultEditor
 	}
-	// 新增字段的默认值
-	// 使用指针类型来区分字段不存在（nil）和用户设置为 0（非 nil）
+
+	// 新增字段的默认值，使用指针类型来区分字段不存在（nil）和用户设置为 0（非 nil）
 	if nil == Conf.Editor.BacklinkSort {
 		Conf.Editor.BacklinkSort = defaultEditor.BacklinkSort
 	}
@@ -283,6 +288,9 @@ func InitConf() {
 	}
 	if conf.MinDynamicLoadBlocks > Conf.Editor.DynamicLoadBlocks {
 		Conf.Editor.DynamicLoadBlocks = conf.MinDynamicLoadBlocks
+	}
+	if 1 > len(Conf.Editor.SpellcheckLanguages) {
+		Conf.Editor.SpellcheckLanguages = []string{"en-US"}
 	}
 	if 0 > Conf.Editor.BacklinkExpandCount {
 		Conf.Editor.BacklinkExpandCount = 0
@@ -748,7 +756,15 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 		if nil != util.WebSocketServer {
 			util.WebSocketServer.Close()
 		}
+		if nil != util.HttpServer {
+			util.HttpServer.Close()
+		}
 		util.HttpServing = false
+
+		if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container || util.ContainerHarmony == util.Container {
+			return
+		}
+
 		os.Exit(logging.ExitCodeOk)
 	}()
 	return

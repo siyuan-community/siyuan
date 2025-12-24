@@ -75,7 +75,7 @@ export const initAbout = () => {
         </button>
         <div class="fn__hr"></div>
         <button class="b3-button b3-button--outline fn__block" id="initKeyByPW">
-            ${window.siyuan.languages.genKeyByPW}
+            <svg><use xlink:href="#iconKey"></use></svg>${window.siyuan.languages.genKeyByPW}
         </button>
     </div>
     <div class="${window.siyuan.config.repo.key ? "" : "fn__none"}">
@@ -358,7 +358,7 @@ export const initAbout = () => {
                                     fetchPost("/api/system/setWorkspaceDir", {
                                         path: openPath
                                     }, () => {
-                                        exitSiYuan();
+                                        exitSiYuan(false);
                                     });
                                 });
                             });
@@ -412,7 +412,7 @@ export const initAbout = () => {
                             fetchPost("/api/system/setWorkspaceDir", {
                                 path: target.getAttribute("data-path")
                             }, () => {
-                                exitSiYuan();
+                                exitSiYuan(false);
                             });
                         });
                         event.preventDefault();

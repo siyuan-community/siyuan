@@ -31,6 +31,7 @@
         content: '';
         position: absolute;
         background-color: var(--b3-theme-primary-lighter);
+        pointer-events: none;
       }
 
       &__top::after,
@@ -784,12 +785,18 @@
 
   .callout-icon {
     cursor: pointer;
-    padding: 4px;
-    border-radius: var(--b3-border-radius);
     transition: var(--b3-background-transition);
 
     &:hover {
       background-color: var(--b3-list-hover);
+    }
+  }
+
+  .callout-title {
+    cursor: pointer;
+
+    &:hover {
+      opacity: 1;
     }
   }
 }

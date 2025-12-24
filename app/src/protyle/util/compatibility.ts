@@ -8,6 +8,10 @@ import {clipboard, ipcRenderer} from "electron";
 import {processSYLink} from "../../editor/openLink";
 /// #endif
 
+export const isPhablet = () => {
+    return /Android|webOS|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent) || isIPhone() || isIPad();
+};
+
 export const encodeBase64 = (text: string): string => {
     if (typeof Buffer !== "undefined") {
         return Buffer.from(text, "utf8").toString("base64");
@@ -236,9 +240,9 @@ export const writeText = (text: string) => {
     }
 };
 
-export const copyPlainText = async (text: string) => {
+export const copyPlainText = (text: string) => {
     text = text.replace(new RegExp(Constants.ZWSP, "g"), ""); // `复制纯文本` 时移除所有零宽空格 https://github.com/siyuan-note/siyuan/issues/6674
-    await writeText(text);
+    writeText(text);
 };
 
 // 用户 iPhone 点击延迟/需要双击的处理

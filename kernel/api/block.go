@@ -27,6 +27,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 )
@@ -659,6 +660,10 @@ func getBlockInfo(c *gin.Context) {
 	if errors.Is(err, model.ErrIndexing) {
 		ret.Code = 3
 		ret.Msg = model.Conf.Language(56)
+		return
+	} else if errors.Is(err, treenode.ErrSpecTooNew) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(275)
 		return
 	}
 

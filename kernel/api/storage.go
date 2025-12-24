@@ -23,6 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
 
 func getRecentDocs(c *gin.Context) {
@@ -174,6 +175,13 @@ func setLocalStorage(c *gin.Context) {
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
+		return
+	}
+
+	if arg["app"] == nil {
+		logging.LogErrorf("app is nil in setLocalStorage")
+		ret.Code = -1
+		ret.Msg = "arg [app] is nil"
 		return
 	}
 

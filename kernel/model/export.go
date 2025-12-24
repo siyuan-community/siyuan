@@ -245,9 +245,14 @@ func Export2Liandi(id string) (err error) {
 	defer util.PushClearMsg(msgId)
 
 	// 判断帖子是否已经存在，存在则使用更新接口
-	const liandiArticleIdAttrName = "custom-liandi-articleId"
+	const liandiArticleIdAttrName = "custom-liandi-articleid"
+	const liandiArticleIdAttrNameOld = "custom-liandi-articleId" // 兼容旧属性名
 	foundArticle := false
+	// 优先使用新属性名，如果不存在则尝试旧属性名
 	articleId := tree.Root.IALAttr(liandiArticleIdAttrName)
+	if "" == articleId {
+		articleId = tree.Root.IALAttr(liandiArticleIdAttrNameOld)
+	}
 	if "" != articleId {
 		result := gulu.Ret.NewResult()
 		request := httpclient.NewCloudRequest30s()
@@ -586,7 +591,7 @@ func ExportResources(resourcePaths []string, mainName string) (exportFilePath st
 	return
 }
 
-func Preview(id string, fillCSSVar bool) (retStdHTML string) {
+func ExportPreview(id string, fillCSSVar bool) (retStdHTML string) {
 	blockRefMode := Conf.Export.BlockRefMode
 	bt := treenode.GetBlockTree(id)
 	if nil == bt {
@@ -640,7 +645,7 @@ func Preview(id string, fillCSSVar bool) (retStdHTML string) {
 		fillThemeStyleVar(tree)
 	}
 	luteEngine.RenderOptions.ProtyleMarkNetImg = false
-	retStdHTML = luteEngine.ProtylePreview(tree, luteEngine.RenderOptions)
+	retStdHTML = luteEngine.ProtylePreview(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 
 	if footnotesDefBlock := tree.Root.ChildByType(ast.NodeFootnotesDefBlock); nil != footnotesDefBlock {
 		footnotesDefBlock.Unlink()
@@ -872,11 +877,11 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool) (name, dom string
 	})
 
 	if docx {
-		renderer := render.NewProtyleExportDocxRenderer(tree, luteEngine.RenderOptions)
+		renderer := render.NewProtyleExportDocxRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 		output := renderer.Render()
 		dom = gulu.Str.FromBytes(output)
 	} else {
-		dom = luteEngine.ProtylePreview(tree, luteEngine.RenderOptions)
+		dom = luteEngine.ProtylePreview(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	}
 	return
 }
@@ -891,6 +896,9 @@ func ExportHTML(id, savePath string, pdf, image, keepFold, merge bool) (name, do
 
 	tree := prepareExportTree(bt)
 	node = treenode.GetNodeInTree(tree, id)
+	if ast.NodeDocument == node.Type {
+		node.RemoveIALAttr("style")
+	}
 
 	if merge {
 		var mergeErr error
@@ -905,7 +913,7 @@ func ExportHTML(id, savePath string, pdf, image, keepFold, merge bool) (name, do
 	var headings []*ast.Node
 	if pdf { // 导出 PDF 需要标记目录书签
 		ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
-			if entering && ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) {
+			if entering && ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) && !n.ParentIs(ast.NodeCallout) {
 				headings = append(headings, n)
 				return ast.WalkSkipChildren
 			}
@@ -1045,7 +1053,7 @@ func ExportHTML(id, savePath string, pdf, image, keepFold, merge bool) (name, do
 	// 使用属性 `data-export-html` 导出时 `<style></style>` 标签丢失 https://github.com/siyuan-note/siyuan/issues/6228
 	luteEngine.SetSanitize(false)
 
-	renderer := render.NewProtyleExportRenderer(tree, luteEngine.RenderOptions)
+	renderer := render.NewProtyleExportRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	dom = gulu.Str.FromBytes(renderer.Render())
 	return
 }
@@ -1128,7 +1136,7 @@ func ProcessPDF(id, p string, merge, removeAssets, watermark bool) (err error) {
 			return ast.WalkContinue
 		}
 
-		if ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) {
+		if ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) && !n.ParentIs(ast.NodeCallout) {
 			headings = append(headings, n)
 			return ast.WalkSkipChildren
 		}
@@ -1891,7 +1899,12 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string) (
 			if ast.NodeAttributeView == n.Type {
 				avIDs = append(avIDs, n.AttributeViewID)
 			}
+
 			avs := n.IALAttr(av.NodeAttrNameAvs)
+			if "" == avs {
+				return ast.WalkContinue
+			}
+
 			for _, avID := range strings.Split(avs, ",") {
 				avIDs = append(avIDs, strings.TrimSpace(avID))
 			}
@@ -1900,6 +1913,10 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string) (
 	}
 	avIDs = gulu.Str.RemoveDuplicatedElem(avIDs)
 	for _, avID := range avIDs {
+		if !ast.IsNodeIDPattern(avID) {
+			continue
+		}
+
 		exportAv(avID, exportStorageAvDir, exportDir, assetPathMap)
 	}
 
@@ -2265,7 +2282,7 @@ func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string,
 
 	luteEngine.SetUnorderedListMarker("-")
 	luteEngine.SetImgTag(imgTag)
-	renderer := render.NewProtyleExportMdRenderer(tree, luteEngine.RenderOptions)
+	renderer := render.NewProtyleExportMdRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	ret = gulu.Str.FromBytes(renderer.Render())
 	return
 }
@@ -2442,7 +2459,7 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 			root.IAL["type"] = "doc"
 			title := &ast.Node{Type: ast.NodeHeading, HeadingLevel: 1}
 			for k, v := range root.IAL {
-				if "type" == k {
+				if "type" == k || "style" == k {
 					continue
 				}
 				title.SetIALAttr(k, v)
@@ -3557,14 +3574,14 @@ func adjustHeadingLevel(bt *treenode.BlockTree, tree *parse.Tree) {
 	var firstHeading *ast.Node
 	if !Conf.Export.AddTitle {
 		for n := tree.Root.FirstChild; nil != n; n = n.Next {
-			if ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) {
+			if ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) && !n.ParentIs(ast.NodeCallout) {
 				firstHeading = n
 				break
 			}
 		}
 	} else {
 		for n := tree.Root.FirstChild.Next; nil != n; n = n.Next {
-			if ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) {
+			if ast.NodeHeading == n.Type && !n.ParentIs(ast.NodeBlockquote) && !n.ParentIs(ast.NodeCallout) {
 				firstHeading = n
 				break
 			}

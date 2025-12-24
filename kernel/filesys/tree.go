@@ -125,10 +125,9 @@ func LoadTree(boxID, p string, luteEngine *lute.Lute) (ret *parse.Tree, err erro
 }
 
 func LoadTreeByData(data []byte, boxID, p string, luteEngine *lute.Lute) (ret *parse.Tree, err error) {
-	ret = parseJSON2Tree(boxID, p, data, luteEngine)
-	if nil == ret {
-		logging.LogErrorf("parse tree [%s] failed", p)
-		err = errors.New("parse tree failed")
+	ret, err = parseJSON2Tree(boxID, p, data, luteEngine)
+	if nil != err {
+		logging.LogErrorf("parse tree [%s] failed: %s", p, err)
 		return
 	}
 	ret.Path = p
@@ -208,7 +207,7 @@ func DocIAL(absPath string) (ret map[string]string) {
 
 func TreeSize(tree *parse.Tree) (size uint64) {
 	luteEngine := util.NewLute() // 不关注用户的自定义解析渲染选项
-	renderer := render.NewJSONRenderer(tree, luteEngine.RenderOptions)
+	renderer := render.NewJSONRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	return uint64(len(renderer.Render()))
 }
 
@@ -245,14 +244,11 @@ func prepareWriteTree(tree *parse.Tree) (data []byte, filePath string, err error
 		treenode.UpsertBlockTree(tree)
 	}
 
+	treenode.UpgradeSpec(tree)
+
 	filePath = filepath.Join(util.DataDir, tree.Box, tree.Path)
-	if oldSpec := tree.Root.Spec; "" == oldSpec {
-		parse.NestedInlines2FlattedSpans(tree, false)
-		tree.Root.Spec = "1"
-		logging.LogInfof("migrated tree [%s] from spec [%s] to [%s]", filePath, oldSpec, tree.Root.Spec)
-	}
 	tree.Root.SetIALAttr("type", "doc")
-	renderer := render.NewJSONRenderer(tree, luteEngine.RenderOptions)
+	renderer := render.NewJSONRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	data = renderer.Render()
 	data = bytes.ReplaceAll(data, []byte("\u0000"), []byte(""))
 
@@ -277,8 +273,7 @@ func afterWriteTree(tree *parse.Tree) {
 	cache.PutDocIAL(tree.Path, docIAL)
 }
 
-func parseJSON2Tree(boxID, p string, jsonData []byte, luteEngine *lute.Lute) (ret *parse.Tree) {
-	var err error
+func parseJSON2Tree(boxID, p string, jsonData []byte, luteEngine *lute.Lute) (ret *parse.Tree, err error) {
 	var needFix bool
 	ret, needFix, err = dataparser.ParseJSON(jsonData, luteEngine.ParseOptions)
 	if err != nil {
@@ -289,12 +284,12 @@ func parseJSON2Tree(boxID, p string, jsonData []byte, luteEngine *lute.Lute) (re
 	ret.Box = boxID
 	ret.Path = p
 
-	filePath := filepath.Join(util.DataDir, ret.Box, ret.Path)
-	if oldSpec := ret.Root.Spec; "" == oldSpec {
-		parse.NestedInlines2FlattedSpans(ret, false)
-		ret.Root.Spec = "1"
+	if err = treenode.CheckSpec(ret); errors.Is(err, treenode.ErrSpecTooNew) {
+		return
+	}
+
+	if treenode.UpgradeSpec(ret) {
 		needFix = true
-		logging.LogInfof("migrated tree [%s] from spec [%s] to [%s]", filePath, oldSpec, ret.Root.Spec)
 	}
 
 	if pathID := util.GetTreeID(p); pathID != ret.Root.ID {
@@ -306,7 +301,7 @@ func parseJSON2Tree(boxID, p string, jsonData []byte, luteEngine *lute.Lute) (re
 	}
 
 	if needFix {
-		renderer := render.NewJSONRenderer(ret, luteEngine.RenderOptions)
+		renderer := render.NewJSONRenderer(ret, luteEngine.RenderOptions, luteEngine.ParseOptions)
 		data := renderer.Render()
 
 		if !util.UseSingleLineSave {
@@ -318,6 +313,7 @@ func parseJSON2Tree(boxID, p string, jsonData []byte, luteEngine *lute.Lute) (re
 			data = buf.Bytes()
 		}
 
+		filePath := filepath.Join(util.DataDir, ret.Box, ret.Path)
 		if err = os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 			return
 		}

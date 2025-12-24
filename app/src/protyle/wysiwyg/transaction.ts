@@ -319,7 +319,7 @@ const updateEmbed = (protyle: IProtyle, operation: IOperation) => {
 };
 
 const deleteBlock = (updateElements: Element[], id: string, protyle: IProtyle, isUndo: boolean) => {
-    if (isUndo) {
+    if (isUndo && updateElements[0]) {
         focusSideBlock(updateElements[0]);
     }
     updateElements.forEach(item => {
@@ -354,6 +354,9 @@ const updateBlock = (updateElements: Element[], protyle: IProtyle, operation: IO
     });
     Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`)).find(item => {
         if (!isInEmbedBlock(item)) {
+            if (item.getAttribute("data-type") === "NodeBlockQueryEmbed") {
+                item.removeAttribute("data-render");
+            }
             updateElements[0] = item;
             return true;
         }
@@ -784,6 +787,7 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
             if (previousElement.length === 0 && isUndo && protyle.wysiwyg.element.childElementCount === 0) {
                 // https://github.com/siyuan-note/siyuan/issues/15396 操作后撤销
                 protyle.wysiwyg.element.innerHTML = operation.data;
+                cursorElements.push(protyle.wysiwyg.element.firstElementChild);
             } else if (previousElement.length === 0 && protyle.options.backlinkData && isUndo && getSelection().rangeCount > 0) {
                 // 反链面板删除超级块中的最后一个段落块后撤销
                 const blockElement = hasClosestBlock(getSelection().getRangeAt(0).startContainer);
@@ -856,17 +860,27 @@ export const onTransaction = (protyle: IProtyle, operation: IOperation, isUndo: 
             return;
         }
         cursorElements.forEach(item => {
+            // https://github.com/siyuan-note/siyuan/issues/16554
+            item.querySelector(".protyle-attr--av")?.remove();
+            item.removeAttribute("custom-avs");
+            item.getAttributeNames().forEach(attr => {
+                if (attr.startsWith("custom-sy-av-s-text-")) {
+                    item.removeAttribute(attr);
+                }
+            });
             processRender(item);
             highlightRender(item);
             avRender(item, protyle);
             blockRender(protyle, item);
             const wbrElement = item.querySelector("wbr");
             if (isUndo) {
-                const range = getEditorRange(item);
-                if (wbrElement) {
-                    focusByWbr(item, range);
-                } else {
-                    focusBlock(item);
+                if (operation.context?.setRange === "true") {
+                    const range = getEditorRange(item);
+                    if (wbrElement) {
+                        focusByWbr(item, range);
+                    } else {
+                        focusBlock(item);
+                    }
                 }
             } else if (wbrElement) {
                 wbrElement.remove();

@@ -703,7 +703,7 @@ func updateBlock(c *gin.Context) {
 		}
 		tree.Root.FirstChild.SetIALAttr("id", id)
 
-		data = luteEngine.Tree2BlockDOM(tree, luteEngine.RenderOptions)
+		data = luteEngine.Tree2BlockDOM(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 		transactions = []*model.Transaction{
 			{
 				DoOperations: []*model.Operation{
@@ -888,7 +888,7 @@ func batchUpdateBlock(c *gin.Context) {
 			}
 			tree.Root.FirstChild.SetIALAttr("id", id)
 
-			data = luteEngine.Tree2BlockDOM(tree, luteEngine.RenderOptions)
+			data = luteEngine.Tree2BlockDOM(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 			ops = append(ops, &model.Operation{
 				Action: "update",
 				ID:     id,
@@ -903,7 +903,6 @@ func batchUpdateBlock(c *gin.Context) {
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
-
 }
 
 func deleteBlock(c *gin.Context) {
