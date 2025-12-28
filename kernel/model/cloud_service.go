@@ -233,7 +233,7 @@ func refreshSubscriptionExpirationRemind() {
 
 	defer logging.Recover()
 
-	if IsSubscriber() && -1 != Conf.GetUser().UserSiYuanProExpireTime {
+	if IsSubscriber() && nil != Conf.GetUser() && -1 != Conf.GetUser().UserSiYuanProExpireTime {
 		expired := int64(Conf.GetUser().UserSiYuanProExpireTime)
 		now := time.Now().UnixMilli()
 		if now >= expired { // 已经过期
