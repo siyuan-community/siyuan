@@ -393,7 +393,6 @@ func IsSensitivePath(p string) bool {
 	winPrefixes := []string{
 		`c:\windows\system32`,
 		`c:\windows\system`,
-		`c:\users\`,
 	}
 	for _, wp := range winPrefixes {
 		if strings.HasPrefix(pp, strings.ToLower(wp)) {
