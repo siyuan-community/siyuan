@@ -3484,15 +3484,20 @@ func exportPandocConvertZip(baseFolderName string, docPaths, defBlockIDs []strin
 				continue
 			}
 
-			oldAsset := assetsNewOld[newAsset]
+			// 导出 Markdown 时链接路径中的空格被编码为 `%20`，需要替换回空格后才能正确获取原始资源路径
+			// Improve export of Markdown hyperlink spaces https://github.com/siyuan-note/siyuan/issues/9792
+			// No assets were exported when exporting Markdown https://github.com/siyuan-note/siyuan/issues/17046
+			spaceEncodedNewAsset := strings.ReplaceAll(newAsset, " ", "%20")
+			oldAsset := assetsNewOld[spaceEncodedNewAsset]
 			if "" == oldAsset {
-				logging.LogWarnf("get asset old path for new asset [%s] failed", newAsset)
+				logging.LogWarnf("get asset old path for new asset [%s] failed", spaceEncodedNewAsset)
 				continue
 			}
 
-			srcPath := assetsPathMap[oldAsset]
+			spaceDecodedOldAsset := strings.ReplaceAll(oldAsset, "%20", " ")
+			srcPath := assetsPathMap[spaceDecodedOldAsset]
 			if "" == srcPath {
-				logging.LogWarnf("get asset [%s] abs path failed", oldAsset)
+				logging.LogWarnf("get asset [%s] abs path failed", spaceDecodedOldAsset)
 				continue
 			}
 
