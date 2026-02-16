@@ -321,20 +321,6 @@ func InitConf() {
 		Conf.Export.PandocBin = util.PandocBinPath
 	}
 
-	docxTemplate := util.RemoveInvalid(Conf.Export.DocxTemplate)
-	if "" != docxTemplate {
-		params := util.RemoveInvalid(Conf.Export.PandocParams)
-		if gulu.File.IsExist(docxTemplate) && !strings.Contains(params, "--reference-doc") {
-			if !strings.HasPrefix(docxTemplate, "\"") {
-				docxTemplate = "\"" + docxTemplate + "\""
-			}
-			params += " --reference-doc " + docxTemplate
-			Conf.Export.PandocParams = strings.TrimSpace(params)
-		}
-		Conf.Export.DocxTemplate = ""
-		Conf.Save()
-	}
-
 	if nil == Conf.Graph || nil == Conf.Graph.Local || nil == Conf.Graph.Global {
 		Conf.Graph = conf.NewGraph()
 	}
@@ -373,10 +359,6 @@ func InitConf() {
 		Conf.System.DisabledFeatures = []string{}
 	}
 
-	if nil == Conf.Snippet {
-		Conf.Snippet = conf.NewSnpt()
-	}
-
 	Conf.System.AppDir = util.WorkingDir
 	Conf.System.ConfDir = util.ConfDir
 	Conf.System.HomeDir = util.HomeDir
@@ -389,6 +371,24 @@ func InitConf() {
 	}
 	Conf.System.OS = runtime.GOOS
 	Conf.System.OSPlatform = util.GetOSPlatform()
+
+	docxTemplate := util.RemoveInvalid(Conf.Export.DocxTemplate)
+	if "" != docxTemplate {
+		params := util.RemoveInvalid(Conf.Export.PandocParams)
+		if gulu.File.IsExist(docxTemplate) && !strings.Contains(params, "--reference-doc") && !Conf.System.IsMicrosoftStore {
+			if !strings.HasPrefix(docxTemplate, "\"") {
+				docxTemplate = "\"" + docxTemplate + "\""
+			}
+			params += " --reference-doc " + docxTemplate
+			Conf.Export.PandocParams = strings.TrimSpace(params)
+		}
+		Conf.Export.DocxTemplate = ""
+		Conf.Save()
+	}
+
+	if nil == Conf.Snippet {
+		Conf.Snippet = conf.NewSnpt()
+	}
 
 	if "" != Conf.UserData {
 		Conf.SetUser(loadUserFromConf())
@@ -1267,7 +1267,7 @@ func subscribeConfEvents() {
 		Conf.Export.PandocBin = util.PandocBinPath
 
 		params := util.RemoveInvalid(Conf.Export.PandocParams)
-		if !strings.Contains(params, "--reference-doc") && "" != util.PandocTemplatePath {
+		if !strings.Contains(params, "--reference-doc") && "" != util.PandocTemplatePath && !Conf.System.IsMicrosoftStore {
 			params += " --reference-doc"
 			params += " \"" + util.PandocTemplatePath + "\""
 			Conf.Export.PandocParams = strings.TrimSpace(params)
