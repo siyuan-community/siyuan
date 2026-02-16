@@ -1215,7 +1215,7 @@
   "export23": "Eksportuj Markdown z metadanymi YAML",
   "export24": "Po włączeniu, dodaj kilka ogólnych informacji metadanych na początku wyeksportowanego pliku Markdown",
   "export25": "Parametry uruchamiania Pandoc",
-  "export26": "Parametry Pandoc używane przy eksporcie pliku Word .docx",
+  "export26": "Parametry Pandoc używane przy eksportowaniu plików Word .docx, na przykład parametr <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "Eksportuj znak wodny PDF",
   "export28": "Tekst znaku wodnego lub ścieżka pliku znaku wodnego",
   "export29": "Pozycja znaku wodnego, rozmiar i styl itp.",

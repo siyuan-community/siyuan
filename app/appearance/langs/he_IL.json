@@ -1215,7 +1215,7 @@
   "export23": "ייצוא Markdown עם YAML ממשק נתונים קדמי",
   "export24": "לאחר הפעלת אפשרות זו, הוסף מידע מטא כללי בתחילת קובץ Markdown המיוצא",
   "export25": "פרמטרים להרצת Pandoc",
-  "export26": "פרמטרי Pandoc המשמשים בעת ייצוא קובץ Word .docx",
+  "export26": "פרמטרי Pandoc בשימוש בעת ייצוא קובץ Word .docx, למשל הפרמטר <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "ייצוא סימן מים PDF",
   "export28": "טקסט סימן מים או נתיב קובץ סימן מים",
   "export29": "מיקום סימן מים, גודל וסגנון, וכו'",

@@ -1215,7 +1215,7 @@
   "export23": "導出 Markdown 添加 YAML front-matter",
   "export24": "啟用後在導出的 Markdown 文件開頭處添加一些較為通用的元資料資訊",
   "export25": "Pandoc 執行參數",
-  "export26": "匯出 Word .docx 檔案時使用的 Pandoc 參數",
+  "export26": "導出 Word .docx 檔案時使用的 Pandoc 參數，例如 <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a> 參數",
   "export27": "導出 PDF 浮水印",
   "export28": "浮水印文字或浮水印檔案路徑",
   "export29": "浮水印位置、大小和樣式等",

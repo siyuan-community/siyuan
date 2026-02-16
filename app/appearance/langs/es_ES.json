@@ -1215,7 +1215,7 @@
   "export23": "Exportar Markdown con YAML front-matter",
   "export24": "Después de habilitar, agregue información general de metadatos al comienzo del archivo Markdown exportado",
   "export25": "Parámetros de ejecución de Pandoc",
-  "export26": "Parámetros de Pandoc utilizados al exportar un archivo Word .docx",
+  "export26": "Parámetros de Pandoc utilizados al exportar archivos Word .docx, por ejemplo el parámetro <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "Exportar marca de agua PDF",
   "export28": "Texto de marca de agua o ruta del archivo de marca de agua",
   "export29": "Posición, tamaño y estilo de la marca de agua, etc.",

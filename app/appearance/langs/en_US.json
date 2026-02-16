@@ -1215,7 +1215,7 @@
   "export23": "Export Markdown with YAML front-matter",
   "export24": "When enabled, add some general metadata information at the beginning of the exported Markdown file",
   "export25": "Pandoc execution parameters",
-  "export26": "Pandoc parameters used when exporting a Word .docx file",
+  "export26": "Pandoc parameters used when exporting Word .docx files, for example the <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a> parameter",
   "export27": "Export PDF watermark",
   "export28": "Watermark text or watermark file path",
   "export29": "Watermark position, size and style, etc.",

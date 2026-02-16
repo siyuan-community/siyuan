@@ -1215,7 +1215,7 @@
   "export23": "Exporter Markdown avec YAML front-matter",
   "export24": "Après l'activation, ajoutez des informations générales sur les métadonnées au début du fichier Markdown exporté",
   "export25": "Paramètres d'exécution de Pandoc",
-  "export26": "Paramètres de Pandoc utilisés lors de l'exportation d'un fichier Word .docx",
+  "export26": "Paramètres Pandoc utilisés lors de l'exportation de fichiers Word .docx, par exemple le paramètre <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "Exporter le filigrane PDF",
   "export28": "Texte du filigrane ou chemin du fichier de filigrane",
   "export29": "Position, taille et style du filigrane, etc.",

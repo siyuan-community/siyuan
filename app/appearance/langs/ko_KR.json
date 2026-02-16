@@ -1215,7 +1215,7 @@
   "export23": "YAML front-matter와 함께 Markdown 내보내기",
   "export24": "활성화하면 내보낸 Markdown 파일의 시작 부분에 몇 가지 일반적인 메타데이터 정보를 추가합니다",
   "export25": "Pandoc 실행 매개변수",
-  "export26": "Word .docx 파일을 내보낼 때 사용하는 Pandoc 매개변수",
+  "export26": "Word .docx 파일을 내보낼 때 사용하는 Pandoc 매개변수, 예: <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a> 매개변수",
   "export27": "PDF 워터마크 내보내기",
   "export28": "워터마크 텍스트 또는 워터마크 파일 경로",
   "export29": "워터마크 위치, 크기 및 스타일 등",
