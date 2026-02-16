@@ -581,7 +581,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 		if err != nil {
 			return err
 		}
-		if d == nil {
+		if d == nil || unzipRootPath == path {
 			return nil
 		}
 		if d.Name() == "assets" && d.IsDir() {
@@ -627,7 +627,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 		if err != nil {
 			return err
 		}
-		if d == nil {
+		if d == nil || unzipRootPath == path {
 			return nil
 		}
 		if d.Name() == "emojis" && d.IsDir() {
