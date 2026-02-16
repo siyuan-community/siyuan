@@ -39,6 +39,28 @@ export const exportAsset = (src: string) => {
     };
 };
 
+// 复制资源文件到系统剪贴板，在文件资源管理器中可粘贴为文件（仅 Windows、macOS 桌面端支持）
+export const copyAsset = (src: string) => {
+    return {
+        id: "copy",
+        label: window.siyuan.languages.copyFile,
+        icon: "iconCopy",
+        click: () => {
+            /// #if !BROWSER
+            fetchPost("/api/clipboard/writeFilePath", {path: src}, (response) => {
+                if (response.code === 0) {
+                    showMessage(window.siyuan.languages.copied);
+                } else {
+                    showMessage(response.msg || "", response.data?.closeTimeout ?? 5000, "error");
+                }
+            });
+            /// #else
+            showMessage("Copy as file is only supported in the Windows and macOS desktop app");
+            /// #endif
+        }
+    };
+};
+
 export const openEditorTab = (app: App, ids: string[], notebookId?: string, pathString?: string, onlyGetMenus = false) => {
     /// #if !MOBILE
     const openSubmenus: IMenu[] = [{
