@@ -11,6 +11,7 @@ import {MenuItem} from "./Menu";
 import {App} from "../index";
 import {exportByMobile, isInAndroid, updateHotkeyTip} from "../protyle/util/compatibility";
 import {checkFold} from "../util/noRelyPCFunction";
+import {showMessage} from "../dialog/message";
 
 export const exportAsset = (src: string) => {
     return {
@@ -27,7 +28,11 @@ export const exportAsset = (src: string) => {
                 properties: ["showOverwriteConfirmation"],
             });
             if (!result.canceled) {
-                fetchPost("/api/file/copyFile", {src, dest: result.filePath});
+                fetchPost("/api/file/copyFile", {src, dest: result.filePath}, (response) => {
+                    if (response.code === 0) {
+                        showMessage(window.siyuan.languages.exported);
+                    }
+                });
             }
             /// #endif
         }
