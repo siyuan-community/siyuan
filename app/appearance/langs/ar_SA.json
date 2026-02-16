@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "لا تقسم الشاشة عند فتح التبويب",
+  "noSplitScreenWhenOpenTabTip": "لا تقسم الشاشة تلقائيًا عند فتح تبويبات البحث أو PDF أو غيرها",
   "useChrome": "يدعم فقط في المتصفحات المبنية على محرك Chromium (مثل Chrome/Edge)، قد تواجه مشكلات توافق لا يمكن حلها عند استخدام متصفحات أخرى",
   "clearAllAV": "هل تؤكد مسح جميع قواعد البيانات غير المشار إليها؟",
   "unreferencedAV": "قاعدة بيانات غير مشار إليها",
@@ -1213,7 +1215,7 @@
   "export23": "‫تصدير Markdown مع YAML front-matter‬",
   "export24": "‫بعد التمكين، سيتم إضافة بعض معلومات البيانات الوصفية العامة في بداية ملف Markdown المصدّر‬",
   "export25": "معاملات تشغيل Pandoc",
-  "export26": "معاملات Pandoc المستخدمة عند تصدير ملف Word .docx",
+  "export26": "معاملات Pandoc المستخدمة عند تصدير ملفات Word .docx، على سبيل المثال المعامل <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "‫العلامة المائية لملف PDF المصدّر‬",
   "export28": "نص العلامة المائية المخصصة أو مسار ملف العلامة المائية",
   "export29": "موقع العلامة المائية، حجمها وأسلوبها، إلخ",
@@ -1333,6 +1335,7 @@
   "column": "العمود",
   "copied": "تم النسخ",
   "copy": "نسخ",
+  "copyFile": "نسخ الملف",
   "copyText": "نسخ النص *",
   "delete-column": "حذف العمود",
   "delete-row": "حذف الصف",

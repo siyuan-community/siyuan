@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "לא לחלק את המסך בעת פתיחת כרטיסייה",
+  "noSplitScreenWhenOpenTabTip": "לא לחלק את המסך אוטומטית בעת פתיחת כרטיסיות חיפוש, PDF או אחרות",
   "useChrome": "נתמך רק בדפדפנים המבוססים על ליבת Chromium (למשל Chrome/Edge), שימוש בדפדפנים אחרים עלול להוביל לבעיות תאימות שאין להן פתרון",
   "clearAllAV": "האם לאשר ניקוי של כל מסדי הנתונים שאינם בשימוש?",
   "unreferencedAV": "מאגר נתונים ללא הפניות",
@@ -1213,7 +1215,7 @@
   "export23": "ייצוא Markdown עם YAML ממשק נתונים קדמי",
   "export24": "לאחר הפעלת אפשרות זו, הוסף מידע מטא כללי בתחילת קובץ Markdown המיוצא",
   "export25": "פרמטרים להרצת Pandoc",
-  "export26": "פרמטרי Pandoc המשמשים בעת ייצוא קובץ Word .docx",
+  "export26": "פרמטרי Pandoc בשימוש בעת ייצוא קובץ Word .docx, למשל הפרמטר <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "ייצוא סימן מים PDF",
   "export28": "טקסט סימן מים או נתיב קובץ סימן מים",
   "export29": "מיקום סימן מים, גודל וסגנון, וכו'",
@@ -1333,6 +1335,7 @@
   "column": "עמודה",
   "copied": "הועתק",
   "copy": "העתק",
+  "copyFile": "העתק קובץ",
   "copyText": "העתק טקסט *",
   "delete-column": "מחק עמודה",
   "delete-row": "מחק שורה",

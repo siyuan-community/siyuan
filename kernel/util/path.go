@@ -355,33 +355,13 @@ func IsSensitivePath(p string) bool {
 	}
 	pp := filepath.Clean(strings.ToLower(p))
 
-	// 精确敏感文件
-	exact := []string{
-		"/etc/passwd",
-		"/etc/shadow",
-		"/etc/gshadow",
-		"/var/run/secrets/kubernetes.io/serviceaccount/token",
-	}
-	for _, e := range exact {
-		if pp == e {
-			return true
-		}
-	}
-
 	// 敏感目录前缀（UNIX 风格）
 	prefixes := []string{
 		"/etc/ssh",
 		"/root",
-		"/etc/ssl",
-		"/etc/cron.d/",
-		"/etc/letsencrypt",
-		"/var/lib/docker",
-		"/.gnupg",
-		"/.ssh",
-		"/.aws",
-		"/.kube",
-		"/.docker",
-		"/.config/gcloud",
+		"/etc",
+		"/var/lib/",
+		"/.",
 	}
 	for _, pre := range prefixes {
 		if strings.HasPrefix(pp, pre) {
@@ -393,7 +373,6 @@ func IsSensitivePath(p string) bool {
 	winPrefixes := []string{
 		`c:\windows\system32`,
 		`c:\windows\system`,
-		`c:\users\`,
 	}
 	for _, wp := range winPrefixes {
 		if strings.HasPrefix(pp, strings.ToLower(wp)) {
@@ -401,42 +380,15 @@ func IsSensitivePath(p string) bool {
 		}
 	}
 
-	// 文件名级别检查
-	base := filepath.Base(pp)
-	n := strings.ToLower(base)
-	sensitiveNames := map[string]struct{}{
-		".bashrc":         {},
-		".env":            {},
-		".env.local":      {},
-		".npmrc":          {},
-		".netrc":          {},
-		"id_rsa":          {},
-		"id_dsa":          {},
-		"id_ecdsa":        {},
-		"id_ed25519":      {},
-		"authorized_keys": {},
-		"passwd":          {},
-		"shadow":          {},
-		"pgpass":          {},
-		"hosts":           {},
-		"credentials":     {}, // 如 aws credentials
-		"config.json":     {}, // docker config.json 可能含 token
+	homePrefixes := []string{
+		strings.ToLower(filepath.Join(HomeDir, ".ssh")),
+		strings.ToLower(filepath.Join(HomeDir, ".config")),
+		strings.ToLower(filepath.Join(HomeDir, ".bashrc")),
+		strings.ToLower(filepath.Join(HomeDir, ".zshrc")),
+		strings.ToLower(filepath.Join(HomeDir, ".profile")),
 	}
-	if _, ok := sensitiveNames[n]; ok {
-		return true
-	}
-	// 支持 .env.* 之类的模式
-	if n == ".env" || strings.HasPrefix(n, ".env.") {
-		return true
-	}
-
-	// 扩展名级别检查
-	ext := strings.ToLower(filepath.Ext(n))
-	sensitiveExts := []string{
-		".pem", ".key", ".p12", ".pfx", ".ppk", ".asc", ".gpg",
-	}
-	for _, se := range sensitiveExts {
-		if ext == se {
+	for _, hp := range homePrefixes {
+		if strings.HasPrefix(pp, hp) {
 			return true
 		}
 	}

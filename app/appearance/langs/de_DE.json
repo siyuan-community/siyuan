@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "Beim Öffnen von Tabs nicht in den Splitscreen wechseln",
+  "noSplitScreenWhenOpenTabTip": "Beim Öffnen von Such-, PDF- und ähnlichen Tabs nicht automatisch in den Splitscreen wechseln",
   "useChrome": "Nur in Browsern mit Chromium-Engine (z. B. Chrome/Edge) unterstützt, die Verwendung anderer Browser kann zu nicht löschbaren Kompatibilitätsproblemen führen",
   "clearAllAV": "Bestätigen Sie das Löschen aller nicht referenzierten Datenbanken?",
   "unreferencedAV": "Nicht referenzierte Datenbank",
@@ -1213,7 +1215,7 @@
   "export23": "Exportieren Markdown mit YAML-Vorwort",
   "export24": "Nach der Aktivierung einige allgemeine Metadateninformationen am Anfang der exportierten Markdown-Datei hinzufügen",
   "export25": "Pandoc-Ausführungsparameter",
-  "export26": "Pandoc-Parameter, die beim Export einer Word .docx-Datei verwendet werden",
+  "export26": "Pandoc-Parameter, die beim Export von Word .docx-Dateien verwendet werden, z. B. der Parameter <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "Export PDF-Wasserzeichen",
   "export28": "Wasserzeichentext oder Wasserzeichen-Dateipfad",
   "export29": "Wasserzeichenposition, Größe und Stil usw.",
@@ -1333,6 +1335,7 @@
   "column": "Spalte",
   "copied": "Kopiert",
   "copy": "Kopieren",
+  "copyFile": "Datei kopieren",
   "copyText": "Text kopieren *",
   "delete-column": "Spalte löschen",
   "delete-row": "Zeile löschen",

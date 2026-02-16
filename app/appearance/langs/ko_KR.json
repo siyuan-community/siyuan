@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "탭 열기 시 분할 화면 사용 안 함",
+  "noSplitScreenWhenOpenTabTip": "검색, PDF 등 탭을 열 때 자동으로 분할 화면으로 열지 않음",
   "useChrome": "Chromium 엔진 기반 브라우저(예: Chrome/Edge)에서만 지원되며, 다른 브라우저를 사용할 경우 해결할 수 없는 호환성 문제가 발생할 수 있습니다",
   "clearAllAV": "모든 참조되지 않은 데이터베이스를 정리하시겠습니까?",
   "unreferencedAV": "참조되지 않은 데이터베이스",
@@ -1213,7 +1215,7 @@
   "export23": "YAML front-matter와 함께 Markdown 내보내기",
   "export24": "활성화하면 내보낸 Markdown 파일의 시작 부분에 몇 가지 일반적인 메타데이터 정보를 추가합니다",
   "export25": "Pandoc 실행 매개변수",
-  "export26": "Word .docx 파일을 내보낼 때 사용하는 Pandoc 매개변수",
+  "export26": "Word .docx 파일을 내보낼 때 사용하는 Pandoc 매개변수, 예: <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a> 매개변수",
   "export27": "PDF 워터마크 내보내기",
   "export28": "워터마크 텍스트 또는 워터마크 파일 경로",
   "export29": "워터마크 위치, 크기 및 스타일 등",
@@ -1333,6 +1335,7 @@
   "column": "열",
   "copied": "복사됨",
   "copy": "복사",
+  "copyFile": "파일 복사",
   "copyText": "텍스트 복사 *",
   "delete-column": "열 삭제",
   "delete-row": "행 삭제",

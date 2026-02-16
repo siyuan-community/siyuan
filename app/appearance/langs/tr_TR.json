@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "Sekme açarken ekranı bölme",
+  "noSplitScreenWhenOpenTabTip": "Arama, PDF gibi sekmeler açıldığında ekranı otomatik olarak bölme",
   "useChrome": "Sadece Chromium tabanlı tarayıcılarda (ör. Chrome/Edge) kullanılabilir; diğer tarayıcılarda çözülemeyen uyumluluk sorunlarıyla karşılaşılabilir",
   "clearAllAV": "Tüm atıfta bulunulmayan veritabanlarını temizlemek istediğinize emin misiniz?",
   "unreferencedAV": "Başvurulmayan veritabanı",
@@ -1213,7 +1215,7 @@
   "export23": "Markdown’u YAML üstbilgisiyle dışa aktar",
   "export24": "Etkinleştirildiğinde dışa aktarılan Markdown başına genel meta bilgileri ekler",
   "export25": "Pandoc çalıştırma parametreleri",
-  "export26": "Word .docx dosyası dışa aktarılırken kullanılan Pandoc parametreleri",
+  "export26": "Word .docx dosyası dışa aktarılırken kullanılan Pandoc parametreleri, örneğin <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a> parametresi",
   "export27": "PDF filigranı",
   "export28": "Filigran metni veya dosya yolu",
   "export29": "Filigran konumu, boyutu ve stili",
@@ -1333,6 +1335,7 @@
   "column": "Sütun",
   "copied": "Kopyalandı",
   "copy": "Kopyala",
+  "copyFile": "Dosyayı kopyala",
   "copyText": "Metni kopyala *",
   "delete-column": "Sütunu sil",
   "delete-row": "Satırı sil",

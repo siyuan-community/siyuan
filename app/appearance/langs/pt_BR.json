@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "Não dividir a tela ao abrir abas",
+  "noSplitScreenWhenOpenTabTip": "Não dividir automaticamente a tela ao abrir abas de pesquisa, PDF e outras",
   "useChrome": "Suporta apenas navegadores baseados no mecanismo Chromium (por exemplo, Chrome/Edge), usar outros navegadores pode causar problemas de compatibilidade sem solução",
   "clearAllAV": "Confirmar a limpeza de todos os bancos de dados não referenciados?",
   "unreferencedAV": "Banco de dados não referenciado",
@@ -1213,7 +1215,7 @@
   "export23": "Exportar Markdown com front-matter YAML",
   "export24": "Quando ativado, adiciona algumas informações gerais de metadados no início do arquivo Markdown exportado",
   "export25": "Parâmetros de execução do Pandoc",
-  "export26": "Parâmetros do Pandoc utilizados ao exportar arquivo Word .docx",
+  "export26": "Parâmetros do Pandoc usados ao exportar arquivos Word .docx, por exemplo o parâmetro <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a>",
   "export27": "Marca d'água para exportar PDF",
   "export28": "Texto da marca d'água ou caminho do arquivo de marca d'água",
   "export29": "Posição, tamanho e estilo da marca d'água, etc.",
@@ -1333,6 +1335,7 @@
   "column": "Coluna",
   "copied": "Copiado",
   "copy": "Copiar",
+  "copyFile": "Copiar arquivo",
   "copyText": "Copiar texto *",
   "delete-column": "Excluir Coluna",
   "delete-row": "Excluir Linha",

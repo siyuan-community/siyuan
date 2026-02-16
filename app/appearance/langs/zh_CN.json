@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "打开页签时不分屏",
+  "noSplitScreenWhenOpenTabTip": "打开搜索、PDF 等页签时不自动分屏",
   "useChrome": "仅支持在基于 Chromium 内核的浏览器（比如 Chrome/Edge）中使用，使用其他浏览器会遇到无法解决的兼容性问题",
   "clearAllAV": "确认清理所有未引用的数据库？",
   "unreferencedAV": "未引用的数据库",
@@ -1213,7 +1215,7 @@
   "export23": "导出 Markdown 添加 YAML front-matter",
   "export24": "启用后在导出的 Markdown 文件开头处添加一些较为通用的元数据信息",
   "export25": "Pandoc 执行参数",
-  "export26": "导出 Word .docx 文件时使用的 Pandoc 参数",
+  "export26": "导出 Word .docx 文件时使用的 Pandoc 参数，例如 <a href=\"https://pandoc.org/MANUAL.html#option--reference-doc\" target=\"_blank\">--reference-doc</a> 参数",
   "export27": "导出 PDF 水印",
   "export28": "水印文本或水印文件路径",
   "export29": "水印位置、大小和样式等",
@@ -1333,6 +1335,7 @@
   "column": "列",
   "copied": "已复制",
   "copy": "复制",
+  "copyFile": "复制文件",
   "copyText": "复制 文本 *",
   "delete-column": "删除列",
   "delete-row": "删除行",
