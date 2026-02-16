@@ -182,8 +182,8 @@ export const initUI = (protyle: IProtyle) => {
         }
     });
     let overAttr = false;
-    const isTouch = isTouchDevice();
-    protyle.element.addEventListener(isTouch ? "touchend" : "mouseover", (event: KeyboardEvent & {
+    /// #if !MOBILE
+    protyle.element.addEventListener("mouseover", (event: KeyboardEvent & {
         target: HTMLElement
     }) => {
         // attr
@@ -221,7 +221,7 @@ export const initUI = (protyle: IProtyle) => {
 
         // gutter
         const buttonElement = hasClosestByTag(event.target, "BUTTON");
-        if (!isTouch && buttonElement && buttonElement.parentElement.classList.contains("protyle-gutters")) {
+        if (buttonElement && buttonElement.parentElement.classList.contains("protyle-gutters")) {
             const type = buttonElement.getAttribute("data-type");
             if (type === "fold" || type === "NodeAttributeViewRow") {
                 Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(item => {
@@ -254,7 +254,6 @@ export const initUI = (protyle: IProtyle) => {
         }
 
         // 面包屑
-        /// #if !MOBILE
         if (protyle.selectElement.classList.contains("fn__none")) {
             const svgElement = hasClosestByAttribute(event.target, "data-node-id", null);
             if (svgElement && svgElement.parentElement.classList.contains("protyle-breadcrumb__bar")) {
@@ -267,8 +266,8 @@ export const initUI = (protyle: IProtyle) => {
                 }
             }
         }
-        /// #endif
     });
+    /// #endif
 };
 
 export const addLoading = (protyle: IProtyle, msg?: string) => {

@@ -1,4 +1,9 @@
-import {hasClosestByAttribute, hasClosestByClassName, hasTopClosestByClassName,} from "../../protyle/util/hasClosest";
+import {
+    hasClosestBlock,
+    hasClosestByAttribute,
+    hasClosestByClassName,
+    hasTopClosestByClassName, isInEmbedBlock,
+} from "../../protyle/util/hasClosest";
 import {closeModel, closePanel} from "./closePanel";
 import {popMenu} from "../menu";
 import {activeBlur} from "./keyboardToolbar";
@@ -32,6 +37,21 @@ export const handleTouchEnd = (event: TouchEvent, app: App) => {
         event.stopImmediatePropagation();
         event.preventDefault();
         return;
+    }
+    if (typeof yDiff === "undefined" && window.siyuan.mobile.editor.protyle.options.render.gutter) {
+        const nodeElement = hasClosestBlock(target);
+        if (nodeElement) {
+            if (nodeElement && (nodeElement.classList.contains("list") || nodeElement.classList.contains("li"))) {
+                // 光标在列表下部应显示右侧的元素，而不是列表本身。放在 windowEvent 中的 mousemove 下处理
+                return;
+            }
+            const embedElement = isInEmbedBlock(nodeElement);
+            if (embedElement) {
+                window.siyuan.mobile.editor.protyle.gutter.render(window.siyuan.mobile.editor.protyle, embedElement);
+                return;
+            }
+            window.siyuan.mobile.editor.protyle.gutter.render(window.siyuan.mobile.editor.protyle, nodeElement, target);
+        }
     }
     isFirstMove = true;
     if (!clientY || typeof yDiff === "undefined" ||
