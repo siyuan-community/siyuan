@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "No dividir pantalla al abrir pestañas",
+  "noSplitScreenWhenOpenTabTip": "No dividir automáticamente la pantalla al abrir pestañas de búsqueda, PDF u otras",
   "useChrome": "Solo es compatible con navegadores basados en el motor Chromium (por ejemplo Chrome/Edge), usar otros navegadores puede provocar problemas de compatibilidad que no se pueden resolver",
   "clearAllAV": "¿Confirmar la limpieza de todas las bases de datos no referenciadas?",
   "unreferencedAV": "Base de datos no referenciada",

@@ -1,4 +1,6 @@
 {
+  "noSplitScreenWhenOpenTab": "Nie dziel ekranu przy otwieraniu kart",
+  "noSplitScreenWhenOpenTabTip": "Nie dziel automatycznie ekranu przy otwieraniu kart wyszukiwania, PDF itp.",
   "useChrome": "Obsługiwane tylko w przeglądarkach opartych na silniku Chromium (np. Chrome/Edge), korzystanie z innych przeglądarek może spowodować problemy z kompatybilnością, których nie da się rozwiązać",
   "clearAllAV": "Potwierdzić wyczyszczenie wszystkich niepowiązanych baz danych?",
   "unreferencedAV": "Baza danych bez odwołań",
