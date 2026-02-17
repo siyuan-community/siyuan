@@ -20,7 +20,6 @@ import (
 	"C"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -114,9 +113,6 @@ func GetMimeTypeByExt(ext string) string {
 
 //export SetTimezone
 func SetTimezone(container, appDir, timezoneID string) {
-	if "ios" == container {
-		os.Setenv("ZONEINFO", filepath.Join(appDir, "app", "zoneinfo.zip"))
-	}
 	z, err := time.LoadLocation(strings.TrimSpace(timezoneID))
 	if err != nil {
 		fmt.Printf("load location failed: %s\n", err)

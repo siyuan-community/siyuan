@@ -585,9 +585,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 			return nil
 		}
 		if d.Name() == "assets" && d.IsDir() {
-			if syFiles, _ := filepath.Glob(filepath.Join(path, "*/*.sy")); 1 > len(syFiles) {
-				assetsDirs = append(assetsDirs, path)
-			}
+			assetsDirs = append(assetsDirs, path)
 		}
 		return nil
 	})
@@ -631,9 +629,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 			return nil
 		}
 		if d.Name() == "emojis" && d.IsDir() {
-			if syFiles, _ := filepath.Glob(filepath.Join(path, "*/*.sy")); 1 > len(syFiles) {
-				emojiDirs = append(emojiDirs, path)
-			}
+			emojiDirs = append(emojiDirs, path)
 		}
 		return nil
 	})
