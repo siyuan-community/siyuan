@@ -426,7 +426,7 @@ export class Plugin {
                         getDockByType(type2).toggleModel(type2);
                     }
                 });
-                customObj.element.classList.add("sy__" + type2);
+                customObj.element.classList.add("sy__" + type2, "dockPanel");
                 return customObj;
             }
             /// #endif

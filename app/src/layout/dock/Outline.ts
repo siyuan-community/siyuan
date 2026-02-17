@@ -94,7 +94,7 @@ export class Outline extends Model {
         this.isPreview = options.isPreview;
         this.blockId = options.blockId;
         this.type = options.type;
-        options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__outline");
+        options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__outline", "dockPanel");
         options.tab.panelElement.innerHTML = `<div class="block__icons fn__hidescrollbar">
     <div class="block__logo">
         <svg class="block__logoicon"><use xlink:href="#iconAlignCenter"></use></svg>${window.siyuan.languages.outline}

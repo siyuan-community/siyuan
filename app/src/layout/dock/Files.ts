@@ -110,7 +110,7 @@ export class Files extends Model {
                 }
             },
         });
-        options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__file");
+        options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__file", "dockPanel");
         options.tab.panelElement.innerHTML = `<div class="block__icons">
     <div class="block__logo">
         <svg class="block__logoicon"><use xlink:href="#iconFiles"></use></svg>${window.siyuan.languages.fileTree}

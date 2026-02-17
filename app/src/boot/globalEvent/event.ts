@@ -80,7 +80,7 @@ export const initWindowEvent = (app: App) => {
         if (scrollTarget && scrollElement) {
             if ((event.dataTransfer.types.includes(Constants.SIYUAN_DROP_FILE) && hasClosestByClassName(event.target, "layout-tab-bar")) ||
                 (event.dataTransfer.types.includes("Files") && scrollTarget.classList.contains("sy__file")) ||
-                (scrollTarget.classList.contains("protyle") && hasClosestByClassName(event.target, "file-tree"))) {
+                (scrollTarget.classList.contains("protyle") && hasClosestByClassName(event.target, "dockPanel"))) {
                 stopScrollAnimation();
             } else {
                 dragOverScroll(event, scrollElement.getBoundingClientRect(), scrollElement);
