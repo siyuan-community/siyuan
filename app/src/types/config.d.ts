@@ -630,6 +630,10 @@ declare namespace Config {
          */
         allowCreateDeeper: boolean;
         /**
+         * Don't automatically split the screen when opening search, PDF and other tabs
+         */
+        noSplitScreenWhenOpenTab: boolean;
+        /**
          * Whether to automatically locate the currently open document in the document tree
          */
         alwaysSelectOpenedFile: boolean;

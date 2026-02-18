@@ -135,7 +135,7 @@ export const openLink = (protyle: IProtyle, aLink: string, event?: MouseEvent, c
                 openByMobile(linkAddress);
                 /// #endif
             } else {
-                openAsset(protyle.app, linkAddress, pdfParams, "right");
+                openAsset(protyle.app, linkAddress, pdfParams, !window.siyuan.config.fileTree.noSplitScreenWhenOpenTab ? "right" : null);
             }
         } else {
             /// #if !BROWSER

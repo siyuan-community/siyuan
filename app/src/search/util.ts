@@ -76,7 +76,7 @@ export const openGlobalSearch = (app: App, text: string, replace: boolean, searc
             removed: localData.removed,
             page: 1
         },
-        position: (window.siyuan.layout.centerLayout.children.length > 1 || window.innerWidth > 1024) ? "right" : undefined
+        position: (!window.siyuan.config.fileTree.noSplitScreenWhenOpenTab && (window.siyuan.layout.centerLayout.children.length > 1 || window.innerWidth > 1024)) ? "right" : undefined
     });
 };
 
@@ -593,7 +593,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                 openFile({
                     app,
                     searchData: config,
-                    position: (window.siyuan.layout.centerLayout.children.length > 1 || window.innerWidth > 1024) ? "right" : undefined
+                    position: (!window.siyuan.config.fileTree.noSplitScreenWhenOpenTab && (window.siyuan.layout.centerLayout.children.length > 1 || window.innerWidth > 1024)) ? "right" : undefined
                 });
                 if (closeCB) {
                     closeCB();

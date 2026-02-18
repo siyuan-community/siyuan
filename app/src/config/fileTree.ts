@@ -30,6 +30,14 @@ export const fileTree = {
 </label>
 <label class="fn__flex b3-label">
     <div class="fn__flex-1">
+        ${window.siyuan.languages.noSplitScreenWhenOpenTab}
+        <div class="b3-label__text">${window.siyuan.languages.noSplitScreenWhenOpenTabTip}</div>
+    </div>
+    <span class="fn__space"></span>
+    <input class="b3-switch fn__flex-center" id="noSplitScreenWhenOpenTab" type="checkbox"${window.siyuan.config.fileTree.noSplitScreenWhenOpenTab ? " checked" : ""}/>
+</label>
+<label class="fn__flex b3-label">
+    <div class="fn__flex-1">
         ${window.siyuan.languages.fileTree18}
         <div class="b3-label__text">${window.siyuan.languages.fileTree19}</div>
     </div>
@@ -138,6 +146,7 @@ export const fileTree = {
             docCreateSaveBox: (fileTree.element.querySelector("#docCreateSaveBox") as HTMLInputElement).value,
             openFilesUseCurrentTab: (fileTree.element.querySelector("#openFilesUseCurrentTab") as HTMLInputElement).checked,
             closeTabsOnStart: (fileTree.element.querySelector("#closeTabsOnStart") as HTMLInputElement).checked,
+            noSplitScreenWhenOpenTab: (fileTree.element.querySelector("#noSplitScreenWhenOpenTab") as HTMLInputElement).checked,
             allowCreateDeeper: (fileTree.element.querySelector("#allowCreateDeeper") as HTMLInputElement).checked,
             removeDocWithoutConfirm: (fileTree.element.querySelector("#removeDocWithoutConfirm") as HTMLInputElement).checked,
             useSingleLineSave: (fileTree.element.querySelector("#useSingleLineSave") as HTMLInputElement).checked,
