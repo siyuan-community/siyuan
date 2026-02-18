@@ -848,6 +848,13 @@ app.whenReady().then(() => {
         const menu = Menu.buildFromTemplate(template);
         menu.popup({window: BrowserWindow.fromWebContents(event.sender)});
     });
+    ipcMain.on("siyuan-confirm-dialog", (event, options) => {
+        event.returnValue = dialog.showMessageBoxSync(BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow(), options);
+    });
+    ipcMain.on("siyuan-alert-dialog", (event, options) => {
+        dialog.showMessageBoxSync(BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow(), options);
+        event.returnValue = undefined;
+    });
     ipcMain.on("siyuan-first-quit", () => {
         app.exit();
     });
@@ -947,15 +954,6 @@ app.whenReady().then(() => {
         currentWindow.on("leave-full-screen", () => {
             event.sender.send("siyuan-event", "leave-full-screen");
         });
-    });
-    ipcMain.on("siyuan-confirm-dialog", (event, options) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        event.returnValue = dialog.showMessageBoxSync(window || BrowserWindow.getFocusedWindow(), options);
-    });
-    ipcMain.on("siyuan-alert-dialog", (event, options) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        dialog.showMessageBoxSync(window || BrowserWindow.getFocusedWindow(), options);
-        event.returnValue = undefined;
     });
     ipcMain.on("siyuan-cmd", (event, data) => {
         let cmd = data;

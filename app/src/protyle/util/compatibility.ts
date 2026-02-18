@@ -579,32 +579,24 @@ export const setStorageVal = (key: string, val: any, cb?: () => void) => {
 export const initNativeDialogOverride = () => {
     const originalAlert = window.alert;
     const originalConfirm = window.confirm;
-    
+
     window.alert = function (message: string) {
         try {
-            ipcRenderer.sendSync("siyuan-alert-dialog", {
-                title: window.siyuan?.languages?.siyuanNote || "SiYuan",
+            ipcRenderer.sendSync(Constants.SIYUAN_ALERT_DIALOG, {
+                title: window.siyuan.languages.siyuanNote,
                 message,
-                buttons: [window.siyuan?.languages?.confirm || "OK"],
+                buttons: [window.siyuan.languages.confirm],
                 noLink: true,
             });
-            
             return undefined;
         } catch (error) {
-            console.error("SiYuan alert error:", error);
-            try {
-                const result = originalAlert.call(this, message);
-                return result;
-            } catch (e) {
-                console.error("Original alert error:", e);
-                return undefined;
-            }
+            return originalAlert.call(this, message);
         }
     };
-    
+
     window.confirm = function (message: string): boolean {
         try {
-            const buttonIndex = ipcRenderer.sendSync("siyuan-confirm-dialog", {
+            const buttonIndex = ipcRenderer.sendSync(Constants.SIYUAN_CONFIRM_DIALOG, {
                 title: window.siyuan?.languages?.siyuanNote || "SiYuan",
                 message,
                 buttons: [window.siyuan?.languages?.cancel || "Cancel", window.siyuan?.languages?.confirm || "OK"],
@@ -612,17 +604,9 @@ export const initNativeDialogOverride = () => {
                 defaultId: 1,
                 noLink: true,
             });
-            
             return buttonIndex === 1;
         } catch (error) {
-            console.error("SiYuan confirm error:", error);
-            try {
-                const result = originalConfirm.call(this, message);
-                return result;
-            } catch (e) {
-                console.error("Original confirm error:", e);
-                return false;
-            }
+            return originalConfirm.call(this, message);
         }
     };
 };

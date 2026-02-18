@@ -55,6 +55,8 @@ export abstract class Constants {
     public static readonly SIYUAN_EXPORT_NEWWINDOW: string = "siyuan-export-newwindow";
 
     public static readonly SIYUAN_CONTEXT_MENU: string = "siyuan-context-menu";
+    public static readonly SIYUAN_CONFIRM_DIALOG: string = "siyuan-confirm-dialog";
+    public static readonly SIYUAN_ALERT_DIALOG: string = "siyuan-alert-dialog";
 
     public static readonly SIYUAN_SHOW_WINDOW: string = "siyuan-show-window";
 
