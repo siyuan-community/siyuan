@@ -2400,18 +2400,46 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
 ${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
 </div>`,
         accelerator: window.siyuan.config.keymap.editor.table.insertRowAbove.custom,
-        click: (element: HTMLElement) => {
-            insertRowAbove(protyle, range, cellElement, nodeElement, parseInt(element.querySelector("input").value));
+        bind(element: HTMLElement) {
+            const inputElement = element.querySelector("input");
+            element.addEventListener("click", () => {
+                if (document.activeElement === inputElement) {
+                    return;
+                }
+                insertRowAbove(protyle, range, cellElement, nodeElement);
+                window.siyuan.menus.menu.remove();
+            });
+            inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
+                if (!event.isComposing && event.key === "Enter") {
+                    insertRowAbove(protyle, range, cellElement, nodeElement, parseInt(element.querySelector("input").value));
+                    window.siyuan.menus.menu.remove();
+                }
+            });
         }
     });
     if (!nextHasNone || (nextHasNone && !nextHasRowSpan && nextHasColSpan)) {
         insertMenus.push({
             id: "insertRowBelow",
             icon: "iconAfter",
-            label: window.siyuan.languages.insertRowBelow,
+            label: `<div class="fn__flex" style="align-items: center;">
+${window.siyuan.languages.insertRowAfter.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
+</div>`,
             accelerator: window.siyuan.config.keymap.editor.table.insertRowBelow.custom,
-            click: () => {
-                insertRow(protyle, range, cellElement, nodeElement);
+            bind(element: HTMLElement) {
+                const inputElement = element.querySelector("input");
+                element.addEventListener("click", () => {
+                    if (document.activeElement === inputElement) {
+                        return;
+                    }
+                    insertRow(protyle, range, cellElement, nodeElement);
+                    window.siyuan.menus.menu.remove();
+                });
+                inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
+                    if (!event.isComposing && event.key === "Enter") {
+                        insertRow(protyle, range, cellElement, nodeElement, parseInt(element.querySelector("input").value));
+                        window.siyuan.menus.menu.remove();
+                    }
+                });
             }
         });
     }
@@ -2419,10 +2447,25 @@ ${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__spac
         insertMenus.push({
             id: "insertColumnLeft",
             icon: "iconInsertLeft",
-            label: window.siyuan.languages.insertColumnLeft,
+            label: `<div class="fn__flex" style="align-items: center;">
+${window.siyuan.languages.insertColumnLeft1.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
+</div>`,
             accelerator: window.siyuan.config.keymap.editor.table.insertColumnLeft.custom,
-            click: () => {
-                insertColumn(protyle, nodeElement, cellElement, "beforebegin", range);
+            bind(element: HTMLElement) {
+                const inputElement = element.querySelector("input");
+                element.addEventListener("click", () => {
+                    if (document.activeElement === inputElement) {
+                        return;
+                    }
+                    insertColumn(protyle, nodeElement, cellElement, "beforebegin", range);
+                    window.siyuan.menus.menu.remove();
+                });
+                inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
+                    if (!event.isComposing && event.key === "Enter") {
+                        insertColumn(protyle, nodeElement, cellElement, "beforebegin", range, parseInt(element.querySelector("input").value));
+                        window.siyuan.menus.menu.remove();
+                    }
+                });
             }
         });
     }
@@ -2430,10 +2473,25 @@ ${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__spac
         insertMenus.push({
             id: "insertColumnRight",
             icon: "iconInsertRight",
-            label: window.siyuan.languages.insertColumnRight,
+            label: `<div class="fn__flex" style="align-items: center;">
+${window.siyuan.languages.insertColumnRight1.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
+</div>`,
             accelerator: window.siyuan.config.keymap.editor.table.insertColumnRight.custom,
-            click: () => {
-                insertColumn(protyle, nodeElement, cellElement, "afterend", range);
+            bind(element: HTMLElement) {
+                const inputElement = element.querySelector("input");
+                element.addEventListener("click", () => {
+                    if (document.activeElement === inputElement) {
+                        return;
+                    }
+                    insertColumn(protyle, nodeElement, cellElement, "afterend", range);
+                    window.siyuan.menus.menu.remove();
+                });
+                inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
+                    if (!event.isComposing && event.key === "Enter") {
+                        insertColumn(protyle, nodeElement, cellElement, "afterend", range, parseInt(element.querySelector("input").value));
+                        window.siyuan.menus.menu.remove();
+                    }
+                });
             }
         });
     }
