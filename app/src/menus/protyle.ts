@@ -2267,7 +2267,7 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
                     } else {
                         nodeElement.querySelector("table").insertAdjacentHTML("afterbegin", html);
                     }
-                    nodeElement.setAttribute("caption", Lute.EscapeHTMLStr(`<caption${location === "bottom" ? "caption-side: bottom;" : ""}>${title}</caption>`));
+                    nodeElement.setAttribute("caption", Lute.EscapeHTMLStr(`<caption${location === "bottom" ? "caption-side: bottom;" : ""}>` + Lute.EscapeHTMLStr(title) + `</caption>`));
                 } else {
                     if (captionElement) {
                         captionElement.remove();
