@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@electron/remote':
         specifier: ^2.1.3
-        version: 2.1.3(electron@39.5.1)
+        version: 2.1.3(electron@39.6.1)
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3.3.1
@@ -40,8 +40,8 @@ importers:
         specifier: ^1.11.5
         version: 1.11.18
       electron:
-        specifier: 39.5.1
-        version: 39.5.1
+        specifier: 39.6.1
+        version: 39.6.1
       electron-builder:
         specifier: 26.0.12
         version: 26.0.12(electron-builder-squirrel-windows@26.0.12)
@@ -1214,8 +1214,8 @@ packages:
     resolution: {integrity: sha512-bO3y10YikuUwUuDUQRM4KfwNkKhnpVO7IPdbsrejwN9/AABJzzTQ4GeHwyzNSrVO+tEH3/Np255a3sVZpZDjvg==}
     engines: {node: '>=8.0.0'}
 
-  electron@39.5.1:
-    resolution: {integrity: sha512-6s/sBQar+bbW59XSqohZj04MPic+kdVUAWjLbfQB/uLOeNw9jWX5FHaTxpHK29Xp3mKOHef7wErsjwMyCuWltg==}
+  electron@39.6.1:
+    resolution: {integrity: sha512-pgmTbWnT3rP+eo3EolO5EdNw5f7/x/0S7vP+eXC8Zyp2sWGjP4+kmo1RyeAYCChwIRWJFKQ2rQVl/ZkqwK6O2Q==}
     engines: {node: '>= 12.20.55'}
     hasBin: true
 
@@ -1510,7 +1510,7 @@ packages:
   glob@8.1.0:
     resolution: {integrity: sha512-r8hpEjiQEYlF2QU0df3dS+nxxSIreXQS1qRhMJM0Q5NDdR386C7jb7Hwwod8Fgiuex+k0GFjgft18yvxm5XoCQ==}
     engines: {node: '>=12'}
-    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+    deprecated: Glob versions prior to v9 are no longer supported
 
   global-agent@3.0.0:
     resolution: {integrity: sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q==}
@@ -2910,9 +2910,9 @@ snapshots:
       - bluebird
       - supports-color
 
-  '@electron/remote@2.1.3(electron@39.5.1)':
+  '@electron/remote@2.1.3(electron@39.6.1)':
     dependencies:
-      electron: 39.5.1
+      electron: 39.6.1
 
   '@electron/universal@2.0.1':
     dependencies:
@@ -4062,7 +4062,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@39.5.1:
+  electron@39.6.1:
     dependencies:
       '@electron/get': 2.0.3
       '@types/node': 22.18.1
