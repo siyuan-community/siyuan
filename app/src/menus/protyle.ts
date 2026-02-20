@@ -2387,7 +2387,9 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
     insertMenus.push({
         id: "insertRowAbove",
         icon: "iconBefore",
-        label: window.siyuan.languages.insertRowAbove,
+        label: `<div class="fn__flex" style="align-items: center;">
+${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
+</div>`,
         accelerator: window.siyuan.config.keymap.editor.table.insertRowAbove.custom,
         click: () => {
             insertRowAbove(protyle, range, cellElement, nodeElement);
