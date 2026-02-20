@@ -1,4 +1,7 @@
 {
+  "position": "Pozycja",
+  "insertColumnLeft1": "Wstaw ${x} kolumn po lewej",
+  "insertColumnRight1": "Wstaw ${x} kolumn po prawej",
   "noSplitScreenWhenOpenTab": "Nie dziel ekranu przy otwieraniu kart",
   "noSplitScreenWhenOpenTabTip": "Nie dziel automatycznie ekranu przy otwieraniu kart wyszukiwania, PDF itp.",
   "useChrome": "Obsługiwane tylko w przeglądarkach opartych na silniku Chromium (np. Chrome/Edge), korzystanie z innych przeglądarek może spowodować problemy z kompatybilnością, których nie da się rozwiązać",

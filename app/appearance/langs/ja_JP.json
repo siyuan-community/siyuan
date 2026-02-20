@@ -1,4 +1,7 @@
 {
+  "position": "位置",
+  "insertColumnLeft1": "左側に ${x} 列を挿入",
+  "insertColumnRight1": "右側に ${x} 列を挿入",
   "noSplitScreenWhenOpenTab": "タブを開くときに分割表示しない",
   "noSplitScreenWhenOpenTabTip": "検索や PDF などのタブを開いたときに自動で分割表示しない",
   "useChrome": "Chromium ベースのブラウザ（例えば Chrome/Edge）でのみ使用可能で、他のブラウザでは解決できない互換性の問題が発生することがあります",

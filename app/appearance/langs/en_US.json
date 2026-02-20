@@ -1,4 +1,7 @@
 {
+  "position": "Position",
+  "insertColumnLeft1": "Insert ${x} column(s) to the left",
+  "insertColumnRight1": "Insert ${x} column(s) to the right",
   "noSplitScreenWhenOpenTab": "Don't split the screen when opening tabs",
   "noSplitScreenWhenOpenTabTip": "Don't automatically split the screen when opening search, PDF and other tabs",
   "useChrome": "Only supported in browsers based on the Chromium engine (e.g., Chrome/Edge), using other browsers may encounter compatibility issues that cannot be resolved",
