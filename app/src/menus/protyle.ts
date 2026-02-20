@@ -64,6 +64,7 @@ import {hideTooltip} from "../dialog/tooltip";
 import {clearSelect} from "../protyle/util/clear";
 import {scrollCenter} from "../util/highlightById";
 import {base64ToURL} from "../util/image";
+import {Dialog} from "../dialog";
 
 const renderAssetList = (element: Element, k: string, position: IPosition, exts: string[] = []) => {
     fetchPost("/api/search/searchAsset", {
@@ -2212,6 +2213,61 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
                 nodeElement.setAttribute("custom-pinthead", "true");
             }
             updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, html);
+        }
+    });
+    otherMenus.push({
+        icon: "iconHeadings",
+        label: window.siyuan.languages.title,
+        click: () => {
+            window.siyuan.menus.menu.remove();
+            const dialog = new Dialog({
+                title: window.siyuan.languages.title,
+                width: isMobile() ? "92vw" : "520px",
+                content: `<div class="b3-dialog__content">
+    <input class="b3-text-field fn__block">
+    <div class="fn__hr"></div>
+    <select class="b3-select fn__block">
+        <option value="top">${window.siyuan.languages.up}</option>
+        <option value="bottom">${window.siyuan.languages.down}</option>
+    </select>
+</div>
+<div class="b3-dialog__action">
+    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
+    <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
+</div>
+<div>`,
+            });
+            const html = nodeElement.outerHTML;
+            const inputElement = dialog.element.querySelector(".b3-text-field") as HTMLInputElement;
+            const btnsElement = dialog.element.querySelectorAll(".b3-button");
+            dialog.bindInput(inputElement, () => {
+                (btnsElement[1] as HTMLButtonElement).click();
+            });
+            inputElement.focus();
+            inputElement.value = nodeElement.querySelector("caption")?.innerHTML || "";
+            btnsElement[0].addEventListener("click", () => {
+                dialog.destroy();
+            });
+            btnsElement[1].addEventListener("click", () => {
+                const title = inputElement.value.trim();
+                const location = (dialog.element.querySelector("select") as HTMLSelectElement).value;
+                const captionElement = nodeElement.querySelector("caption");
+                if (title) {
+                    const html = `<caption${location === "bottom" ? "caption-side: bottom;" : ""}>${Lute.EscapeHTMLStr(title)}</caption>`;
+                    if (captionElement) {
+                        captionElement.outerHTML = html;
+                    } else {
+                        nodeElement.querySelector("table").insertAdjacentHTML("afterbegin", html);
+                    }
+                    nodeElement.setAttribute("caption", html);
+                } else {
+                    if (captionElement) {
+                        captionElement.remove();
+                    }
+                    nodeElement.removeAttribute("caption");
+                }
+                updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, html);
+            });
         }
     });
     otherMenus.push({id: "separator_1", type: "separator"});
