@@ -2302,7 +2302,7 @@ export class Gutter {
                     data: e.outerHTML
                 });
                 if (e.getAttribute("data-subtype") === "echarts") {
-                    const chartInstance = window.echarts.getInstanceById(e.querySelector('[_echarts_instance_]').getAttribute("_echarts_instance_"));
+                    const chartInstance = window.echarts.getInstanceById(e.querySelector("[_echarts_instance_]").getAttribute("_echarts_instance_"));
                     if (chartInstance) {
                         chartInstance.resize();
                     }
@@ -2346,7 +2346,7 @@ export class Gutter {
                         e.style.width = item;
                         e.style.flex = "none";
                         if (e.getAttribute("data-subtype") === "echarts") {
-                            const chartInstance = window.echarts.getInstanceById(e.querySelector('[_echarts_instance_]').getAttribute("_echarts_instance_"));
+                            const chartInstance = window.echarts.getInstanceById(e.querySelector("[_echarts_instance_]").getAttribute("_echarts_instance_"));
                             if (chartInstance) {
                                 chartInstance.resize();
                             }
@@ -2392,7 +2392,7 @@ export class Gutter {
                             e.style.width = "";
                             e.style.flex = "";
                             if (e.getAttribute("data-subtype") === "echarts") {
-                                const chartInstance = window.echarts.getInstanceById(e.querySelector('[_echarts_instance_]').getAttribute("_echarts_instance_"));
+                                const chartInstance = window.echarts.getInstanceById(e.querySelector("[_echarts_instance_]").getAttribute("_echarts_instance_"));
                                 if (chartInstance) {
                                     chartInstance.resize();
                                 }

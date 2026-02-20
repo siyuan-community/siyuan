@@ -1,6 +1,6 @@
 import {setEditMode} from "../util/setEditMode";
 import {scrollEvent} from "../scroll/event";
-import {isMobile, isTouchDevice} from "../../util/functions";
+import {isMobile} from "../../util/functions";
 import {Constants} from "../../constants";
 import {isMac} from "../util/compatibility";
 import {setInlineStyle} from "../../util/assets";
