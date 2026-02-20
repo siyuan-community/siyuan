@@ -2275,6 +2275,7 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
                     nodeElement.removeAttribute("caption");
                 }
                 updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, html);
+                dialog.destroy();
             });
         }
     });
