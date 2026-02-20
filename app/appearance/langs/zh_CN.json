@@ -1,5 +1,5 @@
 {
-  "location": "位置",
+  "position": "位置",
   "insertColumnLeft1": "在左边插入${x}列",
   "insertColumnRight1": "在右边插入${x}列",
   "noSplitScreenWhenOpenTab": "打开页签时不分屏",
