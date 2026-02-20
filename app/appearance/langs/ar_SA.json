@@ -1,4 +1,7 @@
 {
+  "position": "الموقع",
+  "insertColumnLeft1": "إدراج ${x} عمودًا إلى اليسار",
+  "insertColumnRight1": "إدراج ${x} عمودًا إلى اليمين",
   "noSplitScreenWhenOpenTab": "لا تقسم الشاشة عند فتح التبويب",
   "noSplitScreenWhenOpenTabTip": "لا تقسم الشاشة تلقائيًا عند فتح تبويبات البحث أو PDF أو غيرها",
   "useChrome": "يدعم فقط في المتصفحات المبنية على محرك Chromium (مثل Chrome/Edge)، قد تواجه مشكلات توافق لا يمكن حلها عند استخدام متصفحات أخرى",

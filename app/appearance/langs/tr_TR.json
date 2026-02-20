@@ -1,4 +1,7 @@
 {
+  "position": "Pozisyon",
+  "insertColumnLeft1": "Sol tarafa ${x} sütun ekle",
+  "insertColumnRight1": "Sağ tarafa ${x} sütun ekle",
   "noSplitScreenWhenOpenTab": "Sekme açarken ekranı bölme",
   "noSplitScreenWhenOpenTabTip": "Arama, PDF gibi sekmeler açıldığında ekranı otomatik olarak bölme",
   "useChrome": "Sadece Chromium tabanlı tarayıcılarda (ör. Chrome/Edge) kullanılabilir; diğer tarayıcılarda çözülemeyen uyumluluk sorunlarıyla karşılaşılabilir",

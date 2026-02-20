@@ -1,4 +1,7 @@
 {
+  "position": "Posición",
+  "insertColumnLeft1": "Insertar ${x} columnas a la izquierda",
+  "insertColumnRight1": "Insertar ${x} columnas a la derecha",
   "noSplitScreenWhenOpenTab": "No dividir pantalla al abrir pestañas",
   "noSplitScreenWhenOpenTabTip": "No dividir automáticamente la pantalla al abrir pestañas de búsqueda, PDF u otras",
   "useChrome": "Solo es compatible con navegadores basados en el motor Chromium (por ejemplo Chrome/Edge), usar otros navegadores puede provocar problemas de compatibilidad que no se pueden resolver",

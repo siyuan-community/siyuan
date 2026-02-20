@@ -1,4 +1,7 @@
 {
+  "position": "位置",
+  "insertColumnLeft1": "在左側插入 ${x} 欄",
+  "insertColumnRight1": "在右側插入 ${x} 欄",
   "noSplitScreenWhenOpenTab": "打開分頁時不分屏",
   "noSplitScreenWhenOpenTabTip": "打開搜尋、PDF 等分頁時不自動分屏",
   "useChrome": "僅支援在基於 Chromium 核心的瀏覽器（例如 Chrome/Edge）中使用，使用其他瀏覽器會遇到無法解決的相容性問題",

@@ -1,7 +1,7 @@
 {
   "position": "位置",
-  "insertColumnLeft1": "在左边插入${x}列",
-  "insertColumnRight1": "在右边插入${x}列",
+  "insertColumnLeft1": "在左边插入 ${x} 列",
+  "insertColumnRight1": "在右边插入 ${x} 列",
   "noSplitScreenWhenOpenTab": "打开页签时不分屏",
   "noSplitScreenWhenOpenTabTip": "打开搜索、PDF 等页签时不自动分屏",
   "useChrome": "仅支持在基于 Chromium 内核的浏览器（比如 Chrome/Edge）中使用，使用其他浏览器会遇到无法解决的兼容性问题",

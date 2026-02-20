@@ -1,4 +1,7 @@
 {
+  "position": "מיקום",
+  "insertColumnLeft1": "הוסף ${x} עמודות משמאל",
+  "insertColumnRight1": "הוסף ${x} עמודות מימין",
   "noSplitScreenWhenOpenTab": "לא לחלק את המסך בעת פתיחת כרטיסייה",
   "noSplitScreenWhenOpenTabTip": "לא לחלק את המסך אוטומטית בעת פתיחת כרטיסיות חיפוש, PDF או אחרות",
   "useChrome": "נתמך רק בדפדפנים המבוססים על ליבת Chromium (למשל Chrome/Edge), שימוש בדפדפנים אחרים עלול להוביל לבעיות תאימות שאין להן פתרון",
