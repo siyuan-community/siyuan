@@ -2221,15 +2221,23 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
         click: () => {
             window.siyuan.menus.menu.remove();
             const dialog = new Dialog({
-                title: window.siyuan.languages.title,
+                title: window.siyuan.languages.table,
                 width: isMobile() ? "92vw" : "520px",
                 content: `<div class="b3-dialog__content">
-    <input class="b3-text-field fn__block">
-    <div class="fn__hr"></div>
-    <select class="b3-select fn__block">
-        <option value="top">${window.siyuan.languages.up}</option>
-        <option value="bottom">${window.siyuan.languages.down}</option>
-    </select>
+    <label>
+        <div>${window.siyuan.languages.title}</div>
+        <div class="fn__hr"></div>
+        <input class="b3-text-field fn__block">
+    </label>
+    <div class="fn__hr--b"></div>
+    <label>
+        <div>${window.siyuan.languages.position}</div>
+        <div class="fn__hr"></div>
+        <select class="b3-select fn__block">
+            <option value="top">${window.siyuan.languages.up}</option>
+            <option value="bottom">${window.siyuan.languages.down}</option>
+        </select>
+    </label>
 </div>
 <div class="b3-dialog__action">
     <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
