@@ -2261,7 +2261,7 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
                 const location = (dialog.element.querySelector("select") as HTMLSelectElement).value;
                 const captionElement = nodeElement.querySelector("caption");
                 if (title) {
-                    const html = `<caption${location === "bottom" ? "caption-side: bottom;" : ""}>${Lute.EscapeHTMLStr(title)}</caption>`;
+                    const html = `<caption contenteditable="false" ${location === "bottom" ? "caption-side: bottom;" : ""}>${Lute.EscapeHTMLStr(title)}</caption>`;
                     if (captionElement) {
                         captionElement.outerHTML = html;
                     } else {
@@ -2400,8 +2400,8 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
 ${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__space"></span><input style="width:64px" type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field"><span class="fn__space"></span>`)}
 </div>`,
         accelerator: window.siyuan.config.keymap.editor.table.insertRowAbove.custom,
-        click: () => {
-            insertRowAbove(protyle, range, cellElement, nodeElement);
+        click: (element: HTMLElement) => {
+            insertRowAbove(protyle, range, cellElement, nodeElement, parseInt(element.querySelector("input").value));
         }
     });
     if (!nextHasNone || (nextHasNone && !nextHasRowSpan && nextHasColSpan)) {
