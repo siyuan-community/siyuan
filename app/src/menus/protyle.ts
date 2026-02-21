@@ -2252,7 +2252,7 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
                 (btnsElement[1] as HTMLButtonElement).click();
             });
             inputElement.focus();
-            inputElement.value = nodeElement.querySelector("caption")?.innerHTML || "";
+            inputElement.value = nodeElement.querySelector("caption")?.textContent || "";
             btnsElement[0].addEventListener("click", () => {
                 dialog.destroy();
             });
@@ -2267,7 +2267,7 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
                     } else {
                         nodeElement.querySelector("table").insertAdjacentHTML("afterbegin", html);
                     }
-                    nodeElement.setAttribute("caption", Lute.EscapeHTMLStr(`<caption${location === "bottom" ? "caption-side: bottom;" : ""}>` + Lute.EscapeHTMLStr(title) + `</caption>`));
+                    nodeElement.setAttribute("caption", Lute.EscapeHTMLStr(html));
                 } else {
                     if (captionElement) {
                         captionElement.remove();
