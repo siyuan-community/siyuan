@@ -223,7 +223,8 @@ export const windowMouseMove = (event: MouseEvent, mouseIsEnter: boolean) => {
         const tableElement = blockElement.querySelector("table");
         if (cellElement && tableElement && tableElement.getAttribute("contenteditable") === "true") {
             const tableHeight = blockElement.querySelector("colgroup").clientHeight;
-            const captionHeight = blockElement.querySelector("caption")?.clientHeight || 0;
+            const captionElement = blockElement.querySelector("caption");
+            const captionHeight = (captionElement && captionElement.style.captionSide !== "bottom") ? captionElement.clientHeight : 0;
             const resizeElement = blockElement.querySelector(".table__resize");
             if (blockElement.style.textAlign === "center" || blockElement.style.textAlign === "right") {
                 resizeElement.parentElement.style.left = tableElement.offsetLeft + "px";
