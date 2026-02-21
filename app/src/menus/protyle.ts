@@ -716,6 +716,7 @@ export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
     /// #else
     const oldHTML = nodeElement.outerHTML;
     const id = nodeElement.getAttribute("data-node-id");
+    const captionElement = hasClosestByTag(range.startContainer, "CAPTION");
     if (range.toString() !== "" || (range.cloneContents().childNodes[0] as HTMLElement)?.classList?.contains("emoji")) {
         window.siyuan.menus.menu.append(new MenuItem({
             id: "copy",
@@ -737,7 +738,7 @@ export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
                 copyPlainText(getSelection().getRangeAt(0).toString());
             }
         }).element);
-        if (protyle.disabled) {
+        if (protyle.disabled || captionElement) {
             return;
         }
         window.siyuan.menus.menu.append(new MenuItem({
@@ -820,7 +821,7 @@ export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
             }
         }
     }
-    if (!protyle.disabled) {
+    if (!protyle.disabled && !captionElement) {
         window.siyuan.menus.menu.append(new MenuItem({
             id: "paste",
             label: window.siyuan.languages.paste,
@@ -858,15 +859,17 @@ export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
             }
         }).element);
     }
-    window.siyuan.menus.menu.append(new MenuItem({
-        id: "selectAll",
-        label: window.siyuan.languages.selectAll,
-        icon: "iconSelect",
-        accelerator: "⌘A",
-        click() {
-            selectAll(protyle, nodeElement, range);
-        }
-    }).element);
+    if (!captionElement) {
+        window.siyuan.menus.menu.append(new MenuItem({
+            id: "selectAll",
+            label: window.siyuan.languages.selectAll,
+            icon: "iconSelect",
+            accelerator: "⌘A",
+            click() {
+                selectAll(protyle, nodeElement, range);
+            }
+        }).element);
+    }
     if (nodeElement.classList.contains("table") && !protyle.disabled) {
         const cellElement = hasClosestByTag(range.startContainer, "TD") || hasClosestByTag(range.startContainer, "TH");
         if (cellElement) {
