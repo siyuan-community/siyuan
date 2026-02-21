@@ -1888,7 +1888,7 @@ func fromSQLBlock(sqlBlock *sql.Block, terms string, beforeLen int) (block *Bloc
 	content = maxContent(content, 5120)
 	tag, _ := markSearch(sqlBlock.Tag, terms, beforeLen)
 	markdown := maxContent(sqlBlock.Markdown, 5120)
-	fContent := sqlBlock.FContent
+	fContent := util.EscapeHTML(sqlBlock.FContent)
 	block = &Block{
 		Box:      sqlBlock.Box,
 		Path:     sqlBlock.Path,
