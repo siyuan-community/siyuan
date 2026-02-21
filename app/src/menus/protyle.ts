@@ -2222,6 +2222,7 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
         icon: "iconHeadings",
         label: window.siyuan.languages.title,
         click: () => {
+            const captionElement = nodeElement.querySelector("caption");
             window.siyuan.menus.menu.remove();
             const dialog = new Dialog({
                 title: window.siyuan.languages.table,
@@ -2238,7 +2239,7 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
         <div class="fn__hr"></div>
         <select class="b3-select fn__block">
             <option value="top">${window.siyuan.languages.up}</option>
-            <option value="bottom">${window.siyuan.languages.down}</option>
+            <option value="bottom" ${captionElement?.style.captionSide === "bottom" ? "selected" : ""}>${window.siyuan.languages.down}</option>
         </select>
     </label>
 </div>
@@ -2255,16 +2256,15 @@ export const tableMenu = (protyle: IProtyle, nodeElement: Element, cellElement: 
                 (btnsElement[1] as HTMLButtonElement).click();
             });
             inputElement.focus();
-            inputElement.value = nodeElement.querySelector("caption")?.textContent || "";
+            inputElement.value = captionElement?.textContent || "";
             btnsElement[0].addEventListener("click", () => {
                 dialog.destroy();
             });
             btnsElement[1].addEventListener("click", () => {
                 const title = inputElement.value.trim();
                 const location = (dialog.element.querySelector("select") as HTMLSelectElement).value;
-                const captionElement = nodeElement.querySelector("caption");
                 if (title) {
-                    const html = `<caption contenteditable="false" ${location === "bottom" ? "caption-side: bottom;" : ""}>${Lute.EscapeHTMLStr(title)}</caption>`;
+                    const html = `<caption contenteditable="false" ${location === "bottom" ? 'style="caption-side: bottom;"' : ""}>${Lute.EscapeHTMLStr(title)}</caption>`;
                     if (captionElement) {
                         captionElement.outerHTML = html;
                     } else {
