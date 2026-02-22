@@ -832,8 +832,6 @@ export const updateTableTitle = (protyle: IProtyle, nodeElement: Element) => {
     dialog.bindInput(inputElement, () => {
         (btnsElement[1] as HTMLButtonElement).click();
     });
-    inputElement.focus();
-    inputElement.value = captionElement?.textContent || "";
     btnsElement[0].addEventListener("click", () => {
         dialog.destroy();
     });
@@ -857,4 +855,7 @@ export const updateTableTitle = (protyle: IProtyle, nodeElement: Element) => {
         updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, html);
         dialog.destroy();
     });
+    inputElement.value = captionElement?.textContent || "";
+    inputElement.focus();
+    inputElement.select();
 };

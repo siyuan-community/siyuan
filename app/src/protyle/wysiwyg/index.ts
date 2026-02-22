@@ -2666,6 +2666,7 @@ export class WYSIWYG {
             if (tableElement) {
                 if (hasClosestByTag(event.target, "CAPTION")) {
                     updateTableTitle(protyle, tableElement);
+                    return;
                 }
             }
             // 面包屑定位，需至于前，否则 return 的元素就无法进行面包屑定位
