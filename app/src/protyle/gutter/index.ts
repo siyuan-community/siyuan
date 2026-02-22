@@ -2176,6 +2176,7 @@ export class Gutter {
     }
 
     private genAlign(nodeElements: Element[], protyle: IProtyle) {
+        const disabledRTL = nodeElements.some(e => e.classList.contains("code-block") || ["NodeMathBlock"].includes(e.getAttribute("data-type")));
         window.siyuan.menus.menu.append(new MenuItem({
             id: "layout",
             label: window.siyuan.languages.layout,
@@ -2243,6 +2244,7 @@ export class Gutter {
             }, {
                 id: "ltr",
                 icon: "iconLtr",
+                ignore: disabledRTL,
                 label: window.siyuan.languages.ltr,
                 accelerator: window.siyuan.config.keymap.editor.general.ltr.custom,
                 click: () => {
@@ -2253,6 +2255,7 @@ export class Gutter {
             }, {
                 id: "rtl",
                 icon: "iconRtl",
+                ignore: disabledRTL,
                 label: window.siyuan.languages.rtl,
                 accelerator: window.siyuan.config.keymap.editor.general.rtl.custom,
                 click: () => {
@@ -2264,6 +2267,7 @@ export class Gutter {
                 }
             }, {
                 id: "separator_2",
+                ignore: disabledRTL,
                 type: "separator"
             }, {
                 id: "clearFontStyle",

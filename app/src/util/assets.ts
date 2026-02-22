@@ -292,10 +292,9 @@ export const setInlineStyle = async (set = true, servePath = "../../../") => {
     if (window.siyuan.config.editor.rtl) {
         style += `\n.protyle-title__input,
 .protyle-wysiwyg .p,
-.protyle-wysiwyg .code-block .hljs,
 .protyle-wysiwyg .table,
 .protyle-wysiwyg .render-node protyle-html,
-.protyle-wysiwyg .render-node > div[spin="1"],
+.protyle-wysiwyg .render-node:not([data-type="NodeMathBlock"]) > div[spin="1"],
 .protyle-wysiwyg [data-type="NodeHeading"] {direction: rtl}
 .protyle-wysiwyg [data-node-id].li > .protyle-action {
     right: 0;
