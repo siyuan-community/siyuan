@@ -225,7 +225,7 @@ func Upload(c *gin.Context) {
 		}
 
 		if "" != existAssetPath && !strings.HasPrefix(hash, "random_") {
-			succMap[baseName] = existAssetPath
+			succMap[baseName] = strings.TrimPrefix(existAssetPath, "/")
 		} else {
 			if skipIfDuplicated {
 				// 复制 PDF 矩形注解时不再重复插入图片 No longer upload image repeatedly when copying PDF rectangle annotation https://github.com/siyuan-note/siyuan/issues/10666
