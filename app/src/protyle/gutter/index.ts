@@ -2176,7 +2176,7 @@ export class Gutter {
     }
 
     private genAlign(nodeElements: Element[], protyle: IProtyle) {
-        const disabledRTL = nodeElements.some(e => e.classList.contains("code-block") || ["NodeMathBlock"].includes(e.getAttribute("data-type")));
+        const disabledRTL = nodeElements.some(e => ["NodeAttributeView", "NodeCodeBlock", "NodeMathBlock"].includes(e.getAttribute("data-type")));
         window.siyuan.menus.menu.append(new MenuItem({
             id: "layout",
             label: window.siyuan.languages.layout,
@@ -2249,7 +2249,13 @@ export class Gutter {
                 accelerator: window.siyuan.config.keymap.editor.general.ltr.custom,
                 click: () => {
                     this.genClick(nodeElements, protyle, (e: HTMLElement) => {
-                        e.style.direction = "ltr";
+                        if (e.classList.contains("table")) {
+                            e.querySelector("table").style.direction = "ltr";
+                        } else if (e.getAttribute("data-type") === "NodeHTMLBlock") {
+                            (e.querySelector("protyle-html") as HTMLElement).style.direction = "ltr";
+                        } else {
+                            e.style.direction = "ltr";
+                        }
                     });
                 }
             }, {
@@ -2260,7 +2266,11 @@ export class Gutter {
                 accelerator: window.siyuan.config.keymap.editor.general.rtl.custom,
                 click: () => {
                     this.genClick(nodeElements, protyle, (e: HTMLElement) => {
-                        if (!e.classList.contains("av")) {
+                        if (e.classList.contains("table")) {
+                            e.querySelector("table").style.direction = "rtl";
+                        } else if (e.getAttribute("data-type") === "NodeHTMLBlock") {
+                            (e.querySelector("protyle-html") as HTMLElement).style.direction = "rtl";
+                        } else {
                             e.style.direction = "rtl";
                         }
                     });
