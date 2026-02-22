@@ -104,7 +104,7 @@ func InsertLocalAssets(id string, assetAbsPaths []string, isUpload bool) (succMa
 		}
 
 		if "" != existAssetPath && !strings.HasPrefix(hash, "random_") {
-			succMap[baseName] = existAssetPath
+			succMap[baseName] = strings.TrimPrefix(existAssetPath, "/")
 		} else {
 			fName = util.AssetName(fName, ast.NewNodeID())
 			writePath := filepath.Join(assetsDirPath, fName)

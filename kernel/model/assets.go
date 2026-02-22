@@ -129,7 +129,7 @@ func HandleAssetsChangeEvent(assetAbsPath string) {
 		logging.LogErrorf("calc asset [%s] hash failed: %s", assetAbsPath, err)
 	} else {
 		p := strings.TrimPrefix(assetAbsPath, util.DataDir)
-		p = filepath.ToSlash(p)
+		p = strings.TrimPrefix(filepath.ToSlash(p), "/")
 		cache.SetAssetHash(hash, p)
 	}
 }
