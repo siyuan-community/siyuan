@@ -2352,7 +2352,7 @@ ${window.siyuan.languages.insertRowBefore.replace("${x}", `<span class="fn__spac
                 if (document.activeElement === inputElement) {
                     return;
                 }
-                insertRowAbove(protyle, range, cellElement, nodeElement);
+                insertRowAbove(protyle, range, cellElement, nodeElement, parseInt(element.querySelector("input").value));
                 window.siyuan.menus.menu.remove();
             });
             inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -2377,7 +2377,7 @@ ${window.siyuan.languages.insertRowAfter.replace("${x}", `<span class="fn__space
                     if (document.activeElement === inputElement) {
                         return;
                     }
-                    insertRow(protyle, range, cellElement, nodeElement);
+                    insertRow(protyle, range, cellElement, nodeElement, parseInt(element.querySelector("input").value));
                     window.siyuan.menus.menu.remove();
                 });
                 inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -2403,7 +2403,7 @@ ${window.siyuan.languages.insertColumnLeft1.replace("${x}", `<span class="fn__sp
                     if (document.activeElement === inputElement) {
                         return;
                     }
-                    insertColumn(protyle, nodeElement, cellElement, "beforebegin", range);
+                    insertColumn(protyle, nodeElement, cellElement, "beforebegin", range, parseInt(element.querySelector("input").value));
                     window.siyuan.menus.menu.remove();
                 });
                 inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -2429,7 +2429,7 @@ ${window.siyuan.languages.insertColumnRight1.replace("${x}", `<span class="fn__s
                     if (document.activeElement === inputElement) {
                         return;
                     }
-                    insertColumn(protyle, nodeElement, cellElement, "afterend", range);
+                    insertColumn(protyle, nodeElement, cellElement, "afterend", range, parseInt(element.querySelector("input").value));
                     window.siyuan.menus.menu.remove();
                 });
                 inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
