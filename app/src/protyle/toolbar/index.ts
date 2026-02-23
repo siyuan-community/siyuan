@@ -1104,23 +1104,10 @@ export class Toolbar {
             }
         });
         this.subElementCloseCB = () => {
-            if (!renderElement.parentElement || protyle.disabled ||
-                (oldTextValue === textElement.value && textElement.value)) {
-                if (renderElement.tagName === "SPAN") {
-                    if (renderElement.parentElement) {
-                        this.range.setStartAfter(renderElement);
-                        this.range.collapse(true);
-                        focusByRange(this.range);
-                    }
-                } else {
-                    focusBlock(renderElement);
-                    renderElement.classList.add("protyle-wysiwyg--select");
-                }
-                protyle.wysiwyg.element.focus({preventScroll: true});
-                return;
-            }
+            const noChange = !renderElement.parentElement || protyle.disabled ||
+                (textElement.value && oldTextValue === textElement.value);
             let inlineLastNode: Element;
-            if (types.includes("NodeHTMLBlock")) {
+            if (types.includes("NodeHTMLBlock") && !noChange) {
                 let htmlText = textElement.value;
                 if (htmlText) {
                     // 需移除首尾的空白字符与连续的换行 (空行) https://github.com/siyuan-note/siyuan/issues/7921
@@ -1131,7 +1118,13 @@ export class Toolbar {
                     }
                 }
                 renderElement.querySelector("protyle-html").setAttribute("data-content", Lute.EscapeHTMLStr(htmlText));
-            } else if (isInlineMemo) {
+                // HTML 块中包含多个 <pre> 时只能保存第一个 https://github.com/siyuan-note/siyuan/issues/5732
+                const tempElement = document.createElement("template");
+                tempElement.innerHTML = protyle.lute.SpinBlockDOM(nodeElement.outerHTML);
+                if (tempElement.content.childElementCount > 1) {
+                    showMessage(window.siyuan.languages.htmlBlockTip);
+                }
+            } else if (isInlineMemo && !noChange) {
                 let inlineMemoElements;
                 if (updateElements) {
                     inlineMemoElements = updateElements;
@@ -1162,7 +1155,7 @@ export class Toolbar {
                         item.setAttribute("data-inline-memo-content", window.DOMPurify.sanitize(textElement.value));
                     }
                 });
-            } else if (types.includes("inline-math")) {
+            } else if (types.includes("inline-math") && !noChange) {
                 // 行内数学公式不允许换行 https://github.com/siyuan-note/siyuan/issues/2187
                 if (textElement.value) {
                     renderElement.setAttribute("data-content", Lute.EscapeHTMLStr(textElement.value));
@@ -1173,7 +1166,7 @@ export class Toolbar {
                     // esc 后需要 focus range，但点击空白处不能 focus range，否则光标无法留在点击位置
                     renderElement.outerHTML = "<wbr>";
                 }
-            } else {
+            } else if (!noChange) {
                 renderElement.setAttribute("data-content", Lute.EscapeHTMLStr(textElement.value));
                 renderElement.removeAttribute("data-render");
                 if (types.includes("NodeBlockQueryEmbed")) {
@@ -1183,7 +1176,6 @@ export class Toolbar {
                     processRender(renderElement);
                 }
             }
-
             // 光标定位
             if (getSelection().rangeCount === 0 ||
                 // $$ 中间输入后再 ESC 光标无法定位
@@ -1204,6 +1196,7 @@ export class Toolbar {
                         focusByRange(this.range);
                     }
                 } else {
+                    protyle.wysiwyg.element.focus({preventScroll: true});
                     focusBlock(renderElement);
                     renderElement.classList.add("protyle-wysiwyg--select");
                 }
@@ -1212,17 +1205,10 @@ export class Toolbar {
                 nodeElement.querySelector("wbr")?.remove();
             }
 
-            nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-            // HTML 块中包含多个 <pre> 时只能保存第一个 https://github.com/siyuan-note/siyuan/issues/5732
-            if (types.includes("NodeHTMLBlock")) {
-                const tempElement = document.createElement("template");
-                tempElement.innerHTML = protyle.lute.SpinBlockDOM(nodeElement.outerHTML);
-                if (tempElement.content.childElementCount > 1) {
-                    showMessage(window.siyuan.languages.htmlBlockTip);
-                }
+            if (!noChange && nodeElement.outerHTML !== html) {
+                nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
+                updateTransaction(protyle, id, nodeElement.outerHTML, html);
             }
-            updateTransaction(protyle, id, nodeElement.outerHTML, html);
-            protyle.wysiwyg.element.focus({preventScroll: true});
         };
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
