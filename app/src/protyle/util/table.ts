@@ -190,9 +190,9 @@ export const insertColumn = (protyle: IProtyle, nodeElement: Element, cellElemen
         const tag = colCellElement.tagName.toLowerCase();
         let html = "";
         if (colCellElement === cellElement) {
-            html = `<${tag}><wbr> </${tag}>` + `<${tag}> </${tag}>`.repeat(count - 1);
+            html = `<${tag}><wbr></${tag}>` + `<${tag}></${tag}>`.repeat(count - 1);
         } else {
-            html = `<${tag}> </${tag}>`.repeat(count);
+            html = `<${tag}></${tag}>`.repeat(count);
         }
         colCellElement.insertAdjacentHTML(type, html);
     }
