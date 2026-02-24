@@ -19,7 +19,8 @@ import {
     moveColumnToRight,
     moveRowToDown,
     moveRowToUp,
-    setTableAlign, updateTableTitle
+    setTableAlign,
+    updateTableTitle
 } from "../protyle/util/table";
 import {mathRender} from "../protyle/render/mathRender";
 import {transaction, updateTransaction} from "../protyle/wysiwyg/transaction";
@@ -64,7 +65,6 @@ import {hideTooltip} from "../dialog/tooltip";
 import {clearSelect} from "../protyle/util/clear";
 import {scrollCenter} from "../util/highlightById";
 import {base64ToURL} from "../util/image";
-import {Dialog} from "../dialog";
 
 const renderAssetList = (element: Element, k: string, position: IPosition, exts: string[] = []) => {
     fetchPost("/api/search/searchAsset", {
