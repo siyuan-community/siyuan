@@ -437,7 +437,11 @@
             const path = require('path')
             const fs = require('fs')
 
-            const defaultWorkspace = path.join(decodeURIComponent(getSearch('home')), "SiYuan")
+            let defaultWorkspace = path.join(decodeURIComponent(getSearch('home')), "SiYuan")
+            if ("darwin" === process.platform) {
+                // Change the initial workspace path to ~/Library/Application Support/SiYuan on macOS https://github.com/siyuan-note/siyuan/issues/17095
+                defaultWorkspace = path.join(decodeURIComponent(getSearch('home')), "Application Support", "SiYuan")
+            }
             if (!fs.existsSync(defaultWorkspace)) {
                 fs.mkdirSync(defaultWorkspace, {mode: 0o755, recursive: true})
             }
