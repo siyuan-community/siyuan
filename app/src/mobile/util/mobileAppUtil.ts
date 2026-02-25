@@ -31,3 +31,13 @@ export const canInput = (element: Element) => {
     }
     return false;
 };
+
+export const setWebViewFocusable = () => {
+    if (document.activeElement.tagName === "IFRAME") {
+        if (window.JSAndroid && window.JSAndroid.setWebViewFocusable) {
+            window.JSAndroid.setWebViewFocusable(true);
+        } else if (window.JSHarmony && window.JSHarmony.setWebViewFocusable) {
+            window.JSHarmony.setWebViewFocusable(true);
+        }
+    }
+};

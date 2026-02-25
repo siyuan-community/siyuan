@@ -254,6 +254,7 @@ interface Window {
         print(title: string, html: string): void
         getScreenWidthPx(): number
         exit(): void
+        setWebViewFocusable(enable: boolean): void
     };
     JSHarmony: {
         showKeyboard(): void
@@ -271,6 +272,7 @@ interface Window {
         print(title: string, html: string): void
         getScreenWidthPx(): number
         exit(): void
+        setWebViewFocusable(enable: boolean): void
     };
 
     Protyle: import("../protyle/method").default;
