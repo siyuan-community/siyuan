@@ -33,10 +33,10 @@ export const canInput = (element: Element) => {
 };
 
 export const setWebViewFocusable = () => {
-    if (document.activeElement.tagName === "IFRAME") {
-        if (window.JSAndroid && window.JSAndroid.setWebViewFocusable) {
+    if ((window.JSAndroid || window.JSHarmony) && document.activeElement.tagName === "IFRAME") {
+        if (window.JSAndroid?.setWebViewFocusable) {
             window.JSAndroid.setWebViewFocusable(true);
-        } else if (window.JSHarmony && window.JSHarmony.setWebViewFocusable) {
+        } else if (window.JSHarmony?.setWebViewFocusable) {
             window.JSHarmony.setWebViewFocusable(true);
         }
     }
