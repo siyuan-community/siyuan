@@ -205,7 +205,7 @@ export class Background {
                 });
             });
         });
-        this.element.addEventListener(getEventName(), (event) => {
+        this.element.addEventListener("click", (event) => {
             let target = event.target as HTMLElement;
             hideElements(["gutter"], protyle);
 
