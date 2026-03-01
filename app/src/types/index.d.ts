@@ -255,6 +255,7 @@ interface Window {
         getScreenWidthPx(): number
         exit(): void
         setWebViewFocusable(enable: boolean): void
+        sendNotification(title: string, body: string): void
     };
     JSHarmony: {
         showKeyboard(): void
