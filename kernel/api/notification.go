@@ -25,6 +25,29 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
+func sendDeviceNotification(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	if util.ContainerAndroid != util.Container {
+		ret.Code = -1
+		ret.Msg = "Just support Android"
+		return
+	}
+
+	payload := arg["payload"].(string)
+	evt := util.NewCmdResult("sendDeviceNotification", 0, util.PushModeSingleSelf)
+	evt.Data = map[string]interface{}{
+		"payload": payload,
+	}
+	util.PushEvent(evt)
+}
+
 func pushMsg(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
