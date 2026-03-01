@@ -18,6 +18,11 @@ const statusElement = document.querySelector("#status") as HTMLElement;
 export const onMessage = (app: App, data: IWebSocketData) => {
     if (data) {
         switch (data.cmd) {
+            case "sendDeviceNotification":
+                if (window.JSAndroid.sendNotification) {
+                    window.JSAndroid.sendNotification(data.data.title, data.data.body);
+                }
+                break;
             case "backgroundtask":
                 if (!document.querySelector("#keyboardToolbar").classList.contains("fn__none") ||
                     window.siyuan.config.appearance.hideStatusBar) {
