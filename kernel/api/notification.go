@@ -40,10 +40,12 @@ func sendDeviceNotification(c *gin.Context) {
 		return
 	}
 
-	payload := arg["payload"].(string)
+	title := arg["title"].(string)
+	body := arg["body"].(string)
 	evt := util.NewCmdResult("sendDeviceNotification", 0, util.PushModeSingleSelf)
 	evt.Data = map[string]interface{}{
-		"payload": payload,
+		"title": title,
+		"body":  body,
 	}
 	util.PushEvent(evt)
 }
