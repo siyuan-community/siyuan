@@ -50,12 +50,12 @@ func main() {
 
 	job.StartCron()
 
-	go util.LoadSysFonts()
 	go model.AutoGenerateFileHistory()
 	go cache.LoadAssets()
 	go util.CheckFileSysStatus()
 
 	model.WatchAssets()
 	model.WatchEmojis()
+	model.WatchThemes()
 	model.HandleSignal()
 }

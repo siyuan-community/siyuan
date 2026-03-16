@@ -29,6 +29,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/88250/go-humanize"
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
@@ -36,6 +37,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/search"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -43,6 +45,235 @@ import (
 	"github.com/siyuan-note/logging"
 	"github.com/xrash/smetrics"
 )
+
+func RemoveUnusedAttributeView(id string) {
+	absPath := filepath.Join(util.DataDir, "storage", "av", id+".json")
+	if !filelock.IsExist(absPath) {
+		return
+	}
+
+	historyDir, err := GetHistoryDir(HistoryOpClean)
+	if err != nil {
+		logging.LogErrorf("get history dir failed: %s", err)
+		return
+	}
+
+	newP := strings.TrimPrefix(absPath, util.DataDir)
+	historyPath := filepath.Join(historyDir, newP)
+	if filelock.IsExist(absPath) {
+		if err = filelock.Copy(absPath, historyPath); err != nil {
+			return
+		}
+	}
+
+	if err = filelock.RemoveWithoutFatal(absPath); err != nil {
+		logging.LogErrorf("remove unused asset [%s] failed: %s", absPath, err)
+		util.PushErrMsg(fmt.Sprintf("%s", err), 7000)
+		return
+	}
+
+	IncSync()
+
+	indexHistoryDir(filepath.Base(historyDir), util.NewLute())
+	return
+}
+
+func RemoveUnusedAttributeViews() (ret []string) {
+	ret = []string{}
+	var size int64
+
+	msgId := util.PushMsg(Conf.Language(100), 30*1000)
+	defer func() {
+		msg := fmt.Sprintf(Conf.Language(280), len(ret), humanize.BytesCustomCeil(uint64(size), 2))
+		util.PushUpdateMsg(msgId, msg, 7000)
+	}()
+
+	unusedAttributeViews := UnusedAttributeViews(false)
+
+	historyDir, err := GetHistoryDir(HistoryOpClean)
+	if err != nil {
+		logging.LogErrorf("get history dir failed: %s", err)
+		return
+	}
+
+	for _, unusedAv := range unusedAttributeViews {
+		id := unusedAv.Item
+		srcPath := filepath.Join(util.DataDir, "storage", "av", id+".json")
+		if filelock.IsExist(srcPath) {
+			historyPath := filepath.Join(historyDir, "storage", "av", id+".json")
+			if err = filelock.Copy(srcPath, historyPath); err != nil {
+				return
+			}
+		}
+	}
+
+	for _, unusedAv := range unusedAttributeViews {
+		id := unusedAv.Item
+		absPath := filepath.Join(util.DataDir, "storage", "av", id+".json")
+		if filelock.IsExist(absPath) {
+			info, statErr := os.Stat(absPath)
+			if statErr == nil {
+				size += info.Size()
+			}
+
+			if removeErr := filelock.RemoveWithoutFatal(absPath); removeErr != nil {
+				logging.LogErrorf("remove unused av [%s] failed: %s", absPath, removeErr)
+				util.PushErrMsg(fmt.Sprintf("%s", removeErr), 7000)
+				return
+			}
+		}
+		ret = append(ret, absPath)
+	}
+	if 0 < len(ret) {
+		IncSync()
+	}
+
+	indexHistoryDir(filepath.Base(historyDir), util.NewLute())
+	return
+}
+
+func UnusedAttributeViews(sorted bool) (ret []*UnusedItem) {
+	defer logging.Recover()
+	ret = []*UnusedItem{}
+
+	allAvIDs, err := getAllAvIDs()
+	if err != nil {
+		return
+	}
+
+	docReferencedAvIDs := map[string]bool{}
+	luteEngine := util.NewLute()
+	boxes := Conf.GetBoxes()
+	for _, box := range boxes {
+		pages := pagedPaths(filepath.Join(util.DataDir, box.ID), 32)
+		for _, paths := range pages {
+			var trees []*parse.Tree
+			for _, localPath := range paths {
+				tree, loadTreeErr := loadTree(localPath, luteEngine)
+				if nil != loadTreeErr {
+					continue
+				}
+				trees = append(trees, tree)
+			}
+			for _, tree := range trees {
+				for _, id := range getAvIDs(tree, allAvIDs) {
+					docReferencedAvIDs[id] = true
+				}
+			}
+		}
+	}
+
+	templateAvIDs := search.FindAllMatchedTargets(filepath.Join(util.DataDir, "templates"), allAvIDs)
+	for _, id := range templateAvIDs {
+		docReferencedAvIDs[id] = true
+	}
+
+	checkedAvIDs := map[string]bool{}
+	for _, id := range allAvIDs {
+		if !docReferencedAvIDs[id] && !isRelatedSrcAvDocReferenced(id, docReferencedAvIDs, checkedAvIDs) {
+			name, _ := av.GetAttributeViewName(id)
+
+			var modTime time.Time
+			if sorted {
+				p := filepath.Join(util.DataDir, "storage", "av", id+".json")
+				if info, statErr := os.Stat(p); nil == statErr {
+					modTime = info.ModTime()
+				}
+			}
+
+			ret = append(ret, &UnusedItem{Item: id, Name: name, ModTime: modTime})
+		}
+	}
+
+	if sorted {
+		sort.Slice(ret, func(i, j int) bool {
+			if !ret[i].ModTime.Equal(ret[j].ModTime) {
+				return ret[i].ModTime.After(ret[j].ModTime)
+			}
+			return ret[i].Item > ret[j].Item
+		})
+	}
+	return
+}
+
+func isRelatedSrcAvDocReferenced(destAvID string, docReferencedAvIDs, checkedAvIDs map[string]bool) bool {
+	if checkedAvIDs[destAvID] {
+		if docReferencedAvIDs[destAvID] {
+			return true
+		}
+		return false
+	}
+	checkedAvIDs[destAvID] = true
+
+	srcAvIDs := av.GetSrcAvIDs(destAvID)
+	srcAvIDs = gulu.Str.RemoveElem(srcAvIDs, destAvID) // 忽略自身关联
+	if 1 > len(srcAvIDs) {
+		return false
+	}
+
+	for _, srcAvID := range srcAvIDs {
+		if docReferencedAvIDs[srcAvID] {
+			return true
+		}
+	}
+
+	// 递归检查间接关联的 av
+	for _, srcAvID := range srcAvIDs {
+		if isRelatedSrcAvDocReferenced(srcAvID, docReferencedAvIDs, checkedAvIDs) {
+			return true
+		}
+	}
+	return false
+}
+
+func getAvIDs(tree *parse.Tree, allAvIDs []string) (ret []string) {
+	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+		if !entering {
+			return ast.WalkContinue
+		}
+
+		if ast.NodeAttributeView == n.Type {
+			ret = append(ret, n.AttributeViewID)
+		}
+
+		for _, kv := range n.KramdownIAL {
+			ids := util.GetContainsSubStrs(kv[1], allAvIDs)
+			if 0 < len(ids) {
+				ret = append(ret, ids...)
+			}
+		}
+
+		return ast.WalkContinue
+	})
+
+	ret = gulu.Str.RemoveDuplicatedElem(ret)
+	return
+}
+
+func getAllAvIDs() (ret []string, err error) {
+	ret = []string{}
+
+	entries, err := os.ReadDir(filepath.Join(util.DataDir, "storage", "av"))
+	if nil != err {
+		return
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+
+		id := strings.TrimSuffix(name, ".json")
+		if !ast.IsNodeIDPattern(id) {
+			continue
+		}
+
+		ret = append(ret, id)
+	}
+	ret = gulu.Str.RemoveDuplicatedElem(ret)
+	return
+}
 
 func GetAttributeViewItemIDs(avID string, blockIDs []string) (ret map[string]string) {
 	ret = map[string]string{}
@@ -2592,7 +2823,7 @@ func (tx *Transaction) doRemoveAttrViewView(operation *Operation) (ret *TxErr) {
 			}
 
 			cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
-			pushBroadcastAttrTransactions(oldAttrs, node)
+			pushBlockAttrs(oldAttrs, node)
 		}
 	}
 
@@ -2898,8 +3129,28 @@ func getKanbanPreferredGroupKey(attrView *av.AttributeView) (ret *av.Key) {
 			break
 		}
 	}
+
 	if nil == ret {
-		ret = attrView.GetBlockKey()
+		name := av.GetAttributeViewI18n("select")
+		ret = av.NewKey(ast.NewNodeID(), name, "", av.KeyTypeSelect)
+		attrView.KeyValues = append(attrView.KeyValues, &av.KeyValues{Key: ret})
+		for _, view := range attrView.Views {
+			newField := &av.BaseField{ID: ret.ID}
+			if nil != view.Table {
+				newField.Wrap = view.Table.WrapField
+				view.Table.Columns = append(view.Table.Columns, &av.ViewTableColumn{BaseField: newField})
+			}
+
+			if nil != view.Gallery {
+				newField.Wrap = view.Gallery.WrapField
+				view.Gallery.CardFields = append(view.Gallery.CardFields, &av.ViewGalleryCardField{BaseField: newField})
+			}
+
+			if nil != view.Kanban {
+				newField.Wrap = view.Kanban.WrapField
+				view.Kanban.Fields = append(view.Kanban.Fields, &av.ViewKanbanField{BaseField: newField})
+			}
+		}
 	}
 	return
 }
@@ -3005,7 +3256,7 @@ func (tx *Transaction) setAttributeViewName(operation *Operation) (err error) {
 		avNames := getAvNames(node.IALAttr(av.NodeAttrNameAvs))
 		oldAttrs := parse.IAL2Map(node.KramdownIAL)
 		node.SetIALAttr(av.NodeAttrViewNames, avNames)
-		pushBroadcastAttrTransactions(oldAttrs, node)
+		pushBlockAttrs(oldAttrs, node)
 	}
 	return
 }
@@ -3207,18 +3458,14 @@ func setAttributeViewColumnCalc(operation *Operation) (err error) {
 }
 
 func (tx *Transaction) doInsertAttrViewBlock(operation *Operation) (ret *TxErr) {
-	if nil == operation.Context {
-		operation.Context = map[string]interface{}{}
-	}
-
-	err := AddAttributeViewBlock(tx, operation.Srcs, operation.AvID, operation.BlockID, operation.ViewID, operation.GroupID, operation.PreviousID, operation.IgnoreDefaultFill, operation.Context)
+	err := AddAttributeViewBlock(tx, operation.Srcs, operation.AvID, operation.BlockID, operation.ViewID, operation.GroupID, operation.PreviousID, operation.IgnoreDefaultFill)
 	if err != nil {
 		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
 	}
 	return
 }
 
-func AddAttributeViewBlock(tx *Transaction, srcs []map[string]interface{}, avID, dbBlockID, viewID, groupID, previousItemID string, ignoreDefaultFill bool, context map[string]interface{}) (err error) {
+func AddAttributeViewBlock(tx *Transaction, srcs []map[string]interface{}, avID, dbBlockID, viewID, groupID, previousItemID string, ignoreDefaultFill bool) (err error) {
 	slices.Reverse(srcs) // https://github.com/siyuan-note/siyuan/issues/11286
 
 	now := time.Now().UnixMilli()
@@ -3253,14 +3500,14 @@ func AddAttributeViewBlock(tx *Transaction, srcs []map[string]interface{}, avID,
 		if nil != src["content"] {
 			srcContent = src["content"].(string)
 		}
-		if avErr := addAttributeViewBlock(now, avID, dbBlockID, viewID, groupID, previousItemID, srcItemID, boundBlockID, srcContent, isDetached, ignoreDefaultFill, tree, tx, context); nil != avErr {
+		if avErr := addAttributeViewBlock(now, avID, dbBlockID, viewID, groupID, previousItemID, srcItemID, boundBlockID, srcContent, isDetached, ignoreDefaultFill, tree, tx); nil != avErr {
 			return avErr
 		}
 	}
 	return
 }
 
-func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previousItemID, addingItemID, addingBoundBlockID, addingBlockContent string, isDetached, ignoreDefaultFill bool, tree *parse.Tree, tx *Transaction, context map[string]interface{}) (err error) {
+func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previousItemID, addingItemID, addingBoundBlockID, addingBlockContent string, isDetached, ignoreDefaultFill bool, tree *parse.Tree, tx *Transaction) (err error) {
 	var node *ast.Node
 	if !isDetached {
 		node = treenode.GetNodeInTree(tree, addingBoundBlockID)
@@ -5582,7 +5829,7 @@ func updateBoundBlockAvsAttribute(avIDs []string) {
 				continue
 			}
 			cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
-			pushBroadcastAttrTransactions(oldAttrs, node)
+			pushBlockAttrs(oldAttrs, node)
 			if "" != avNames {
 				node.RemoveIALAttr(av.NodeAttrViewNames)
 			}

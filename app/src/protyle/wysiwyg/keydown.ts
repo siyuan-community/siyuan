@@ -75,6 +75,7 @@ import {openLink} from "../../editor/openLink";
 import {onlyProtyleCommand} from "../../boot/globalEvent/command/protyle";
 import {AIChat} from "../../ai/chat";
 import {updateCalloutType} from "./callout";
+import {tabCodeBlock} from "./codeBlock";
 
 export const getContentByInlineHTML = (range: Range, cb: (content: string) => void) => {
     let html = "";
@@ -93,6 +94,14 @@ export const getContentByInlineHTML = (range: Range, cb: (content: string) => vo
 export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
     editorElement.addEventListener("keydown", async (event: KeyboardEvent & { target: HTMLElement }) => {
         if (event.target.localName === "protyle-html" || event.target.localName === "input") {
+            event.stopPropagation();
+            return;
+        }
+        if (hasClosestByAttribute(event.target, "data-type", "av-search")) {
+            if (matchHotKey("⌘A", event)) {
+                event.preventDefault();
+                getSelection().getRangeAt(0).selectNodeContents(event.target);
+            }
             event.stopPropagation();
             return;
         }
@@ -174,7 +183,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
             }
         }
         // 有可能输入 shift+. ，因此需要使用 event.key 来进行判断
-        if (event.key !== "PageUp" && event.key !== "PageDown" && event.key !== "Home" && event.key !== "End" && event.key.indexOf("Arrow") === -1 &&
+        if (typeof event.key === "string" && event.key !== "PageUp" && event.key !== "PageDown" && event.key !== "Home" && event.key !== "End" && event.key.indexOf("Arrow") === -1 &&
             event.key !== "Escape" && event.key !== "Shift" && event.key !== "Meta" && event.key !== "Alt" && event.key !== "Control" && event.key !== "CapsLock" &&
             !isNotEditBlock(nodeElement) && !/^F\d{1,2}$/.test(event.key) &&
             // 微软双拼使用 compositionstart，否则 focusByRange 导致无法输入文字
@@ -641,22 +650,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                 position.end -= 1;
 
             }
-            // 需使用 innerText 否则表格内 br 无法传唤为 /n
-            if (event.key === "ArrowDown" && nodeEditableElement?.innerText.trimRight().substr(position.start).indexOf("\n") === -1 && (
-                (tdElement && tdStatus === "last" && nodeType === "NodeTable" && !getNextBlock(nodeElement)) ||
-                (nodeType === "NodeCodeBlock" && !getNextBlock(nodeElement)) ||
-                (nodeElement.parentElement.getAttribute("data-type") === "NodeBlockquote" && nodeElement.nextElementSibling.classList.contains("protyle-attr") && !getNextBlock(nodeElement.parentElement)) ||
-                (nodeElement.parentElement.classList.contains("callout-content") && !nodeElement.nextElementSibling && !getNextBlock(nodeElement.parentElement.parentElement))
-            )) {
-                // 跳出代码块和bq
-                if (nodeElement.parentElement.getAttribute("data-type") === "NodeBlockquote") {
-                    insertEmptyBlock(protyle, "afterend", nodeElement.parentElement.getAttribute("data-node-id"));
-                } else if (nodeElement.parentElement.classList.contains("callout-content")) {
-                    insertEmptyBlock(protyle, "afterend", nodeElement.parentElement.parentElement.getAttribute("data-node-id"));
-                } else {
-                    insertEmptyBlock(protyle, "afterend", nodeElement.getAttribute("data-node-id"));
-                }
-            } else if (event.key === "ArrowUp") {
+            if (event.key === "ArrowUp") {
                 const firstEditElement = getContenteditableElement(protyle.wysiwyg.element.firstElementChild);
                 if ((
                         !getPreviousBlock(nodeElement) &&  // 列表第一个块为嵌入块，第二个块为段落块，上键应选中第一个块 https://ld246.com/article/1652667912155
@@ -717,13 +711,13 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                         }
                     }
                 }
-            } else if (selectText === "" && (event.key === "ArrowDown" || event.key === "ArrowRight") && nodeElement === getLastBlock(protyle.wysiwyg.element.lastElementChild) &&
-                // 表格无法右移动 https://ld246.com/article/1631434502215
-                !hasClosestByTag(range.startContainer, "TD") && !hasClosestByTag(range.startContainer, "TH")) {
-                // 页面按向下/右箭头丢失焦点 https://ld246.com/article/1629954026096
+            } else if (selectText === "" && (event.key === "ArrowDown" || event.key === "ArrowRight") &&
+                nodeElement === getLastBlock(protyle.wysiwyg.element.lastElementChild)) {
+                // 末尾按向下/右箭头丢失焦点 https://ld246.com/article/1629954026096
                 const lastEditElement = getContenteditableElement(nodeElement);
                 // 代码块需替换最后一个 /n  https://github.com/siyuan-note/siyuan/issues/3221
-                if (lastEditElement && !lastEditElement.querySelector(".emoji") && lastEditElement.textContent.replace(/\n$/, "").length <= getSelectionOffset(lastEditElement, undefined, range).end) {
+                if (lastEditElement && !lastEditElement.querySelector(".emoji") &&
+                    lastEditElement.textContent.replace(/\n$/, "").length <= getSelectionOffset(lastEditElement, undefined, range).end) {
                     event.stopPropagation();
                     event.preventDefault();
                     focusByRange(range);
@@ -738,8 +732,19 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                 }
             }
             if (event.key === "ArrowDown") {
-                if (nodeEditableElement?.innerText.trimRight().substr(position.start).indexOf("\n") === -1 &&
-                    nodeElement === protyle.wysiwyg.element.lastElementChild && !tdElement) {
+                const nextElement = getNextBlock(nodeElement);
+                // 末尾块/单元格统一移动到末尾 https://github.com/siyuan-note/siyuan/issues/17116
+                if (tdElement && tdStatus === "last" && nodeType === "NodeTable" && !nextElement &&
+                    // 需使用 innerText 否则表格内 br 无法转换为 /n
+                    nodeEditableElement?.innerText.trimRight().substr(position.start).indexOf("\n") === -1) {
+                    setLastNodeRange(nodeEditableElement, range, false);
+                    range.collapse(false);
+                    event.stopPropagation();
+                    event.preventDefault();
+                    return;
+                }
+                if (!nextElement && !tdElement &&
+                    nodeEditableElement?.innerText.trimRight().substr(position.start).indexOf("\n") === -1) {
                     setLastNodeRange(getContenteditableElement(nodeEditableElement), range, false);
                     range.collapse(false);
                     event.stopPropagation();
@@ -765,7 +770,6 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                 } else if (nodeEditableElement?.innerText.substr(position.end).indexOf("\n") === -1 || position.end >= nodeEditableElement.innerText.trimEnd().length) {
                     // 需使用 innerText，否则 td 中的 br 无法转换为 \n; position.end 不能加1，否则倒数第二行行末无法下移
                     range.collapse(false);
-                    const nextElement = getNextBlock(nodeElement) as HTMLElement;
                     if (nextElement &&
                         (nextElement.getAttribute("fold") === "1" || nextElement.classList.contains("code-block")) &&
                         nodeEditableElement.getBoundingClientRect().bottom - getSelectionPosition(nodeElement, range).top < 40) {
@@ -886,7 +890,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                             return;
                         }
                     }
-                    // 需使用 innerText，否则 br 无法传唤为 /n https://github.com/siyuan-note/siyuan/issues/12066
+                    // 需使用 innerText，否则 br 无法转换为 /n https://github.com/siyuan-note/siyuan/issues/12066
                     // 段末反向删除 https://github.com/siyuan-note/insider/issues/274
                     if (isEndOfBlock(range) || editElement.textContent.substring(position.start) === "\n") {
                         const cloneRange = range.cloneRange();
@@ -1212,6 +1216,7 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
                         notebookId: protyle.notebookId,
                         path: protyle.path,
                         name: response.data.ial.title,
+                        empty: response.data.ial[Constants.CUSTOM_SY_TITLE_EMPTY] === "true",
                         range,
                         type: "file",
                     });
@@ -1870,87 +1875,12 @@ export const keydown = (protyle: IProtyle, editorElement: HTMLElement) => {
         // tab 需等待 list 和 table 处理完成
         if (event.key === "Tab" && isNotCtrl(event) && !event.altKey) {
             event.preventDefault();
-            const tabSpace = window.siyuan.config.editor.codeTabSpaces === 0 ? "\t" : "".padStart(window.siyuan.config.editor.codeTabSpaces, " ");
             if (nodeType === "NodeCodeBlock" && selectText !== "") {
-                // https://github.com/siyuan-note/siyuan/issues/12650
-                if (!hasNextSibling(range.endContainer) && range.endContainer.textContent.endsWith("\n") && range.endOffset > 0) {
-                    range.setEnd(range.endContainer, range.endOffset - 1);
-                }
-                const wbrElement = document.createElement("wbr");
-                range.insertNode(wbrElement);
-                range.setStartAfter(wbrElement);
-                const oldHTML = nodeElement.outerHTML;
-                let text = "";
-                if (!event.shiftKey) {
-                    range.extractContents().textContent.split("\n").forEach((item: string) => {
-                        text += tabSpace + item + "\n";
-                    });
-                } else {
-                    range.extractContents().textContent.split("\n").forEach((item: string) => {
-                        if (item.startsWith(tabSpace)) {
-                            text += item.replace(tabSpace, "") + "\n";
-                        } else {
-                            text += item + "\n";
-                        }
-                    });
-                }
-                let language = nodeElement.querySelector(".protyle-action__language").textContent;
-                // 语言优先级处理 https://github.com/siyuan-note/siyuan/issues/14767
-                if (range.commonAncestorContainer.nodeType === 1) {
-                    const snippetClassName = (range.commonAncestorContainer as HTMLElement).className;
-                    if (snippetClassName.startsWith("language-")) {
-                        language = snippetClassName.replace("language-", "");
-                        // https://github.com/siyuan-note/siyuan/issues/14767
-                        if (wbrElement.parentElement !== range.commonAncestorContainer) {
-                            wbrElement.parentElement.after(wbrElement);
-                            wbrElement.previousElementSibling.remove();
-                        }
-                    }
-                }
-                if (!window.hljs.getLanguage(language)) {
-                    language = "plaintext";
-                }
-                wbrElement.insertAdjacentHTML("afterend", window.hljs.highlight(text.substr(0, text.length - 1), {
-                    language,
-                    ignoreIllegals: true
-                }).value + "<br>");
-                range.setStart(wbrElement.nextSibling, 0);
-                const brElement = wbrElement.parentElement.querySelector("br");
-                setLastNodeRange(brElement.previousSibling as Element, range, false);
-                brElement.remove();
-                updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
-                wbrElement.remove();
+                tabCodeBlock(protyle, nodeElement, range, event.shiftKey);
                 return;
             }
             if (!event.shiftKey) {
-                const inlineElement = range.startContainer.parentElement;
-                const currentTypes = protyle.toolbar.getCurrentType(range);
-                // https://github.com/siyuan-note/siyuan/issues/14703
-                if (currentTypes.length > 0 && range.toString() === "" && range.startOffset === 0 &&
-                    inlineElement.tagName === "SPAN" && !hasPreviousSibling(range.startContainer) && !hasPreviousSibling(inlineElement)) {
-                    range.setStartBefore(inlineElement);
-                    range.collapse(true);
-                } else if (inlineElement.tagName === "SPAN" &&
-                    !currentTypes.includes("search-mark") &&    // https://github.com/siyuan-note/siyuan/issues/7586
-                    !currentTypes.includes("code") &&   // https://github.com/siyuan-note/siyuan/issues/13871
-                    !currentTypes.includes("kbd") &&
-                    !currentTypes.includes("tag") &&
-                    range.toString() === "" && range.startContainer.nodeType === 3 &&
-                    (currentTypes.includes("inline-memo") || currentTypes.includes("block-ref") || currentTypes.includes("file-annotation-ref") || currentTypes.includes("a")) &&
-                    !hasNextSibling(range.startContainer) && range.startContainer.textContent.length === range.startOffset
-                ) {
-                    range.setEndAfter(inlineElement);
-                    range.collapse(false);
-                }
-                const wbrElement = document.createElement("wbr");
-                range.insertNode(wbrElement);
-                const oldHTML = nodeElement.outerHTML;
-                range.extractContents();
-                range.insertNode(document.createTextNode(tabSpace));
-                range.collapse(false);
-                focusByRange(range);
-                wbrElement.remove();
-                updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+                document.execCommand("insertHTML", false, window.siyuan.config.editor.codeTabSpaces === 0 ? "\t" : "".padStart(window.siyuan.config.editor.codeTabSpaces, " "));
                 return true;
             }
         }

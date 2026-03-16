@@ -1088,7 +1088,10 @@ func CreateWithMarkdown(tags, boxID, hPath, md, parentID, id string, withMath bo
 	return
 }
 
-const DailyNoteAttrPrefix = "custom-dailynote-"
+const (
+	DailyNoteAttrPrefix = "custom-dailynote-"
+	NodeAttrTitleEmpty  = "custom-sy-title-empty"
+)
 
 func CreateDailyNote(boxID string) (p string, existed bool, err error) {
 	createDocLock.Lock()
@@ -1523,8 +1526,10 @@ func RemoveDoc(boxID, p string) {
 
 	FlushTxQueue()
 	luteEngine := util.NewLute()
-	removeDoc(box, p, luteEngine)
+	tree := removeDoc(box, p, luteEngine)
 	IncSync()
+
+	refreshParentDocInfo(tree)
 	return
 }
 
@@ -1536,15 +1541,29 @@ func RemoveDocs(paths []string) {
 	pathsBoxes := getBoxesByPaths(paths)
 	FlushTxQueue()
 	luteEngine := util.NewLute()
+
+	var trees []*parse.Tree
 	for p, box := range pathsBoxes {
-		removeDoc(box, p, luteEngine)
+		tree := removeDoc(box, p, luteEngine)
+		trees = append(trees, tree)
+	}
+
+	parentTrees := map[string]*parse.Tree{}
+	for _, tree := range trees {
+		parentTree := loadParentTree(tree)
+		if nil != parentTree {
+			parentTrees[parentTree.ID] = parentTree
+		}
+	}
+	for _, parentTree := range parentTrees {
+		refreshDocInfo(parentTree)
 	}
 	return
 }
 
-func removeDoc(box *Box, p string, luteEngine *lute.Lute) {
-	tree, _ := filesys.LoadTree(box.ID, p, luteEngine)
-	if nil == tree {
+func removeDoc(box *Box, p string, luteEngine *lute.Lute) (ret *parse.Tree) {
+	ret, _ = filesys.LoadTree(box.ID, p, luteEngine)
+	if nil == ret {
 		return
 	}
 
@@ -1561,16 +1580,16 @@ func removeDoc(box *Box, p string, luteEngine *lute.Lute) {
 		return
 	}
 
-	generateAvHistory(tree, historyDir)
+	generateAvHistoryInTree(ret, historyDir)
 	copyDocAssetsToDataAssets(box.ID, p)
 
-	removeIDs := treenode.RootChildIDs(tree.ID)
+	removeIDs := treenode.RootChildIDs(ret.ID)
 	dir := path.Dir(p)
-	childrenDir := path.Join(dir, tree.ID)
+	childrenDir := path.Join(dir, ret.ID)
 	existChildren := box.Exist(childrenDir)
 	if existChildren {
-		absChildrenDir := filepath.Join(util.DataDir, tree.Box, childrenDir)
-		historyPath = filepath.Join(historyDir, tree.Box, childrenDir)
+		absChildrenDir := filepath.Join(util.DataDir, ret.Box, childrenDir)
+		historyPath = filepath.Join(historyDir, ret.Box, childrenDir)
 		if err = filelock.Copy(absChildrenDir, historyPath); err != nil {
 			logging.LogErrorf("backup [path=%s] to history [%s] failed: %s", absChildrenDir, historyPath, err)
 			return
@@ -1578,7 +1597,7 @@ func removeDoc(box *Box, p string, luteEngine *lute.Lute) {
 	}
 	indexHistoryDir(filepath.Base(historyDir), util.NewLute())
 
-	allRemoveRootIDs := []string{tree.ID}
+	allRemoveRootIDs := []string{ret.ID}
 	allRemoveRootIDs = append(allRemoveRootIDs, removeIDs...)
 	allRemoveRootIDs = gulu.Str.RemoveDuplicatedElem(allRemoveRootIDs)
 	for _, rootID := range allRemoveRootIDs {
@@ -1587,7 +1606,7 @@ func removeDoc(box *Box, p string, luteEngine *lute.Lute) {
 			continue
 		}
 
-		syncDelete2AvBlock(removeTree.Root, removeTree, nil)
+		syncDelete2AvBlock(removeTree.Root, removeTree, true, nil)
 	}
 
 	if existChildren {
@@ -1616,9 +1635,8 @@ func removeDoc(box *Box, p string, luteEngine *lute.Lute) {
 		"ids": removeIDs,
 	}
 	util.PushEvent(evt)
-
-	refreshParentDocInfo(tree)
-	task.AppendTask(task.DatabaseIndex, removeDoc0, tree, childrenDir)
+	task.AppendTask(task.DatabaseIndex, removeDoc0, ret, childrenDir)
+	return
 }
 
 func removeDoc0(tree *parse.Tree, childrenDir string) {
@@ -1632,6 +1650,7 @@ func removeDoc0(tree *parse.Tree, childrenDir string) {
 	treenode.RemoveBlockTreesByPathPrefix(childrenDir)
 	sql.RemoveTreePathQueue(tree.Box, childrenDir)
 	cache.RemoveDocIAL(tree.Path)
+	cache.RemoveTreeData(tree.ID)
 	return
 }
 
@@ -1649,56 +1668,78 @@ func RenameDoc(boxID, p, title string) (err error) {
 		return
 	}
 
-	title = removeInvisibleCharsInTitle(title)
+	title = normalizeDocTitle(title)
 	if 512 < utf8.RuneCountInString(title) {
 		// 限制笔记本名和文档名最大长度为 `512` https://github.com/siyuan-note/siyuan/issues/6299
 		return errors.New(Conf.Language(106))
 	}
 
-	oldTitle := tree.Root.IALAttr("title")
-	if oldTitle == title {
-		return
-	}
+	var isEmpty bool
 	if "" == title {
 		title = Conf.language(16)
+		isEmpty = true
 	}
-	title = strings.ReplaceAll(title, "/", "")
+	// 先规范化输入得到实际会存储的标题，再与旧标题比较
+	titleChanged := tree.Root.IALAttr("title") != title
 
-	tree.HPath = path.Join(path.Dir(tree.HPath), title)
-	tree.Root.SetIALAttr("title", title)
-	tree.Root.SetIALAttr("updated", util.CurrentTimeSecondsStr())
-	if err = renameWriteJSONQueue(tree); err != nil {
-		return
+	var emptyAttrUpdated bool
+	if titleChanged {
+		tree.HPath = path.Join(path.Dir(tree.HPath), title)
+		tree.Root.SetIALAttr("title", title)
 	}
 
-	refText := getNodeRefText(tree.Root)
-	evt := util.NewCmdResult("rename", 0, util.PushModeBroadcast)
-	evt.Data = map[string]interface{}{
-		"box":     boxID,
-		"id":      tree.Root.ID,
-		"path":    p,
-		"title":   title,
-		"refText": refText,
+	// 按需同步“无标题”标记（仅更新 IAL，不触发子树重命名等）
+	isTitleEmpty := "" != tree.Root.IALAttr(NodeAttrTitleEmpty)
+	if isTitleEmpty != isEmpty {
+		if isEmpty {
+			tree.Root.SetIALAttr(NodeAttrTitleEmpty, "true")
+			isTitleEmpty = true
+		} else {
+			tree.Root.RemoveIALAttr(NodeAttrTitleEmpty)
+			isTitleEmpty = false
+		}
+		emptyAttrUpdated = true
 	}
-	util.PushEvent(evt)
 
-	box.renameSubTrees(tree)
-	updateRefTextRenameDoc(tree)
-	IncSync()
+	if titleChanged || emptyAttrUpdated {
+		tree.Root.SetIALAttr("updated", util.CurrentTimeSecondsStr())
+		if err = renameWriteJSONQueue(tree); err != nil {
+			return
+		}
+
+		refText := getNodeRefText(tree.Root)
+		evt := util.NewCmdResult("rename", 0, util.PushModeBroadcast)
+		evt.Data = map[string]interface{}{
+			"box":     boxID,
+			"id":      tree.Root.ID,
+			"path":    p,
+			"title":   title,
+			"empty":   isTitleEmpty,
+			"refText": refText,
+		}
+		util.PushEvent(evt)
+	}
+	if titleChanged {
+		box.renameSubTrees(tree)
+		updateRefTextRenameDoc(tree)
+	}
+	if titleChanged || emptyAttrUpdated {
+		IncSync()
+	}
 	return
 }
 
 func createDoc(boxID, p, title, dom string) (tree *parse.Tree, err error) {
-	title = removeInvisibleCharsInTitle(title)
+	title = normalizeDocTitle(title)
 	if 512 < utf8.RuneCountInString(title) {
 		// 限制笔记本名和文档名最大长度为 `512` https://github.com/siyuan-note/siyuan/issues/6299
 		err = errors.New(Conf.Language(106))
 		return
 	}
-	title = strings.ReplaceAll(title, "/", "")
-	title = strings.TrimSpace(title)
+	var isEmpty bool
 	if "" == title {
 		title = Conf.Language(16)
+		isEmpty = true
 	}
 
 	baseName := strings.TrimSpace(path.Base(p))
@@ -1760,6 +1801,9 @@ func createDoc(boxID, p, title, dom string) (tree *parse.Tree, err error) {
 	tree.Root.Spec = treenode.CurrentSpec
 	updated := util.TimeFromID(id)
 	tree.Root.KramdownIAL = [][]string{{"id", id}, {"title", html.EscapeAttrVal(title)}, {"updated", updated}}
+	if isEmpty {
+		tree.Root.SetIALAttr(NodeAttrTitleEmpty, "true")
+	}
 	if nil == tree.Root.FirstChild {
 		tree.Root.AppendChild(treenode.NewParagraph(""))
 	}
@@ -1802,7 +1846,8 @@ func createDoc(boxID, p, title, dom string) (tree *parse.Tree, err error) {
 	return
 }
 
-func removeInvisibleCharsInTitle(title string) string {
+func normalizeDocTitle(title string) string {
+	title = strings.ReplaceAll(title, "/", "")
 	// 不要踢掉 零宽连字符，否则有的 Emoji 会变形 https://github.com/siyuan-note/siyuan/issues/11480
 	title = strings.ReplaceAll(title, string(gulu.ZWJ), "__@ZWJ@__")
 	title = util.RemoveInvalid(title)

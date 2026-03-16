@@ -3,13 +3,13 @@ import {fetchPost} from "../util/fetch";
 import {afterExport} from "../protyle/export/util";
 import {ipcRenderer} from "electron";
 import * as path from "path";
+import {exportLayout} from "../layout/util";
 /// #endif
 import {isBrowser} from "../util/functions";
 import {showMessage} from "../dialog/message";
 import {useShell} from "../util/pathName";
 import {Constants} from "../constants";
 import {openByMobile} from "../protyle/util/compatibility";
-import {exportLayout} from "../layout/util";
 import {exitSiYuan} from "../dialog/processSystem";
 
 export const exportConfig = {
@@ -165,7 +165,7 @@ export const exportConfig = {
     <span class="fn__space"></span>
     <button class="b3-button b3-button--outline fn__flex-center fn__size200" id="pandocBin"><svg><use xlink:href="#iconSettings"></use></svg>${window.siyuan.languages.config}</button>
 </div>
-<div class="b3-label config__item">
+<div class="b3-label config__item${isBrowser() ? " fn__none" : ""}">
     ${window.siyuan.languages.export25}
     <div class="b3-label__text">${window.siyuan.languages.export26}</div>
     <div class="fn__hr"></div>
@@ -277,10 +277,14 @@ export const exportConfig = {
                         }
 
                         showMessage(window.siyuan.languages.imported);
+                        /// #if MOBILE
+                        exitSiYuan();
+                        /// #else
                         exportLayout({
                             errorExit: true,
                             cb: exitSiYuan
                         });
+                        /// #endif
                     });
                 });
             } else {

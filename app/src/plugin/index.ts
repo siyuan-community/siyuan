@@ -18,6 +18,7 @@ import {clearOBG} from "../layout/dock/util";
 import {Constants} from "../constants";
 import {uninstall} from "./uninstall";
 import {afterLoadPlugin, loadPlugins} from "./loader";
+import {normalizeStoragePath} from "../util/pathName";
 
 export class Plugin {
     private app: App;
@@ -264,7 +265,7 @@ export class Plugin {
         }
         return new Promise((resolve) => {
             fetchPost("/api/file/getFile", {
-                path: `/data/storage/petal/${this.name}/${storageName.replace(/[\/\\]+/g, "")}`
+                path: `/data/storage/petal/${this.name}/${normalizeStoragePath(storageName)}`
             }, (response) => {
                 this.data[storageName] = response;
                 resolve(this.data[storageName]);
@@ -283,15 +284,16 @@ export class Plugin {
             });
         }
         return new Promise((resolve, reject) => {
-            const pathString = `/data/storage/petal/${this.name}/${storageName.replace(/[\/\\]+/g, "")}`;
+            const pathString = `/data/storage/petal/${this.name}/${normalizeStoragePath(storageName)}`;
             let file: File;
             try {
+                const fileName = pathString.split("/").pop();
                 if (typeof data === "object") {
                     file = new File([new Blob([JSON.stringify(data)], {
                         type: "application/json"
-                    })], pathString.split("/").pop());
+                    })], fileName);
                 } else {
-                    file = new File([new Blob([data])], pathString.split("/").pop());
+                    file = new File([new Blob([data])], fileName);
                 }
             } catch (e) {
                 reject({
@@ -320,12 +322,11 @@ export class Plugin {
                 data: null
             } as IWebSocketData);
         }
-
         return new Promise((resolve) => {
             if (!this.data) {
                 this.data = {};
             }
-            fetchPost("/api/file/removeFile", {path: `/data/storage/petal/${this.name}/${storageName.replace(/[\/\\]+/g, "")}`}, (response) => {
+            fetchPost("/api/file/removeFile", {path: `/data/storage/petal/${this.name}/${normalizeStoragePath(storageName)}`}, (response) => {
                 delete this.data[storageName];
                 resolve(response);
             });
@@ -425,7 +426,7 @@ export class Plugin {
                         getDockByType(type2).toggleModel(type2);
                     }
                 });
-                customObj.element.classList.add("sy__" + type2);
+                customObj.element.classList.add("sy__" + type2, "dockPanel");
                 return customObj;
             }
             /// #endif

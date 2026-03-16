@@ -6,7 +6,7 @@ import {initBlockPopover} from "../block/popover";
 import {addScript, addScriptSync} from "../protyle/util/addScript";
 import {genUUID} from "../util/genID";
 import {fetchGet, fetchPost} from "../util/fetch";
-import {addBaseURL, setNoteBook} from "../util/pathName";
+import {addBaseURL, redirectToCheckAuth, setNoteBook} from "../util/pathName";
 import {openFileById} from "../editor/util";
 import {
     processSync,
@@ -58,6 +58,9 @@ class App {
                     });
                     if (data) {
                         switch (data.cmd) {
+                            case "logoutAuth":
+                                redirectToCheckAuth();
+                                break;
                             case "setAppearance":
                                 updateAppearance(data.data);
                                 break;
@@ -177,7 +180,7 @@ class App {
                     fetchPost("/api/setting/getCloudUser", {}, userResponse => {
                         window.siyuan.user = userResponse.data;
                         init(this);
-                        setTitle(window.siyuan.languages.siyuanNote);
+                        setTitle("", true);
                         initMessage();
                     });
                 });

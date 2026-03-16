@@ -5,7 +5,7 @@ export const showTooltip = (
     target: Element,
     tooltipClass?: string,
     event?: MouseEvent,
-    space: number = 0.5
+    space: number = 0.5,
 ) => {
     if (isMobile() || !message) {
         return;
@@ -41,7 +41,6 @@ export const showTooltip = (
     messageElement.innerHTML = message;
     // 避免原本的 top 和 left 影响计算
     messageElement.removeAttribute("style");
-
     const position = target.getAttribute("data-position");
     const parentRect = target.parentElement.getBoundingClientRect();
 
@@ -77,6 +76,17 @@ export const showTooltip = (
         left = targetRect.left - messageElement.clientWidth - positionDiff;
         if (left < 0) {
             left = targetRect.right;
+        }
+    } else if (position?.endsWith("east")) {
+        // east: 布局菜单
+        const positionDiff = parseInt(position) || space;
+        top = Math.max(0, targetRect.top - (messageElement.clientHeight - targetRect.height) / 2);
+        if (top > window.innerHeight - messageElement.clientHeight) {
+            top = window.innerHeight - messageElement.clientHeight;
+        }
+        left = targetRect.right + positionDiff;
+        if (left + messageElement.clientWidth > window.innerWidth) {
+            left = targetRect.left - messageElement.clientWidth - positionDiff;
         }
     } else if (position?.endsWith("north")) {
         // north: av 视图，列，多选描述, protyle-icon

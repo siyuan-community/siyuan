@@ -6,7 +6,16 @@ import {getAllModels} from "../layout/getAll";
 import {exportLayout} from "../layout/util";
 /// #endif
 import {fetchPost} from "./fetch";
-import {isInAndroid, isInHarmony, isInIOS, isIPad, isIPhone, isMac, isWin11} from "../protyle/util/compatibility";
+import {
+    isInAndroid,
+    isInHarmony,
+    isInIOS,
+    isInMobileApp,
+    isIPad,
+    isIPhone,
+    isMac,
+    isWin11
+} from "../protyle/util/compatibility";
 import {setCodeTheme} from "../protyle/render/util";
 import {getBackend, getFrontend} from "./functions";
 
@@ -283,10 +292,8 @@ export const setInlineStyle = async (set = true, servePath = "../../../") => {
     if (window.siyuan.config.editor.rtl) {
         style += `\n.protyle-title__input,
 .protyle-wysiwyg .p,
-.protyle-wysiwyg .code-block .hljs,
-.protyle-wysiwyg .table,
+.protyle-wysiwyg .table table,
 .protyle-wysiwyg .render-node protyle-html,
-.protyle-wysiwyg .render-node > div[spin="1"],
 .protyle-wysiwyg [data-type="NodeHeading"] {direction: rtl}
 .protyle-wysiwyg [data-node-id].li > .protyle-action {
     right: 0;
@@ -363,7 +370,7 @@ const rgba2hex = (rgba: string) => {
 };
 
 const updateMobileTheme = (OSTheme: string) => {
-    if (isInIOS() || isInAndroid() || isInHarmony()) {
+    if (isInMobileApp()) {
         setTimeout(() => {
             const backgroundColor = rgba2hex(getComputedStyle(document.body).getPropertyValue("--b3-theme-background").trim());
             let mode = window.siyuan.config.appearance.mode;

@@ -17,87 +17,20 @@
 package bazaar
 
 import (
-	"bytes"
-	"context"
-	"errors"
-	"fmt"
+	"html"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/88250/gulu"
-	"github.com/88250/lute"
-	"github.com/araddon/dateparse"
-	"github.com/google/go-github/v53/github"
-	"github.com/imroc/req/v3"
-	gcache "github.com/patrickmn/go-cache"
-	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
-	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
-	"golang.org/x/mod/semver"
-	textUnicode "golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
+	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
-type DisplayName struct {
-	Default string `json:"default"`
-	ArSA    string `json:"ar_SA"`
-	DeDE    string `json:"de_DE"`
-	EnUS    string `json:"en_US"`
-	EsES    string `json:"es_ES"`
-	FrFR    string `json:"fr_FR"`
-	HeIL    string `json:"he_IL"`
-	ItIT    string `json:"it_IT"`
-	JaJP    string `json:"ja_JP"`
-	KoKR    string `json:"ko_KR"`
-	PlPL    string `json:"pl_PL"`
-	PtBR    string `json:"pt_BR"`
-	RuRU    string `json:"ru_RU"`
-	TrTR    string `json:"tr_TR"`
-	ZhCHT   string `json:"zh_CHT"`
-	ZhCN    string `json:"zh_CN"`
-}
-
-type Description struct {
-	Default string `json:"default"`
-	ArSA    string `json:"ar_SA"`
-	DeDE    string `json:"de_DE"`
-	EnUS    string `json:"en_US"`
-	EsES    string `json:"es_ES"`
-	FrFR    string `json:"fr_FR"`
-	HeIL    string `json:"he_IL"`
-	ItIT    string `json:"it_IT"`
-	JaJP    string `json:"ja_JP"`
-	KoKR    string `json:"ko_KR"`
-	PlPL    string `json:"pl_PL"`
-	PtBR    string `json:"pt_BR"`
-	RuRU    string `json:"ru_RU"`
-	TrTR    string `json:"tr_TR"`
-	ZhCHT   string `json:"zh_CHT"`
-	ZhCN    string `json:"zh_CN"`
-}
-
-type Readme struct {
-	Default string `json:"default"`
-	ArSA    string `json:"ar_SA"`
-	DeDE    string `json:"de_DE"`
-	EnUS    string `json:"en_US"`
-	EsES    string `json:"es_ES"`
-	FrFR    string `json:"fr_FR"`
-	HeIL    string `json:"he_IL"`
-	ItIT    string `json:"it_IT"`
-	JaJP    string `json:"ja_JP"`
-	KoKR    string `json:"ko_KR"`
-	PlPL    string `json:"pl_PL"`
-	PtBR    string `json:"pt_BR"`
-	RuRU    string `json:"ru_RU"`
-	TrTR    string `json:"tr_TR"`
-	ZhCHT   string `json:"zh_CHT"`
-	ZhCN    string `json:"zh_CN"`
-}
+// LocaleStrings 表示按语种 key 的字符串表，key 为语种如 "default"、"en_US"、"zh_CN" 等
+type LocaleStrings map[string]string
 
 type Funding struct {
 	OpenCollective string   `json:"openCollective"`
@@ -106,31 +39,32 @@ type Funding struct {
 	Custom         []string `json:"custom"`
 }
 
+// Package 描述了集市包元数据和传递给前端的其他信息。
+//   - 集市包新增元数据字段需要同步修改 bazaar 的工作流，参考 https://github.com/siyuan-note/bazaar/commit/aa36d0003139c52d8e767c6e18a635be006323e2
 type Package struct {
-	Author            string       `json:"author"`
-	URL               string       `json:"url"`
-	Version           string       `json:"version"`
-	MinAppVersion     string       `json:"minAppVersion"`
-	DisabledInPublish bool         `json:"disabledInPublish"`
-	Backends          []string     `json:"backends"`
-	Frontends         []string     `json:"frontends"`
-	DisplayName       *DisplayName `json:"displayName"`
-	Description       *Description `json:"description"`
-	Readme            *Readme      `json:"readme"`
-	Funding           *Funding     `json:"funding"`
-	Keywords          []string     `json:"keywords"`
+	Author            string        `json:"author"`
+	URL               string        `json:"url"`
+	Version           string        `json:"version"`
+	MinAppVersion     string        `json:"minAppVersion"`
+	DisabledInPublish bool          `json:"disabledInPublish"`
+	Backends          []string      `json:"backends"`
+	Frontends         []string      `json:"frontends"`
+	DisplayName       LocaleStrings `json:"displayName"`
+	Description       LocaleStrings `json:"description"`
+	Readme            LocaleStrings `json:"readme"`
+	Funding           *Funding      `json:"funding"`
+	Keywords          []string      `json:"keywords"`
 
 	PreferredFunding string `json:"preferredFunding"`
 	PreferredName    string `json:"preferredName"`
 	PreferredDesc    string `json:"preferredDesc"`
 	PreferredReadme  string `json:"preferredReadme"`
 
-	Name            string `json:"name"`
-	RepoURL         string `json:"repoURL"`
-	RepoHash        string `json:"repoHash"`
-	PreviewURL      string `json:"previewURL"`
-	PreviewURLThumb string `json:"previewURLThumb"`
-	IconURL         string `json:"iconURL"`
+	Name       string `json:"name"`    // 包名，不一定是仓库名
+	RepoURL    string `json:"repoURL"` // 形式为 https://github.com/owner/repo
+	RepoHash   string `json:"repoHash"`
+	PreviewURL string `json:"previewURL"`
+	IconURL    string `json:"iconURL"`
 
 	Installed               bool   `json:"installed"`
 	Outdated                bool   `json:"outdated"`
@@ -149,324 +83,96 @@ type Package struct {
 	DisallowUpdate          bool   `json:"disallowUpdate"`
 	UpdateRequiredMinAppVer string `json:"updateRequiredMinAppVer"`
 
-	Incompatible bool `json:"incompatible"`
-}
-
-type StagePackage struct {
-	Author      string       `json:"author"`
-	URL         string       `json:"url"`
-	Version     string       `json:"version"`
-	Description *Description `json:"description"`
-	Readme      *Readme      `json:"readme"`
-	I18N        []string     `json:"i18n"`
-	Funding     *Funding     `json:"funding"`
+	// 专用字段，nil 时不序列化
+	Incompatible *bool     `json:"incompatible,omitempty"` // Plugin：是否不兼容
+	Enabled      *bool     `json:"enabled,omitempty"`      // Plugin：是否启用
+	Modes        *[]string `json:"modes,omitempty"`        // Theme：支持的模式列表
 }
 
 type StageRepo struct {
-	URL         string `json:"url"`
+	URL         string `json:"url"` // owner/repo@hash 形式
 	Updated     string `json:"updated"`
 	Stars       int    `json:"stars"`
 	OpenIssues  int    `json:"openIssues"`
 	Size        int64  `json:"size"`
 	InstallSize int64  `json:"installSize"`
 
-	Package *StagePackage `json:"package"`
+	// Package 与 stage/*.json 内嵌的完整 package 一致，可直接用于构建列表
+	Package *Package `json:"package"`
 }
 
 type StageIndex struct {
 	Repos []*StageRepo `json:"repos"`
+
+	reposByURL map[string]*StageRepo // 不序列化，首次按 URL 查找时懒构建，随整份索引一起过期
+	reposOnce  sync.Once
 }
 
-var (
-	githubContext = context.Background()
-	githubClient  = github.NewClientWithEnvProxy()
-)
+// ParsePackageJSON 解析集市包 JSON 文件
+func ParsePackageJSON(filePath string) (ret *Package, err error) {
+	if !filelock.IsExist(filePath) {
+		err = os.ErrNotExist
+		return
+	}
+	data, err := filelock.ReadFile(filePath)
+	if err != nil {
+		logging.LogErrorf("read [%s] failed: %s", filePath, err)
+		return
+	}
+	if err = gulu.JSON.UnmarshalJSON(data, &ret); err != nil {
+		logging.LogErrorf("parse [%s] failed: %s", filePath, err)
+		return
+	}
 
-func InitGitHubClient(token string) {
-	if token == "" {
-		githubClient = github.NewClientWithEnvProxy()
-	} else {
-		githubClient = github.NewTokenClient(nil, token)
+	// 仅对本地集市包做 HTML 转义，在线 stage 由 bazaar 工作流处理
+	sanitizePackageDisplayStrings(ret)
+	ret.URL = strings.TrimSuffix(ret.URL, "/")
+	return
+}
+
+// sanitizePackageDisplayStrings 对集市包直接显示的信息做 HTML 转义，避免 XSS。
+func sanitizePackageDisplayStrings(pkg *Package) {
+	if pkg == nil {
+		return
+	}
+	for k, v := range pkg.DisplayName {
+		pkg.DisplayName[k] = html.EscapeString(v)
+	}
+	for k, v := range pkg.Description {
+		pkg.Description[k] = html.EscapeString(v)
 	}
 }
 
-func getPreferredReadme(readme *Readme) string {
-	if nil == readme {
-		return "README.md"
+// GetPreferredLocaleString 从 LocaleStrings 中按当前语种取值，无则回退 default、en_US，再回退 fallback。
+func GetPreferredLocaleString(m LocaleStrings, fallback string) string {
+	if len(m) == 0 {
+		return fallback
 	}
-
-	var ret string
-	switch util.Lang {
-	case "ar_SA":
-		if "" != readme.ArSA {
-			ret = readme.ArSA
-		}
-	case "de_DE":
-		if "" != readme.DeDE {
-			ret = readme.DeDE
-		}
-	case "en_US":
-		if "" != readme.EnUS {
-			ret = readme.EnUS
-		}
-	case "es_ES":
-		if "" != readme.EsES {
-			ret = readme.EsES
-		}
-	case "fr_FR":
-		if "" != readme.FrFR {
-			ret = readme.FrFR
-		}
-	case "he_IL":
-		if "" != readme.HeIL {
-			ret = readme.HeIL
-		}
-	case "it_IT":
-		if "" != readme.ItIT {
-			ret = readme.ItIT
-		}
-	case "ja_JP":
-		if "" != readme.JaJP {
-			ret = readme.JaJP
-		}
-	case "ko_KR":
-		if "" != readme.KoKR {
-			ret = readme.KoKR
-		}
-	case "pl_PL":
-		if "" != readme.PlPL {
-			ret = readme.PlPL
-		}
-	case "pt_BR":
-		if "" != readme.PtBR {
-			ret = readme.PtBR
-		}
-	case "ru_RU":
-		if "" != readme.RuRU {
-			ret = readme.RuRU
-		}
-	case "tr_TR":
-		if "" != readme.TrTR {
-			ret = readme.TrTR
-		}
-	case "zh_CHT":
-		if "" != readme.ZhCHT {
-			ret = readme.ZhCHT
-		}
-	case "zh_CN":
-		if "" != readme.ZhCN {
-			ret = readme.ZhCN
-		}
+	if v := strings.TrimSpace(m[util.Lang]); "" != v {
+		return v
 	}
-	if "" != strings.TrimSpace(ret) {
-		return ret
+	if v := strings.TrimSpace(m["default"]); "" != v {
+		return v
 	}
-
-	defaultReadme := strings.TrimSpace(readme.Default)
-	if "" != defaultReadme {
-		return defaultReadme
+	if v := strings.TrimSpace(m["en_US"]); "" != v {
+		return v
 	}
-
-	enUSReadme := strings.TrimSpace(readme.EnUS)
-	if "" != enUSReadme {
-		return enUSReadme
-	}
-
-	return "README.md"
+	return fallback
 }
 
-func GetPreferredName(pkg *Package) string {
-	if nil == pkg.DisplayName {
-		return pkg.Name
-	}
-
-	var ret string
-	switch util.Lang {
-	case "ar_SA":
-		if "" != pkg.DisplayName.ArSA {
-			ret = pkg.DisplayName.ArSA
-		}
-	case "de_DE":
-		if "" != pkg.DisplayName.DeDE {
-			ret = pkg.DisplayName.DeDE
-		}
-	case "en_US":
-		if "" != pkg.DisplayName.EnUS {
-			ret = pkg.DisplayName.EnUS
-		}
-	case "es_ES":
-		if "" != pkg.DisplayName.EsES {
-			ret = pkg.DisplayName.EsES
-		}
-	case "fr_FR":
-		if "" != pkg.DisplayName.FrFR {
-			ret = pkg.DisplayName.FrFR
-		}
-	case "he_IL":
-		if "" != pkg.DisplayName.HeIL {
-			ret = pkg.DisplayName.HeIL
-		}
-	case "it_IT":
-		if "" != pkg.DisplayName.ItIT {
-			ret = pkg.DisplayName.ItIT
-		}
-	case "ja_JP":
-		if "" != pkg.DisplayName.JaJP {
-			ret = pkg.DisplayName.JaJP
-		}
-	case "ko_KR":
-		if "" != pkg.DisplayName.KoKR {
-			ret = pkg.DisplayName.KoKR
-		}
-	case "pl_PL":
-		if "" != pkg.DisplayName.PlPL {
-			ret = pkg.DisplayName.PlPL
-		}
-	case "pt_BR":
-		if "" != pkg.DisplayName.PtBR {
-			ret = pkg.DisplayName.PtBR
-		}
-	case "ru_RU":
-		if "" != pkg.DisplayName.RuRU {
-			ret = pkg.DisplayName.RuRU
-		}
-	case "tr_TR":
-		if "" != pkg.DisplayName.TrTR {
-			ret = pkg.DisplayName.TrTR
-		}
-	case "zh_CHT":
-		if "" != pkg.DisplayName.ZhCHT {
-			ret = pkg.DisplayName.ZhCHT
-		}
-	case "zh_CN":
-		if "" != pkg.DisplayName.ZhCN {
-			ret = pkg.DisplayName.ZhCN
-		}
-	}
-	if "" != strings.TrimSpace(ret) {
-		return ret
-	}
-
-	defaultName := strings.TrimSpace(pkg.DisplayName.Default)
-	if "" != defaultName {
-		return defaultName
-	}
-
-	enUSName := strings.TrimSpace(pkg.DisplayName.EnUS)
-	if "" != enUSName {
-		return enUSName
-	}
-
-	return pkg.Name
-}
-
-func getPreferredDesc(desc *Description) string {
-	if nil == desc {
-		return ""
-	}
-
-	var ret string
-	switch util.Lang {
-	case "ar_SA":
-		if "" != desc.ArSA {
-			ret = desc.ArSA
-		}
-	case "de_DE":
-		if "" != desc.DeDE {
-			ret = desc.DeDE
-		}
-	case "en_US":
-		if "" != desc.EnUS {
-			ret = desc.EnUS
-		}
-	case "es_ES":
-		if "" != desc.EsES {
-			ret = desc.EsES
-		}
-	case "fr_FR":
-		if "" != desc.FrFR {
-			ret = desc.FrFR
-		}
-	case "he_IL":
-		if "" != desc.HeIL {
-			ret = desc.HeIL
-		}
-	case "it_IT":
-		if "" != desc.ItIT {
-			ret = desc.ItIT
-		}
-	case "ja_JP":
-		if "" != desc.JaJP {
-			ret = desc.JaJP
-		}
-	case "ko_KR":
-		if "" != desc.KoKR {
-			ret = desc.KoKR
-		}
-	case "pl_PL":
-		if "" != desc.PlPL {
-			ret = desc.PlPL
-		}
-	case "pt_BR":
-		if "" != desc.PtBR {
-			ret = desc.PtBR
-		}
-	case "ru_RU":
-		if "" != desc.RuRU {
-			ret = desc.RuRU
-		}
-	case "tr_TR":
-		if "" != desc.TrTR {
-			ret = desc.TrTR
-		}
-	case "zh_CHT":
-		if "" != desc.ZhCHT {
-			ret = desc.ZhCHT
-		}
-	case "zh_CN":
-		if "" != desc.ZhCN {
-			ret = desc.ZhCN
-		}
-	}
-	if "" != strings.TrimSpace(ret) {
-		return ret
-	}
-
-	defaultDesc := strings.TrimSpace(desc.Default)
-	if "" != defaultDesc {
-		return defaultDesc
-	}
-
-	enUSDesc := strings.TrimSpace(desc.EnUS)
-	if "" != enUSDesc {
-		return enUSDesc
-	}
-
-	return ""
-}
-
+// getPreferredFunding 获取包的首选赞助链接
 func getPreferredFunding(funding *Funding) string {
 	if nil == funding {
 		return ""
 	}
-
-	if "" != funding.OpenCollective {
-		if strings.HasPrefix(funding.OpenCollective, "http://") || strings.HasPrefix(funding.OpenCollective, "https://") {
-			return funding.OpenCollective
-		}
-		return "https://opencollective.com/" + funding.OpenCollective
+	if v := normalizeFundingURL(funding.OpenCollective, "https://opencollective.com/"); "" != v {
+		return v
 	}
-	if "" != funding.Patreon {
-		if strings.HasPrefix(funding.Patreon, "http://") || strings.HasPrefix(funding.Patreon, "https://") {
-			return funding.Patreon
-		}
-		return "https://www.patreon.com/" + funding.Patreon
+	if v := normalizeFundingURL(funding.Patreon, "https://www.patreon.com/"); "" != v {
+		return v
 	}
-	if "" != funding.GitHub {
-		if strings.HasPrefix(funding.GitHub, "http://") || strings.HasPrefix(funding.GitHub, "https://") {
-			return funding.GitHub
-		}
-		return "https://github.com/sponsors/" + funding.GitHub
+	if v := normalizeFundingURL(funding.GitHub, "https://github.com/sponsors/"); "" != v {
+		return v
 	}
 	if 0 < len(funding.Custom) {
 		return funding.Custom[0]
@@ -474,661 +180,82 @@ func getPreferredFunding(funding *Funding) string {
 	return ""
 }
 
-func PluginJSON(pluginDirName string) (ret *Plugin, err error) {
-	p := filepath.Join(util.DataDir, "plugins", pluginDirName, "plugin.json")
-	if !filelock.IsExist(p) {
-		err = os.ErrNotExist
-		return
+func normalizeFundingURL(s, base string) string {
+	if "" == s {
+		return ""
 	}
-	data, err := filelock.ReadFile(p)
-	if err != nil {
-		logging.LogErrorf("read plugin.json [%s] failed: %s", p, err)
-		return
+	if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") {
+		return s
 	}
-	if err = gulu.JSON.UnmarshalJSON(data, &ret); err != nil {
-		logging.LogErrorf("parse plugin.json [%s] failed: %s", p, err)
-		return
-	}
-
-	ret.URL = strings.TrimSuffix(ret.URL, "/")
-	return
+	return base + s
 }
 
-func WidgetJSON(widgetDirName string) (ret *Widget, err error) {
-	p := filepath.Join(util.DataDir, "widgets", widgetDirName, "widget.json")
-	if !filelock.IsExist(p) {
-		err = os.ErrNotExist
-		return
+// FilterPackages 按关键词过滤集市包列表
+func FilterPackages(packages []*Package, keyword string) []*Package {
+	keywords := getSearchKeywords(keyword)
+	if 0 == len(keywords) {
+		return packages
 	}
-	data, err := filelock.ReadFile(p)
-	if err != nil {
-		logging.LogErrorf("read widget.json [%s] failed: %s", p, err)
-		return
-	}
-	if err = gulu.JSON.UnmarshalJSON(data, &ret); err != nil {
-		logging.LogErrorf("parse widget.json [%s] failed: %s", p, err)
-		return
-	}
-
-	ret.URL = strings.TrimSuffix(ret.URL, "/")
-	return
-}
-
-func IconJSON(iconDirName string) (ret *Icon, err error) {
-	p := filepath.Join(util.IconsPath, iconDirName, "icon.json")
-	if !gulu.File.IsExist(p) {
-		err = os.ErrNotExist
-		return
-	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		logging.LogErrorf("read icon.json [%s] failed: %s", p, err)
-		return
-	}
-	if err = gulu.JSON.UnmarshalJSON(data, &ret); err != nil {
-		logging.LogErrorf("parse icon.json [%s] failed: %s", p, err)
-		return
-	}
-
-	ret.URL = strings.TrimSuffix(ret.URL, "/")
-	return
-}
-
-func TemplateJSON(templateDirName string) (ret *Template, err error) {
-	p := filepath.Join(util.DataDir, "templates", templateDirName, "template.json")
-	if !filelock.IsExist(p) {
-		err = os.ErrNotExist
-		return
-	}
-	data, err := filelock.ReadFile(p)
-	if err != nil {
-		logging.LogErrorf("read template.json [%s] failed: %s", p, err)
-		return
-	}
-	if err = gulu.JSON.UnmarshalJSON(data, &ret); err != nil {
-		logging.LogErrorf("parse template.json [%s] failed: %s", p, err)
-		return
-	}
-
-	ret.URL = strings.TrimSuffix(ret.URL, "/")
-	return
-}
-
-func ThemeJSON(themeDirName string) (ret *Theme, err error) {
-	p := filepath.Join(util.ThemesPath, themeDirName, "theme.json")
-	if !gulu.File.IsExist(p) {
-		err = os.ErrNotExist
-		return
-	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		logging.LogErrorf("read theme.json [%s] failed: %s", p, err)
-		return
-	}
-
-	ret = &Theme{}
-	if err = gulu.JSON.UnmarshalJSON(data, &ret); err != nil {
-		logging.LogErrorf("parse theme.json [%s] failed: %s", p, err)
-		return
-	}
-
-	ret.URL = strings.TrimSuffix(ret.URL, "/")
-	return
-}
-
-var cachedStageIndex = map[string]*StageIndex{}
-var stageIndexCacheTime int64
-var stageIndexLock = sync.Mutex{}
-
-func getStageIndex(pkgType string) (ret *StageIndex, err error) {
-	rhyRet, err := util.GetRhyResult(false)
-	if err != nil {
-		return
-	}
-
-	stageIndexLock.Lock()
-	defer stageIndexLock.Unlock()
-
-	now := time.Now().Unix()
-	if util.RhyCacheDuration >= now-stageIndexCacheTime && nil != cachedStageIndex[pkgType] {
-		ret = cachedStageIndex[pkgType]
-		return
-	}
-
-	bazaarHash := rhyRet["bazaar"].(string)
-	ret = &StageIndex{}
-	request := httpclient.NewBrowserRequest()
-
-	// u := util.BazaarOSSServer + "/bazaar@" + bazaarHash + "/stage/" + pkgType + ".json"
-	// u (official) : https://oss.b3logfile.com/bazaar@<git-commit-hash>/state/<package-type>.json
-
-	u := util.BazaarRepo + "/raw/" + bazaarHash + "/stage/" + pkgType + ".json"
-	// u (community): https://github.com/siyuan-note/bazaar/raw/<git-commit-hash>/stage/<package-type>.json
-	resp, reqErr := request.SetSuccessResult(ret).Get(u)
-	if nil != reqErr {
-		logging.LogErrorf("get community stage index [%s] failed: %s", u, reqErr)
-		return
-	}
-	if 200 != resp.StatusCode {
-		logging.LogErrorf("get community stage index [%s] failed: %d", u, resp.StatusCode)
-		return
-	}
-
-	stageIndexCacheTime = now
-	cachedStageIndex[pkgType] = ret
-	return
-}
-
-func isOutdatedTheme(theme *Theme, bazaarThemes []*Theme) bool {
-	if !strings.HasPrefix(theme.URL, "https://github.com/") {
-		return false
-	}
-
-	repo := strings.TrimPrefix(theme.URL, "https://github.com/")
-	parts := strings.Split(repo, "/")
-	if 2 != len(parts) || "" == strings.TrimSpace(parts[1]) {
-		return false
-	}
-
-	for _, pkg := range bazaarThemes {
-		if theme.URL == pkg.URL && theme.Name == pkg.Name && 0 > semver.Compare("v"+theme.Version, "v"+pkg.Version) {
-			theme.RepoHash = pkg.RepoHash
-			return true
+	ret := []*Package{}
+	for _, pkg := range packages {
+		if packageContainsKeywords(pkg, keywords) {
+			ret = append(ret, pkg)
 		}
 	}
-	return false
+	return ret
 }
 
-func isOutdatedIcon(icon *Icon, bazaarIcons []*Icon) bool {
-	if !strings.HasPrefix(icon.URL, "https://github.com/") {
-		return false
+func getSearchKeywords(query string) (ret []string) {
+	query = strings.TrimSpace(query)
+	if "" == query {
+		return
 	}
-
-	repo := strings.TrimPrefix(icon.URL, "https://github.com/")
-	parts := strings.Split(repo, "/")
-	if 2 != len(parts) || "" == strings.TrimSpace(parts[1]) {
-		return false
-	}
-
-	for _, pkg := range bazaarIcons {
-		if icon.URL == pkg.URL && icon.Name == pkg.Name && 0 > semver.Compare("v"+icon.Version, "v"+pkg.Version) {
-			icon.RepoHash = pkg.RepoHash
-			return true
+	keywords := strings.Split(query, " ")
+	for _, k := range keywords {
+		if "" != k {
+			ret = append(ret, strings.ToLower(k))
 		}
-	}
-	return false
-}
-
-func isOutdatedPlugin(plugin *Plugin, bazaarPlugins []*Plugin) bool {
-	if !strings.HasPrefix(plugin.URL, "https://github.com/") {
-		return false
-	}
-
-	repo := strings.TrimPrefix(plugin.URL, "https://github.com/")
-	parts := strings.Split(repo, "/")
-	if 2 != len(parts) || "" == strings.TrimSpace(parts[1]) {
-		return false
-	}
-
-	for _, pkg := range bazaarPlugins {
-		if plugin.URL == pkg.URL && plugin.Name == pkg.Name && 0 > semver.Compare("v"+plugin.Version, "v"+pkg.Version) {
-			plugin.RepoHash = pkg.RepoHash
-			return true
-		}
-	}
-	return false
-}
-
-func isOutdatedWidget(widget *Widget, bazaarWidgets []*Widget) bool {
-	if !strings.HasPrefix(widget.URL, "https://github.com/") {
-		return false
-	}
-
-	repo := strings.TrimPrefix(widget.URL, "https://github.com/")
-	parts := strings.Split(repo, "/")
-	if 2 != len(parts) || "" == strings.TrimSpace(parts[1]) {
-		return false
-	}
-
-	for _, pkg := range bazaarWidgets {
-		if widget.URL == pkg.URL && widget.Name == pkg.Name && 0 > semver.Compare("v"+widget.Version, "v"+pkg.Version) {
-			widget.RepoHash = pkg.RepoHash
-			return true
-		}
-	}
-	return false
-}
-
-func isOutdatedTemplate(template *Template, bazaarTemplates []*Template) bool {
-	if !strings.HasPrefix(template.URL, "https://github.com/") {
-		return false
-	}
-
-	repo := strings.TrimPrefix(template.URL, "https://github.com/")
-	parts := strings.Split(repo, "/")
-	if 2 != len(parts) || "" == strings.TrimSpace(parts[1]) {
-		return false
-	}
-
-	for _, pkg := range bazaarTemplates {
-		if template.URL == pkg.URL && template.Name == pkg.Name && 0 > semver.Compare("v"+template.Version, "v"+pkg.Version) {
-			template.RepoHash = pkg.RepoHash
-			return true
-		}
-	}
-	return false
-}
-
-func isBazzarOnline() (ret bool) {
-	// Improve marketplace loading when offline https://github.com/siyuan-note/siyuan/issues/12050
-	ret = util.IsOnline(util.BazaarOSSServer, true, 3000)
-	if !ret {
-		util.PushErrMsg(util.Langs[util.Lang][24], 5000)
 	}
 	return
 }
 
-func GetPackageREADME(repoURL, repoHash, packageType string) (ret string) {
-	repoURLHash := repoURL + "@" + repoHash
-	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
-	// repoURLHash: https://github.com/<urername>/<reponame>@<git-commit-hash>
-
-	stageIndex := cachedStageIndex[packageType]
-	if nil == stageIndex {
-		return
+func packageContainsKeywords(pkg *Package, keywords []string) bool {
+	if 0 == len(keywords) {
+		return true
 	}
-
-	url := strings.TrimPrefix(repoURLHash, "https://github.com/")
-	// url: <urername>/<reponame>@<git-commit-hash>
-
-	var repo *StageRepo
-	for _, r := range stageIndex.Repos {
-		if r.URL == url {
-			repo = r
-			break
-		}
+	if nil == pkg {
+		return false
 	}
-	if nil == repo {
-		return
-	}
-
-	readme := getPreferredReadme(repo.Package.Readme)
-
-	data, err := downloadPackage(repoURLHash+"/"+readme, false, "")
-	if err != nil {
-		ret = fmt.Sprintf("Load bazaar package's preferred README(%s) failed: %s", readme, err.Error())
-		// 回退到 Default README
-		var defaultReadme string
-		if nil != repo.Package.Readme {
-			defaultReadme = repo.Package.Readme.Default
-		}
-		if "" == strings.TrimSpace(defaultReadme) {
-			defaultReadme = "README.md"
-		}
-		if readme != defaultReadme {
-			data, err = downloadPackage(repoURLHash+"/"+defaultReadme, false, "")
-			if err != nil {
-				ret += fmt.Sprintf("<br>Load bazaar package's default README(%s) failed: %s", defaultReadme, err.Error())
-			}
-		}
-		// 回退到 README.md
-		if err != nil && readme != "README.md" && defaultReadme != "README.md" {
-			data, err = downloadPackage(repoURLHash+"/README.md", false, "")
-			if err != nil {
-				ret += fmt.Sprintf("<br>Load bazaar package's README.md failed: %s", err.Error())
-				return
-			}
-		} else if err != nil {
-			return
-		}
-	}
-
-	if 2 < len(data) {
-		if 255 == data[0] && 254 == data[1] {
-			data, _, err = transform.Bytes(textUnicode.UTF16(textUnicode.LittleEndian, textUnicode.ExpectBOM).NewDecoder(), data)
-		} else if 254 == data[0] && 255 == data[1] {
-			data, _, err = transform.Bytes(textUnicode.UTF16(textUnicode.BigEndian, textUnicode.ExpectBOM).NewDecoder(), data)
-		}
-	}
-
-	ret, err = renderREADME(repoURL, data)
-	return
-}
-
-func loadInstalledReadme(installPath, basePath string, readme *Readme) (ret string) {
-	readmeFilename := getPreferredReadme(readme)
-	readmeData, readErr := os.ReadFile(filepath.Join(installPath, readmeFilename))
-	if nil == readErr {
-		ret, _ = renderLocalREADME(basePath, readmeData)
-		return
-	}
-
-	logging.LogWarnf("read installed %s failed: %s", readmeFilename, readErr)
-	ret = fmt.Sprintf("File %s not found", readmeFilename)
-	// 回退到 Default README
-	var defaultReadme string
-	if nil != readme {
-		defaultReadme = strings.TrimSpace(readme.Default)
-	}
-	if "" == defaultReadme {
-		defaultReadme = "README.md"
-	}
-	if readmeFilename != defaultReadme {
-		readmeData, readErr = os.ReadFile(filepath.Join(installPath, defaultReadme))
-		if nil == readErr {
-			ret, _ = renderLocalREADME(basePath, readmeData)
-			return
-		}
-		logging.LogWarnf("read installed %s failed: %s", defaultReadme, readErr)
-		ret += fmt.Sprintf("<br>File %s not found", defaultReadme)
-	}
-	// 回退到 README.md
-	if nil != readErr && readmeFilename != "README.md" && defaultReadme != "README.md" {
-		readmeData, readErr = os.ReadFile(filepath.Join(installPath, "README.md"))
-		if nil == readErr {
-			ret, _ = renderLocalREADME(basePath, readmeData)
-			return
-		}
-		logging.LogWarnf("read installed README.md failed: %s", readErr)
-		ret += "<br>File README.md not found"
-	}
-	return
-}
-
-func renderREADME(repoURL string, mdData []byte) (ret string, err error) {
-	luteEngine := lute.New()
-	luteEngine.SetSoftBreak2HardBreak(false)
-	luteEngine.SetCodeSyntaxHighlight(false)
-	linkBase := "https://cdn.jsdelivr.net/gh/" + strings.TrimPrefix(repoURL, "https://github.com/")
-	luteEngine.SetLinkBase(linkBase)
-	ret = luteEngine.Md2HTML(string(mdData))
-	ret = util.LinkTarget(ret, linkBase)
-	return
-}
-
-func parseRepoInfo(repoURLHash string) (
-	owner string,
-	repo string,
-	hash string,
-	err error,
-) {
-	// 获取仓库信息
-	info := strings.FieldsFunc(repoURLHash, func(r rune) bool {
-		if r == '/' || r == '@' {
-			return true
-		} else {
+	for _, kw := range keywords {
+		if !packageContainsKeyword(pkg, kw) {
 			return false
 		}
-	})
-	if len(info) < 3 {
-		err = errors.New("parse repository information failed: " + repoURLHash)
-	} else {
-		owner = info[0] // 仓库所有者
-		repo = info[1]  // 仓库名称
-		hash = info[2]  // commit hash
 	}
-	return
+	return true
 }
 
-func getPackageDownloadURL(owner, repo, hash string) (url string, err error) {
-	// 获取标签名称
-	page := 1
-	for {
-		// 获取标签列表
-		// REF: https://docs.github.com/en/rest/repos/repos?apiVersion=2022-11-28#list-repository-tags
-		// REF: https://pkg.go.dev/github.com/google/go-github/v53@v53.2.0/github#RepositoriesService.ListTags
-		tags, _, innerErr := githubClient.Repositories.ListTags(
-			githubContext,
-			owner,
-			repo,
-			&github.ListOptions{
-				Page:    page,
-				PerPage: 32,
-			},
-		)
-		if nil != innerErr {
-			err = innerErr
-			return
-		}
-		if len(tags) > 0 {
-			// 获取 hash 匹配的标签
-			for _, tag := range tags {
-				if tag.GetCommit().GetSHA() == hash {
-					var builder strings.Builder
-					builder.WriteString("https://github.com/")
-					builder.WriteString(owner)
-					builder.WriteString("/")
-					builder.WriteString(repo)
-					builder.WriteString("/releases/download/")
-					builder.WriteString(tag.GetName())
-					builder.WriteString("/package.zip")
-					url = builder.String()
-					return
-				}
-			}
-			page++
-		} else {
-			err = errors.New("get bazaar package failed, please check package's repository")
-			return
+func packageContainsKeyword(pkg *Package, kw string) bool {
+	if strings.Contains(strings.ToLower(pkg.Name), kw) || // https://github.com/siyuan-note/siyuan/issues/10515
+		strings.Contains(strings.ToLower(pkg.Author), kw) { // https://github.com/siyuan-note/siyuan/issues/11673
+		return true
+	}
+	for _, s := range pkg.DisplayName {
+		if strings.Contains(strings.ToLower(s), kw) {
+			return true
 		}
 	}
-}
-
-func renderLocalREADME(basePath string, mdData []byte) (ret string, err error) {
-	luteEngine := lute.New()
-	luteEngine.SetSoftBreak2HardBreak(false)
-	luteEngine.SetCodeSyntaxHighlight(false)
-	linkBase := basePath
-	luteEngine.SetLinkBase(linkBase)
-	ret = luteEngine.Md2HTML(string(mdData))
-	ret = util.LinkTarget(ret, linkBase)
-	return
-}
-
-var (
-	packageLocks     = map[string]*sync.Mutex{}
-	packageLocksLock = sync.Mutex{}
-)
-
-func downloadPackage(repoURLHash string, pushProgress bool, systemID string) (data []byte, err error) {
-	packageLocksLock.Lock()
-	defer packageLocksLock.Unlock()
-
-	// repoURLHash: https://github.com/88250/Comfortably-Numb@6286912c381ef3f83e455d06ba4d369c498238dc
-	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
-	// repoURLHash: <urername>/<reponame>@<git-commit-hash>/README.md
-
-	lock, ok := packageLocks[repoURLHash]
-	if !ok {
-		lock = &sync.Mutex{}
-		packageLocks[repoURLHash] = lock
-	}
-	lock.Lock()
-	defer lock.Unlock()
-
-	repoURLHash = strings.TrimPrefix(repoURLHash, "https://github.com/")
-	// repoURLHash: <urername>/<reponame>@<git-commit-hash>
-	// repoURLHash: <urername>/<reponame>@<git-commit-hash>/README.md
-
-	// u := util.BazaarOSSServer + "/package/" + repoURLHash
-	// u (official)  : https://oss.b3logfile.com/<urername>/<reponame>@<git-commit-hash>
-	// u (official)  : https://oss.b3logfile.com/<urername>/<reponame>@<git-commit-hash>/README.md
-
-	// TODO: 判断是包还是自述文件
-	owner, repo, hash, err := parseRepoInfo(repoURLHash)
-	if nil != err {
-		return
-	}
-	repoURL := owner + "/" + repo + "@" + hash
-	var u string
-	path := strings.TrimPrefix(repoURLHash, repoURL)
-	if path != "" { // 其他资源文件
-		u = "https://github.com/" + owner + "/" + repo + "/raw/" + hash + path
-		// u (community) : https://github.com/<urername>/<reponame>/raw/<git-commit-hash>/README.md
-	} else { // package.zip 文件
-		u, err = getPackageDownloadURL(owner, repo, hash)
-		// u (community) : https://github.com/<urername>/<reponame>/releases/download/<tag>/package.zip
-
-		if nil != err {
-			logging.LogErrorf(err.Error())
-			return nil, err
+	for _, s := range pkg.Description {
+		if strings.Contains(strings.ToLower(s), kw) {
+			return true
 		}
 	}
-
-	buf := &bytes.Buffer{}
-	resp, err := httpclient.NewCloudFileRequest2m().SetOutput(buf).SetDownloadCallback(func(info req.DownloadInfo) {
-		if pushProgress {
-			progress := float32(info.DownloadedSize) / float32(info.Response.ContentLength)
-			//logging.LogDebugf("downloading bazaar package [%f]", progress)
-			util.PushDownloadProgress(repoURL, progress)
-		}
-	}).Get(u)
-	if err != nil {
-		logging.LogErrorf("get bazaar package [%s] failed: %s", u, err)
-		return nil, errors.New("get bazaar package failed, please check your network")
-	}
-	if 200 != resp.StatusCode {
-		logging.LogErrorf("get bazaar package [%s] failed: %d", u, resp.StatusCode)
-		return nil, errors.New("get bazaar package failed: " + resp.Status)
-	}
-	data = buf.Bytes()
-
-	go incPackageDownloads(repoURLHash, systemID)
-	return
-}
-
-func incPackageDownloads(repoURLHash, systemID string) {
-	if strings.Contains(repoURLHash, ".md") || "" == systemID {
-		return
-	}
-
-	repo := strings.Split(repoURLHash, "@")[0]
-	u := util.GetCloudServer() + "/apis/siyuan/bazaar/addBazaarPackageDownloadCount"
-	httpclient.NewCloudRequest30s().SetBody(
-		map[string]interface{}{
-			"systemID": systemID,
-			"repo":     repo,
-		}).Post(u)
-}
-
-func uninstallPackage(installPath string) (err error) {
-	if err = os.RemoveAll(installPath); err != nil {
-		logging.LogErrorf("remove [%s] failed: %s", installPath, err)
-		return fmt.Errorf("remove community package [%s] failed", filepath.Base(installPath))
-	}
-	packageCache.Flush()
-	return
-}
-
-func installPackage(data []byte, installPath, repoURLHash string) (err error) {
-	err = installPackage0(data, installPath)
-	if err != nil {
-		return
-	}
-
-	packageCache.Delete(strings.TrimPrefix(repoURLHash, "https://github.com/"))
-	return
-}
-
-func installPackage0(data []byte, installPath string) (err error) {
-	tmpPackage := filepath.Join(util.TempDir, "bazaar", "package")
-	if err = os.MkdirAll(tmpPackage, 0755); err != nil {
-		return
-	}
-	name := gulu.Rand.String(7)
-	tmp := filepath.Join(tmpPackage, name+".zip")
-	if err = os.WriteFile(tmp, data, 0644); err != nil {
-		return
-	}
-
-	unzipPath := filepath.Join(tmpPackage, name)
-	if err = gulu.Zip.Unzip(tmp, unzipPath); err != nil {
-		logging.LogErrorf("write file [%s] failed: %s", installPath, err)
-		return
-	}
-
-	dirs, err := os.ReadDir(unzipPath)
-	if err != nil {
-		return
-	}
-
-	srcPath := unzipPath
-	if 1 == len(dirs) && dirs[0].IsDir() {
-		srcPath = filepath.Join(unzipPath, dirs[0].Name())
-	}
-
-	if err = filelock.Copy(srcPath, installPath); err != nil {
-		return
-	}
-	return
-}
-
-func formatUpdated(updated string) (ret string) {
-	t, e := dateparse.ParseIn(updated, time.Now().Location())
-	if nil == e {
-		ret = t.Format("2006-01-02")
-	} else {
-		if strings.Contains(updated, "T") {
-			ret = updated[:strings.Index(updated, "T")]
-		} else {
-			ret = strings.ReplaceAll(strings.ReplaceAll(updated, "T", ""), "Z", "")
+	for _, s := range pkg.Keywords {
+		if strings.Contains(strings.ToLower(s), kw) {
+			return true
 		}
 	}
-	return
-}
-
-type bazaarPackage struct {
-	Name      string `json:"name"`
-	Downloads int    `json:"downloads"`
-}
-
-var cachedBazaarIndex = map[string]*bazaarPackage{}
-var bazaarIndexCacheTime int64
-var bazaarIndexLock = sync.Mutex{}
-
-func getBazaarIndex() map[string]*bazaarPackage {
-	bazaarIndexLock.Lock()
-	defer bazaarIndexLock.Unlock()
-
-	now := time.Now().Unix()
-	if 3600 >= now-bazaarIndexCacheTime {
-		return cachedBazaarIndex
-	}
-
-	request := httpclient.NewBrowserRequest()
-	u := util.BazaarStatServer + "/bazaar/index.json"
-	resp, reqErr := request.SetSuccessResult(&cachedBazaarIndex).Get(u)
-	if nil != reqErr {
-		logging.LogErrorf("get bazaar index [%s] failed: %s", u, reqErr)
-		return cachedBazaarIndex
-	}
-	if 200 != resp.StatusCode {
-		logging.LogErrorf("get bazaar index [%s] failed: %d", u, resp.StatusCode)
-		return cachedBazaarIndex
-	}
-	bazaarIndexCacheTime = now
-	return cachedBazaarIndex
-}
-
-// defaultMinAppVersion 如果集市包中缺失 minAppVersion 项，则使用该值作为最低支持的版本号，小于该版本号时不显示集市包
-// Add marketplace package config item `minAppVersion` https://github.com/siyuan-note/siyuan/issues/8330
-const defaultMinAppVersion = "2.9.0"
-
-func disallowInstallBazaarPackage(pkg *Package) bool {
-	if "" == pkg.MinAppVersion {
-		pkg.MinAppVersion = defaultMinAppVersion
-	}
-
-	if 0 < semver.Compare("v"+pkg.MinAppVersion, "v"+util.Ver) {
+	if strings.Contains(strings.ToLower(path.Base(pkg.RepoURL)), kw) { // 仓库名，不一定是包名
 		return true
 	}
 	return false
 }
-
-var packageCache = gcache.New(6*time.Hour, 30*time.Minute) // [repoURL]*Package
-
-func CleanBazaarPackageCache() {
-	packageCache.Flush()
-}
-
-var packageInstallSizeCache = gcache.New(48*time.Hour, 6*time.Hour) // [repoURL]*int64

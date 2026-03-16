@@ -52,7 +52,7 @@ export class Inbox extends Model {
 <div class="fn__flex-1 fn__none inboxDetails fn__flex-column" style="min-height: auto;background-color: var(--b3-theme-background)"></div>
 <div class="fn__flex-1"></div>`;
         /// #else
-        this.element.classList.add("fn__flex-column", "file-tree", "sy__inbox");
+        this.element.classList.add("fn__flex-column", "file-tree", "sy__inbox", "dockPanel");
         this.element.innerHTML = `<div class="block__icons">
     <div class="block__logo">
         <svg class="block__logoicon"><use xlink:href="#iconInbox"></use></svg>${window.siyuan.languages.inbox}&nbsp;

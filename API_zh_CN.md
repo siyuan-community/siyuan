@@ -1090,6 +1090,8 @@
     ]
   }
   ```
+  
+注意：发布模式下除非公开所有文档读写权限，否则会禁止访问该接口，请参考[讨论](https://github.com/siyuan-note/siyuan/pull/16041#issuecomment-3912139575)。
 
 ### 提交事务
 

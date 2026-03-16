@@ -2,11 +2,12 @@ import {focusByRange} from "./selection";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {Constants} from "../../constants";
 /// #if !BROWSER
-import {clipboard, ipcRenderer} from "electron";
+import {ipcRenderer} from "electron";
 /// #endif
 /// #if MOBILE
 import {processSYLink} from "../../editor/openLink";
 /// #endif
+import {getDefaultType} from "../../search/getDefault";
 
 export const isPhablet = () => {
     return /Android|webOS|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent) || isIPhone() || isIPad();
@@ -132,12 +133,17 @@ export const getLocalFiles = async () => {
     // 不再支持 PC 浏览器 https://github.com/siyuan-note/siyuan/issues/7206
     let localFiles: ILocalFiles[] = [];
     if ("darwin" === window.siyuan.config.system.os) {
-        const xmlString = clipboard.read("NSFilenamesPboardType");
-        const domParser = new DOMParser();
-        const xmlDom = domParser.parseFromString(xmlString, "application/xml");
-        Array.from(xmlDom.getElementsByTagName("string")).forEach(item => {
-            localFiles.push({path: item.childNodes[0].nodeValue, size: null});
+        const xmlString = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
+            cmd: "clipboardRead",
+            format: "NSFilenamesPboardType",
         });
+        if (xmlString) {
+            const domParser = new DOMParser();
+            const xmlDom = domParser.parseFromString(xmlString, "application/xml");
+            Array.from(xmlDom.getElementsByTagName("string")).forEach(item => {
+                localFiles.push({path: item.childNodes[0].nodeValue, size: null});
+            });
+        }
     } else {
         const xmlString = await fetchSyncPost("/api/clipboard/readFilePaths", {});
         if (xmlString.data.length > 0) {
@@ -156,6 +162,9 @@ export const readClipboard = async () => {
         const textObj = getTextSiyuanFromTextHTML(text.textHTML);
         text.textHTML = textObj.textHtml;
         text.siyuanHTML = textObj.textSiyuan;
+        if (!text.siyuanHTML) {
+            text.siyuanHTML = window.JSAndroid.readSiYuanHTMLClipboard();
+        }
         return text;
     }
     if (isInHarmony()) {
@@ -164,6 +173,9 @@ export const readClipboard = async () => {
         const textObj = getTextSiyuanFromTextHTML(text.textHTML);
         text.textHTML = textObj.textHtml;
         text.siyuanHTML = textObj.textSiyuan;
+        if (!text.siyuanHTML) {
+            text.siyuanHTML = window.JSHarmony.readSiYuanHTMLClipboard();
+        }
         return text;
     }
     if (typeof navigator.clipboard === "undefined") {
@@ -347,9 +359,42 @@ export const isLocalhost = () => {
     return window.location.hostname === "127.0.0.1";
 };
 
+export const isInMobileApp = () => {
+    if (isInAndroid() || isInHarmony() || isInIOS()) {
+        return true;
+    }
+    return false;
+};
+
 export const isInHarmony = () => {
     return window.siyuan.config.system.container === "harmony" && window.JSHarmony;
 };
+
+export const isInEdge = () => {
+    const ua = navigator.userAgent;
+    return ua.indexOf("EdgA/") > -1 || ua.indexOf("Edge/") > -1;
+};
+
+export function isChromeBrowser(): boolean {
+    const nav = window.navigator as Navigator & {
+        userAgentData: {
+            brands: {
+                brand: string;
+                version: string;
+            }[]
+        }
+    };
+    if (nav.userAgentData && Array.isArray(nav.userAgentData.brands)) {
+        return nav.userAgentData.brands.some((b: any) => /Chrome|Chromium/i.test(b.brand));
+    }
+    // 回退到 userAgent
+    const ua = nav.userAgent || "";
+    const isChromium = /\bChrome\/\d+/i.test(ua) || /\bChromium\/\d+/i.test(ua);
+    const isEdge = /\bEdg(e|A|iOS)?\/\d+/i.test(ua); // Edge Chromium
+    const isOpera = /\b(OPR|Opera)\/\d+/i.test(ua);
+
+    return isChromium && !isEdge && !isOpera;
+}
 
 export const updateHotkeyAfterTip = (hotkey: string, split = " ") => {
     if (hotkey) {
@@ -471,6 +516,7 @@ export const getLocalStorage = (cb: () => void) => {
             currentTab: "emoji"
         };
         defaultStorage[Constants.LOCAL_FONTSTYLES] = [];
+        defaultStorage[Constants.LOCAL_CLOSED_TABS] = [];
         defaultStorage[Constants.LOCAL_FILESPATHS] = [];    // IFilesPath[]
         defaultStorage[Constants.LOCAL_SEARCHDATA] = {
             removed: true,
@@ -483,21 +529,7 @@ export const getLocalStorage = (cb: () => void) => {
             idPath: [],
             k: "",
             r: "",
-            types: {
-                document: window.siyuan.config.search.document,
-                heading: window.siyuan.config.search.heading,
-                list: window.siyuan.config.search.list,
-                listItem: window.siyuan.config.search.listItem,
-                codeBlock: window.siyuan.config.search.codeBlock,
-                htmlBlock: window.siyuan.config.search.htmlBlock,
-                mathBlock: window.siyuan.config.search.mathBlock,
-                table: window.siyuan.config.search.table,
-                blockquote: window.siyuan.config.search.blockquote,
-                superBlock: window.siyuan.config.search.superBlock,
-                paragraph: window.siyuan.config.search.paragraph,
-                embedBlock: window.siyuan.config.search.embedBlock,
-                databaseBlock: window.siyuan.config.search.databaseBlock,
-            },
+            types: getDefaultType(),
             replaceTypes: Object.assign({}, Constants.SIYUAN_DEFAULT_REPLACETYPES),
         };
         defaultStorage[Constants.LOCAL_ZOOM] = 1;
@@ -510,7 +542,8 @@ export const getLocalStorage = (cb: () => void) => {
             Constants.LOCAL_PLUGINTOPUNPIN, Constants.LOCAL_SEARCHASSET, Constants.LOCAL_FLASHCARD,
             Constants.LOCAL_DIALOGPOSITION, Constants.LOCAL_SEARCHUNREF, Constants.LOCAL_HISTORY,
             Constants.LOCAL_OUTLINE, Constants.LOCAL_FILEPOSITION, Constants.LOCAL_FILESPATHS, Constants.LOCAL_IMAGES,
-            Constants.LOCAL_PLUGIN_DOCKS, Constants.LOCAL_EMOJIS, Constants.LOCAL_MOVE_PATH, Constants.LOCAL_RECENT_DOCS].forEach((key) => {
+            Constants.LOCAL_PLUGIN_DOCKS, Constants.LOCAL_EMOJIS, Constants.LOCAL_MOVE_PATH, Constants.LOCAL_RECENT_DOCS,
+            Constants.LOCAL_CLOSED_TABS].forEach((key) => {
             if (typeof response.data[key] === "string") {
                 try {
                     const parseData = JSON.parse(response.data[key]);
@@ -552,35 +585,37 @@ export const setStorageVal = (key: string, val: any, cb?: () => void) => {
 };
 
 /// #if !BROWSER
-export const initFocusFix = () => {
-    if (!isWindows()) {
-        return;
-    }
+export const initNativeDialogOverride = () => {
     const originalAlert = window.alert;
     const originalConfirm = window.confirm;
-    const fixFocusAfterDialog = () => {
-        ipcRenderer.send("siyuan-focus-fix");
-    };
+
     window.alert = function (message: string) {
         try {
-            const result = originalAlert.call(this, message);
-            fixFocusAfterDialog();
-            return result;
-        } catch (error) {
-            console.error("alert error:", error);
-            fixFocusAfterDialog();
+            ipcRenderer.sendSync(Constants.SIYUAN_ALERT_DIALOG, {
+                title: window.siyuan.languages.siyuanNote,
+                message,
+                buttons: [window.siyuan.languages.confirm],
+                noLink: true,
+            });
             return undefined;
+        } catch (error) {
+            return originalAlert.call(this, message);
         }
     };
-    window.confirm = function (message: string) {
+
+    window.confirm = function (message: string): boolean {
         try {
-            const result = originalConfirm.call(this, message);
-            fixFocusAfterDialog();
-            return result;
+            const buttonIndex = ipcRenderer.sendSync(Constants.SIYUAN_CONFIRM_DIALOG, {
+                title: window.siyuan?.languages?.siyuanNote || "SiYuan",
+                message,
+                buttons: [window.siyuan?.languages?.cancel || "Cancel", window.siyuan?.languages?.confirm || "OK"],
+                cancelId: 0,
+                defaultId: 1,
+                noLink: true,
+            });
+            return buttonIndex === 1;
         } catch (error) {
-            console.error("confirm error:", error);
-            fixFocusAfterDialog();
-            return false;
+            return originalConfirm.call(this, message);
         }
     };
 };

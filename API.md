@@ -1098,6 +1098,8 @@ Move documents by `id`:
   }
   ```
 
+Note: In publish mode, access to this interface will be prohibited unless all document read and write permissions are made public. Please refer to the [discussion](https://github.com/siyuan-note/siyuan/pull/16041#issuecomment-3912139575).
+
 ### Flush transaction
 
 * `/api/sqlite/flushTransaction`

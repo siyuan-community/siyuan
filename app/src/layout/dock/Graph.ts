@@ -88,7 +88,7 @@ export class Graph extends Model {
         this.rootId = options.rootId;
         this.type = options.type;
 
-        this.element.classList.add("graph", "file-tree", this.type === "global" ? "sy__globalGraph" : "sy__graph");
+        this.element.classList.add("graph", "file-tree", this.type === "global" ? "sy__globalGraph" : "sy__graph", "dockPanel");
         let panelHTML;
         if (this.type === "global") {
             panelHTML = `

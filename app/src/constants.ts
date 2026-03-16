@@ -57,15 +57,18 @@ export abstract class Constants {
     public static readonly SIYUAN_EXPORT_NEWWINDOW: string = "siyuan-export-newwindow";
 
     public static readonly SIYUAN_CONTEXT_MENU: string = "siyuan-context-menu";
+    public static readonly SIYUAN_CONFIRM_DIALOG: string = "siyuan-confirm-dialog";
+    public static readonly SIYUAN_ALERT_DIALOG: string = "siyuan-alert-dialog";
 
     public static readonly SIYUAN_SHOW_WINDOW: string = "siyuan-show-window";
 
     // custom
+    public static readonly CUSTOM_REMINDER_WECHAT: string = "custom-reminder-wechat";
+    public static readonly CUSTOM_RIFF_DECKS: string = "custom-riff-decks";
     public static readonly CUSTOM_SY_READONLY: string = "custom-sy-readonly";
     public static readonly CUSTOM_SY_FULLWIDTH: string = "custom-sy-fullwidth";
     public static readonly CUSTOM_SY_AV_VIEW: string = "custom-sy-av-view";
-    public static readonly CUSTOM_REMINDER_WECHAT: string = "custom-reminder-wechat";
-    public static readonly CUSTOM_RIFF_DECKS: string = "custom-riff-decks";
+    public static readonly CUSTOM_SY_TITLE_EMPTY: string = "custom-sy-title-empty";
 
     // size
     public static readonly SIZE_DATABASE_MAZ_SIZE: number = 102400;
@@ -139,6 +142,7 @@ export abstract class Constants {
     public static readonly CB_GET_HTML = "cb-get-html"; // 直接渲染，不需要再 /api/block/getDocInfo，否则搜索表格无法定位
     public static readonly CB_GET_HISTORY = "cb-get-history"; // 历史渲染
     public static readonly CB_GET_OPENNEW = "cb-get-opennew"; // 编辑器只读后新建文件需为临时解锁状态 & https://github.com/siyuan-note/siyuan/issues/12197
+    public static readonly CB_GET_AV_NO_CREATE = "cb-get-av-no-create"; // 属性视图不自动创建
 
     // localstorage
     public static readonly LOCAL_ZOOM = "local-zoom";
@@ -170,6 +174,7 @@ export abstract class Constants {
     public static readonly LOCAL_EMOJIS = "local-emojis";
     public static readonly LOCAL_MOVE_PATH = "local-move-path";
     public static readonly LOCAL_RECENT_DOCS = "local-recent-docs";
+    public static readonly LOCAL_CLOSED_TABS = "local-closed-tabs";
 
     // dialog
     public static readonly DIALOG_CONFIRM = "dialog-confirm";
@@ -316,6 +321,7 @@ export abstract class Constants {
         pl_PL: "20210808180117-6v0mkxr",
         pt_BR: "20210808180117-6v0mkxr",
         ru_RU: "20210808180117-6v0mkxr",
+        sk_SK: "20210808180117-6v0mkxr",
         tr_TR: "20210808180117-6v0mkxr",
         zh_CHT: "20211226090932-5lcq56f",
         zh_CN: "20210808180117-czj9bvb",

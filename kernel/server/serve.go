@@ -47,6 +47,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/server/proxy"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
+	"github.com/soheilhy/cmux"
 	"golang.org/x/net/webdav"
 )
 
@@ -210,14 +211,32 @@ func Serve(fastMode bool, cookieKey string) {
 	if !fastMode {
 		rewritePortJSON(pid, port)
 	}
-	logging.LogInfof("kernel [pid=%s] http server [%s] is booting", pid, host+":"+port)
+
+	// Prepare TLS if enabled
+	var certPath, keyPath string
+	useTLS := model.Conf.System.NetworkServeTLS && model.Conf.System.NetworkServe
+	if useTLS {
+		// Ensure TLS certificates exist (proxy will use them directly)
+		var tlsErr error
+		certPath, keyPath, tlsErr = util.GetOrCreateTLSCert()
+		if tlsErr != nil {
+			logging.LogErrorf("failed to get TLS certificates: %s", tlsErr)
+			if !fastMode {
+				os.Exit(logging.ExitCodeUnavailablePort)
+			}
+			return
+		}
+		logging.LogInfof("kernel [pid=%s] http server [%s] is booting (TLS will be enabled on fixed port proxy)", pid, host+":"+port)
+	} else {
+		logging.LogInfof("kernel [pid=%s] http server [%s] is booting", pid, host+":"+port)
+	}
 	util.HttpServing = true
 
 	go util.HookUILoaded()
 
 	go func() {
 		time.Sleep(1 * time.Second)
-		go proxy.InitFixedPortService(host)
+		go proxy.InitFixedPortService(host, useTLS, certPath, keyPath)
 		go proxy.InitPublishService()
 		// 反代服务器启动失败不影响核心服务器启动
 	}()
@@ -225,13 +244,27 @@ func Serve(fastMode bool, cookieKey string) {
 	util.HttpServer = &http.Server{
 		Handler: ginServer,
 	}
+	
+	if useTLS && (util.FixedPort == util.ServerPort || util.IsPortOpen(util.FixedPort)) {
+		if err = util.ServeMultiplexed(ln, ginServer, certPath, keyPath, util.HttpServer); err != nil {
+			if errors.Is(err, http.ErrServerClosed) || err == cmux.ErrListenerClosed {
+				return
+			}
+	
+			if !fastMode {
+				logging.LogErrorf("boot kernel failed: %s", err)
+				os.Exit(logging.ExitCodeUnavailablePort)
+			}
+		}
+		return
+	}
 
 	if util.TLSKernel {
 		err = util.HttpServer.ServeTLS(ln, util.TLSCertFile, util.TLSKeyFile)
 	} else {
 		err = util.HttpServer.Serve(ln)
 	}
-
+	
 	if err != nil {
 		if errors.Is(err, http.ErrServerClosed) {
 			return
@@ -291,6 +324,11 @@ func serveExport(ginServer *gin.Engine) {
 		}
 
 		fullPath := filepath.Join(exportBaseDir, decodedPath)
+		if util.IsSensitivePath(fullPath) {
+			logging.LogErrorf("refuse to export sensitive file [%s]", c.Request.URL.Path)
+			c.Status(http.StatusForbidden)
+			return
+		}
 
 		fileInfo, err := os.Stat(fullPath)
 		if os.IsNotExist(err) {
@@ -315,19 +353,23 @@ func serveExport(ginServer *gin.Engine) {
 }
 
 func serveWidgets(ginServer *gin.Engine) {
-	ginServer.Static("/widgets/", filepath.Join(util.DataDir, "widgets"))
+	widgets := ginServer.Group("/widgets/", model.CheckAuth)
+	widgets.Static("", filepath.Join(util.DataDir, "widgets"))
 }
 
 func servePlugins(ginServer *gin.Engine) {
-	ginServer.Static("/plugins/", filepath.Join(util.DataDir, "plugins"))
+	plugins := ginServer.Group("/plugins/", model.CheckAuth)
+	plugins.Static("", filepath.Join(util.DataDir, "plugins"))
 }
 
 func serveEmojis(ginServer *gin.Engine) {
-	ginServer.Static("/emojis/", filepath.Join(util.DataDir, "emojis"))
+	emojis := ginServer.Group("/emojis/", model.CheckAuth)
+	emojis.Static("", filepath.Join(util.DataDir, "emojis"))
 }
 
 func serveTemplates(ginServer *gin.Engine) {
-	ginServer.Static("/templates/", filepath.Join(util.DataDir, "templates"))
+	templates := ginServer.Group("/templates/", model.CheckAuth)
+	templates.Static("", filepath.Join(util.DataDir, "templates"))
 }
 
 func servePublic(ginServer *gin.Engine) {
@@ -336,8 +378,15 @@ func servePublic(ginServer *gin.Engine) {
 }
 
 func serveSnippets(ginServer *gin.Engine) {
-	ginServer.Handle("GET", "/snippets/*filepath", func(c *gin.Context) {
+	ginServer.Handle("GET", "/snippets/*filepath", model.CheckAuth, func(c *gin.Context) {
 		filePath := strings.TrimPrefix(c.Request.URL.Path, "/snippets/")
+		if !model.IsAdminRoleContext(c) {
+			if "conf.json" == filePath {
+				c.Status(http.StatusUnauthorized)
+				return
+			}
+		}
+
 		ext := filepath.Ext(filePath)
 		name := strings.TrimSuffix(filePath, ext)
 		confSnippets, err := model.LoadSnippets()
@@ -508,6 +557,7 @@ func serveAuthPage(c *gin.Context) {
 		"l8":                     model.Conf.Language(95),
 		"l9":                     model.Conf.Language(83),
 		"l10":                    model.Conf.Language(257),
+		"l11":                    model.Conf.Language(282),
 		"appearanceMode":         model.Conf.Appearance.Mode,
 		"appearanceModeOS":       model.Conf.Appearance.ModeOS,
 		"workspace":              util.WorkspaceName,
@@ -579,7 +629,7 @@ func serveSVG(context *gin.Context, assetAbsPath string) bool {
 		}
 
 		if !model.Conf.Editor.AllowSVGScript {
-			data = []byte(util.RemoveScriptsInSVG(string(data)))
+			data = []byte(util.SanitizeSVG(string(data)))
 		}
 
 		context.Data(200, "image/svg+xml", data)
@@ -688,7 +738,7 @@ func serveWebSocket(ginServer *gin.Engine) {
 
 		if !authOk {
 			// 用于授权页保持连接，避免非常驻内存内核自动退出 https://github.com/siyuan-note/insider/issues/1099
-			authOk = strings.Contains(s.Request.RequestURI, "/ws?app=siyuan&id=auth")
+			authOk = strings.Contains(s.Request.RequestURI, "/ws?app=siyuan") && strings.Contains(s.Request.RequestURI, "&id=auth&type=auth")
 		}
 
 		if !authOk {

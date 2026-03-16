@@ -51,6 +51,8 @@ var (
 	db             *sql.DB
 	historyDB      *sql.DB
 	assetContentDB *sql.DB
+
+	initDatabaseLock = sync.RWMutex{}
 )
 
 func init() {
@@ -66,12 +68,14 @@ func init() {
 	})
 }
 
-var initDatabaseLock = sync.Mutex{}
-
-func InitDatabase(forceRebuild bool) (err error) {
+func InitDatabase(forceRebuild bool) {
 	initDatabaseLock.Lock()
 	defer initDatabaseLock.Unlock()
 
+	initDatabase(forceRebuild)
+}
+
+func initDatabase(forceRebuild bool) {
 	ClearCache()
 	disableCache()
 	defer enableCache()
@@ -95,20 +99,10 @@ func InitDatabase(forceRebuild bool) (err error) {
 
 	// 不存在库或者版本不一致都会走到这里
 
-	closeDatabase()
-	if gulu.File.IsExist(util.DBPath) {
-		if err = removeDatabaseFile(); err != nil {
-			logging.LogErrorf("remove database file [%s] failed: %s", util.DBPath, err)
-			util.PushClearProgress()
-			err = nil
-		}
-	}
-
-	initDBConnection()
 	initDBTables()
+	vacuum()
 
 	logging.LogInfof("reinitialized database [%s]", util.DBPath)
-	return
 }
 
 func initDBTables() {
@@ -144,6 +138,11 @@ func initDBTables() {
 	_, err = db.Exec("CREATE INDEX idx_blocks_root_id ON blocks(root_id)")
 	if err != nil {
 		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create index [idx_blocks_root_id] failed: %s", err)
+	}
+
+	_, err = db.Exec("CREATE INDEX idx_blocks_root_id_id_hash ON blocks(root_id, id, hash)")
+	if err != nil {
+		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create index [idx_blocks_root_id_id_hash] failed: %s", err)
 	}
 
 	_, err = db.Exec("DROP TABLE IF EXISTS blocks_fts")
@@ -227,9 +226,7 @@ func initDBTables() {
 }
 
 func initDBConnection() {
-	if nil != db {
-		closeDatabase()
-	}
+	closeDatabase()
 
 	util.LogDatabaseSize(util.DBPath)
 	dsn := util.DBPath + "?_journal_mode=WAL" +
@@ -265,6 +262,8 @@ func InitHistoryDatabase(forceRebuild bool) {
 	}
 
 	historyDB.Close()
+	historyDB = nil
+	runtime.GC()
 	if err := os.RemoveAll(util.HistoryDBPath); err != nil {
 		logging.LogErrorf("remove history database file [%s] failed: %s", util.HistoryDBPath, err)
 		return
@@ -277,6 +276,8 @@ func InitHistoryDatabase(forceRebuild bool) {
 func initHistoryDBConnection() {
 	if nil != historyDB {
 		historyDB.Close()
+		historyDB = nil
+		runtime.GC()
 	}
 
 	util.LogDatabaseSize(util.HistoryDBPath)
@@ -321,6 +322,8 @@ func InitAssetContentDatabase(forceRebuild bool) {
 	}
 
 	assetContentDB.Close()
+	assetContentDB = nil
+	runtime.GC()
 	if err := os.RemoveAll(util.AssetContentDBPath); err != nil {
 		logging.LogErrorf("remove assets database file [%s] failed: %s", util.AssetContentDBPath, err)
 		return
@@ -333,6 +336,8 @@ func InitAssetContentDatabase(forceRebuild bool) {
 func initAssetContentDBConnection() {
 	if nil != assetContentDB {
 		assetContentDB.Close()
+		assetContentDB = nil
+		runtime.GC()
 	}
 
 	util.LogDatabaseSize(util.AssetContentDBPath)
@@ -371,6 +376,11 @@ var (
 
 func SetCaseSensitive(b bool) {
 	caseSensitive = b
+
+	if nil == db {
+		return
+	}
+
 	if b {
 		db.Exec("PRAGMA case_sensitive_like = ON;")
 	} else {
@@ -643,16 +653,7 @@ func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string) (
 			title = gulu.Str.FromBytes(titleNode.Tokens)
 		}
 
-		var hash string
-		var hashErr error
-		if lp := assetLocalPath(dest, boxLocalPath, docDirLocalPath); "" != lp {
-			if !gulu.File.IsDir(lp) {
-				hash, hashErr = util.GetEtag(lp)
-				if nil != hashErr {
-					logging.LogErrorf("calc asset [%s] hash failed: %s", lp, hashErr)
-				}
-			}
-		}
+		hash := assetHashByLocalPath(dest, boxLocalPath, docDirLocalPath)
 		name, _ := util.LastID(dest)
 		asset := &Asset{
 			ID:      ast.NewNodeID(),
@@ -694,16 +695,7 @@ func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string) (
 					title = gulu.Str.FromBytes(titleNode.Tokens)
 				}
 
-				var hash string
-				var hashErr error
-				if lp := assetLocalPath(dest, boxLocalPath, docDirLocalPath); "" != lp {
-					if !gulu.File.IsDir(lp) {
-						hash, hashErr = util.GetEtag(lp)
-						if nil != hashErr {
-							logging.LogErrorf("calc asset [%s] hash failed: %s", lp, hashErr)
-						}
-					}
-				}
+				hash := assetHashByLocalPath(dest, boxLocalPath, docDirLocalPath)
 				name, _ := util.LastID(dest)
 				asset := &Asset{
 					ID:      ast.NewNodeID(),
@@ -784,15 +776,7 @@ func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string) (
 		}
 
 		dest := string(src)
-		var hash string
-		var hashErr error
-		if lp := assetLocalPath(dest, boxLocalPath, docDirLocalPath); "" != lp {
-			hash, hashErr = util.GetEtag(lp)
-			if nil != hashErr {
-				logging.LogErrorf("calc asset [%s] hash failed: %s", lp, hashErr)
-			}
-		}
-
+		hash := assetHashByLocalPath(dest, boxLocalPath, docDirLocalPath)
 		parentBlock := treenode.ParentBlock(n)
 		if ast.NodeInlineHTML != n.Type {
 			parentBlock = n
@@ -1302,17 +1286,14 @@ func batchUpdateHPath(tx *sql.Tx, tree *parse.Tree, context map[string]interface
 }
 
 func CloseDatabase() {
-	if err := closeDatabase(); err != nil {
+	if err := db.Close(); err != nil {
 		logging.LogErrorf("close database failed: %s", err)
-		return
 	}
 	if err := historyDB.Close(); err != nil {
 		logging.LogErrorf("close history database failed: %s", err)
-		return
 	}
 	if err := assetContentDB.Close(); err != nil {
 		logging.LogErrorf("close asset content database failed: %s", err)
-		return
 	}
 	treenode.CloseDatabase()
 	logging.LogInfof("closed database")
@@ -1324,10 +1305,23 @@ func queryRow(query string, args ...interface{}) *sql.Row {
 		logging.LogErrorf("statement is empty")
 		return nil
 	}
+
 	if nil == db {
 		return nil
 	}
 	return db.QueryRow(query, args...)
+}
+
+func queryTx(tx *sql.Tx, query string, args ...interface{}) (*sql.Rows, error) {
+	query = strings.TrimSpace(query)
+	if "" == query {
+		return nil, errors.New("statement is empty")
+	}
+
+	if nil == db {
+		return nil, errors.New("database is nil")
+	}
+	return tx.Query(query, args...)
 }
 
 func query(query string, args ...interface{}) (*sql.Rows, error) {
@@ -1335,6 +1329,7 @@ func query(query string, args ...interface{}) (*sql.Rows, error) {
 	if "" == query {
 		return nil, errors.New("statement is empty")
 	}
+
 	if nil == db {
 		return nil, errors.New("database is nil")
 	}
@@ -1475,13 +1470,14 @@ func prepareExecInsertTx(tx *sql.Tx, stmtSQL string, args []interface{}) (err er
 	}
 
 	if _, err = stmt.Exec(args...); err != nil {
-		if strings.Contains(err.Error(), "database disk image is malformed") {
-			tx.Rollback()
-			closeDatabase()
-			removeDatabaseFile()
-			logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "database disk image [%s] is malformed, please restart SiYuan kernel to rebuild it", util.DBPath)
-		}
+		tx.Rollback()
 		logging.LogErrorf("exec database stmt [%s] failed: %s\n  %s", stmtSQL, err, logging.ShortStack())
+
+		if strings.Contains(err.Error(), "database disk image is malformed") {
+			util.RemoveDatabaseFile(util.DBPath)
+			initDatabase(true)
+			logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "database disk image [%s] is malformed, please restart SiYuan kernel to rebuild it\n\t%s\n\t%v", util.DBPath, stmtSQL, args)
+		}
 		return
 	}
 	return
@@ -1489,13 +1485,13 @@ func prepareExecInsertTx(tx *sql.Tx, stmtSQL string, args []interface{}) (err er
 
 func execStmtTx(tx *sql.Tx, stmt string, args ...interface{}) (err error) {
 	if _, err = tx.Exec(stmt, args...); err != nil {
-		if strings.Contains(err.Error(), "database disk image is malformed") {
-			tx.Rollback()
-			closeDatabase()
-			removeDatabaseFile()
-			logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "database disk image [%s] is malformed, please restart SiYuan kernel to rebuild it", util.DBPath)
-		}
+		tx.Rollback()
 		logging.LogErrorf("exec database stmt [%s] failed: %s\n  %s", stmt, err, logging.ShortStack())
+
+		if strings.Contains(err.Error(), "database disk image is malformed") {
+			initDatabase(true)
+			logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "database disk image [%s] is malformed, please restart SiYuan kernel to rebuild it\n\t%s\n\t%v", util.DBPath, stmt, args)
+		}
 		return
 	}
 	return
@@ -1548,30 +1544,15 @@ func ialAttr(ial, name string) (ret string) {
 	return
 }
 
-func removeDatabaseFile() (err error) {
-	err = os.RemoveAll(util.DBPath)
-	if err != nil {
-		return
-	}
-	err = os.RemoveAll(util.DBPath + "-shm")
-	if err != nil {
-		return
-	}
-	err = os.RemoveAll(util.DBPath + "-wal")
-	if err != nil {
-		return
-	}
-	return
-}
-
-func closeDatabase() (err error) {
+func closeDatabase() {
 	if nil == db {
 		return
 	}
 
-	err = db.Close()
+	db.Close()
 	debug.FreeOSMemory()
-	runtime.GC() // 没有这句的话文件句柄不会释放，后面就无法删除文件
+	db = nil
+	runtime.GC()
 	return
 }
 
@@ -1608,6 +1589,13 @@ func SQLTemplateFuncs(templateFuncMap *template.FuncMap) {
 }
 
 func Vacuum() {
+	initDatabaseLock.Lock()
+	defer initDatabaseLock.Unlock()
+
+	vacuum()
+}
+
+func vacuum() {
 	if nil != db {
 		if _, err := db.Exec("VACUUM"); nil != err {
 			logging.LogErrorf("vacuum database failed: %s", err)
@@ -1623,5 +1611,4 @@ func Vacuum() {
 			logging.LogErrorf("vacuum asset content database failed: %s", err)
 		}
 	}
-	return
 }

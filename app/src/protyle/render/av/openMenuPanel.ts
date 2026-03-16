@@ -21,12 +21,10 @@ import {updateAttrViewCellAnimation} from "./action";
 import {addAssetLink, bindAssetEvent, editAssetItem, getAssetHTML, updateAssetCell} from "./asset";
 import {Constants} from "../../../constants";
 import {hideElements} from "../../ui/hideElements";
-import {isLocalPath, pathPosix} from "../../../util/pathName";
+import {pathPosix} from "../../../util/pathName";
 import {openEmojiPanel, unicode2Emoji} from "../../../emoji";
-import {getSearch, isMobile} from "../../../util/functions";
-/// #if !MOBILE
-import {openAsset} from "../../../editor/util";
-/// #endif
+import {isMobile} from "../../../util/functions";
+import {openLink} from "../../../editor/openLink";
 import {previewAttrViewImages} from "../../preview/image";
 import {assetMenu} from "../../../menus/protyle";
 import {
@@ -49,9 +47,13 @@ import {Dialog} from "../../../dialog";
 import {bindLayoutEvent, getLayoutHTML, updateLayout} from "./layout";
 import {setGalleryCover, setGalleryRatio, setGallerySize} from "./gallery/util";
 import {
-    bindGroupsEvent, bindGroupsNumber,
+    bindGroupsEvent,
+    bindGroupsNumber,
     getGroupsHTML,
-    getGroupsMethodHTML, getGroupsNumberHTML, getLanguageByIndex, getPageSize,
+    getGroupsMethodHTML,
+    getGroupsNumberHTML,
+    getLanguageByIndex,
+    getPageSize,
     goGroupsDate,
     goGroupsSort,
     setGroupMethod
@@ -79,7 +81,7 @@ export const openMenuPanel = (options: {
     const avPageSize = getPageSize(options.blockElement);
     fetchPost("/api/av/renderAttributeView", {
         id: avID,
-        query: (options.blockElement.querySelector('[data-type="av-search"]') as HTMLInputElement)?.value.trim() || "",
+        query: options.blockElement.querySelector('[data-type="av-search"]')?.textContent.trim() || "",
         pageSize: avPageSize.unGroupPageSize,
         groupPaging: avPageSize.groupPageSize,
         viewID: options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW)
@@ -1354,29 +1356,13 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "openAssetItem") {
-                    const assetType = target.parentElement.dataset.type;
                     const assetLink = target.parentElement.dataset.content;
-                    /// #if !MOBILE
-                    const suffix = pathPosix().extname(assetLink);
-                    if (assetType === "image") {
+                    if (target.parentElement.dataset.type === "image") {
                         previewAttrViewImages(assetLink, avID, options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW),
-                            (options.blockElement.querySelector('[data-type="av-search"]') as HTMLInputElement)?.value.trim() || "");
-                    } else if (isLocalPath(assetLink) && assetType === "file" && (
-                        (suffix === ".pdf" && !assetLink.startsWith("file://")) ||
-                        Constants.SIYUAN_ASSETS_AUDIO.concat(Constants.SIYUAN_ASSETS_VIDEO, Constants.SIYUAN_ASSETS_IMAGE).includes(suffix)
-                    )) {
-                        openAsset(options.protyle.app, assetLink.trim(), parseInt(getSearch("page", assetLink)), "right");
+                            options.blockElement.querySelector('[data-type="av-search"]')?.textContent.trim() || "");
                     } else {
-                        window.open(assetLink);
+                        openLink(options.protyle, assetLink, event, event.ctrlKey || event.metaKey);
                     }
-                    /// #else
-                    if (assetType === "image") {
-                        previewAttrViewImages(assetLink, avID, options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW),
-                            (options.blockElement.querySelector('[data-type="av-search"]') as HTMLInputElement)?.value.trim() || "");
-                    } else {
-                        window.open(assetLink);
-                    }
-                    /// #endif
                     event.preventDefault();
                     event.stopPropagation();
                     break;

@@ -21,6 +21,7 @@ import {openFileById} from "../../editor/util";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {hideAllElements} from "../../protyle/ui/hideElements";
 import {dragOverScroll, stopScrollAnimation} from "./dragover";
+import {setWebViewFocusable} from "../../mobile/util/mobileAppUtil";
 
 export const initWindowEvent = (app: App) => {
     document.body.addEventListener("mouseleave", () => {
@@ -55,11 +56,13 @@ export const initWindowEvent = (app: App) => {
             return;
         }
         const fileElement = hasClosestByClassName(event.target, "sy__file");
-        const protyleElement = hasClosestByClassName(event.target, "protyle");
+        const protyleElement = hasClosestByClassName(event.target, "protyle", true);
         if (!scrollTarget) {
             scrollTarget = fileElement || protyleElement;
         }
-        if (scrollTarget && scrollTarget.classList.contains("sy__file") && protyleElement) {
+        if (scrollTarget && protyleElement && (
+            scrollTarget.classList.contains("sy__file") || protyleElement !== scrollTarget
+        )) {
             scrollTarget = protyleElement;
         } else if (scrollTarget && scrollTarget.classList.contains("protyle") && fileElement) {
             scrollTarget = fileElement;
@@ -76,9 +79,9 @@ export const initWindowEvent = (app: App) => {
             scrollElement = scrollTarget.querySelector(".protyle-content");
         }
         if (scrollTarget && scrollElement) {
-            if ((event.dataTransfer.types.includes(Constants.SIYUAN_DROP_FILE) &&
-                    hasClosestByClassName(event.target, "layout-tab-bar")) ||
-                (event.dataTransfer.types.includes("Files") && scrollTarget.classList.contains("sy__file"))) {
+            if ((event.dataTransfer.types.includes(Constants.SIYUAN_DROP_FILE) && hasClosestByClassName(event.target, "layout-tab-bar")) ||
+                (event.dataTransfer.types.includes("Files") && scrollTarget.classList.contains("sy__file")) ||
+                (scrollTarget.classList.contains("protyle") && hasClosestByClassName(event.target, "dockPanel"))) {
                 stopScrollAnimation();
             } else {
                 dragOverScroll(event, scrollElement.getBoundingClientRect(), scrollElement);
@@ -123,6 +126,9 @@ export const initWindowEvent = (app: App) => {
         window.siyuan.ctrlIsPressed = false;
         window.siyuan.shiftIsPressed = false;
         window.siyuan.altIsPressed = false;
+        /// #if BROWSER
+        setWebViewFocusable();
+        /// #endif
     });
 
     window.addEventListener("click", (event: MouseEvent & { target: HTMLElement }) => {

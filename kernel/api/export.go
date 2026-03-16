@@ -32,6 +32,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mssola/useragent"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
@@ -313,7 +314,7 @@ func exportResources(c *gin.Context) {
 	if nil == arg["paths"] {
 		ret.Code = 1
 		ret.Data = ""
-		ret.Msg = "paths is required"
+		ret.Msg = "[paths] is required"
 		return
 	}
 
@@ -786,6 +787,13 @@ func exportPreview(c *gin.Context) {
 	}
 
 	stdHTML := model.ExportPreview(id, fillCSSVar)
+	if model.IsReadOnlyRoleContext(c) {
+		bt := treenode.GetBlockTree(id)
+		if bt != nil {
+			publishAccess := model.GetPublishAccess()
+			stdHTML = model.FilterContentByPublishAccess(c, publishAccess, bt.BoxID, bt.Path, stdHTML, true)
+		}
+	}
 	ret.Data = map[string]interface{}{
 		"html":       stdHTML,
 		"fillCSSVar": fillCSSVar,

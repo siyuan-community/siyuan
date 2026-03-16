@@ -289,6 +289,7 @@ declare namespace Config {
         | "pl_PL"
         | "pt_BR"
         | "ru_RU"
+        | "sk_SK"
         | "tr_TR"
         | "zh_CN"
         | "zh_CHT";
@@ -440,6 +441,11 @@ declare namespace Config {
          * - `2`: Do not trigger the floating window
          */
         floatWindowMode: number;
+        /**
+         * Hover delay of the floating window in milliseconds.
+         * Only takes effect when `floatWindowMode` is `0`.
+         */
+        floatWindowDelay: number;
         /**
          * The font used in the editor
          */
@@ -629,6 +635,10 @@ declare namespace Config {
          * Whether to allow the creation of sub-documents deeper than 7 levels
          */
         allowCreateDeeper: boolean;
+        /**
+         * Don't automatically split the screen when opening search, PDF and other tabs
+         */
+        noSplitScreenWhenOpenTab: boolean;
         /**
          * Whether to automatically locate the currently open document in the document tree
          */
@@ -1623,6 +1633,10 @@ declare namespace Config {
          * Whether to enable network serve (whether to allow connections from other devices)
          */
         networkServe: boolean;
+        /**
+         * Whether to enable HTTPS for network serve (TLS encryption)
+         */
+        networkServeTLS: boolean;
         /**
          * The operating system name determined at compile time (obtained using the command `go tool
          * dist list`)

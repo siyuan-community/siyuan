@@ -167,11 +167,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 	}()
 
 	isLargeInsert := tx.processLargeInsert()
-	isLargeDelete := false
+	tx.processLargeDelete()
 	if !isLargeInsert {
-		isLargeDelete = tx.processLargeDelete()
-	}
-	if !isLargeInsert && !isLargeDelete {
 		for _, op := range tx.DoOperations {
 			switch op.Action {
 			case "create":
@@ -347,16 +344,14 @@ func (tx *Transaction) processLargeDelete() bool {
 	}
 
 	var deleteOps []*Operation
-	var lastInsertOp *Operation
+	var lastOp *Operation
 	for i, op := range tx.DoOperations {
 		if "delete" != op.Action {
 			if i != opSize-1 {
 				return false
 			}
 
-			if "insert" == op.Action && "" != op.ParentID && "" == op.PreviousID {
-				lastInsertOp = op
-			}
+			lastOp = op
 			continue
 		}
 
@@ -368,8 +363,8 @@ func (tx *Transaction) processLargeDelete() bool {
 	}
 
 	tx.doLargeDelete(deleteOps)
-	if nil != lastInsertOp {
-		tx.doInsert(lastInsertOp)
+	if nil != lastOp {
+		tx.DoOperations = []*Operation{lastOp}
 	}
 	return true
 }
@@ -444,6 +439,11 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 	if ast.NodeListItem == srcNode.Type && srcNode.Parent.FirstChild == srcNode && srcNode.Parent.LastChild == srcNode {
 		// 列表中唯一的列表项被移除后，该列表就为空了
 		srcEmptyList = srcNode.Parent
+	}
+
+	if nil != operation.Context && "true" == operation.Context["removeFold"] {
+		srcNode.RemoveIALAttr("heading-fold")
+		srcNode.RemoveIALAttr("fold")
 	}
 
 	targetPreviousID := operation.PreviousID
@@ -1011,12 +1011,12 @@ func (tx *Transaction) doDelete0(operation *Operation, tree *parse.Tree) {
 	}
 
 	if needSyncDel2AvBlock {
-		syncDelete2AvBlock(node, tree, tx)
+		syncDelete2AvBlock(node, tree, true, tx)
 	}
 }
 
-func syncDelete2AvBlock(node *ast.Node, nodeTree *parse.Tree, tx *Transaction) {
-	changedAvIDs := syncDelete2AttributeView(node)
+func syncDelete2AvBlock(node *ast.Node, nodeTree *parse.Tree, delChildrenWhenDelParent bool, tx *Transaction) {
+	changedAvIDs := syncDelete2AttributeView(node, delChildrenWhenDelParent)
 	avIDs := tx.syncDelete2Block(node, nodeTree)
 	changedAvIDs = append(changedAvIDs, avIDs...)
 	changedAvIDs = gulu.Str.RemoveDuplicatedElem(changedAvIDs)
@@ -1063,7 +1063,7 @@ func (tx *Transaction) syncDelete2Block(node *ast.Node, nodeTree *parse.Tree) (c
 			avNames := getAvNames(toChangNode.IALAttr(av.NodeAttrNameAvs))
 			oldAttrs := parse.IAL2Map(toChangNode.KramdownIAL)
 			toChangNode.SetIALAttr(av.NodeAttrViewNames, avNames)
-			pushBroadcastAttrTransactions(oldAttrs, toChangNode)
+			pushBlockAttrs(oldAttrs, toChangNode)
 		}
 
 		for _, tree := range trees {
@@ -1078,53 +1078,63 @@ func (tx *Transaction) syncDelete2Block(node *ast.Node, nodeTree *parse.Tree) (c
 	return
 }
 
-func syncDelete2AttributeView(node *ast.Node) (changedAvIDs []string) {
+func syncDelete2AttributeView(node *ast.Node, delChildrenWhenDelParent bool) (changedAvIDs []string) {
+	if !delChildrenWhenDelParent {
+		changedAvIDs = deleteAttrView(node, changedAvIDs)
+		return
+	}
+
 	ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering || !n.IsBlock() {
 			return ast.WalkContinue
 		}
 
-		avs := n.IALAttr(av.NodeAttrNameAvs)
-		if "" == avs {
-			return ast.WalkContinue
-		}
-
-		avIDs := strings.Split(avs, ",")
-		for _, avID := range avIDs {
-			attrView, parseErr := av.ParseAttributeView(avID)
-			if nil != parseErr {
-				continue
-			}
-
-			changedAv := false
-			blockValues := attrView.GetBlockKeyValues()
-			if nil == blockValues {
-				continue
-			}
-
-			for i, blockValue := range blockValues.Values {
-				if nil == blockValue.Block {
-					continue
-				}
-
-				if blockValue.Block.ID == n.ID {
-					blockValues.Values = append(blockValues.Values[:i], blockValues.Values[i+1:]...)
-					changedAv = true
-					break
-				}
-			}
-
-			if changedAv {
-				regenAttrViewGroups(attrView)
-				av.SaveAttributeView(attrView)
-				changedAvIDs = append(changedAvIDs, avID)
-			}
-		}
+		changedAvIDs = append(changedAvIDs, deleteAttrView(n, changedAvIDs)...)
 		return ast.WalkContinue
 	})
 
 	changedAvIDs = gulu.Str.RemoveDuplicatedElem(changedAvIDs)
 	return
+}
+
+func deleteAttrView(n *ast.Node, changedAvIDs []string) []string {
+	avs := n.IALAttr(av.NodeAttrNameAvs)
+	if "" == avs {
+		return nil
+	}
+
+	avIDs := strings.Split(avs, ",")
+	for _, avID := range avIDs {
+		attrView, parseErr := av.ParseAttributeView(avID)
+		if nil != parseErr {
+			continue
+		}
+
+		changedAv := false
+		blockValues := attrView.GetBlockKeyValues()
+		if nil == blockValues {
+			continue
+		}
+
+		for i, blockValue := range blockValues.Values {
+			if nil == blockValue.Block {
+				continue
+			}
+
+			if blockValue.Block.ID == n.ID {
+				blockValues.Values = append(blockValues.Values[:i], blockValues.Values[i+1:]...)
+				changedAv = true
+				break
+			}
+		}
+
+		if changedAv {
+			regenAttrViewGroups(attrView)
+			av.SaveAttributeView(attrView)
+			changedAvIDs = append(changedAvIDs, avID)
+		}
+	}
+	return changedAvIDs
 }
 
 func (tx *Transaction) doLargeInsert(operations []*Operation) {
@@ -1227,6 +1237,9 @@ func (tx *Transaction) doInsert0(operation *Operation, tree *parse.Tree) (ret *T
 			insertedNode = insertedNode.FirstChild
 		}
 		node.InsertBefore(insertedNode)
+		for _, remain := range remains {
+			node.InsertBefore(remain)
+		}
 	} else if "" != previousID {
 		node = treenode.GetNodeInTree(tree, previousID)
 		if nil == node {
@@ -1482,7 +1495,7 @@ func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 
 	removedNodes := getRemovedNodes(oldNode, updatedNode)
 	for _, n := range removedNodes {
-		syncDelete2AvBlock(n, tree, tx)
+		syncDelete2AvBlock(n, tree, false, tx)
 	}
 
 	// 将不属于折叠标题的块移动到折叠标题下方，需要展开折叠标题
@@ -1535,7 +1548,7 @@ func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 			time.Sleep(200 * time.Millisecond)
 			oldAttrs := parse.IAL2Map(updatedNode.KramdownIAL)
 			updatedNode.SetIALAttr(av.NodeAttrViewNames, avNames)
-			pushBroadcastAttrTransactions(oldAttrs, updatedNode)
+			pushBlockAttrs(oldAttrs, updatedNode)
 		}()
 	}
 
@@ -1809,6 +1822,7 @@ type Operation struct {
 	Action     string      `json:"action"`
 	Data       interface{} `json:"data"`
 	ID         string      `json:"id"`
+	RootID     string      `json:"rootID"` // 思源内部暂时没有用到 https://github.com/siyuan-note/siyuan/issues/17179#issuecomment-4051604916
 	ParentID   string      `json:"parentID"`
 	PreviousID string      `json:"previousID"`
 	NextID     string      `json:"nextID"`

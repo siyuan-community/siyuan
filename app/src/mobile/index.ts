@@ -14,8 +14,8 @@ import {initAssets, loadAssets} from "../util/assets";
 import {bootSync} from "../dialog/processSystem";
 import {initMessage, showMessage} from "../dialog/message";
 import {goBack} from "./util/MobileBackFoward";
-import {hideKeyboardToolbar, showKeyboardToolbar} from "./util/keyboardToolbar";
-import {getLocalStorage, writeText} from "../protyle/util/compatibility";
+import {activeBlur, hideKeyboardToolbar, showKeyboardToolbar} from "./util/keyboardToolbar";
+import {getLocalStorage, isChromeBrowser, isInMobileApp, writeText} from "../protyle/util/compatibility";
 import {getCurrentEditor, openMobileFileById} from "./editor";
 import {getSearch} from "../util/functions";
 import {checkPublishServiceClosed} from "../util/processMessage";
@@ -32,6 +32,7 @@ import {correctHotkey} from "../boot/globalEvent/commonHotkey";
 import {processIOSPurchaseResponse} from "../util/iOSPurchase";
 import {updateControlAlt} from "../protyle/util/hotKey";
 import {nbsp2space} from "../protyle/util/normalizeText";
+import {callMobileAppShowKeyboard, canInput, setWebViewFocusable} from "./util/mobileAppUtil";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -53,6 +54,7 @@ class App {
             dialogs: [],
             blockPanels: [],
             mobile: {
+                size: {},
                 docks: {
                     outline: null,
                     file: null,
@@ -87,7 +89,34 @@ class App {
                 showMessage(window.siyuan.languages.copied, 2000);
                 event.preventDefault();
             }
+            if (["INPUT", "TEXTAREA"].includes(event.target.tagName)) {
+                setTimeout(() => {
+                    event.target.scrollIntoView({
+                        block: "center",
+                    });
+                }, Constants.TIMEOUT_TRANSITION);
+            }
+            if (window.JSAndroid && window.JSAndroid.showKeyboard || window.JSHarmony && window.JSHarmony.showKeyboard) {
+                if (canInput(event.target)) {
+                    callMobileAppShowKeyboard();
+                }
+            }
         });
+        if (window.JSAndroid && window.JSAndroid.showKeyboard || window.JSHarmony && window.JSHarmony.showKeyboard) {
+            const __siyuan_original_focus = HTMLElement.prototype.focus;
+            HTMLElement.prototype.focus = function (this: HTMLElement, ...args) {
+                try {
+                    if (typeof __siyuan_original_focus === "function") {
+                        __siyuan_original_focus.apply(this, args);
+                    }
+                } catch (e) {
+                    console.error("Error in focus event:", e);
+                }
+                if (canInput(this)) {
+                    callMobileAppShowKeyboard();
+                }
+            };
+        }
         window.addEventListener("beforeunload", () => {
             saveScroll(window.siyuan.mobile.editor.protyle);
         }, false);
@@ -97,6 +126,7 @@ class App {
         // 判断手机横竖屏状态
         window.matchMedia("(orientation:portrait)").addEventListener("change", () => {
             updateCardHV();
+            activeBlur();
         });
         fetchPost("/api/system/getConf", {}, async (confResponse) => {
             addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
@@ -115,6 +145,13 @@ class App {
                     loadAssets(confResponse.data.conf.appearance);
                     initMessage();
                     initAssets();
+                    if (!isInMobileApp()) {
+                        if (isChromeBrowser()) {
+                            document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-content, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
+                        } else if (!window.siyuan.config.readonly && !window.siyuan.isPublish) {
+                            showMessage(window.siyuan.languages.useChrome, 0, "error");
+                        }
+                    }
                     fetchPost("/api/setting/getCloudUser", {}, userResponse => {
                         window.siyuan.user = userResponse.data;
                         fetchPost("/api/system/getEmojiConf", {}, emojiResponse => {
@@ -137,6 +174,9 @@ class App {
                 window.siyuan.ctrlIsPressed = false;
                 window.siyuan.shiftIsPressed = false;
                 window.siyuan.altIsPressed = false;
+            });
+            window.addEventListener("blur", () => {
+                setWebViewFocusable();
             });
             // 移动端删除键 https://github.com/siyuan-note/siyuan/issues/9259
             window.addEventListener("keydown", (event) => {
@@ -174,10 +214,7 @@ window.reconnectWebSocket = () => {
 window.goBack = goBack;
 window.showMessage = showMessage;
 window.processIOSPurchaseResponse = processIOSPurchaseResponse;
-window.showKeyboardToolbar = (height) => {
-    document.getElementById("keyboardToolbar").setAttribute("data-keyboardheight", (height ? height : window.outerHeight / 2 - 42).toString());
-    showKeyboardToolbar();
-};
+window.showKeyboardToolbar = showKeyboardToolbar;
 window.hideKeyboardToolbar = hideKeyboardToolbar;
 window.openFileByURL = (openURL) => {
     if (openURL && isSYProtocol(openURL)) {

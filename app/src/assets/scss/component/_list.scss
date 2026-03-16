@@ -292,6 +292,10 @@
       }
     }
 
+    &__switch {
+      @extend .b3-list-item__icon
+    }
+
     .counter {
       cursor: pointer;
 

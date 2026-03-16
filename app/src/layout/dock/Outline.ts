@@ -94,7 +94,7 @@ export class Outline extends Model {
         this.isPreview = options.isPreview;
         this.blockId = options.blockId;
         this.type = options.type;
-        options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__outline");
+        options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__outline", "dockPanel");
         options.tab.panelElement.innerHTML = `<div class="block__icons fn__hidescrollbar">
     <div class="block__logo">
         <svg class="block__logoicon"><use xlink:href="#iconAlignCenter"></use></svg>${window.siyuan.languages.outline}
@@ -566,12 +566,16 @@ export class Outline extends Model {
         if (!nodeElement) {
             return;
         }
-        if (nodeElement.getAttribute("data-type") === "NodeHeading") {
+        if (nodeElement.getAttribute("data-type") === "NodeHeading" &&
+            !hasClosestByClassName(nodeElement, "bq") &&
+            !hasClosestByClassName(nodeElement, "callout-content")) {
             this.setCurrentById(nodeElement.getAttribute("data-node-id"));
         } else {
             let previousElement = getPreviousBlock(nodeElement);
             while (previousElement) {
-                if (previousElement.getAttribute("data-type") === "NodeHeading") {
+                if (previousElement.getAttribute("data-type") === "NodeHeading" &&
+                    !hasClosestByClassName(previousElement, "bq") &&
+                    !hasClosestByClassName(previousElement, "callout-content")) {
                     break;
                 } else {
                     previousElement = getPreviousBlock(previousElement);

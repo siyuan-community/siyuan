@@ -132,7 +132,7 @@ func BatchSetBlockAttrs(blockAttrs []map[string]interface{}) (err error) {
 		}
 
 		cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
-		pushBroadcastAttrTransactions(oldAttrs, node)
+		pushBlockAttrs(oldAttrs, node)
 		nodes = append(nodes, node)
 	}
 
@@ -181,7 +181,7 @@ func setNodeAttrs(node *ast.Node, tree *parse.Tree, nameValues map[string]string
 	IncSync()
 	cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
 
-	pushBroadcastAttrTransactions(oldAttrs, node)
+	pushBlockAttrs(oldAttrs, node)
 
 	go func() {
 		sql.FlushQueue()
@@ -200,7 +200,7 @@ func setNodeAttrsWithTx(tx *Transaction, node *ast.Node, tree *parse.Tree, nameV
 
 	IncSync()
 	cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
-	pushBroadcastAttrTransactions(oldAttrs, node)
+	pushBlockAttrs(oldAttrs, node)
 	return
 }
 
@@ -223,7 +223,6 @@ func setNodeAttrs0(node *ast.Node, nameValues map[string]string) (oldAttrs map[s
 			var tags []string
 			tmp := strings.Split(value, ",")
 			for _, t := range tmp {
-				t = util.RemoveInvalid(t)
 				t = strings.TrimSpace(t)
 				if "" != t {
 					tags = append(tags, t)
@@ -264,22 +263,13 @@ func setNodeAttrs0(node *ast.Node, nameValues map[string]string) (oldAttrs map[s
 	return
 }
 
-func pushBroadcastAttrTransactions(oldAttrs map[string]string, node *ast.Node) {
-	newAttrs := parse.IAL2Map(node.KramdownIAL)
-	data := map[string]interface{}{"old": oldAttrs, "new": newAttrs}
-	if "" != node.AttributeViewType {
-		data["data-av-type"] = node.AttributeViewType
-	}
-	doOp := &Operation{Action: "updateAttrs", Data: data, ID: node.ID}
-	evt := util.NewCmdResult("transactions", 0, util.PushModeBroadcast)
-	evt.Data = []*Transaction{{
-		DoOperations:   []*Operation{doOp},
-		UndoOperations: []*Operation{},
-	}}
-	util.PushEvent(evt)
-}
-
 func ResetBlockAttrs(id string, nameValues map[string]string) (err error) {
+	if util.ReadOnly {
+		return
+	}
+
+	FlushTxQueue()
+
 	tree, err := LoadTreeByBlockID(id)
 	if err != nil {
 		return err
@@ -290,30 +280,27 @@ func ResetBlockAttrs(id string, nameValues map[string]string) (err error) {
 		return errors.New(fmt.Sprintf(Conf.Language(15), id))
 	}
 
-	for name := range nameValues {
-		if !isValidAttrName(name) {
-			return errors.New(Conf.Language(25) + " [" + id + "]")
-		}
-	}
-
+	oldAttrs := parse.IAL2Map(node.KramdownIAL)
 	node.ClearIALAttrs()
-	for name, value := range nameValues {
-		if "" != value {
-			node.SetIALAttr(name, value)
-		}
-	}
 
-	if ast.NodeDocument == node.Type {
-		// 修改命名文档块后引用动态锚文本未跟随 https://github.com/siyuan-note/siyuan/issues/6398
-		// 使用重命名文档队列来刷新引用锚文本
-		updateRefTextRenameDoc(tree)
+	_, err = setNodeAttrs0(node, nameValues)
+	if err != nil {
+		return
 	}
 
 	if err = indexWriteTreeUpsertQueue(tree); err != nil {
 		return
 	}
+
 	IncSync()
-	cache.RemoveBlockIAL(id)
+	cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
+
+	pushBlockAttrs(oldAttrs, node)
+
+	go func() {
+		sql.FlushQueue()
+		refreshDynamicRefText(node, tree)
+	}()
 	return
 }
 
@@ -360,4 +347,19 @@ func validateChars(name string, startIdx, n int) bool {
 		}
 	}
 	return true
+}
+
+func pushBlockAttrs(oldAttrs map[string]string, node *ast.Node) {
+	newAttrs := parse.IAL2Map(node.KramdownIAL)
+	data := map[string]interface{}{"old": oldAttrs, "new": newAttrs}
+	if "" != node.AttributeViewType {
+		data["data-av-type"] = node.AttributeViewType
+	}
+	doOp := &Operation{Action: "updateAttrs", Data: data, ID: node.ID, RootID: treenode.TreeRoot(node).ID}
+	evt := util.NewCmdResult("transactions", 0, util.PushModeBroadcast)
+	evt.Data = []*Transaction{{
+		DoOperations:   []*Operation{doOp},
+		UndoOperations: []*Operation{},
+	}}
+	util.PushEvent(evt)
 }

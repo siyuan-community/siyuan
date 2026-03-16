@@ -36,7 +36,8 @@ import {setStorageVal} from "../protyle/util/compatibility";
 
 export const setPanelFocus = (element: Element, isSaveLayout = true) => {
     if (element.getAttribute("data-type") === "wnd") {
-        setTitle(element.querySelector('.layout-tab-bar .item--focus[data-type="tab-header"] .item__text')?.textContent || window.siyuan.languages.siyuanNote);
+        const title = element.querySelector('.layout-tab-bar .item--focus[data-type="tab-header"] .item__text')?.textContent || "";
+        setTitle(title, title ? false : true);
     }
     if (element.classList.contains("layout__tab--active") || element.classList.contains("layout__wnd--active")) {
         return;
@@ -274,7 +275,11 @@ export const getAllLayout = () => {
 };
 
 const initInternalDock = (dockItem: Config.IUILayoutDockTab[]) => {
-    dockItem.forEach((existSubItem) => {
+    dockItem.forEach((existSubItem, index) => {
+        if (window.siyuan.isPublish && existSubItem.type === "inbox") {
+            dockItem.splice(index, 1);
+            return;
+        }
         if (existSubItem.hotkeyLangId) {
             existSubItem.title = window.siyuan.languages[existSubItem.hotkeyLangId];
             existSubItem.hotkey = window.siyuan.config.keymap.general[existSubItem.hotkeyLangId].custom;

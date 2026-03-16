@@ -7,7 +7,14 @@ import {getOpenNotebookCount, originalPath, pathPosix, useShell} from "../util/p
 import {fetchNewDailyNote, mountHelp, newDailyNote} from "../util/mount";
 import {fetchPost} from "../util/fetch";
 import {Constants} from "../constants";
-import {isInAndroid, isInHarmony, isInIOS, isIPad, setStorageVal, writeText} from "../protyle/util/compatibility";
+import {
+    isInAndroid,
+    isInHarmony,
+    isInMobileApp,
+    isIPad,
+    setStorageVal,
+    writeText
+} from "../protyle/util/compatibility";
 import {openCard} from "../card/openCard";
 import {openSetting} from "../config";
 import {getAllDocks} from "../layout/getAll";
@@ -17,7 +24,7 @@ import {exitSiYuan, lockScreen} from "../dialog/processSystem";
 import {showMessage} from "../dialog/message";
 import {unicode2Emoji} from "../emoji";
 import {Dock} from "../layout/dock";
-import {escapeHtml} from "../util/escape";
+import {escapeAttr, escapeHtml} from "../util/escape";
 import {viewCards} from "../card/viewCards";
 import {Dialog} from "../dialog";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
@@ -318,7 +325,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                 });
             });
             /// #endif
-            if (!isBrowser() || isInIOS() || isInAndroid() || isInHarmony()) {
+            if (!isBrowser() || isInMobileApp()) {
                 window.siyuan.menus.menu.append(new MenuItem({
                     id: "workspaceList",
                     label: window.siyuan.languages.workspaceList,
@@ -342,15 +349,15 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                 iconHTML: "",
                 type: "empty",
                 label: `<input class="b3-text-field fn__block" style="margin: 4px 0" placeholder="${window.siyuan.languages.search}">
-<div class="b3-list b3-list--background" style="max-width: 50vw"></div>`,
+<div class="b3-list b3-list--background" style="width: 220px"></div>`,
                 bind(menuElement) {
-                    const genListHTML = () => {
+                    const genListHTML = (isInit = false) => {
                         let html = "";
                         window.siyuan.storage[Constants.LOCAL_LAYOUTS].sort((a: ISaveLayout, b: ISaveLayout) => {
                             return a.name.localeCompare(b.name, undefined, {numeric: true});
                         }).forEach((item: ISaveLayout) => {
                             if (inputElement.value === "" || item.name.toLowerCase().indexOf(inputElement.value.toLowerCase()) > -1) {
-                                html += `<div data-name="${item.name}" class="b3-list-item b3-list-item--narrow b3-list-item--hide-action ${html ? "" : "b3-list-item--focus"}">
+                                html += `<div data-name="${item.name}" class="b3-list-item b3-list-item--narrow b3-list-item--hide-action${!isInit && !html ? " b3-list-item--focus" : ""} ariaLabel" data-position="8east" aria-label="${escapeAttr(item.name)}" >
     <div class="b3-list-item__text">${item.name}</div>
     <span class="b3-list-item__meta">${item.time ? dayjs(item.time).format("YYYY-MM-DD HH:mm") : ""}</span>
     <span class="b3-list-item__action">
@@ -363,14 +370,22 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                     };
                     const inputElement = menuElement.querySelector(".b3-text-field") as HTMLInputElement;
                     const listElement = menuElement.querySelector(".b3-list");
+                    inputElement.addEventListener("focus", () => {
+                        if (!menuElement.querySelector(".b3-list-item--focus")) {
+                            menuElement.querySelector(".b3-list-item")?.classList.add("b3-list-item--focus");
+                        }
+                    });
+                    inputElement.addEventListener("blur", () => {
+                        menuElement.querySelector(".b3-list-item--focus")?.classList.remove("b3-list-item--focus");
+                    });
                     inputElement.addEventListener("keydown", (event) => {
                         event.stopPropagation();
                         if (event.isComposing) {
                             return;
                         }
                         upDownHint(listElement, event);
-                        if (event.key === "Escape") {
-                            window.siyuan.menus.menu.remove();
+                        if (event.key === "Escape" || (event.key === "ArrowLeft" && inputElement.value === "")) {
+                            window.siyuan.menus.menu.remove(true);
                         } else if (event.key === "Enter") {
                             const currentElement = listElement.querySelector(".b3-list-item--focus");
                             if (currentElement) {
@@ -425,7 +440,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                             event.stopPropagation();
                         }
                     });
-                    listElement.innerHTML = genListHTML();
+                    listElement.innerHTML = genListHTML(true);
                 }
             });
         }

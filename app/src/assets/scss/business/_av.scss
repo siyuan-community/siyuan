@@ -97,6 +97,15 @@
 
     .b3-text-field {
       transition: var(--b3-width-transition);
+      outline: none;
+      white-space: nowrap;
+      overflow: auto;
+      padding-right: 0;
+      font-size: 1em;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
     }
   }
 
