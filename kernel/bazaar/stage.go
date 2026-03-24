@@ -18,10 +18,12 @@ package bazaar
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
+	"io"
 	"sync"
 	"time"
 
+	"github.com/google/go-github/v84/github"
 	gcache "github.com/patrickmn/go-cache"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/httpclient"
@@ -125,7 +127,13 @@ func isBazaarOnline() bool {
 
 func isBazaarOnline0() (ret bool) {
 	// Improve marketplace loading when offline https://github.com/siyuan-note/siyuan/issues/12050
-	ret = util.IsOnline(util.BazaarOSSServer+"/204", true, 3000)
+	// ret = util.IsOnline(util.BazaarOSSServer+"/204", true, 3000)
+
+	_, _, err := githubClient.Repositories.Get(githubContext, "siyuan-note", "bazaar")
+	if err == nil {
+		ret = true
+	}
+
 	if !ret {
 		util.PushErrMsg(util.Langs[util.Lang][24], 5000)
 	}
@@ -156,17 +164,28 @@ func getStageIndex(ctx context.Context, pkgType string) (ret *StageIndex, err er
 
 	bazaarHash := rhyRet["bazaar"].(string)
 	ret = &StageIndex{}
-	request := httpclient.NewBrowserRequest()
-	u := util.BazaarOSSServer + "/bazaar@" + bazaarHash + "/stage/" + pkgType + ".json" // pkgType 单词为复数形式
-	resp, reqErr := request.SetContext(ctx).SetSuccessResult(ret).Get(u)
+
+	// 使用 githubClient 获取 stage 索引文件内容
+	reader, _, reqErr := githubClient.Repositories.DownloadContents(githubContext, "siyuan-note", "bazaar", "stage/"+pkgType+".json", &github.RepositoryContentGetOptions{
+		Ref: bazaarHash,
+	})
 	if nil != reqErr {
-		logging.LogErrorf("get community stage index [%s] failed: %s", u, reqErr)
+		logging.LogErrorf("get community stage index [stage/%s.json] failed: %s", pkgType, reqErr)
 		err = reqErr
 		return
 	}
-	if 200 != resp.StatusCode {
-		logging.LogErrorf("get community stage index [%s] failed: %d", u, resp.StatusCode)
-		err = errors.New("get stage index failed")
+	defer reader.Close()
+
+	data, readErr := io.ReadAll(reader)
+	if nil != readErr {
+		logging.LogErrorf("read community stage index [stage/%s.json] failed: %s", pkgType, readErr)
+		err = readErr
+		return
+	}
+
+	if jsonErr := json.Unmarshal(data, ret); nil != jsonErr {
+		logging.LogErrorf("parse community stage index [stage/%s.json] failed: %s", pkgType, jsonErr)
+		err = jsonErr
 		return
 	}
 

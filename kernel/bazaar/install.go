@@ -38,24 +38,53 @@ var downloadPackageFlight singleflight.Group
 
 // downloadBazaarFile 下载集市文件
 func downloadBazaarFile(repoURLHash string, pushProgress bool) (data []byte, err error) {
-	repoURLHashTrimmed := strings.TrimPrefix(repoURLHash, "https://github.com/")
 	v, err, _ := downloadPackageFlight.Do(repoURLHash, func() (interface{}, error) {
-		// repoURLHash: https://github.com/88250/Comfortably-Numb@6286912c381ef3f83e455d06ba4d369c498238dc 或带路径 /README.md
+		// repoURLHash: https://github.com/owner/repo@hash 或带路径 /README.md
 		repoURL := repoURLHash[:strings.LastIndex(repoURLHash, "@")]
-		u := util.BazaarOSSServer + "/package/" + repoURLHashTrimmed
+
+		// 解析仓库信息
+		info := strings.FieldsFunc(repoURLHash[len("https://github.com/"):strings.LastIndex(repoURLHash, "@")], func(r rune) bool {
+			return r == '/'
+		})
+		if len(info) < 2 {
+			return nil, errors.New("invalid repo URL: " + repoURL)
+		}
+		owner := info[0]
+		repo := info[1]
+
+		// 获取最新 release
+		release, _, releaseErr := githubClient.Repositories.GetLatestRelease(githubContext, owner, repo)
+		if releaseErr != nil {
+			logging.LogErrorf("get latest release for [%s/%s] failed: %s", owner, repo, releaseErr)
+			return nil, errors.New("get latest release failed: " + releaseErr.Error())
+		}
+
+		// 查找 package.zip 资源并获取其下载 URL
+		var downloadURL string
+		for _, asset := range release.Assets {
+			if asset.GetName() == "package.zip" {
+				downloadURL = asset.GetBrowserDownloadURL()
+				break
+			}
+		}
+		if downloadURL == "" {
+			logging.LogErrorf("latest release of [%s/%s] does not contain package.zip", owner, repo)
+			return nil, errors.New("latest release does not contain package.zip")
+		}
+
 		buf := &bytes.Buffer{}
 		resp, err := httpclient.NewCloudFileRequest2m().SetOutput(buf).SetDownloadCallback(func(info req.DownloadInfo) {
 			if pushProgress {
 				progress := float32(info.DownloadedSize) / float32(info.Response.ContentLength)
 				util.PushDownloadProgress(repoURL, progress)
 			}
-		}).Get(u)
+		}).Get(downloadURL)
 		if err != nil {
-			logging.LogErrorf("get bazaar package [%s] failed: %s", u, err)
+			logging.LogErrorf("get bazaar package [%s] failed: %s", downloadURL, err)
 			return nil, errors.New("get bazaar package failed, please check your network")
 		}
 		if 200 != resp.StatusCode {
-			logging.LogErrorf("get bazaar package [%s] failed: %d", u, resp.StatusCode)
+			logging.LogErrorf("get bazaar package [%s] failed: %d", downloadURL, resp.StatusCode)
 			return nil, errors.New("get bazaar package failed: " + resp.Status)
 		}
 		data := buf.Bytes()

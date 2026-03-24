@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-github/v84/github"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
+	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
 )
 
@@ -112,14 +113,19 @@ type StageIndex struct {
 
 var (
 	githubContext = context.Background()
-	githubClient  = github.NewClientWithEnvProxy()
+	githubClient  = newGithubClient()
 )
+
+func newGithubClient() *github.Client {
+	// return github.NewClient(&http.Client{Transport: &http.Transport{Proxy: httpclient.ProxyFromEnvironment}})
+	return github.NewClient(httpclient.GetCloudFileClient2Min())
+}
 
 func InitGitHubClient(token string) {
 	if token == "" {
-		githubClient = github.NewClientWithEnvProxy()
+		githubClient = newGithubClient()
 	} else {
-		githubClient = github.NewTokenClient(nil, token)
+		githubClient = newGithubClient().WithAuthToken(token)
 	}
 }
 
