@@ -27,10 +27,10 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/imroc/req/v3"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"golang.org/x/sync/singleflight"
 )
 

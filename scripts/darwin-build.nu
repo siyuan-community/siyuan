@@ -16,22 +16,23 @@ def main [
         exit 1
     }
 
+    let PROJECT_ROOT: string = ($env.FILE_PWD | path dirname)
+
+
     # fnm use 24
-
-    print 'Building UI'
-    cd app
-    pnpm install
-    pnpm run build
-
-    cd ..
 
     print 'Cleaning Builds'
     rm -rf app/build
     rm -rf app/kernel-darwin
     rm -rf app/kernel-darwin-arm64
 
+    print 'Building UI'
+    cd ($PROJECT_ROOT | path join 'app')
+    pnpm install
+    pnpm run build
+
     print 'Building Kernel'
-    cd kernel
+    cd ($PROJECT_ROOT | path join 'kernel')
     go version
 
     $env.GO111MODULE = 'on'
@@ -57,9 +58,7 @@ def main [
         go build --tags fts5 -v -o "../app/kernel-darwin-arm64/SiYuan-Kernel" -ldflags "-s -w" .
     }
 
-    cd ..
-
-    cd app
+    cd ($PROJECT_ROOT | path join 'app')
 
     if $target == 'amd64' or $target == 'all' {
         print 'Building Electron App amd64'
@@ -71,7 +70,11 @@ def main [
         pnpm run dist-darwin-arm64
     }
 
-    cd ..
+    print '=============================='
+    print '      Build successful!'
+    print '=============================='
+
+    cd $PROJECT_ROOT
 
     # fnm use 20
 }

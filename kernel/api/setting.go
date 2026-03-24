@@ -23,8 +23,6 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-community/siyuan/kernel/bazaar"
-	"github.com/siyuan-community/siyuan/kernel/bazaar"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/server/proxy"

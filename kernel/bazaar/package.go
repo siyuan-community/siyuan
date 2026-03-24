@@ -17,6 +17,7 @@
 package bazaar
 
 import (
+	"context"
 	"html"
 	"os"
 	"path"
@@ -24,9 +25,10 @@ import (
 	"sync"
 
 	"github.com/88250/gulu"
+	"github.com/google/go-github/v84/github"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 // LocaleStrings 表示按语种 key 的字符串表，key 为语种如 "default"、"en_US"、"zh_CN" 等
@@ -106,6 +108,19 @@ type StageIndex struct {
 
 	reposByURL map[string]*StageRepo // 不序列化，首次按 URL 查找时懒构建，随整份索引一起过期
 	reposOnce  sync.Once
+}
+
+var (
+	githubContext = context.Background()
+	githubClient  = github.NewClientWithEnvProxy()
+)
+
+func InitGitHubClient(token string) {
+	if token == "" {
+		githubClient = github.NewClientWithEnvProxy()
+	} else {
+		githubClient = github.NewTokenClient(nil, token)
+	}
 }
 
 // ParsePackageJSON 解析集市包 JSON 文件

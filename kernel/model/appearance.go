@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
-	"github.com/fsnotify/fsnotify"
 	"github.com/siyuan-community/siyuan/kernel/bazaar"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/util"

@@ -22,7 +22,7 @@ import (
 
 	"github.com/88250/go-humanize"
 	"github.com/araddon/dateparse"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // GetBazaarPackages 返回指定类型的在线集市包列表（plugins 类型需要传递 frontend 参数）。

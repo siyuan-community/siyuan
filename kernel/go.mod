@@ -38,8 +38,8 @@ require (
 	github.com/go-ole/go-ole v1.3.0
 	github.com/gofrs/flock v0.13.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/google/go-github/v53 v53.2.0
 	github.com/gonutz/w32/v2 v2.12.1
+	github.com/google/go-github/v84 v84.0.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/css v1.0.1
 	github.com/gorilla/websocket v1.5.3
@@ -96,7 +96,6 @@ require (
 	github.com/JalfResi/justext v0.0.0-20221106200834-be571e3e3052 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
-	github.com/ProtonMail/go-crypto v0.0.0-20230217124315-7d5c6f04bbb8 // indirect
 	github.com/advancedlogic/GoOse v0.0.0-20231203033844-ae6b36caf275 // indirect
 	github.com/alecthomas/chroma v0.10.0 // indirect
 	github.com/alex-ant/gomath v0.0.0-20160516115720-89013a210a82 // indirect
@@ -126,7 +125,6 @@ require (
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
-	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dsnet/compress v0.0.1 // indirect
@@ -142,9 +140,7 @@ require (
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/google/pprof v0.0.0-20250607225305-033d6d78b36a // indirect
 	github.com/gopherjs/gopherjs v1.20.1 // indirect
 	github.com/gorilla/context v1.1.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect

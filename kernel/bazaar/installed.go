@@ -25,9 +25,9 @@ import (
 	"github.com/88250/go-humanize"
 	"github.com/88250/gulu"
 	gcache "github.com/patrickmn/go-cache"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"golang.org/x/mod/semver"
 	"golang.org/x/sync/singleflight"
 )

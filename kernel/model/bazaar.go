@@ -27,10 +27,10 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/emirpasic/gods/sets/hashset"
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/task"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
-	"github.com/siyuan-note/siyuan/kernel/task"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"golang.org/x/mod/semver"
 	"golang.org/x/sync/singleflight"
 )

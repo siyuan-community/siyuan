@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 )
 
