@@ -17,12 +17,12 @@
 package bazaar
 
 import (
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/88250/go-humanize"
 	"github.com/araddon/dateparse"
-	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // GetBazaarPackages 返回指定类型的在线集市包列表（plugins 类型需要传递 frontend 参数）。
@@ -52,16 +52,23 @@ func buildBazaarPackageWithMetadata(repo *StageRepo, bazaarStats map[string]*baz
 
 	pkg := *repo.Package
 	pkg.URL = strings.TrimSuffix(pkg.URL, "/")
-	repoURLHash := strings.Split(repo.URL, "@")
-	if 2 != len(repoURLHash) {
+	repoOwner, repoName, repoHash, innerErr := parseRepoInfo(repo.URL)
+	if innerErr != nil {
 		return nil
 	}
-	pkg.RepoURL = "https://github.com/" + repoURLHash[0]
-	pkg.RepoHash = repoURLHash[1]
+
+	repoPath := repoOwner + "/" + repoName
+	repoURL := "https://github.com/" + repoPath + "/raw/" + repoHash
+
+	pkg.RepoURL = "https://github.com/" + repoPath
+	pkg.RepoHash = repoHash
 
 	// 展示信息
-	pkg.IconURL = util.BazaarOSSServer + "/package/" + repo.URL + "/icon.png"
-	pkg.PreviewURL = util.BazaarOSSServer + "/package/" + repo.URL + "/preview.png?imageslim"
+	// pkg.IconURL = util.BazaarOSSServer + "/package/" + repo.URL + "/icon.png"
+	pkg.IconURL = repoURL + "/icon.png"
+	// pkg.PreviewURL = util.BazaarOSSServer + "/package/" + repo.URL + "/preview.png?imageslim"
+	pkg.PreviewURL = repoURL + "/preview.png"
+
 	pkg.PreferredName = GetPreferredLocaleString(pkg.DisplayName, pkg.Name)
 	pkg.PreferredDesc = GetPreferredLocaleString(pkg.Description, "")
 	pkg.PreferredFunding = getPreferredFunding(pkg.Funding)
@@ -85,7 +92,7 @@ func buildBazaarPackageWithMetadata(repo *StageRepo, bazaarStats map[string]*baz
 	pkg.HSize = humanize.BytesCustomCeil(uint64(pkg.Size), 2)
 	pkg.InstallSize = repo.InstallSize
 	pkg.HInstallSize = humanize.BytesCustomCeil(uint64(pkg.InstallSize), 2)
-	if stats := bazaarStats[repoURLHash[0]]; nil != stats { // 通过 bazaarStats[owner/repo] 获取单个包的统计数据
+	if stats := bazaarStats[repoPath]; nil != stats { // 通过 bazaarStats[owner/repo] 获取单个包的统计数据
 		pkg.Downloads = stats.Downloads
 	}
 	packageInstallSizeCache.SetDefault(pkg.RepoURL, pkg.InstallSize)
@@ -103,6 +110,32 @@ func formatUpdated(updated string) (ret string) {
 		} else {
 			ret = strings.ReplaceAll(strings.ReplaceAll(updated, "T", ""), "Z", "")
 		}
+	}
+	return
+}
+
+// parseRepoInfo 从仓库 URL 中解析出 owner、repo 和 hash 信息。
+// repoURL 格式: `<repo-owner-name>/<repo-name>@<git-commit-hash>`
+func parseRepoInfo(repoURL string) (
+	owner string,
+	repo string,
+	hash string,
+	err error,
+) {
+	// 获取仓库信息
+	info := strings.FieldsFunc(repoURL, func(r rune) bool {
+		if r == '/' || r == '@' {
+			return true
+		} else {
+			return false
+		}
+	})
+	if len(info) < 3 {
+		err = errors.New("parse repository information failed: " + repoURL)
+	} else {
+		owner = info[0] // 仓库所有者
+		repo = info[1]  // 仓库名称
+		hash = info[2]  // commit hash
 	}
 	return
 }
