@@ -20,12 +20,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/88250/gulu"
+	"github.com/google/go-github/v84/github"
 	"github.com/imroc/req/v3"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
@@ -36,21 +38,15 @@ import (
 
 var downloadPackageFlight singleflight.Group
 
-// downloadBazaarFile 下载集市文件
-func downloadBazaarFile(repoURLHash string, pushProgress bool) (data []byte, err error) {
+// downloadBazaarPackage 下载集市包
+// repoURLHash 格式: https://github.com/owner/repo@hash
+func downloadBazaarPackage(repoURLHash string, pushProgress bool) (data []byte, err error) {
 	v, err, _ := downloadPackageFlight.Do(repoURLHash, func() (interface{}, error) {
-		// repoURLHash: https://github.com/owner/repo@hash 或带路径 /README.md
-		repoURL := repoURLHash[:strings.LastIndex(repoURLHash, "@")]
-
-		// 解析仓库信息
-		info := strings.FieldsFunc(repoURLHash[len("https://github.com/"):strings.LastIndex(repoURLHash, "@")], func(r rune) bool {
-			return r == '/'
-		})
-		if len(info) < 2 {
-			return nil, errors.New("invalid repo URL: " + repoURL)
+		owner, repo, _, err := parseRepoInfo(repoURLHash)
+		if err != nil {
+			return nil, err
 		}
-		owner := info[0]
-		repo := info[1]
+		repoURL := repoURLHash[:strings.LastIndex(repoURLHash, "@")]
 
 		// 获取最新 release
 		release, _, releaseErr := githubClient.Repositories.GetLatestRelease(githubContext, owner, repo)
@@ -96,6 +92,35 @@ func downloadBazaarFile(repoURLHash string, pushProgress bool) (data []byte, err
 	return v.([]byte), nil
 }
 
+// downloadBazaarFile 下载集市包的单个文件，如 /README.md
+// repoURLHash 格式: owner/repo@hash
+func downloadBazaarFile(repoURLHash, filePath string) (data []byte, err error) {
+	owner, repo, hash, err := parseRepoInfo(repoURLHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// 去掉 filePath 前导斜杠
+	filePath = strings.TrimPrefix(filePath, "/")
+
+	// 使用 githubClient 下载文件内容
+	reader, _, err := githubClient.Repositories.DownloadContents(githubContext, owner, repo, filePath, &github.RepositoryContentGetOptions{
+		Ref: hash,
+	})
+	if err != nil {
+		logging.LogErrorf("download file [%s/%s@%s/%s] failed: %s", owner, repo, hash, filePath, err)
+		return nil, err
+	}
+	defer reader.Close()
+
+	data, err = io.ReadAll(reader)
+	if err != nil {
+		logging.LogErrorf("read file content [%s/%s@%s/%s] failed: %s", owner, repo, hash, filePath, err)
+		return nil, err
+	}
+	return data, nil
+}
+
 // incPackageDownloads 增加集市包下载次数
 func incPackageDownloads(repoURL, systemID string) {
 	if "" == systemID {
@@ -113,7 +138,7 @@ func incPackageDownloads(repoURL, systemID string) {
 // InstallPackage 安装集市包
 func InstallPackage(repoURL, repoHash, installPath, systemID, pkgType, packageName string) error {
 	repoURLHash := repoURL + "@" + repoHash
-	data, err := downloadBazaarFile(repoURLHash, true)
+	data, err := downloadBazaarPackage(repoURLHash, true)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-name: Release
+name: Release For SiYuan
 
 on:
   workflow_dispatch:
@@ -8,11 +8,7 @@ on:
 
 # ref https://docs.github.com/zh/actions/learn-github-actions/variables
 env:
-  repo_name_android: "siyuan-android"
-  repo_name: "siyuan"
-  repo_owner: "siyuan-community"
-  repo_name_upstream: "siyuan"
-  repo_owner_upstream: "siyuan-note"
+  repo_upstream: "siyuan-note/siyuan"
   package_json: "app/package.json"
 
 jobs:
@@ -26,10 +22,10 @@ jobs:
       packageManager: ${{ steps.packageManager.outputs.value }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install PyGithub
@@ -66,8 +62,8 @@ jobs:
         run: |
           echo "release_title=$(git show --format=%s --no-patch | head -1)" >> $GITHUB_OUTPUT
           echo "release_version=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
-          changelog_header=$(python scripts/parse-changelog-HEAD.py -t ${{ github.ref }} -b ${{ steps.thisLatestRelease.outputs.release }} -e ${{ steps.electronVersion.outputs.value }} ${{ env.repo_owner }}/${{ env.repo_name }})
-          changelog=$(python scripts/parse-changelog.py -t ${{ github.ref }} ${{ env.repo_owner_upstream }}/${{ env.repo_name_upstream }})
+          changelog_header=$(python scripts/parse-changelog-HEAD.py -t ${{ github.ref }} -b ${{ steps.thisLatestRelease.outputs.release }} -e ${{ steps.electronVersion.outputs.value }} ${{ github.repository }})
+          changelog=$(python scripts/parse-changelog.py -t ${{ github.ref }} ${{ env.repo_upstream }})
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "release_body<<$EOF" >> $GITHUB_ENV
           echo "$changelog_header" >> $GITHUB_ENV
@@ -143,9 +139,9 @@ jobs:
             suffix: "win.exe"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}
+          path: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}
 
       - name: Set up MingGW
         uses: msys2/setup-msys2@v2
@@ -153,21 +149,16 @@ jobs:
         with:
           install: p7zip mingw-w64-x86_64-lua
 
-      - name: Set up TDM-GCC
-        run: msys2 -c "bash go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/scripts/get-tdm-gcc.sh tdm https://github.com/jmeubank/tdm-gcc/releases/download/v10.3.0-tdm-1/tdm-gcc-10.3.0.exe" && echo "CC=${{ github.workspace }}/tdm/bin/gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        if: "contains( matrix.config.goarch, '386')"
-        working-directory: ${{ github.workspace }}
-
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version-file: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/kernel/go.mod
+          go-version-file: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/kernel/go.mod
       - run: go version
 
       - name: Set up goversioninfo
         run: go get github.com/josephspurrier/goversioninfo/cmd/goversioninfo && go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo
         if: "contains( matrix.config.goos, 'windows')"
-        working-directory: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/kernel
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/kernel
         env:
           GO111MODULE: on
           CGO_ENABLED: 1
@@ -176,55 +167,55 @@ jobs:
           GOARCH: ${{ matrix.config.goarch }}
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
       - name: Install Node pnpm
         run: npm install -g ${{ needs.create_release.outputs.packageManager }}
-        working-directory: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
 
       - name: Install Node Dependencies
         run: pnpm install --no-frozen-lockfile
-        working-directory: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
 
       - name: Building UI
         run: pnpm run build
-        working-directory: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
 
       - name: Remove Build Directory
         uses: JesseTG/rm@v1.0.2
         with:
-          path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app/build
+          path: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app/build
 
       - name: Remove Kernel Directory for Linux
         uses: JesseTG/rm@v1.0.2
         with:
-          path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app/kernel-linux
+          path: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app/kernel-linux
 
       - name: Remove Kernel Directory for Windows
         uses: JesseTG/rm@v1.0.2
         with:
-          path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app/kernel
+          path: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app/kernel
 
       - name: Remove Kernel Directory for macOS
         uses: JesseTG/rm@v1.0.2
         with:
-          path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app/kernel-darwin
+          path: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app/kernel-darwin
 
       - name: Remove Kernel Directory for macOS ARM64
         uses: JesseTG/rm@v1.0.2
         with:
-          path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app/kernel-darwin-arm64
+          path: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app/kernel-darwin-arm64
 
       - name: Generate Icon Resource and Properties/Version Info For Windows
         run: ${{ github.workspace }}\go\${{ matrix.config.gobin }}\goversioninfo -platform-specific=true -icon="resource\icon.ico" -manifest="resource\goversioninfo.exe.manifest"
         if: "contains( matrix.config.goos, 'windows')"
-        working-directory: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/kernel
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/kernel
 
       - name: Building Kernel
-        run: go build --tags fts5 -o "${{ matrix.config.kernel_path }}" -v -ldflags "${{ matrix.config.build_args_prefix }} github.com/${{ env.repo_owner }}/${{ env.repo_name }}/kernel/util.${{ matrix.config.build_args_suffix }}"
-        working-directory: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/kernel
+        run: go build --tags fts5 -o "${{ matrix.config.kernel_path }}" -v -ldflags "${{ matrix.config.build_args_prefix }} github.com/${{ github.repository }}/kernel/util.${{ matrix.config.build_args_suffix }}"
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/kernel
         env:
           GO111MODULE: on
           CGO_ENABLED: 1
@@ -234,7 +225,7 @@ jobs:
 
       - name: Building Electron App
         run: pnpm run ${{ matrix.config.electron_args }}
-        working-directory: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app
+        working-directory: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app
 
       - name: Upload Release
         uses: actions/upload-release-asset@v1
@@ -243,5 +234,5 @@ jobs:
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
           asset_name: siyuan-CE-${{ needs.create_release.outputs.release_version }}-${{ matrix.config.suffix }}
-          asset_path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app/build/siyuan-${{ needs.create_release.outputs.version }}-${{ matrix.config.suffix }}
+          asset_path: ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app/build/siyuan-${{ needs.create_release.outputs.version }}-${{ matrix.config.suffix }}
           asset_content_type: application/octet-stream

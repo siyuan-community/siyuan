@@ -115,15 +115,16 @@ func formatUpdated(updated string) (ret string) {
 }
 
 // parseRepoInfo 从仓库 URL 中解析出 owner、repo 和 hash 信息。
-// repoURL 格式: `<repo-owner-name>/<repo-name>@<git-commit-hash>`
-func parseRepoInfo(repoURL string) (
+// repoURLHash 格式: owner/repo@hash 或者 https://github.com/owner/repo@hash
+func parseRepoInfo(repoURLHash string) (
 	owner string,
 	repo string,
 	hash string,
 	err error,
 ) {
+	repoURLHash = strings.TrimPrefix(repoURLHash, "https://github.com/")
 	// 获取仓库信息
-	info := strings.FieldsFunc(repoURL, func(r rune) bool {
+	info := strings.FieldsFunc(repoURLHash, func(r rune) bool {
 		if r == '/' || r == '@' {
 			return true
 		} else {
@@ -131,7 +132,7 @@ func parseRepoInfo(repoURL string) (
 		}
 	})
 	if len(info) < 3 {
-		err = errors.New("parse repository information failed: " + repoURL)
+		err = errors.New("parse repository information failed: " + repoURLHash)
 	} else {
 		owner = info[0] // 仓库所有者
 		repo = info[1]  // 仓库名称
