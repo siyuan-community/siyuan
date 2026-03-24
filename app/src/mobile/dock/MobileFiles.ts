@@ -62,7 +62,8 @@ export class MobileFiles extends Model {
                                 });
                             });
                             break;
-                        case "unmount":
+                        case "closeBox":
+                        case "removeBox":
                         case "removeDoc":
                             this.onRemove(data);
                             break;
@@ -79,7 +80,7 @@ export class MobileFiles extends Model {
                             this.selectItem(data.data.box.id, data.data.path);
                             break;
                         case "renamenotebook":
-                            this.element.querySelector(`[data-url="${data.data.box}"] .b3-list-item__text`).innerHTML = data.data.name;
+                            this.element.querySelector(`[data-url="${data.data.box}"] .b3-list-item__text`).innerHTML = escapeHtml(data.data.name);
                             break;
                         case "rename":
                             this.onRename(data.data);
@@ -97,7 +98,7 @@ export class MobileFiles extends Model {
     <svg data-type="refresh" class="toolbar__icon"><use xlink:href="#iconRefresh"></use></svg>
     <svg data-type="focus" class="toolbar__icon"><use xlink:href="#iconFocus"></use></svg>
     <svg data-type="collapse" class="toolbar__icon"><use xlink:href="#iconContract"></use></svg>
-    <svg data-type="publish-access" class="toolbar__icon${window.siyuan.config.readonly ? " fn__none" : ""}"><use xlink:href="#iconEye"></use></svg>
+    <svg data-type="publish-access" class="toolbar__icon${window.siyuan.config.readonly || !window.siyuan.config.publish.enable ? " fn__none" : ""}"><use xlink:href="#iconEye"></use></svg>
     <svg data-type="sort" class="toolbar__icon${window.siyuan.config.readonly ? " fn__none" : ""}"><use xlink:href="#iconSort"></use></svg>
 </div>
 <div class="fn__flex-1"></div>
@@ -460,12 +461,12 @@ export class MobileFiles extends Model {
 
     private onRemove(data: IWebSocketData) {
         // "doc2heading" 后删除文件或挂载帮助文档前的 unmount
-        if (data.cmd === "unmount") {
+        if (data.cmd === "closeBox" || data.cmd === "removeBox") {
             setNoteBook((notebooks) => {
                 const targetElement = this.element.querySelector(`ul[data-url="${data.data.box}"] li[data-path="${"/"}"]`);
                 if (targetElement) {
                     targetElement.parentElement.remove();
-                    if (Constants.CB_MOUNT_REMOVE !== data.callback) {
+                    if (data.cmd === "closeBox") {
                         let closeHTML = "";
                         notebooks.find(item => {
                             if (item.closed) {
@@ -479,7 +480,7 @@ export class MobileFiles extends Model {
                     }
                 }
             });
-            if (Constants.CB_MOUNT_REMOVE === data.callback) {
+            if (data.cmd === "removeBox") {
                 const removeElement = this.closeElement.querySelector(`li[data-url="${data.data.box}"]`);
                 if (removeElement) {
                     removeElement.remove();

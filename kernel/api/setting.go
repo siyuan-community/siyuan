@@ -561,6 +561,57 @@ func setAppearance(c *gin.Context) {
 	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
 }
 
+func setTheme(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var theme string
+	var modesRaw []any
+	var appearanceMode string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("theme", false, &theme),
+		util.BindJsonArg("modes", false, &modesRaw),
+		util.BindJsonArg("appearanceMode", false, &appearanceMode),
+	) {
+		return
+	}
+
+	modes := make([]int, 0, 2)
+	if theme != "" {
+		for _, m := range modesRaw {
+			mf, ok := m.(float64)
+			if !ok {
+				break
+			}
+			mi := int(mf)
+			if mi != 0 && mi != 1 {
+				break
+			}
+			modes = append(modes, mi)
+		}
+		if len(modes) == 0 {
+			ret.Code = -1
+			ret.Msg = "[modes] is required ([0] for light, [1] for dark, [0,1] for both)"
+			return
+		}
+	}
+	// 没有 theme 时静默忽略 modes
+
+	if err := model.SetTheme(theme, modes, appearanceMode); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	model.InitAppearance()
+	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
+}
+
 func setPublish(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)

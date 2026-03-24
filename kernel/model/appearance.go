@@ -46,7 +46,7 @@ func InitAppearance() {
 		return
 	}
 
-	loadThemes()
+	LoadThemes()
 	LoadIcons()
 
 	Conf.m.Lock()
@@ -68,6 +68,44 @@ func InitAppearance() {
 	util.InitEmojiChars()
 }
 
+func SetTheme(theme string, modes []int, appearanceMode string) error {
+	Conf.m.Lock()
+	defer Conf.m.Unlock()
+
+	if theme != "" {
+		for _, mode := range modes {
+			switch mode {
+			case 0:
+				if !containTheme(theme, Conf.Appearance.LightThemes) {
+					return fmt.Errorf("theme not exists or not available for light mode: %s", theme)
+				}
+				Conf.Appearance.ThemeLight = theme
+			case 1:
+				if !containTheme(theme, Conf.Appearance.DarkThemes) {
+					return fmt.Errorf("theme not exists or not available for dark mode: %s", theme)
+				}
+				Conf.Appearance.ThemeDark = theme
+			}
+		}
+	}
+
+	if appearanceMode != "" {
+		switch appearanceMode {
+		case "light":
+			Conf.Appearance.ModeOS = false
+			Conf.Appearance.Mode = 0
+		case "dark":
+			Conf.Appearance.ModeOS = false
+			Conf.Appearance.Mode = 1
+		case "system":
+			Conf.Appearance.ModeOS = true
+		default:
+			return fmt.Errorf("invalid appearance mode: %s", appearanceMode)
+		}
+	}
+	return nil
+}
+
 func containTheme(name string, themes []*conf.AppearanceTheme) bool {
 	for _, t := range themes {
 		if t.Name == name {
@@ -77,7 +115,7 @@ func containTheme(name string, themes []*conf.AppearanceTheme) bool {
 	return false
 }
 
-func loadThemes() {
+func LoadThemes() {
 	themeDirs, err := os.ReadDir(util.ThemesPath)
 	if err != nil {
 		logging.LogErrorf("read appearance themes folder failed: %s", err)

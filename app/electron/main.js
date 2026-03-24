@@ -539,23 +539,6 @@ const initMainWindow = () => {
         currentWindow.webContents.openDevTools({ mode: "bottom" });
     }
 
-    // 主界面事件监听
-    currentWindow.once("ready-to-show", () => {
-        if (isOpenAsHidden()) {
-            currentWindow.minimize();
-        } else {
-            currentWindow.show();
-            if (windowState.isMaximized) {
-                currentWindow.maximize();
-            } else {
-                currentWindow.unmaximize();
-            }
-        }
-        if (bootWindow && !bootWindow.isDestroyed()) {
-            bootWindow.destroy();
-        }
-    });
-
     // 菜单
     const productName = "SiYuan";
     const template = [{
@@ -586,6 +569,21 @@ const initMainWindow = () => {
     });
     workspaces.push({
         browserWindow: currentWindow,
+    });
+    ipcMain.once("siyuan-ready-to-show", () => {
+        if (isOpenAsHidden()) {
+            currentWindow.minimize();
+        } else {
+            currentWindow.show();
+            if (windowState.isMaximized) {
+                currentWindow.maximize();
+            } else {
+                currentWindow.unmaximize();
+            }
+        }
+        if (bootWindow && !bootWindow.isDestroyed()) {
+            bootWindow.destroy();
+        }
     });
 };
 
@@ -1370,7 +1368,6 @@ app.whenReady().then(() => {
             args: data.openAsHidden ? ["--openAsHidden"] : ""
         });
     });
-
     if (firstOpen) {
         const firstOpenWindow = new BrowserWindow({
             width: Math.floor(screen.getPrimaryDisplay().size.width * 0.6),
@@ -1620,7 +1617,6 @@ app.on("before-quit", (event) => {
         }
     });
 });
-
 
 function writeLog(out) {
     console.log(out);

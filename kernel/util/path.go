@@ -19,6 +19,7 @@ package util
 import (
 	"bytes"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -28,7 +29,6 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
-	"github.com/gabriel-vasile/mimetype"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 )
@@ -240,7 +240,7 @@ func FilterSelfChildDocs(paths []string) (ret []string) {
 	for _, fromPath := range paths {
 		dir := strings.TrimSuffix(fromPath, ".sy")
 		existParent := false
-		for d, _ := range dirs {
+		for d := range dirs {
 			if strings.HasPrefix(fromPath, d) {
 				existParent = true
 				break
@@ -253,6 +253,27 @@ func FilterSelfChildDocs(paths []string) (ret []string) {
 		ret = append(ret, fromPath)
 	}
 	return
+}
+
+// FileURLToLocalPath 将 file:// URL 转为本地文件路径。
+func FileURLToLocalPath(fileURL string) string {
+	if len(fileURL) < 7 || strings.ToLower(fileURL[:7]) != "file://" {
+		return ""
+	}
+	p := fileURL[7:]
+	if gulu.OS.IsWindows() && strings.Contains(p, ":") {
+		// Windows 支持 file:// 后跟多个斜杠 https://github.com/siyuan-note/siyuan/issues/11885
+		p = strings.TrimLeft(p, "/")
+	}
+	if strings.Contains(p, "?") {
+		// 去除查询参数 https://github.com/siyuan-note/siyuan/issues/13600
+		p = p[:strings.Index(p, "?")]
+	}
+	if unescaped, err := url.PathUnescape(p); err == nil && unescaped != p {
+		// `Convert network images/assets to local` supports URL-encoded local file names https://github.com/siyuan-note/siyuan/issues/9929
+		p = unescaped
+	}
+	return p
 }
 
 func IsAssetLinkDest(dest []byte, includeServePath bool) bool {
@@ -269,25 +290,35 @@ var (
 	SiYuanAssetsVideo = []string{".mov", ".weba", ".mkv", ".mp4", ".webm"}
 )
 
-func IsAssetsImage(assetPath string) bool {
+// IsPossiblyImage 模糊判断指定文件链接是否可能是图片。
+func IsPossiblyImage(assetPath string) bool {
 	ext := strings.ToLower(filepath.Ext(assetPath))
-	if "" == ext {
-		absPath := filepath.Join(DataDir, assetPath)
-		f, err := filelock.OpenFile(absPath, os.O_RDONLY, 0644)
-		if err != nil {
-			logging.LogErrorf("open file [%s] failed: %s", absPath, err)
-			return false
-		}
-		defer filelock.CloseFile(f)
-		m, err := mimetype.DetectReader(f)
-		if nil != err {
-			logging.LogWarnf("detect file [%s] mimetype failed: %v", absPath, err)
-			return false
-		}
-
-		ext = m.Extension()
+	if "" != ext {
+		return gulu.Str.Contains(ext, SiYuanAssetsImage)
 	}
-	return gulu.Str.Contains(ext, SiYuanAssetsImage)
+
+	if strings.HasPrefix(assetPath, "https://") || strings.HasPrefix(assetPath, "http://") {
+		// 网络图片链接不一定有扩展名
+		return true
+	}
+
+	if filePath := FileURLToLocalPath(assetPath); filePath != "" {
+		m, ok := GetMimeTypeByPath(filePath)
+		if !ok {
+			return false
+		}
+		return gulu.Str.Contains(m.Extension(), SiYuanAssetsImage)
+	}
+
+	if IsAssetLinkDest([]byte(assetPath), true) {
+		filePath := filepath.Join(DataDir, assetPath)
+		m, ok := GetMimeTypeByPath(filePath)
+		if !ok {
+			return false
+		}
+		return gulu.Str.Contains(m.Extension(), SiYuanAssetsImage)
+	}
+	return false
 }
 
 func IsDisplayableAsset(p string) bool {
@@ -358,18 +389,27 @@ func IsSensitivePath(p string) bool {
 	if p == "" {
 		return false
 	}
-	pp := filepath.Clean(strings.ToLower(p))
+	toCheckPathLower := filepath.Clean(strings.ToLower(p))
+	toCheckNameLower := filepath.Base(toCheckPathLower)
 
 	// 敏感目录前缀（UNIX 风格）
 	prefixes := []string{
-		"/etc/ssh",
-		"/root",
-		"/etc",
-		"/var/lib/",
 		"/.",
+		"/etc",
+		"/root",
+		"/var",
+		"/proc",
+		"/sys",
+		"/run",
+		"/bin",
+		"/boot",
+		"/dev",
+		"/lib",
+		"/srv",
+		"/tmp",
 	}
 	for _, pre := range prefixes {
-		if strings.HasPrefix(pp, pre) {
+		if strings.HasPrefix(toCheckPathLower, pre) {
 			return true
 		}
 	}
@@ -380,7 +420,7 @@ func IsSensitivePath(p string) bool {
 		`c:\windows\system`,
 	}
 	for _, wp := range winPrefixes {
-		if strings.HasPrefix(pp, strings.ToLower(wp)) {
+		if strings.HasPrefix(toCheckPathLower, strings.ToLower(wp)) {
 			return true
 		}
 	}
@@ -391,17 +431,18 @@ func IsSensitivePath(p string) bool {
 		strings.ToLower(filepath.Join(os.Getenv("ProgramData"), "Microsoft", "Windows", "Start Menu")),
 	}
 	for _, sp := range startMenuPrefixes {
-		if strings.HasPrefix(pp, sp) {
+		if strings.HasPrefix(toCheckPathLower, sp) {
 			return true
 		}
 	}
 
 	// 工作空间/conf 目录（小写比较）
 	workspaceConfPrefix := strings.ToLower(filepath.Join(WorkspaceDir, "conf"))
-	if strings.HasPrefix(pp, workspaceConfPrefix) {
+	if strings.HasPrefix(toCheckPathLower, workspaceConfPrefix) {
 		return true
 	}
 
+	// 用户家目录下的敏感目录（小写比较）
 	homePrefixes := []string{
 		strings.ToLower(filepath.Join(HomeDir, ".ssh")),
 		strings.ToLower(filepath.Join(HomeDir, ".config")),
@@ -410,7 +451,18 @@ func IsSensitivePath(p string) bool {
 		strings.ToLower(filepath.Join(HomeDir, ".profile")),
 	}
 	for _, hp := range homePrefixes {
-		if strings.HasPrefix(pp, hp) {
+		if strings.HasPrefix(toCheckPathLower, hp) {
+			return true
+		}
+	}
+
+	// 特定的文件名（小写比较）
+	namePrefixes := []string{
+		strings.ToLower("credentials"),
+		strings.ToLower("id_"),
+	}
+	for _, np := range namePrefixes {
+		if strings.HasPrefix(toCheckNameLower, np) {
 			return true
 		}
 	}

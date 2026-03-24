@@ -111,10 +111,6 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
                     action: "addFlashcards",
                     deckID: Constants.QUICK_DECK_ID,
                     blockIDs,
-                }], [{
-                    action: "removeFlashcards",
-                    deckID: Constants.QUICK_DECK_ID,
-                    blockIDs,
                 }]);
             }
         }, {
@@ -124,10 +120,6 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
             click: () => {
                 transaction(undefined, [{
                     action: "removeFlashcards",
-                    deckID: Constants.QUICK_DECK_ID,
-                    blockIDs,
-                }], [{
-                    action: "addFlashcards",
                     deckID: Constants.QUICK_DECK_ID,
                     blockIDs,
                 }]);
@@ -351,16 +343,18 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
     }
     if (!window.siyuan.config.readonly) {
         window.siyuan.menus.menu.append(new MenuItem({id: "separator_1", type: "separator"}).element);
-        window.siyuan.menus.menu.append(new MenuItem({
-            id: "close",
-            label: window.siyuan.languages.close,
-            icon: "iconClose",
-            click: () => {
-                fetchPost("/api/notebook/closeNotebook", {
-                    notebook: notebookId
-                });
-            }
-        }).element);
+        if (!Object.values(Constants.HELP_PATH).includes(notebookId)) {
+            window.siyuan.menus.menu.append(new MenuItem({
+                id: "close",
+                label: window.siyuan.languages.close,
+                icon: "iconClose",
+                click: () => {
+                    fetchPost("/api/notebook/closeNotebook", {
+                        notebook: notebookId
+                    });
+                }
+            }).element);
+        }
         window.siyuan.menus.menu.append(new MenuItem({
             id: "delete",
             icon: "iconTrashcan",
@@ -602,10 +596,6 @@ export const initFileMenu = (app: App, notebookId: string, pathString: string, l
                         action: "addFlashcards",
                         deckID: Constants.QUICK_DECK_ID,
                         blockIDs: [id]
-                    }], [{
-                        action: "removeFlashcards",
-                        deckID: Constants.QUICK_DECK_ID,
-                        blockIDs: [id]
                     }]);
                 }
             }, {
@@ -615,10 +605,6 @@ export const initFileMenu = (app: App, notebookId: string, pathString: string, l
                 click: () => {
                     transaction(undefined, [{
                         action: "removeFlashcards",
-                        deckID: Constants.QUICK_DECK_ID,
-                        blockIDs: [id]
-                    }], [{
-                        action: "addFlashcards",
                         deckID: Constants.QUICK_DECK_ID,
                         blockIDs: [id]
                     }]);
