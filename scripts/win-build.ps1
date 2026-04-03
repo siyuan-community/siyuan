@@ -42,7 +42,7 @@ $ENV:GOOS = 'windows'
 $ENV:GOARCH = 'amd64'
 
 go mod tidy
-go build --tags fts5 -v -o "../app/kernel/SiYuan-Kernel.exe" -ldflags "-s -w -H=windowsgui" .
+go build -tags fts5 -v -o "../app/kernel/SiYuan-Kernel.exe" -ldflags "-s -w -H=windowsgui" .
 
 cd ..
 

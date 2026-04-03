@@ -48,14 +48,14 @@ def main [
         print 'Building Kernel amd64'
         $env.GOOS = 'darwin'
         $env.GOARCH = 'amd64'
-        go build --tags fts5 -v -o "../app/kernel-darwin/SiYuan-Kernel" -ldflags "-s -w" .
+        go build -tags fts5 -v -o "../app/kernel-darwin/SiYuan-Kernel" -ldflags "-s -w" .
     }
 
     if $target == 'arm64' or $target == 'all' {
         print 'Building Kernel arm64'
         $env.GOOS = 'darwin'
         $env.GOARCH = 'arm64'
-        go build --tags fts5 -v -o "../app/kernel-darwin-arm64/SiYuan-Kernel" -ldflags "-s -w" .
+        go build -tags fts5 -v -o "../app/kernel-darwin-arm64/SiYuan-Kernel" -ldflags "-s -w" .
     }
 
     cd ($PROJECT_ROOT | path join 'app')
