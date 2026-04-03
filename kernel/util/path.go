@@ -34,13 +34,21 @@ import (
 )
 
 var (
-	SSL         = false
 	TLSKernel   = false
 	TLSCertFile = ""
 	TLSKeyFile  = ""
 	Protocol    = "http"
 	Hostname    = "localhost"
-	UserAgent   = "SiYuan/" + Ver
+
+	SSL       = false
+	UserAgent = "SiYuan/" + Ver
+
+	// invisibleCharsReplacer 用于 NormalizeEndpoint：去除复制粘贴易带入的零宽字符。
+	invisibleCharsReplacer = strings.NewReplacer(
+		"\u200b", "", // 零宽空格 ZWSP
+		"\u200c", "", // 零宽不连字 ZWNJ
+		"\u200d", "", // 零宽连字 ZWJ
+	)
 )
 
 func TrimSpaceInPath(p string) string {
@@ -80,7 +88,7 @@ func GetServerAddrs() (ret []string) {
 	ret = append(ret, LocalHost)
 	ret = gulu.Str.RemoveDuplicatedElem(ret)
 
-	for i, _ := range ret {
+	for i := range ret {
 		ret[i] = "http://" + ret[i] + ":" + ServerPort
 	}
 	return
@@ -196,13 +204,25 @@ func NormalizeTimeout(timeout int) int {
 }
 
 func NormalizeEndpoint(endpoint string) string {
+	endpoint = invisibleCharsReplacer.Replace(endpoint)
 	endpoint = strings.TrimSpace(endpoint)
 	if "" == endpoint {
 		return ""
 	}
+	endpoint = strings.Replace(endpoint, "http://http(s)://", "https://", 1)
+	endpoint = strings.Replace(endpoint, "http(s)://", "https://", 1)
 	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
 		endpoint = "http://" + endpoint
 	}
+	if idx := strings.Index(endpoint, "://"); 0 <= idx {
+		head := endpoint[:idx+len("://")]
+		tail := endpoint[idx+len("://"):]
+		for strings.Contains(tail, "//") {
+			tail = strings.ReplaceAll(tail, "//", "/")
+		}
+		endpoint = head + tail
+	}
+	endpoint = strings.TrimSpace(endpoint)
 	if !strings.HasSuffix(endpoint, "/") {
 		endpoint = endpoint + "/"
 	}
@@ -378,10 +398,10 @@ func IsPartitionRootPath(path string) bool {
 	if runtime.GOOS == "windows" {
 		// On Windows, root paths are like "C:\", "D:\", etc.
 		return len(cleanPath) == 3 && cleanPath[1] == ':' && cleanPath[2] == '\\'
-	} else {
-		// On Unix-like systems, the root path is "/"
-		return cleanPath == "/"
 	}
+
+	// On Unix-like systems, the root path is "/"
+	return cleanPath == "/"
 }
 
 // IsSensitivePath 对传入路径做统一的敏感性检测。
@@ -407,6 +427,9 @@ func IsSensitivePath(p string) bool {
 		"/lib",
 		"/srv",
 		"/tmp",
+		"/usr",
+		"/opt",
+		"/sbin",
 	}
 	for _, pre := range prefixes {
 		if strings.HasPrefix(toCheckPathLower, pre) {

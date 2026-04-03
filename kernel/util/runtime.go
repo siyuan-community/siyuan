@@ -18,10 +18,10 @@ package util
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"io/fs"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -143,37 +143,50 @@ func getWorkspaceDriveType() string {
 		return ghw.DriveTypeSSD.String()
 	}
 
-	if gulu.OS.IsWindows() {
-		block, err := ghw.Block()
-		if err != nil {
-			logging.LogWarnf("get block storage info failed: %s", err)
-			return ""
-		}
+	block, err := ghw.Block()
+	if err != nil {
+		logging.LogWarnf("get block storage info failed: %s", err)
+		return ""
+	}
 
-		part := filepath.VolumeName(WorkspaceDir)
+	var maxMountPathLen int
+	var matchedDriveType string
+	parentRelPrefix := ".." + string(filepath.Separator)
+	workspacePath := filepath.Clean(WorkspaceDir)
+
+	if gulu.OS.IsWindows() {
+		vol := strings.ToLower(filepath.VolumeName(workspacePath))
 		for _, disk := range block.Disks {
 			for _, partition := range disk.Partitions {
-				if partition.MountPoint == part {
+				if strings.EqualFold(strings.TrimSuffix(partition.MountPoint, "\\"), vol) {
 					return partition.Disk.DriveType.String()
 				}
 			}
 		}
 	} else if gulu.OS.IsLinux() {
-		block, err := ghw.Block()
-		if err != nil {
-			logging.LogWarnf("get block storage info failed: %s", err)
-			return ""
-		}
-
 		for _, disk := range block.Disks {
 			for _, partition := range disk.Partitions {
-				if strings.HasPrefix(WorkspaceDir, partition.MountPoint) {
-					return partition.Disk.DriveType.String()
+				if partition.MountPoint == "" {
+					continue
+				}
+				mountPath := filepath.Clean(partition.MountPoint)
+				rel, err := filepath.Rel(mountPath, workspacePath)
+				if err != nil {
+					continue
+				}
+				if rel == ".." || strings.HasPrefix(rel, parentRelPrefix) {
+					continue
+				}
+
+				// 选路径最长的挂载点（如 /home/data 优于 /）
+				if len(mountPath) >= maxMountPathLen {
+					maxMountPathLen = len(mountPath)
+					matchedDriveType = partition.Disk.DriveType.String()
 				}
 			}
 		}
 	}
-	return ""
+	return matchedDriveType
 }
 
 func RandomSleep(minMills, maxMills int) {

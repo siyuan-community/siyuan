@@ -19,7 +19,6 @@ package model
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"strings"
 	"time"
 
@@ -206,7 +205,7 @@ func setNodeAttrsWithTx(tx *Transaction, node *ast.Node, tree *parse.Tree, nameV
 
 func setNodeAttrs0(node *ast.Node, nameValues map[string]string) (oldAttrs map[string]string, err error) {
 	oldAttrs = parse.IAL2Map(node.KramdownIAL)
-	newAttrs := maps.Clone(oldAttrs)
+	newAttrsUnEsc := parse.IAL2MapUnEsc(node.KramdownIAL)
 
 	for name, value := range nameValues {
 		value = util.RemoveInvalidRetainCtrl(value)
@@ -239,25 +238,25 @@ func setNodeAttrs0(node *ast.Node, nameValues map[string]string) (oldAttrs map[s
 		if "" == value {
 			// 删除属性
 			if name != lowerName {
-				if _, exists := newAttrs[name]; exists {
+				if _, exists := newAttrsUnEsc[name]; exists {
 					// 仅删除完全匹配的包含大写字母的属性
-					delete(newAttrs, name)
+					delete(newAttrsUnEsc, name)
 					continue
 				}
 			}
-			delete(newAttrs, lowerName)
+			delete(newAttrsUnEsc, lowerName)
 		} else {
 			// 添加或更新属性
 			// 删除大小写完全匹配的属性
-			delete(newAttrs, name)
+			delete(newAttrsUnEsc, name)
 			// 保存小写的属性 https://github.com/siyuan-note/siyuan/issues/16447
-			newAttrs[lowerName] = html.EscapeAttrVal(value)
+			newAttrsUnEsc[lowerName] = html.EscapeAttrVal(value)
 		}
 	}
 
-	node.KramdownIAL = parse.Map2IAL(newAttrs)
+	node.KramdownIAL = parse.Map2IAL(newAttrsUnEsc)
 
-	if oldAttrs["tags"] != newAttrs["tags"] {
+	if html.EscapeAttrVal(oldAttrs["tags"]) != newAttrsUnEsc["tags"] {
 		ReloadTag()
 	}
 	return

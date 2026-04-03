@@ -468,7 +468,7 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes map[s
 	inputIndex := index
 	tree, err := LoadTreeByBlockID(id)
 	if err != nil {
-		if ErrBlockNotFound == err {
+		if errors.Is(err, ErrBlockNotFound) {
 			if 0 == mode {
 				err = ErrTreeNotFound // 初始化打开文档时如果找不到则关闭编辑器
 			}
@@ -1630,6 +1630,10 @@ func removeDoc(box *Box, p string, luteEngine *lute.Lute) (ret *parse.Tree) {
 		}
 	}
 
+	treenode.RemoveBlockTreesByPathPrefix(childrenDir)
+	cache.RemoveDocIAL(ret.Path)
+	cache.RemoveTreeData(ret.ID)
+
 	evt := util.NewCmdResult("removeDoc", 0, util.PushModeBroadcast)
 	evt.Data = map[string]interface{}{
 		"ids": removeIDs,
@@ -1647,10 +1651,7 @@ func removeDoc0(tree *parse.Tree, childrenDir string) {
 		task.AppendAsyncTaskWithDelay(task.SetDefRefCount, util.SQLFlushInterval, refreshRefCount, defID)
 	}
 
-	treenode.RemoveBlockTreesByPathPrefix(childrenDir)
 	sql.RemoveTreePathQueue(tree.Box, childrenDir)
-	cache.RemoveDocIAL(tree.Path)
-	cache.RemoveTreeData(tree.ID)
 	return
 }
 

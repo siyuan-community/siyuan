@@ -79,10 +79,12 @@ export const initBlockPopover = (app: App) => {
                 if (childElement && childElement.clientWidth < childElement.scrollWidth) {
                     tip = childElement.textContent;
                 }
+            } else if (aElement.classList.contains("protyle-attr--memo")) {
+                tip = escapeHtml(tip);
             }
             let tooltipSpace: number | undefined;
             if (!tip && aElement.getAttribute("data-type")?.includes("inline-memo")) {
-                tip = escapeHtml(aElement.getAttribute("data-inline-memo-content"));
+                tip = window.DOMPurify.sanitize(aElement.getAttribute("data-inline-memo-content"));
                 tooltipClass = "memo"; // 为行级备注添加 class https://github.com/siyuan-note/siyuan/issues/6161
                 tooltipSpace = 0; // tooltip 和备注元素之间不能有空隙 https://github.com/siyuan-note/siyuan/issues/14796#issuecomment-3649757267
             }

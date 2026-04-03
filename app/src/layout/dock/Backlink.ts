@@ -91,25 +91,25 @@ export class Backlink extends Model {
     <span class="fn__flex-1"></span>
     <span class="fn__space"></span>
     <input class="b3-text-field search__label fn__none fn__size200" placeholder="${window.siyuan.languages.filterKeywordEnter}" />
-    <span data-type="search" class="block__icon b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.filter}"><svg><use xlink:href='#iconFilter'></use></svg></span>
+    <span data-type="search" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.filter}"><svg><use xlink:href='#iconFilter'></use></svg></span>
     <span class="fn__space"></span>
-    <span data-type="refresh" class="block__icon b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.refresh}"><svg><use xlink:href='#iconRefresh'></use></svg></span>
+    <span data-type="refresh" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.refresh}"><svg><use xlink:href='#iconRefresh'></use></svg></span>
     <span class="fn__space"></span>
-    <span data-type="sort" data-sort="${backlinkSort}" class="block__icon b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.sort}"><svg><use xlink:href='#iconSort'></use></svg></span>
+    <span data-type="sort" data-sort="${backlinkSort}" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.sort}"><svg><use xlink:href='#iconSort'></use></svg></span>
     <span class="fn__space"></span>
-    <span data-type="expand" class="block__icon b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.expand}${updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.expand.custom)}">
+    <span data-type="expand" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.expand}${updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.expand.custom)}">
         <svg><use xlink:href="#iconExpand"></use></svg>
     </span>
     <span class="fn__space"></span>
-    <span data-type="collapse" class="block__icon b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.collapse}${updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.collapse.custom)}">
+    <span data-type="collapse" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.collapse}${updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.collapse.custom)}">
         <svg><use xlink:href="#iconContract"></use></svg>
     </span>
     <span class="${this.type === "local" ? "fn__none " : ""}fn__space"></span>
-    <span data-type="min" class="${this.type === "local" ? "fn__none " : ""}block__icon b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.min}${updateHotkeyAfterTip(window.siyuan.config.keymap.general.closeTab.custom)}"><svg><use xlink:href='#iconMin'></use></svg></span>
+    <span data-type="min" class="${this.type === "local" ? "fn__none " : ""}block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.min}${updateHotkeyAfterTip(window.siyuan.config.keymap.general.closeTab.custom)}"><svg><use xlink:href='#iconMin'></use></svg></span>
 </div>
 <div class="backlinkList fn__flex-1"></div>
 <div class="block__icons">
-    <div class="block__logo">
+    <div class="block__logo fn__pointer" data-type="mention">
         <svg class="block__logoicon"><use xlink:href="#iconLink"></use></svg>${window.siyuan.languages.mentions}
     </div>
     <span class="counter listMCount" style="margin-left: 0;"></span>
@@ -273,11 +273,13 @@ export class Backlink extends Model {
             this.setFocus();
             let target = event.target as HTMLElement;
             while (target && !target.isEqualNode(this.element)) {
-                if (target.classList.contains("block__icon") && target.parentElement.parentElement === this.element) {
+                if ((target.classList.contains("block__icon") || target.classList.contains("block__logo")) &&
+                    target.parentElement.parentElement === this.element) {
                     const type = target.getAttribute("data-type");
                     switch (type) {
                         case "refresh":
                             this.refresh();
+                            event.stopPropagation();
                             break;
                         case "mExpand":
                             Array.from(this.mTree.element.firstElementChild.children).forEach((item: HTMLElement) => {
@@ -285,6 +287,7 @@ export class Backlink extends Model {
                                     this.toggleItem(item, true);
                                 }
                             });
+                            event.stopPropagation();
                             break;
                         case "mCollapse":
                             this.mTree.element.querySelectorAll(".protyle").forEach(item => {
@@ -293,13 +296,16 @@ export class Backlink extends Model {
                             this.mTree.element.querySelectorAll(".b3-list-item__arrow").forEach(item => {
                                 item.classList.remove("b3-list-item__arrow--open");
                             });
+                            event.stopPropagation();
                             break;
                         case "min":
                             getDockByType("backlink").toggleModel("backlink", false, true);
+                            event.stopPropagation();
                             break;
                         case "search":
                             target.previousElementSibling.classList.remove("fn__none");
                             (target.previousElementSibling as HTMLInputElement).select();
+                            event.stopPropagation();
                             break;
                         case "sort":
                         case "mSort":
@@ -308,33 +314,12 @@ export class Backlink extends Model {
                             event.stopPropagation();
                             break;
                         case "layout":
-                            if (this.mTree.element.style.flex) {
-                                if (this.mTree.element.style.height === "0px") {
-                                    this.tree.element.classList.remove("fn__none");
-                                    this.mTree.element.removeAttribute("style");
-                                    target.setAttribute("aria-label", window.siyuan.languages.up);
-                                    target.querySelector("use").setAttribute("xlink:href", "#iconUp");
-                                } else {
-                                    this.tree.element.classList.remove("fn__none");
-                                    this.mTree.element.removeAttribute("style");
-                                    target.setAttribute("aria-label", window.siyuan.languages.down);
-                                    target.querySelector("use").setAttribute("xlink:href", "#iconDown");
-                                }
-                            } else {
-                                if (target.getAttribute("aria-label") === window.siyuan.languages.down) {
-                                    this.tree.element.classList.remove("fn__none");
-                                    this.mTree.element.setAttribute("style", "flex:none;height:0px");
-                                    target.setAttribute("aria-label", window.siyuan.languages.up);
-                                    target.querySelector("use").setAttribute("xlink:href", "#iconUp");
-                                } else {
-                                    this.tree.element.classList.add("fn__none");
-                                    this.mTree.element.setAttribute("style", `flex:none;height:${this.element.clientHeight - this.tree.element.previousElementSibling.clientHeight * 2}px`);
-                                    target.setAttribute("aria-label", window.siyuan.languages.down);
-                                    target.querySelector("use").setAttribute("xlink:href", "#iconDown");
-                                }
-                            }
-                            this.tree.element.dispatchEvent(new CustomEvent("scroll"));
-                            this.mTree.element.dispatchEvent(new CustomEvent("scroll"));
+                            this.setLayout(target);
+                            event.stopPropagation();
+                            break;
+                        case "mention":
+                            this.setLayout(target.parentElement.querySelector('[data-type="layout"]'));
+                            event.stopPropagation();
                             break;
                     }
                 }
@@ -343,6 +328,36 @@ export class Backlink extends Model {
         });
 
         this.searchBacklinks(true);
+    }
+
+    private setLayout(element: HTMLElement) {
+        if (this.mTree.element.style.flex) {
+            if (this.mTree.element.style.height === "0px") {
+                this.tree.element.classList.remove("fn__none");
+                this.mTree.element.removeAttribute("style");
+                element.setAttribute("aria-label", window.siyuan.languages.up);
+                element.querySelector("use").setAttribute("xlink:href", "#iconUp");
+            } else {
+                this.tree.element.classList.remove("fn__none");
+                this.mTree.element.removeAttribute("style");
+                element.setAttribute("aria-label", window.siyuan.languages.down);
+                element.querySelector("use").setAttribute("xlink:href", "#iconDown");
+            }
+        } else {
+            if (element.getAttribute("aria-label") === window.siyuan.languages.down) {
+                this.tree.element.classList.remove("fn__none");
+                this.mTree.element.setAttribute("style", "flex:none;height:0px");
+                element.setAttribute("aria-label", window.siyuan.languages.up);
+                element.querySelector("use").setAttribute("xlink:href", "#iconUp");
+            } else {
+                this.tree.element.classList.add("fn__none");
+                this.mTree.element.setAttribute("style", `flex:none;height:${this.element.clientHeight - this.tree.element.previousElementSibling.clientHeight * 2}px`);
+                element.setAttribute("aria-label", window.siyuan.languages.down);
+                element.querySelector("use").setAttribute("xlink:href", "#iconDown");
+            }
+        }
+        this.tree.element.dispatchEvent(new CustomEvent("scroll"));
+        this.mTree.element.dispatchEvent(new CustomEvent("scroll"));
     }
 
     private setFocus() {

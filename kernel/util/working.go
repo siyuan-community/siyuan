@@ -45,7 +45,7 @@ import (
 var Mode = "prod"
 
 const (
-	Ver       = "3.6.1"
+	Ver       = "3.6.3"
 	IsInsider = false
 )
 
@@ -612,5 +612,4 @@ func RemoveDatabaseFile(dbPath string) {
 			return
 		}
 	}
-	return
 }

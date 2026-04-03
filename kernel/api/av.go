@@ -26,6 +26,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
 
 func removeUnusedAttributeView(c *gin.Context) {
@@ -992,6 +993,8 @@ func setAttributeViewBlockAttr(c *gin.Context) {
 	} else if _, ok := arg["rowID"]; ok {
 		// TODO 计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/15708#issuecomment-3239694546
 		itemID = arg["rowID"].(string)
+		logging.LogWarnf("[%s] parameter [%s] is deprecated, it will be removed at [%s], visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
+			c.Request.RequestURI, "rowID", "2026-06-30")
 	}
 	value := arg["value"].(interface{})
 	updatedVal, err := model.UpdateAttributeViewCell(nil, avID, keyID, itemID, value)

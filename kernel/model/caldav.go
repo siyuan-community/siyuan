@@ -25,11 +25,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/siyuan-community/siyuan/kernel/util"
-
 	"github.com/88250/gulu"
 	"github.com/emersion/go-ical"
 	"github.com/emersion/go-webdav/caldav"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 )
 
@@ -77,8 +76,6 @@ var (
 		calendars:         sync.Map{},
 		calendarsMetaData: []*caldav.Calendar{},
 	}
-
-	ErrorCalDavPathInvalid = errors.New("CalDAV: path is invalid")
 
 	ErrorCalDavCalendarNotFound    = errors.New("CalDAV: calendar not found")
 	ErrorCalDavCalendarPathInvalid = errors.New("CalDAV: calendar path is invalid")
@@ -161,7 +158,6 @@ func (c *Calendars) load() error {
 
 	// load iCalendar files (*.ics)
 	wg := &sync.WaitGroup{}
-	wg.Add(len(c.calendarsMetaData))
 	for _, calendarMetaData := range c.calendarsMetaData {
 		calendar := &Calendar{
 			Changed:       false,
@@ -170,41 +166,14 @@ func (c *Calendars) load() error {
 			Objects:       sync.Map{},
 		}
 		c.calendars.Store(calendarMetaData.Path, calendar)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			calendar.load()
-		}()
+		})
 	}
 	wg.Wait()
 
 	c.loaded = true
 	c.changed = false
-	return nil
-}
-
-// save all calendars
-func (c *Calendars) save(force bool) error {
-	if force || c.changed {
-		// save calendars meta data
-		if err := c.saveCalendarsMetaData(); err != nil {
-			return err
-		}
-
-		// save all calendar object to *.ics files
-		wg := &sync.WaitGroup{}
-		c.calendars.Range(func(path any, calendar any) bool {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				// path_ := path.(string)
-				calendar := calendar.(*Calendar)
-				calendar.save(force)
-			}()
-			return true
-		})
-		wg.Wait()
-		c.changed = false
-	}
 	return nil
 }
 
@@ -524,10 +493,7 @@ func (c *Calendar) load() error {
 			filename := entry.Name()
 			ext := util.Ext(filename)
 			if ext == ICalendarFileExt {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-
+				wg.Go(func() {
 					// create & load calendar object
 					calendarObjectFilePath := path.Join(c.DirectoryPath, filename)
 					calendarObject := &CalendarObject{
@@ -542,39 +508,11 @@ func (c *Calendar) load() error {
 
 					id := path.Base(filename)
 					c.Objects.Store(id, calendarObject)
-				}()
+				})
 			}
 		}
 	}
 	wg.Wait()
-	return nil
-}
-
-// save an calendar to multiple *.ics files
-func (c *Calendar) save(force bool) error {
-	if force || c.Changed {
-		// create directory
-		if err := os.MkdirAll(c.DirectoryPath, 0755); err != nil {
-			logging.LogErrorf("create directory [%s] failed: %s", c.DirectoryPath, err)
-			return err
-		}
-
-		wg := &sync.WaitGroup{}
-		c.Objects.Range(func(id any, object any) bool {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				// id_ := id.(string)
-				object_ := object.(*CalendarObject)
-				object_.save(force)
-				object_.update()
-			}()
-			return true
-		})
-		wg.Wait()
-		c.Changed = false
-	}
-
 	return nil
 }
 

@@ -7,7 +7,7 @@ import {uploadFiles} from "../../upload";
 import {pathPosix} from "../../../util/pathName";
 import {openMenu} from "../../../menus/commonMenuItem";
 import {MenuItem} from "../../../menus/Menu";
-import {copyAsset, copyPNGByLink, exportAsset} from "../../../menus/util";
+import {writeAssetToClipboard, copyPNGByLink, exportAsset} from "../../../menus/util";
 import {setPosition} from "../../../util/setPosition";
 import {previewAttrViewImages} from "../../preview/image";
 import {genAVValueHTML} from "./blockAttr";
@@ -62,8 +62,8 @@ export const getAssetHTML = (cellElements: HTMLElement[]) => {
     genCellValueByElement("mAsset", cellElements[0]).mAsset.forEach((item, index) => {
         let contentHTML;
         if (item.type === "image") {
-            contentHTML = `<span data-type="openAssetItem" class="fn__flex-1 ariaLabel" aria-label="${item.content}">
-    <img style="max-height: 180px;max-width: 360px;border-radius: var(--b3-border-radius);margin: 4px 0;" src="${getCompressURL(item.content)}"/>
+            contentHTML = `<span data-type="openAssetItem" class="fn__flex-1 ariaLabel" aria-label="${escapeAttr(item.content)}">
+    <img style="max-height: 180px;max-width: 360px;border-radius: var(--b3-border-radius);margin: 4px 0;" src="${getCompressURL(encodeURI(item.content))}"/>
 </span>`;
         } else {
             contentHTML = `<span data-type="openAssetItem" class="fn__ellipsis b3-menu__label ariaLabel" aria-label="${escapeAttr(item.content)}" style="max-width: 360px">${item.name || item.content}</span>`;
@@ -203,8 +203,8 @@ export const editAssetItem = (options: {
     const type = options.type as "image" | "file";
     const menu = new Menu(Constants.MENU_AV_ASSET_EDIT, async () => {
         let currentLink = textElements[0].value;
-        if ((!textElements[1] && currentLink === linkAddress) ||
-            (textElements[1] && currentLink === linkAddress && textElements[1].value === options.name)) {
+        if ((!textElements[1] && currentLink === decodeURI(linkAddress)) ||
+            (textElements[1] && currentLink === decodeURI(linkAddress) && textElements[1].value === options.name)) {
             return;
         }
         if (type === "image" && currentLink.startsWith("data:image/")) {
@@ -302,7 +302,7 @@ export const editAssetItem = (options: {
             label: window.siyuan.languages.copy,
             icon: "iconCopy",
             click() {
-                writeText(`![](${linkAddress.replace(/%20/g, " ")})`);
+                writeText(`![](${textElements[0].value})`);
             }
         });
         menu.addItem({
@@ -310,7 +310,7 @@ export const editAssetItem = (options: {
             label: window.siyuan.languages.copyAsPNG,
             icon: "iconImage",
             click() {
-                copyPNGByLink(linkAddress);
+                copyPNGByLink(textElements[0].value);
             }
         });
     }
@@ -333,7 +333,7 @@ export const editAssetItem = (options: {
             label: window.siyuan.languages.rename,
             icon: "iconEdit",
             click() {
-                renameAsset(linkAddress);
+                renameAsset(decodeURI(linkAddress));
                 document.querySelector(".av__panel")?.remove();
             }
         });
@@ -367,11 +367,7 @@ export const editAssetItem = (options: {
     }
     if (linkAddress?.startsWith("assets/")) {
         window.siyuan.menus.menu.append(new MenuItem(exportAsset(linkAddress)).element);
-        /// #if !BROWSER
-        if (["windows", "darwin"].includes(window.siyuan.config.system.os)) {
-            window.siyuan.menus.menu.append(new MenuItem(copyAsset(linkAddress)).element);
-        }
-        /// #endif
+        window.siyuan.menus.menu.append(new MenuItem(writeAssetToClipboard(linkAddress)).element);
     }
     const rect = options.rect;
     /// #if MOBILE
@@ -385,7 +381,7 @@ export const editAssetItem = (options: {
     });
     /// #endif
     const textElements = menu.element.querySelectorAll("textarea");
-    textElements[0].value = linkAddress;
+    textElements[0].value = decodeURI(linkAddress);
     textElements[0].focus();
     textElements[0].select();
     if (textElements.length > 1) {

@@ -128,7 +128,7 @@ func RenameTag(oldLabel, newLabel string) (err error) {
 	newLabel = strings.TrimSuffix(newLabel, "/")
 	newLabel = strings.TrimSpace(newLabel)
 
-	if "" == newLabel {
+	if "" == oldLabel || "" == newLabel {
 		return errors.New(Conf.Language(114))
 	}
 

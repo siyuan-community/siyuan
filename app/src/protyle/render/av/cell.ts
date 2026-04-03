@@ -132,7 +132,7 @@ export const genCellValueByElement = (colType: TAVCol, cellElement: HTMLElement)
             const isImg = item.classList.contains("av__cellassetimg");
             mAsset.push({
                 type: isImg ? "image" : "file",
-                content: isImg ? removeCompressURL(item.getAttribute("src")) : item.getAttribute("data-url"),
+                content: isImg ? removeCompressURL(decodeURI(item.getAttribute("src"))) : item.getAttribute("data-url"),
                 name: isImg ? "" : item.getAttribute("data-name")
             });
         });
@@ -796,21 +796,28 @@ export const updateCellsValue = async (protyle: IProtyle, nodeElement: HTMLEleme
                 if (html) {
                     const tempElement = document.createElement("template");
                     tempElement.innerHTML = html;
-                    tempElement.content.querySelectorAll('[data-type~="a"], .img img').forEach(item => {
-                        if (item.tagName === "IMG") {
+                    tempElement.content.querySelectorAll('[data-type~="a"], .img img').forEach(linkItem => {
+                        if (linkItem.tagName === "IMG") {
                             htmlValue.push({
                                 type: "image",
-                                content: item.getAttribute("data-src"),
+                                content: linkItem.getAttribute("data-src"),
                                 name: ""
                             });
                         } else {
                             htmlValue.push({
                                 type: "file",
-                                content: item.getAttribute("data-href"),
-                                name: item.textContent
+                                content: linkItem.getAttribute("data-href"),
+                                name: linkItem.textContent
                             });
                         }
                     });
+                    if (htmlValue.length === 0 && value) {
+                        htmlValue.push({
+                            type: "file",
+                            content: "",
+                            name: value
+                        });
+                    }
                 }
                 newValue = oldValue.mAsset.concat(htmlValue);
             }
@@ -989,7 +996,7 @@ export const renderCell = (cellValue: IAVCellValue, rowIndex = 0, showIcon = tru
     } else if (cellValue.type === "mAsset") {
         cellValue?.mAsset?.forEach((item) => {
             if (item.type === "image") {
-                text += `<img loading="lazy" class="av__cellassetimg ariaLabel" aria-label="${item.content}" src="${getCompressURL(item.content)}">`;
+                text += `<img loading="lazy" class="av__cellassetimg ariaLabel" aria-label="${escapeAttr(item.content)}" src="${getCompressURL(encodeURI(item.content))}">`;
             } else {
                 text += `<span class="b3-chip av__celltext--url ariaLabel" aria-label="${escapeAttr(item.content)}" data-name="${escapeAttr(item.name)}" data-url="${escapeAttr(item.content)}">${item.name || item.content}</span>`;
             }
