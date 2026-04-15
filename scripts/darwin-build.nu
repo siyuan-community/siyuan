@@ -60,6 +60,8 @@ def main [
 
     cd ($PROJECT_ROOT | path join 'app')
 
+    $env.PYTHON_PATH = "/usr/bin/python3"
+
     if $target == 'amd64' or $target == 'all' {
         print 'Building Electron App amd64'
         pnpm run dist-darwin
