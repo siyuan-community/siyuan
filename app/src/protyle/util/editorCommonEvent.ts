@@ -139,8 +139,8 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
                 newSourceElements.push(copyElement);
             }
         } else {
-            const topSourceElement = getTopAloneElement(item);
-            const oldSourceParentElement = item.parentElement;
+            let topSourceElement = getTopAloneElement(item);
+            const oldSourceParentElement = getParentBlock(item);
             if (item.classList.contains("li") && item.getAttribute("data-subtype") === "o") {
                 orderListElements[item.parentElement.getAttribute("data-node-id")] = item.parentElement;
             }
@@ -163,7 +163,10 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
             }
 
             if (topSourceElement !== item) {
-                // 删除空元素
+                if (topSourceElement.contains(item)) {
+                    topSourceElement = getTopAloneElement(oldSourceParentElement);
+                }
+                // 拖拽后剩下空元素
                 doOperations.push({
                     action: "delete",
                     id: topSourceElement.getAttribute("data-node-id"),
@@ -570,7 +573,11 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
                 target.parentElement.classList.add("protyle-wysiwyg--select");
                 const ghostElement = document.createElement("div");
                 ghostElement.className = protyle.wysiwyg.element.className;
-                ghostElement.append(processClonePHElement(target.parentElement.cloneNode(true) as Element));
+                const cloneElement = processClonePHElement(target.parentElement.cloneNode(true) as Element);
+                cloneElement.querySelectorAll(".iframe").forEach(item => {
+                    item.remove();
+                });
+                ghostElement.append(cloneElement);
                 ghostElement.setAttribute("style", `position:fixed;opacity:.1;width:${target.parentElement.clientWidth}px;padding:0;`);
                 document.body.append(ghostElement);
                 event.dataTransfer.setDragImage(ghostElement, 0, 0);

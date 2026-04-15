@@ -157,7 +157,7 @@ func getUpdatePkg() (downloadPkgURLs []string, checksum string, err error) {
 	downloadPkgURLs = append(downloadPkgURLs, githubURL)
 	// downloadPkgURLs = append(downloadPkgURLs, ghproxyURL)
 
-	checksums := result["checksums"].(map[string]interface{})
+	checksums := result["checksums"].(map[string]any)
 	checksum = checksums[pkg].(string)
 
 	if "" == checksum {
@@ -250,9 +250,9 @@ func getAnnouncements() (ret []*Announcement) {
 		return
 	}
 
-	announcements := result["announcement"].([]interface{})
+	announcements := result["announcement"].([]any)
 	for _, announcement := range announcements {
-		ann := announcement.(map[string]interface{})
+		ann := announcement.(map[string]any)
 		ret = append(ret, &Announcement{
 			Id:     ann["id"].(string),
 			Title:  ann["title"].(string),

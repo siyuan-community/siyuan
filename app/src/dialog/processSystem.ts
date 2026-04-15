@@ -190,7 +190,7 @@ export const setDefRefCount = (data: {
         // 不能对比 rootId，否则嵌入块中的锚文本无法更新
         editor.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${data.blockID}"]`).forEach(item => {
             // 不能直接查询，否则列表中会获取到第一个列表项的 attr https://github.com/siyuan-note/siyuan/issues/12738
-            const countElement = item.lastElementChild.querySelector(".protyle-attr--refcount");
+            const countElement = item.lastElementChild?.querySelector(".protyle-attr--refcount");
             if (countElement) {
                 if (data.refCount === 0) {
                     countElement.remove();
@@ -384,14 +384,17 @@ export const exitSiYuan = async (setCurrentWorkspace = true) => {
     });
 };
 
-export const transactionError = () => {
+export const transactionError = (msg?: string) => {
     if (document.getElementById("transactionError")) {
         return;
     }
     const dialog = new Dialog({
         disableClose: true,
         title: `${window.siyuan.languages.stateExcepted} v${Constants.SIYUAN_VERSION}`,
-        content: `<div class="b3-dialog__content" id="transactionError">${window.siyuan.languages.rebuildIndexTip}</div>
+        content: `<div class="b3-dialog__content" style="max-height: calc(100vh - 182px)" id="transactionError">
+    ${window.siyuan.languages.rebuildIndexTip}
+    ${msg ? `<div class="fn__hr"></div>${escapeHtml(msg.trim())}` : ""}
+</div>
 <div class="b3-dialog__action">
     <button class="b3-button b3-button--text">${window.siyuan.languages._kernel[97]}</button>
     <div class="fn__space"></div>

@@ -68,8 +68,9 @@ const isOpenAsHidden = function () {
 
 remote.initialize();
 
-app.setPath("userData", app.getPath("userData") + "-Electron"); // `~/.config` 下 Electron 相关文件夹名称改为 `SiYuan-Electron` https://github.com/siyuan-note/siyuan/issues/3349
-fs.rmSync(app.getPath("appData") + "/" + app.name, { recursive: true }); // 删除自动创建的应用目录 https://github.com/siyuan-note/siyuan/issues/13150
+// Electron 相关文件夹名称改为 `SiYuan-Electron` https://github.com/siyuan-note/siyuan/issues/3349
+// getPath("userData") 会创建空的 SiYuan 目录，改为 app.getPath("appData")
+app.setPath("userData", path.join(app.getPath("appData"), app.getName() + "-Electron"));
 
 if (process.platform === "win32") {
     // Windows 需要设置 AppUserModelId 才能正确显示应用名称和应用图标 https://github.com/siyuan-note/siyuan/issues/17022
@@ -151,17 +152,9 @@ const windowNavigate = (currentWindow, windowType) => {
         if (url.startsWith(getServer())) {
             try {
                 const pathname = new URL(url).pathname;
-                // 所有窗口都允许认证页面
-                if (pathname === "/check-auth" || pathname === "/") {
-                    return;
-                }
-                if (pathname === "/stage/build/app/" && windowType === "app") {
-                    return;
-                }
-                if (pathname === "/stage/build/app/window.html" && windowType === "window") {
-                    return;
-                }
-                if (pathname.startsWith("/export/temp/") && windowType === "export") {
+                if (windowType === "app" && ["/", "/stage/build/app/", "/check-auth"].includes(pathname) ||
+                    (windowType === "window" && ["/stage/build/app/window.html", "/check-auth"].includes(pathname)) ||
+                    (windowType === "export" && pathname.startsWith("/export/temp/"))) {
                     return;
                 }
             } catch (e) {

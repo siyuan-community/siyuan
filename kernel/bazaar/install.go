@@ -129,7 +129,7 @@ func incPackageDownloads(repoURL, systemID string) {
 	repo := strings.TrimPrefix(repoURL, "https://github.com/")
 	u := util.GetCloudServer() + "/apis/siyuan/bazaar/addBazaarPackageDownloadCount"
 	httpclient.NewCloudRequest30s().SetBody(
-		map[string]interface{}{
+		map[string]any{
 			"systemID": systemID,
 			"repo":     repo,
 		}).Post(u)

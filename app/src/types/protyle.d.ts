@@ -12,7 +12,13 @@ interface ILuteNode {
 
 type THintSource = "search" | "av" | "hint";
 
-type TTurnIntoOne = "BlocksMergeSuperBlock" | "Blocks2ULs" | "Blocks2OLs" | "Blocks2TLs" | "Blocks2Blockquote" | "Blocks2Callout"
+type TTurnIntoOne =
+    "BlocksMergeSuperBlock"
+    | "Blocks2ULs"
+    | "Blocks2OLs"
+    | "Blocks2TLs"
+    | "Blocks2Blockquote"
+    | "Blocks2Callout"
 
 type TTurnIntoOneSub = "row" | "col"
 
@@ -274,6 +280,8 @@ declare class Lute {
 
     public Md2BlockDOM(html: string): string;
 
+    public Md2BlockDOMWithAutoLink(html: string): string;
+
     public SetProtyleWYSIWYG(wysiwyg: boolean): void;
 
     public MarkdownStr(name: string, md: string): string;
@@ -289,6 +297,12 @@ declare class Lute {
     public HTML2BlockDOM(html: string): string;
 
     public SetUnorderedListMarker(marker: string): void;
+
+    public SetDataTask(marker: boolean): void;
+
+    public SetExportNormalizeTaskListMarker(marker: boolean): void;
+
+    public SetArbitraryTaskListItemMarker(marker: boolean): void;
 }
 
 declare const webkitAudioContext: {

@@ -55,13 +55,13 @@ func removeBookmark(c *gin.Context) {
 	}
 
 	var bookmark string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("bookmark", true, &bookmark)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("bookmark", &bookmark, true, false)) {
 		return
 	}
 	if err := model.RemoveBookmark(bookmark); err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }
@@ -77,15 +77,15 @@ func renameBookmark(c *gin.Context) {
 
 	var oldBookmark, newBookmark string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("oldBookmark", true, &oldBookmark),
-		util.BindJsonArg("newBookmark", true, &newBookmark),
+		util.BindJsonArg("oldBookmark", &oldBookmark, true, false),
+		util.BindJsonArg("newBookmark", &newBookmark, true, false),
 	) {
 		return
 	}
 	if err := model.RenameBookmark(oldBookmark, newBookmark); err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }

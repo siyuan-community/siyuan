@@ -37,16 +37,7 @@ func batchUpdatePackage(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
 
-	arg, ok := util.JsonArg(c, ret)
-	if !ok {
-		return
-	}
-
-	var frontend string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("frontend", true, &frontend)) {
-		return
-	}
-	model.BatchUpdatePackages(frontend)
+	model.BatchUpdatePackages()
 }
 
 func getUpdatedPackage(c *gin.Context) {
@@ -59,12 +50,12 @@ func getUpdatedPackage(c *gin.Context) {
 	}
 
 	var frontend string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("frontend", true, &frontend)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("frontend", &frontend, true, true)) {
 		return
 	}
 
 	plugins, widgets, icons, themes, templates := model.GetUpdatedPackages(frontend)
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"plugins":   plugins,
 		"widgets":   widgets,
 		"icons":     icons,
@@ -84,9 +75,9 @@ func getBazaarPackageREADME(c *gin.Context) {
 
 	var repoURL, repoHash, pkgType string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("repoURL", true, &repoURL),
-		util.BindJsonArg("repoHash", true, &repoHash),
-		util.BindJsonArg("packageType", true, &pkgType),
+		util.BindJsonArg("repoURL", &repoURL, true, true),
+		util.BindJsonArg("repoHash", &repoHash, true, true),
+		util.BindJsonArg("packageType", &pkgType, true, true),
 	) {
 		return
 	}
@@ -95,7 +86,7 @@ func getBazaarPackageREADME(c *gin.Context) {
 		ret.Msg = "Invalid package type"
 		return
 	}
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"html": model.GetBazaarPackageREADME(c.Request.Context(), repoURL, repoHash, pkgType),
 	}
 }
@@ -111,13 +102,13 @@ func getBazaarPlugin(c *gin.Context) {
 
 	var frontend, keyword string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("frontend", true, &frontend),
-		util.BindJsonArg("keyword", false, &keyword),
+		util.BindJsonArg("frontend", &frontend, true, true),
+		util.BindJsonArg("keyword", &keyword, false, false),
 	) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("plugins", frontend, keyword),
 	}
 }
@@ -133,13 +124,13 @@ func getInstalledPlugin(c *gin.Context) {
 
 	var frontend, keyword string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("frontend", true, &frontend),
-		util.BindJsonArg("keyword", false, &keyword),
+		util.BindJsonArg("frontend", &frontend, true, true),
+		util.BindJsonArg("keyword", &keyword, false, false),
 	) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetInstalledPackages("plugins", frontend, keyword),
 	}
 }
@@ -155,11 +146,11 @@ func installBazaarPlugin(c *gin.Context) {
 
 	var frontend, keyword, repoURL, repoHash, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("frontend", true, &frontend),
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("repoURL", true, &repoURL),
-		util.BindJsonArg("repoHash", true, &repoHash),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("frontend", &frontend, true, true),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("repoURL", &repoURL, true, true),
+		util.BindJsonArg("repoHash", &repoHash, true, true),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -171,7 +162,7 @@ func installBazaarPlugin(c *gin.Context) {
 	}
 
 	util.PushMsg(model.Conf.Language(69), 3000)
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("plugins", frontend, keyword),
 	}
 }
@@ -187,9 +178,9 @@ func uninstallBazaarPlugin(c *gin.Context) {
 
 	var frontend, keyword, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("frontend", false, &frontend),
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("frontend", &frontend, false, false),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -223,11 +214,11 @@ func getBazaarWidget(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("widgets", "", keyword),
 	}
 }
@@ -242,11 +233,11 @@ func getInstalledWidget(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetInstalledPackages("widgets", "", keyword),
 	}
 }
@@ -262,10 +253,10 @@ func installBazaarWidget(c *gin.Context) {
 
 	var keyword, repoURL, repoHash, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("repoURL", true, &repoURL),
-		util.BindJsonArg("repoHash", true, &repoHash),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("repoURL", &repoURL, true, true),
+		util.BindJsonArg("repoHash", &repoHash, true, true),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -277,7 +268,7 @@ func installBazaarWidget(c *gin.Context) {
 	}
 
 	util.PushMsg(model.Conf.Language(69), 3000)
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("widgets", "", keyword),
 	}
 }
@@ -293,8 +284,8 @@ func uninstallBazaarWidget(c *gin.Context) {
 
 	var keyword, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -305,7 +296,7 @@ func uninstallBazaarWidget(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("widgets", "", keyword),
 	}
 }
@@ -320,11 +311,11 @@ func getBazaarIcon(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("icons", "", keyword),
 	}
 }
@@ -339,11 +330,11 @@ func getInstalledIcon(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetInstalledPackages("icons", "", keyword),
 	}
 }
@@ -359,10 +350,10 @@ func installBazaarIcon(c *gin.Context) {
 
 	var keyword, repoURL, repoHash, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("repoURL", true, &repoURL),
-		util.BindJsonArg("repoHash", true, &repoHash),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("repoURL", &repoURL, true, true),
+		util.BindJsonArg("repoHash", &repoHash, true, true),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -374,7 +365,7 @@ func installBazaarIcon(c *gin.Context) {
 	}
 	util.PushMsg(model.Conf.Language(69), 3000)
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages":   model.GetBazaarPackages("icons", "", keyword),
 		"appearance": model.Conf.Appearance,
 	}
@@ -391,8 +382,8 @@ func uninstallBazaarIcon(c *gin.Context) {
 
 	var keyword, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -403,7 +394,7 @@ func uninstallBazaarIcon(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages":   model.GetBazaarPackages("icons", "", keyword),
 		"appearance": model.Conf.Appearance,
 	}
@@ -419,11 +410,11 @@ func getBazaarTemplate(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("templates", "", keyword),
 	}
 }
@@ -438,11 +429,11 @@ func getInstalledTemplate(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetInstalledPackages("templates", "", keyword),
 	}
 }
@@ -458,10 +449,10 @@ func installBazaarTemplate(c *gin.Context) {
 
 	var keyword, repoURL, repoHash, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("repoURL", true, &repoURL),
-		util.BindJsonArg("repoHash", true, &repoHash),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("repoURL", &repoURL, true, true),
+		util.BindJsonArg("repoHash", &repoHash, true, true),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -472,7 +463,7 @@ func installBazaarTemplate(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("templates", "", keyword),
 	}
 
@@ -490,8 +481,8 @@ func uninstallBazaarTemplate(c *gin.Context) {
 
 	var keyword, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -502,7 +493,7 @@ func uninstallBazaarTemplate(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("templates", "", keyword),
 	}
 }
@@ -517,11 +508,11 @@ func getBazaarTheme(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetBazaarPackages("themes", "", keyword),
 	}
 }
@@ -536,11 +527,11 @@ func getInstalledTheme(c *gin.Context) {
 	}
 
 	var keyword string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", false, &keyword)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("keyword", &keyword, false, false)) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages": model.GetInstalledPackages("themes", "", keyword),
 	}
 }
@@ -557,11 +548,11 @@ func installBazaarTheme(c *gin.Context) {
 	var keyword, repoURL, repoHash, packageName string
 	var mode float64
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("repoURL", true, &repoURL),
-		util.BindJsonArg("repoHash", true, &repoHash),
-		util.BindJsonArg("packageName", true, &packageName),
-		util.BindJsonArg("mode", true, &mode),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("repoURL", &repoURL, true, true),
+		util.BindJsonArg("repoHash", &repoHash, true, true),
+		util.BindJsonArg("packageName", &packageName, true, true),
+		util.BindJsonArg("mode", &mode, true, false),
 	) {
 		return
 	}
@@ -578,7 +569,7 @@ func installBazaarTheme(c *gin.Context) {
 	model.Conf.Save()
 
 	util.PushMsg(model.Conf.Language(69), 3000)
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages":   model.GetBazaarPackages("themes", "", keyword),
 		"appearance": model.Conf.Appearance,
 	}
@@ -595,8 +586,8 @@ func uninstallBazaarTheme(c *gin.Context) {
 
 	var keyword, packageName string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("keyword", false, &keyword),
-		util.BindJsonArg("packageName", true, &packageName),
+		util.BindJsonArg("keyword", &keyword, false, false),
+		util.BindJsonArg("packageName", &packageName, true, true),
 	) {
 		return
 	}
@@ -607,7 +598,7 @@ func uninstallBazaarTheme(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"packages":   model.GetBazaarPackages("themes", "", keyword),
 		"appearance": model.Conf.Appearance,
 	}

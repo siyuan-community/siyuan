@@ -32,6 +32,163 @@ import (
 	"github.com/siyuan-note/logging"
 )
 
+func buildUpdatedTaskListItemBlockDOM(id, marker string, luteEngine *lute.Lute) (data string, err error) {
+	block, err := model.GetBlock(id, nil)
+	if err != nil {
+		return "", errors.New("get block failed: " + err.Error())
+	}
+
+	if "NodeListItem" != block.Type {
+		return "", errors.New("block is not a list item")
+	}
+
+	tree, err := filesys.LoadTree(block.Box, block.Path, luteEngine)
+	if err != nil {
+		return "", errors.New("load tree failed: " + err.Error())
+	}
+
+	li := treenode.GetNodeInTree(tree, id)
+	if li == nil {
+		return "", errors.New("block not found")
+	}
+
+	if 3 != li.ListData.Typ {
+		return "", errors.New("block is not a task list item")
+	}
+
+	if 1 != len(marker) {
+		return "", errors.New("task list item marker length should be 1")
+	}
+
+	liMarker := marker[0]
+	if '[' == liMarker || ']' == liMarker {
+		return "", errors.New("task list item marker can not be [ or ]")
+	}
+
+	markerNode := li.ChildByType(ast.NodeTaskListItemMarker)
+	if nil == markerNode {
+		return "", errors.New("task list item marker not found")
+	}
+
+	markerNode.TaskListItemMarker = liMarker
+	markerNode.TaskListItemChecked = ' ' != markerNode.TaskListItemMarker
+
+	return luteEngine.RenderNodeBlockDOM(li), nil
+}
+
+func updateTaskListItemMarker(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var id, marker string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("id", &id, true, true),
+		util.BindJsonArg("marker", &marker, true, false),
+	) {
+		return
+	}
+	if util.InvalidIDPattern(id, ret) {
+		return
+	}
+
+	luteEngine := util.NewLute()
+	data, err := buildUpdatedTaskListItemBlockDOM(id, marker, luteEngine)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	transactions := []*model.Transaction{
+		{
+			DoOperations: []*model.Operation{
+				{
+					Action: "update",
+					ID:     id,
+					Data:   data,
+				},
+			},
+		},
+	}
+
+	model.PerformTransactions(&transactions)
+	model.FlushTxQueue()
+
+	ret.Data = transactions
+	broadcastTransactions(transactions)
+}
+
+func batchUpdateTaskListItemMarker(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var itemsArg []any
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("items", &itemsArg, true, true)) {
+		return
+	}
+
+	luteEngine := util.NewLute()
+	idToMarker := make(map[string]string, len(itemsArg))
+	idsInOrder := make([]string, 0, len(itemsArg))
+	for _, itemArg := range itemsArg {
+		itemMap, ok := itemArg.(map[string]any)
+		if !ok {
+			ret.Code = -1
+			ret.Msg = "invalid item: each item must be an object"
+			return
+		}
+		var id, marker string
+		if !util.ParseJsonArgs(itemMap, ret,
+			util.BindJsonArg("id", &id, true, true),
+			util.BindJsonArg("marker", &marker, true, false),
+		) {
+			return
+		}
+		if util.InvalidIDPattern(id, ret) {
+			return
+		}
+		// 相同 id 保留最后一个 marker
+		idToMarker[id] = marker
+		idsInOrder = append(idsInOrder, id)
+	}
+
+	ids := gulu.Str.RemoveDuplicatedElem(idsInOrder)
+	ops := make([]*model.Operation, 0, len(ids))
+	for _, id := range ids {
+		data, err := buildUpdatedTaskListItemBlockDOM(id, idToMarker[id], luteEngine)
+		if err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+
+		ops = append(ops, &model.Operation{
+			Action: "update",
+			ID:     id,
+			Data:   data,
+		})
+	}
+
+	tx := &model.Transaction{DoOperations: ops}
+	transactions := []*model.Transaction{tx}
+
+	model.PerformTransactions(&transactions)
+	model.FlushTxQueue()
+
+	ret.Data = transactions
+	broadcastTransactions(transactions)
+}
+
 func moveOutlineHeading(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -226,7 +383,7 @@ func unfoldBlock(c *gin.Context) {
 			},
 		}
 	} else {
-		data, _ := gulu.JSON.MarshalJSON(map[string]interface{}{"fold": ""})
+		data, _ := gulu.JSON.MarshalJSON(map[string]any{"fold": ""})
 		transactions = []*model.Transaction{
 			{
 				DoOperations: []*model.Operation{
@@ -286,7 +443,7 @@ func foldBlock(c *gin.Context) {
 			},
 		}
 	} else {
-		data, _ := gulu.JSON.MarshalJSON(map[string]interface{}{"fold": "1"})
+		data, _ := gulu.JSON.MarshalJSON(map[string]any{"fold": "1"})
 		transactions = []*model.Transaction{
 			{
 				DoOperations: []*model.Operation{
@@ -437,11 +594,11 @@ func batchAppendBlock(c *gin.Context) {
 		return
 	}
 
-	blocksArg := arg["blocks"].([]interface{})
+	blocksArg := arg["blocks"].([]any)
 	var transactions []*model.Transaction
 	luteEngine := util.NewLute()
 	for _, blockArg := range blocksArg {
-		blockMap := blockArg.(map[string]interface{})
+		blockMap := blockArg.(map[string]any)
 		data := blockMap["data"].(string)
 		dataType := blockMap["dataType"].(string)
 		parentID := blockMap["parentID"].(string)
@@ -530,11 +687,11 @@ func batchPrependBlock(c *gin.Context) {
 		return
 	}
 
-	blocksArg := arg["blocks"].([]interface{})
+	blocksArg := arg["blocks"].([]any)
 	var transactions []*model.Transaction
 	luteEngine := util.NewLute()
 	for _, blockArg := range blocksArg {
-		blockMap := blockArg.(map[string]interface{})
+		blockMap := blockArg.(map[string]any)
 		data := blockMap["data"].(string)
 		dataType := blockMap["dataType"].(string)
 		parentID := blockMap["parentID"].(string)
@@ -684,7 +841,7 @@ func updateBlock(c *gin.Context) {
 		var ops []*model.Operation
 		for n := oldTree.Root.FirstChild; nil != n; n = n.Next {
 			toRemoves = append(toRemoves, n)
-			ops = append(ops, &model.Operation{Action: "delete", ID: n.ID, Data: map[string]interface{}{
+			ops = append(ops, &model.Operation{Action: "delete", ID: n.ID, Data: map[string]any{
 				"createEmptyParagraph": false, // 清空文档后前端不要创建空段落
 			}})
 		}
@@ -700,7 +857,9 @@ func updateBlock(c *gin.Context) {
 			// 使用 API `api/block/updateBlock` 更新列表项时渲染错误 https://github.com/siyuan-note/siyuan/issues/4658
 			tree.Root.AppendChild(tree.Root.FirstChild.FirstChild) // 将列表下的第一个列表项移到文档结尾，移动以后根下面直接挂列表项，渲染器可以正常工作
 			tree.Root.FirstChild.Unlink()                          // 删除列表
-			tree.Root.FirstChild.Unlink()                          // 继续删除列表 IAL
+			if nil != tree.Root.FirstChild && ast.NodeKramdownBlockIAL == tree.Root.FirstChild.Type {
+				tree.Root.FirstChild.Unlink() // 继续删除列表 IAL
+			}
 		}
 
 		if nil != tree.Root.FirstChild {
@@ -740,11 +899,11 @@ func batchInsertBlock(c *gin.Context) {
 		return
 	}
 
-	blocksArg := arg["blocks"].([]interface{})
+	blocksArg := arg["blocks"].([]any)
 	var transactions []*model.Transaction
 	luteEngine := util.NewLute()
 	for _, blockArg := range blocksArg {
-		blockMap := blockArg.(map[string]interface{})
+		blockMap := blockArg.(map[string]any)
 		data := blockMap["data"].(string)
 		dataType := blockMap["dataType"].(string)
 		var parentID, previousID, nextID string
@@ -806,7 +965,10 @@ func batchUpdateBlock(c *gin.Context) {
 		return
 	}
 
-	blocksArg := arg["blocks"].([]interface{})
+	var blocksArg []any
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("blocks", &blocksArg, true, true)) {
+		return
+	}
 
 	type updateBlockArg struct {
 		ID       string
@@ -819,7 +981,7 @@ func batchUpdateBlock(c *gin.Context) {
 	var blocks []*updateBlockArg
 	luteEngine := util.NewLute()
 	for _, blockArg := range blocksArg {
-		blockMap := blockArg.(map[string]interface{})
+		blockMap := blockArg.(map[string]any)
 		id := blockMap["id"].(string)
 		if util.InvalidIDPattern(id, ret) {
 			return
@@ -878,7 +1040,7 @@ func batchUpdateBlock(c *gin.Context) {
 
 			for n := oldTree.Root.FirstChild; nil != n; n = n.Next {
 				toRemoves = append(toRemoves, n)
-				ops = append(ops, &model.Operation{Action: "delete", ID: n.ID, Data: map[string]interface{}{
+				ops = append(ops, &model.Operation{Action: "delete", ID: n.ID, Data: map[string]any{
 					"createEmptyParagraph": false, // 清空文档后前端不要创建空段落
 				}})
 			}

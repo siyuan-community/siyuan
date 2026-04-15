@@ -123,15 +123,52 @@ export const getAllWnds = (layout: Layout, wnds: Wnd[]) => {
     }
 };
 
-export const getAllTabs = () => {
+export const getAllTabs = (type?: TTab | string) => {
     const tabs: Tab[] = [];
     const getTabs = (layout: Layout) => {
         for (let i = 0; i < layout.children.length; i++) {
             const item = layout.children[i];
-            if (item instanceof Tab) {
-                tabs.push(item);
-            } else {
+            if (!(item instanceof Tab)) {
                 getTabs(item as Layout);
+                continue;
+            }
+            if (!type) {
+                tabs.push(item);
+                continue;
+            }
+            const model = item.model;
+            if (model) {
+                if (model instanceof Search && type === "Search") {
+                    tabs.push(item);
+                } else if (model instanceof Asset && type === "Asset") {
+                    tabs.push(item);
+                } else if (model instanceof Editor && type === "Editor") {
+                    tabs.push(item);
+                } else if (model instanceof Graph && type === "Graph") {
+                    tabs.push(item);
+                } else if (model instanceof Backlink && type === "Backlink") {
+                    tabs.push(item);
+                } else if (model instanceof Outline && type === "Outline") {
+                    tabs.push(item);
+                } else if (model instanceof Custom && model.type === type) {
+                    tabs.push(item);
+                }
+                continue;
+            }
+            const initData = item.headElement?.getAttribute("data-initdata");
+            if (!initData) {
+                continue;
+            }
+            try {
+                const initObj = JSON.parse(initData) as ILayoutJSON;
+                if (
+                    (initObj.instance === "Custom" && initObj.customModelType === type) ||
+                    initObj.instance === type
+                ) {
+                    tabs.push(item);
+                }
+            } catch (e) {
+                console.log(`getAllTabs(${type}) error:`, e);
             }
         }
     };

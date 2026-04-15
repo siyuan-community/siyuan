@@ -39,7 +39,7 @@ func setRepoIndexRetentionDays(c *gin.Context) {
 	}
 
 	var days float64
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("days", true, &days)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("days", &days, true, false)) {
 		return
 	}
 	daysInt := int(days)
@@ -61,7 +61,7 @@ func setRetentionIndexesDaily(c *gin.Context) {
 	}
 
 	var indexes float64
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("indexes", true, &indexes)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("indexes", &indexes, true, false)) {
 		return
 	}
 	indexesInt := int(indexes)
@@ -85,7 +85,7 @@ func getRepoFile(c *gin.Context) {
 	}
 
 	var id string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", true, &id)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", &id, true, true)) {
 		return
 	}
 	data, p, err := model.GetRepoFile(id)
@@ -117,7 +117,7 @@ func rollbackRepoSnapshotFile(c *gin.Context) {
 	}
 
 	var id string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", true, &id)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", &id, true, true)) {
 		return
 	}
 
@@ -139,7 +139,7 @@ func openRepoSnapshotFile(c *gin.Context) {
 	}
 
 	var id string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", true, &id)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", &id, true, true)) {
 		return
 	}
 
@@ -150,7 +150,7 @@ func openRepoSnapshotFile(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"title":         title,
 		"content":       content,
 		"displayInText": displayInText,
@@ -169,8 +169,8 @@ func diffRepoSnapshots(c *gin.Context) {
 
 	var left, right string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("left", true, &left),
-		util.BindJsonArg("right", true, &right),
+		util.BindJsonArg("left", &left, true, true),
+		util.BindJsonArg("right", &right, true, true),
 	) {
 		return
 	}
@@ -181,7 +181,7 @@ func diffRepoSnapshots(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"addsLeft":     diff.AddsLeft,
 		"updatesLeft":  diff.UpdatesLeft,
 		"updatesRight": diff.UpdatesRight,
@@ -203,7 +203,7 @@ func getCloudSpace(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"sync":                 sync,
 		"backup":               backup,
 		"hAssetSize":           hAssetSize,
@@ -227,7 +227,7 @@ func checkoutRepo(c *gin.Context) {
 	}
 
 	var id string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", true, &id)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", &id, true, true)) {
 		return
 	}
 	model.CheckoutRepo(id)
@@ -244,8 +244,8 @@ func downloadCloudSnapshot(c *gin.Context) {
 
 	var id, tag string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("id", true, &id),
-		util.BindJsonArg("tag", true, &tag),
+		util.BindJsonArg("id", &id, true, true),
+		util.BindJsonArg("tag", &tag, true, false),
 	) {
 		return
 	}
@@ -267,8 +267,8 @@ func uploadCloudSnapshot(c *gin.Context) {
 
 	var id, tag string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("id", true, &id),
-		util.BindJsonArg("tag", true, &tag),
+		util.BindJsonArg("id", &id, true, true),
+		util.BindJsonArg("tag", &tag, true, false),
 	) {
 		return
 	}
@@ -289,7 +289,7 @@ func getRepoSnapshots(c *gin.Context) {
 	}
 
 	var page float64
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("page", true, &page)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("page", &page, true, false)) {
 		return
 	}
 	snapshots, pageCount, totalCount, err := model.GetRepoSnapshots(int(page))
@@ -298,7 +298,7 @@ func getRepoSnapshots(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"snapshots":  snapshots,
 		"pageCount":  pageCount,
 		"totalCount": totalCount,
@@ -315,7 +315,7 @@ func getCloudRepoSnapshots(c *gin.Context) {
 	}
 
 	var page float64
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("page", true, &page)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("page", &page, true, false)) {
 		return
 	}
 
@@ -326,7 +326,7 @@ func getCloudRepoSnapshots(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"snapshots":  snapshots,
 		"pageCount":  pageCount,
 		"totalCount": totalCount,
@@ -344,7 +344,7 @@ func getCloudRepoTagSnapshots(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"snapshots": snapshots,
 	}
 }
@@ -359,7 +359,7 @@ func removeCloudRepoTagSnapshot(c *gin.Context) {
 	}
 
 	var tag string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("tag", true, &tag)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("tag", &tag, true, true)) {
 		return
 	}
 	err := model.RemoveCloudRepoTag(tag)
@@ -381,7 +381,7 @@ func getRepoTagSnapshots(c *gin.Context) {
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"snapshots": snapshots,
 	}
 }
@@ -396,7 +396,7 @@ func removeRepoTagSnapshot(c *gin.Context) {
 	}
 
 	var tag string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("tag", true, &tag)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("tag", &tag, true, true)) {
 		return
 	}
 	err := model.RemoveTagSnapshot(tag)
@@ -417,13 +417,13 @@ func createSnapshot(c *gin.Context) {
 	}
 
 	var memo string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("memo", true, &memo)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("memo", &memo, true, false)) {
 		return
 	}
 	if err := model.IndexRepo(memo); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(140), err)
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }
@@ -439,15 +439,15 @@ func tagSnapshot(c *gin.Context) {
 
 	var id, name string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("id", true, &id),
-		util.BindJsonArg("name", true, &name),
+		util.BindJsonArg("id", &id, true, true),
+		util.BindJsonArg("name", &name, true, false),
 	) {
 		return
 	}
 	if err := model.TagSnapshot(id, name); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(140), err)
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }
@@ -462,18 +462,18 @@ func importRepoKey(c *gin.Context) {
 	}
 
 	var base64Key string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("key", true, &base64Key)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("key", &base64Key, true, false)) {
 		return
 	}
 	retKey, err := model.ImportRepoKey(base64Key)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(137), err)
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"key": retKey,
 	}
 }
@@ -488,17 +488,17 @@ func initRepoKeyFromPassphrase(c *gin.Context) {
 	}
 
 	var pass string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("pass", true, &pass)) {
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("pass", &pass, true, false)) {
 		return
 	}
 	if err := model.InitRepoKeyFromPassphrase(pass); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(137), err)
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"key": model.Conf.Repo.Key,
 	}
 }
@@ -510,11 +510,11 @@ func initRepoKey(c *gin.Context) {
 	if err := model.InitRepoKey(); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(137), err)
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 
-	ret.Data = map[string]interface{}{
+	ret.Data = map[string]any{
 		"key": model.Conf.Repo.Key,
 	}
 }
@@ -526,7 +526,7 @@ func resetRepo(c *gin.Context) {
 	if err := model.ResetRepo(); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(146), err.Error())
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }
@@ -538,7 +538,7 @@ func purgeRepo(c *gin.Context) {
 	if err := model.PurgeRepo(); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(201), err.Error())
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }
@@ -550,7 +550,7 @@ func purgeCloudRepo(c *gin.Context) {
 	if err := model.PurgeCloud(); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(201), err.Error())
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }

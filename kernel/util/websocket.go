@@ -17,12 +17,14 @@
 package util
 
 import (
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/88250/gulu"
 	"github.com/olahol/melody"
 	"github.com/siyuan-note/eventbus"
+	"github.com/siyuan-note/logging"
 )
 
 var (
@@ -33,14 +35,14 @@ var (
 	authSessions = sync.Map{}
 )
 
-func BroadcastByTypeAndExcludeApp(excludeApp, typ, cmd string, code int, msg string, data interface{}) {
-	sessions.Range(func(key, value interface{}) bool {
+func BroadcastByTypeAndExcludeApp(excludeApp, typ, cmd string, code int, msg string, data any) {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
 		if key == excludeApp {
 			return true
 		}
 
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if t, ok := session.Get("type"); ok && typ == t {
 				event := NewResult()
@@ -56,13 +58,13 @@ func BroadcastByTypeAndExcludeApp(excludeApp, typ, cmd string, code int, msg str
 	})
 }
 
-func BroadcastByTypeAndApp(typ, app, cmd string, code int, msg string, data interface{}) {
+func BroadcastByTypeAndApp(typ, app, cmd string, code int, msg string, data any) {
 	appSessions, ok := sessions.Load(app)
 	if !ok {
 		return
 	}
 
-	appSessions.(*sync.Map).Range(func(key, value interface{}) bool {
+	appSessions.(*sync.Map).Range(func(key, value any) bool {
 		session := value.(*melody.Session)
 		if t, ok := session.Get("type"); ok && typ == t {
 			event := NewResult()
@@ -77,7 +79,7 @@ func BroadcastByTypeAndApp(typ, app, cmd string, code int, msg string, data inte
 }
 
 // BroadcastByType 广播所有实例上 typ 类型的会话。
-func BroadcastByType(typ, cmd string, code int, msg string, data interface{}) {
+func BroadcastByType(typ, cmd string, code int, msg string, data any) {
 	typeSessions := SessionsByType(typ)
 	for _, sess := range typeSessions {
 		event := NewResult()
@@ -92,9 +94,9 @@ func BroadcastByType(typ, cmd string, code int, msg string, data interface{}) {
 func SessionsByType(typ string) (ret []*melody.Session) {
 	ret = []*melody.Session{}
 
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if t, ok := session.Get("type"); ok && typ == t {
 				ret = append(ret, session)
@@ -107,11 +109,25 @@ func SessionsByType(typ string) (ret []*melody.Session) {
 }
 
 func AddPushChan(session *melody.Session) {
-	appID := session.Request.URL.Query().Get("app")
+	appID := strings.TrimSpace(session.Request.URL.Query().Get("app"))
+	if "" == appID {
+		logging.LogErrorf("app id is required")
+		return
+	}
 	session.Set("app", appID)
-	id := session.Request.URL.Query().Get("id")
+
+	id := strings.TrimSpace(session.Request.URL.Query().Get("id"))
+	if "" == id {
+		logging.LogErrorf("id is required")
+		return
+	}
 	session.Set("id", id)
-	typ := session.Request.URL.Query().Get("type")
+
+	typ := strings.TrimSpace(session.Request.URL.Query().Get("type"))
+	if "" == typ {
+		logging.LogErrorf("type is required")
+		return
+	}
 	session.Set("type", typ)
 
 	if IsAuthSession(session) {
@@ -173,7 +189,7 @@ func RemovePushChan(session *melody.Session) {
 }
 
 func lenOfSyncMap(m *sync.Map) (ret int) {
-	m.Range(func(key, value interface{}) bool {
+	m.Range(func(key, value any) bool {
 		ret++
 		return true
 	})
@@ -181,9 +197,9 @@ func lenOfSyncMap(m *sync.Map) (ret int) {
 }
 
 func ClosePushChan(id string) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if sid, _ := session.Get("id"); sid == id {
 				session.CloseWithMsg([]byte("  close websocket"))
@@ -196,40 +212,40 @@ func ClosePushChan(id string) {
 }
 
 func ReloadUIResetScroll() {
-	BroadcastByType("main", "reloadui", 0, "", map[string]interface{}{"resetScroll": true})
+	BroadcastByType("main", "reloadui", 0, "", map[string]any{"resetScroll": true})
 }
 
 func ReloadUI() {
 	BroadcastByType("main", "reloadui", 0, "", nil)
 }
 
-func PushTxErr(msg string, code int, data interface{}) {
+func PushTxErr(msg string, code int, data any) {
 	BroadcastByType("main", "txerr", code, msg, data)
 }
 
 func PushUpdateMsg(msgId string, msg string, timeout int) {
-	BroadcastByType("main", "msg", 0, msg, map[string]interface{}{"id": msgId, "closeTimeout": timeout})
+	BroadcastByType("main", "msg", 0, msg, map[string]any{"id": msgId, "closeTimeout": timeout})
 }
 
 func PushMsg(msg string, timeout int) (msgId string) {
 	msgId = gulu.Rand.String(7)
-	BroadcastByType("main", "msg", 0, msg, map[string]interface{}{"id": msgId, "closeTimeout": timeout})
+	BroadcastByType("main", "msg", 0, msg, map[string]any{"id": msgId, "closeTimeout": timeout})
 	return
 }
 
 func PushMsgWithApp(app, msg string, timeout int) (msgId string) {
 	msgId = gulu.Rand.String(7)
 	if "" == app {
-		BroadcastByType("main", "msg", 0, msg, map[string]interface{}{"id": msgId, "closeTimeout": timeout})
+		BroadcastByType("main", "msg", 0, msg, map[string]any{"id": msgId, "closeTimeout": timeout})
 		return
 	}
-	BroadcastByTypeAndApp("main", app, "msg", 0, msg, map[string]interface{}{"id": msgId, "closeTimeout": timeout})
+	BroadcastByTypeAndApp("main", app, "msg", 0, msg, map[string]any{"id": msgId, "closeTimeout": timeout})
 	return
 }
 
 func PushErrMsg(msg string, timeout int) (msgId string) {
 	msgId = gulu.Rand.String(7)
-	BroadcastByType("main", "msg", -1, msg, map[string]interface{}{"id": msgId, "closeTimeout": timeout})
+	BroadcastByType("main", "msg", -1, msg, map[string]any{"id": msgId, "closeTimeout": timeout})
 	return
 }
 
@@ -238,7 +254,7 @@ func PushStatusBar(msg string) {
 	BroadcastByType("main", "statusbar", 0, msg, nil)
 }
 
-func PushBackgroundTask(data map[string]interface{}) {
+func PushBackgroundTask(data map[string]any) {
 	BroadcastByType("main", "backgroundtask", 0, "", data)
 }
 
@@ -259,7 +275,7 @@ type BlockStatResult struct {
 	BlockCount int `json:"blockCount"`
 }
 
-func ContextPushMsg(context map[string]interface{}, msg string) {
+func ContextPushMsg(context map[string]any, msg string) {
 	switch context[eventbus.CtxPushMsg].(int) {
 	case eventbus.CtxPushMsgToNone:
 		break
@@ -293,7 +309,7 @@ func PushEndlessProgress(msg string) {
 }
 
 func PushProgress(code, current, total int, msg string) {
-	BroadcastByType("main", "progress", code, msg, map[string]interface{}{
+	BroadcastByType("main", "progress", code, msg, map[string]any{
 		"current": current,
 		"total":   total,
 	})
@@ -301,7 +317,7 @@ func PushProgress(code, current, total int, msg string) {
 
 // PushClearMsg 会清空指定消息。
 func PushClearMsg(msgId string) {
-	BroadcastByType("main", "cmsg", 0, "", map[string]interface{}{"id": msgId})
+	BroadcastByType("main", "cmsg", 0, "", map[string]any{"id": msgId})
 }
 
 // PushClearProgress 取消进度遮罩。
@@ -317,9 +333,9 @@ func PushReloadDoc(rootID string) {
 	BroadcastByType("main", "reloaddoc", 0, "", rootID)
 }
 
-func PushSaveDoc(rootID, typ string, sources interface{}) {
+func PushSaveDoc(rootID, typ string, sources any) {
 	evt := NewCmdResult("savedoc", 0, PushModeBroadcast)
-	evt.Data = map[string]interface{}{
+	evt.Data = map[string]any{
 		"rootID":  rootID,
 		"type":    typ,
 		"sources": sources,
@@ -336,15 +352,15 @@ func PushReloadProtyle(rootID string) {
 }
 
 func PushSetRefDynamicText(rootID, blockID, defBlockID, refText string) {
-	BroadcastByType("main", "setRefDynamicText", 0, "", map[string]interface{}{"rootID": rootID, "blockID": blockID, "defBlockID": defBlockID, "refText": refText})
+	BroadcastByType("main", "setRefDynamicText", 0, "", map[string]any{"rootID": rootID, "blockID": blockID, "defBlockID": defBlockID, "refText": refText})
 }
 
 func PushSetDefRefCount(rootID, blockID string, defIDs []string, refCount, rootRefCount int) {
-	BroadcastByType("main", "setDefRefCount", 0, "", map[string]interface{}{"rootID": rootID, "blockID": blockID, "refCount": refCount, "rootRefCount": rootRefCount, "defIDs": defIDs})
+	BroadcastByType("main", "setDefRefCount", 0, "", map[string]any{"rootID": rootID, "blockID": blockID, "refCount": refCount, "rootRefCount": rootRefCount, "defIDs": defIDs})
 }
 
 func PushLocalShorthandCount(count int) {
-	BroadcastByType("main", "setLocalShorthandCount", 0, "", map[string]interface{}{"count": count})
+	BroadcastByType("main", "setLocalShorthandCount", 0, "", map[string]any{"count": count})
 }
 
 func PushProtyleLoading(rootID, msg string) {
@@ -357,7 +373,7 @@ func PushReloadEmojiConf() {
 
 func PushDownloadProgress(id string, percent float32) {
 	evt := NewCmdResult("downloadProgress", 0, PushModeBroadcast)
-	evt.Data = map[string]interface{}{
+	evt.Data = map[string]any{
 		"id":      id,
 		"percent": percent,
 	}
@@ -384,13 +400,13 @@ func PushEvent(event *Result) {
 }
 
 func single(msg []byte, appId, sid string) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
 		if key != appId {
 			return true
 		}
 
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if id, _ := session.Get("id"); id == sid {
 				session.Write(msg)
@@ -402,9 +418,9 @@ func single(msg []byte, appId, sid string) {
 }
 
 func Broadcast(msg []byte) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			session.Write(msg)
 			return true
@@ -414,9 +430,9 @@ func Broadcast(msg []byte) {
 }
 
 func broadcastOtherApps(msg []byte, excludeApp string) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if app, _ := session.Get("app"); app == excludeApp {
 				return true
@@ -429,9 +445,9 @@ func broadcastOtherApps(msg []byte, excludeApp string) {
 }
 
 func broadcastOtherAppMains(msg []byte, excludeApp string) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if app, _ := session.Get("app"); app == excludeApp {
 				return true
@@ -449,9 +465,9 @@ func broadcastOtherAppMains(msg []byte, excludeApp string) {
 }
 
 func broadcastApp(msg []byte, app string) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if sessionApp, _ := session.Get("app"); sessionApp != app {
 				return true
@@ -464,9 +480,9 @@ func broadcastApp(msg []byte, app string) {
 }
 
 func broadcastOthers(msg []byte, excludeSID string) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if id, _ := session.Get("id"); id == excludeSID {
 				return true
@@ -479,11 +495,11 @@ func broadcastOthers(msg []byte, excludeSID string) {
 }
 
 func CountSessions() (ret int) {
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		ret++
 		return true
 	})
-	authSessions.Range(func(key, value interface{}) bool {
+	authSessions.Range(func(key, value any) bool {
 		ret++
 		return true
 	})
@@ -498,9 +514,9 @@ func ClosePublishServiceSessions() {
 
 	// 收集所有发布服务的会话
 	var publishSessions []*melody.Session
-	sessions.Range(func(key, value interface{}) bool {
+	sessions.Range(func(key, value any) bool {
 		appSessions := value.(*sync.Map)
-		appSessions.Range(func(key, value interface{}) bool {
+		appSessions.Range(func(key, value any) bool {
 			session := value.(*melody.Session)
 			if isPublish, ok := session.Get("isPublish"); ok && isPublish == true {
 				publishSessions = append(publishSessions, session)
@@ -516,7 +532,7 @@ func ClosePublishServiceSessions() {
 		event.Cmd = "closepublishpage"
 		event.Code = 0
 		event.Msg = "SiYuan publish service closed"
-		event.Data = map[string]interface{}{
+		event.Data = map[string]any{
 			"reason": "publish service closed",
 		}
 		session.Write(event.Bytes())

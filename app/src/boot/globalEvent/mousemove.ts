@@ -4,15 +4,36 @@ import {hasClosestBlock, hasClosestByClassName, hasClosestByTag} from "../../pro
 import {getColIndex} from "../../protyle/util/table";
 
 const getRightBlock = (element: HTMLElement, x: number, y: number) => {
-    let index = 1;
+    let left = x + 34;
     let nodeElement = element;
     if (nodeElement && nodeElement.classList.contains("protyle-action")) {
         return nodeElement;
     }
-    while (nodeElement && (nodeElement.classList.contains("list") || nodeElement.classList.contains("li"))) {
-        nodeElement = document.elementFromPoint(x + 73 * index, y) as HTMLElement;
+    let lastNodeElement;
+    while (nodeElement && (
+        nodeElement.classList.contains("list") || nodeElement.classList.contains("li") ||
+        nodeElement.classList.contains("bq") || nodeElement.classList.contains("callout")
+    )) {
+        nodeElement = document.elementFromPoint(left, y) as HTMLElement;
+        const calloutInfoElement = hasClosestByClassName(nodeElement, "callout-info");
+        if (calloutInfoElement) {
+            nodeElement = calloutInfoElement;
+            break;
+        }
         nodeElement = hasClosestBlock(nodeElement) as HTMLElement;
-        index++;
+        if (lastNodeElement && lastNodeElement === nodeElement) {
+            break;
+        }
+        lastNodeElement = nodeElement;
+        if (nodeElement) {
+            if (nodeElement.classList.contains("bq") || nodeElement.classList.contains("callout")) {
+                left += 10;
+            } else {
+                left += 34;
+            }
+        } else {
+            left += 34;
+        }
     }
     return nodeElement;
 };

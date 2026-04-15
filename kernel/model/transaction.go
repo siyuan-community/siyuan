@@ -92,8 +92,19 @@ func flushTx(tx *Transaction) {
 	start := time.Now()
 	if txErr := performTx(tx); nil != txErr {
 		switch txErr.code {
-		case TxErrCodeBlockNotFound:
-			util.PushTxErr("Transaction failed", txErr.code, nil)
+		case TxErrCodeBlockNotFound, TxErrCodePushMsg:
+			pushMsg := txErr.msg
+			if pushMsg == "" {
+				if TxErrCodeBlockNotFound == txErr.code {
+					pushMsg = "Transaction failed: block not found"
+				} else {
+					pushMsg = "Transaction failed"
+				}
+			}
+			if txErr.id != "" && !strings.Contains(pushMsg, txErr.id) {
+				pushMsg += fmt.Sprintf(" [%s]", txErr.id)
+			}
+			util.PushTxErr(pushMsg, txErr.code, nil)
 			return
 		case TxErrCodeDataIsSyncing:
 			util.PushMsg(Conf.Language(222), 5000)
@@ -105,7 +116,7 @@ func flushTx(tx *Transaction) {
 			logging.LogFatalf(logging.ExitCodeFatal, "transaction failed [%d]: %s\n  tx [%s]", txErr.code, txErr.msg, txData)
 		}
 	}
-	elapsed := time.Now().Sub(start).Milliseconds()
+	elapsed := time.Since(start).Milliseconds()
 	if 0 < len(tx.DoOperations) {
 		if 2000 < elapsed {
 			logging.LogWarnf("op tx [%dms]", elapsed)
@@ -118,7 +129,6 @@ func PerformTransactions(transactions *[]*Transaction) {
 		tx.m = &sync.Mutex{}
 		txQueue <- tx
 	}
-	return
 }
 
 const (
@@ -126,6 +136,7 @@ const (
 	TxErrCodeDataIsSyncing   = 1
 	TxErrCodeWriteTree       = 2
 	TxErrHandleAttributeView = 3
+	TxErrCodePushMsg         = 4
 )
 
 type TxErr struct {
@@ -150,7 +161,7 @@ func performTx(tx *Transaction) (ret *TxErr) {
 			return
 		}
 		logging.LogErrorf("begin tx failed: %s", err)
-		ret = &TxErr{msg: err.Error()}
+		ret = &TxErr{code: TxErrCodePushMsg, msg: err.Error()}
 		return
 	}
 
@@ -332,7 +343,7 @@ func performTx(tx *Transaction) (ret *TxErr) {
 
 	if cr := tx.commit(); nil != cr {
 		logging.LogErrorf("commit tx failed: %s", cr)
-		return &TxErr{msg: cr.Error()}
+		return &TxErr{code: TxErrCodePushMsg, msg: cr.Error()}
 	}
 	return
 }
@@ -1201,6 +1212,8 @@ func (tx *Transaction) doInsert0(operation *Operation, tree *parse.Tree) (ret *T
 
 	insertedNode := subTree.Root.FirstChild
 	if nil == insertedNode {
+		logging.LogErrorf("invalid data tree: insert op id[%s] parent[%s] previous[%s] next[%s] root[%s]",
+			operation.ID, operation.ParentID, operation.PreviousID, operation.NextID, tree.Root.ID)
 		return &TxErr{code: TxErrCodeBlockNotFound, msg: "invalid data tree"}
 	}
 	var remains []*ast.Node
@@ -1413,7 +1426,7 @@ func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 	oldNode := treenode.GetNodeInTree(tree, id)
 	if nil == oldNode {
 		logging.LogErrorf("get node [%s] in tree [%s] failed", id, tree.Root.ID)
-		return &TxErr{msg: ErrBlockNotFound.Error(), id: id}
+		return &TxErr{code: TxErrCodeBlockNotFound, msg: ErrBlockNotFound.Error(), id: id}
 	}
 
 	// 收集引用的定义块 ID
@@ -1467,7 +1480,7 @@ func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 	updatedNode := subTree.Root.FirstChild
 	if nil == updatedNode {
 		logging.LogErrorf("get fist node in sub tree [%s] failed", subTree.Root.ID)
-		return &TxErr{msg: ErrBlockNotFound.Error(), id: id}
+		return &TxErr{code: TxErrCodeBlockNotFound, msg: ErrBlockNotFound.Error(), id: id}
 	}
 	if ast.NodeList == updatedNode.Type && ast.NodeList == oldNode.Parent.Type {
 		updatedNode = updatedNode.FirstChild
@@ -1600,7 +1613,7 @@ func unfoldHeading(heading, currentNode *ast.Node) {
 	heading.RemoveIALAttr("fold")
 	heading.RemoveIALAttr("heading-fold")
 
-	util.BroadcastByType("protyle", "unfoldHeading", 0, "", map[string]interface{}{"id": heading.ID, "currentNodeID": currentNode.ID})
+	util.BroadcastByType("protyle", "unfoldHeading", 0, "", map[string]any{"id": heading.ID, "currentNodeID": currentNode.ID})
 }
 
 func getRefDefIDs(node *ast.Node) (refDefIDs []string) {
@@ -1718,7 +1731,7 @@ func (tx *Transaction) doUpdateUpdated(operation *Operation) (ret *TxErr) {
 	node := treenode.GetNodeInTree(tree, id)
 	if nil == node {
 		logging.LogErrorf("get node [%s] in tree [%s] failed", id, tree.Root.ID)
-		return &TxErr{msg: ErrBlockNotFound.Error(), id: id}
+		return &TxErr{code: TxErrCodeBlockNotFound, msg: ErrBlockNotFound.Error(), id: id}
 	}
 
 	node.SetIALAttr("updated", operation.Data.(string))
@@ -1754,23 +1767,9 @@ func (tx *Transaction) doSetAttrs(operation *Operation) (ret *TxErr) {
 		return &TxErr{code: TxErrCodeBlockNotFound, id: id}
 	}
 
-	var invalidNames []string
-	for name := range attrs {
-		if !isValidAttrName(name) {
-			logging.LogWarnf("invalid attr name [%s]", name)
-			invalidNames = append(invalidNames, name)
-		}
-	}
-	for _, name := range invalidNames {
-		delete(attrs, name)
-	}
-
-	for name, value := range attrs {
-		if "" == value {
-			node.RemoveIALAttr(name)
-		} else {
-			node.SetIALAttr(name, value)
-		}
+	if _, setErr := setNodeAttrs0(node, attrs); nil != setErr {
+		logging.LogErrorf("set attrs failed: %s", setErr)
+		return &TxErr{code: TxErrCodePushMsg, msg: setErr.Error(), id: id}
 	}
 
 	tx.writeTree(tree)
@@ -1819,38 +1818,38 @@ func createdUpdated(node *ast.Node) {
 }
 
 type Operation struct {
-	Action     string      `json:"action"`
-	Data       interface{} `json:"data"`
-	ID         string      `json:"id"`
-	RootID     string      `json:"rootID"` // 思源内部暂时没有用到 https://github.com/siyuan-note/siyuan/issues/17179#issuecomment-4051604916
-	ParentID   string      `json:"parentID"`
-	PreviousID string      `json:"previousID"`
-	NextID     string      `json:"nextID"`
-	RetData    interface{} `json:"retData"`
-	BlockIDs   []string    `json:"blockIDs"`
-	BlockID    string      `json:"blockID"`
+	Action     string   `json:"action"`
+	Data       any      `json:"data"`
+	ID         string   `json:"id"`
+	RootID     string   `json:"rootID"` // 思源内部暂时没有用到 https://github.com/siyuan-note/siyuan/issues/17179#issuecomment-4051604916
+	ParentID   string   `json:"parentID"`
+	PreviousID string   `json:"previousID"`
+	NextID     string   `json:"nextID"`
+	RetData    any      `json:"retData"`
+	BlockIDs   []string `json:"blockIDs"`
+	BlockID    string   `json:"blockID"`
 
 	DeckID string `json:"deckID"` // 用于添加/删除闪卡
 
-	AvID              string                   `json:"avID"`              // 属性视图 ID
-	SrcIDs            []string                 `json:"srcIDs"`            // 用于从属性视图中删除行
-	Srcs              []map[string]interface{} `json:"srcs"`              // 用于添加属性视图行（包括绑定块）{id, content, isDetached}
-	IsDetached        bool                     `json:"isDetached"`        // 用于标识是否未绑定块，仅存在于属性视图中
-	Name              string                   `json:"name"`              // 属性视图列名
-	Typ               string                   `json:"type"`              // 属性视图列类型
-	Format            string                   `json:"format"`            // 属性视图列格式化
-	KeyID             string                   `json:"keyID"`             // 属性视图字段 ID
-	RowID             string                   `json:"rowID"`             // 属性视图行 ID
-	IsTwoWay          bool                     `json:"isTwoWay"`          // 属性视图关联列是否是双向关系
-	BackRelationKeyID string                   `json:"backRelationKeyID"` // 属性视图关联列回链关联列的 ID
-	RemoveDest        bool                     `json:"removeDest"`        // 属性视图删除关联目标
-	Layout            av.LayoutType            `json:"layout"`            // 属性视图布局类型
-	GroupID           string                   `json:"groupID"`           // 属性视图分组视图 ID
-	TargetGroupID     string                   `json:"targetGroupID"`     // 属性视图目标分组视图 ID
-	ViewID            string                   `json:"viewID"`            // 属性视图视图 ID
-	IgnoreDefaultFill bool                     `json:"ignoreDefaultFill"` // 是否忽略默认填充
+	AvID              string           `json:"avID"`              // 属性视图 ID
+	SrcIDs            []string         `json:"srcIDs"`            // 用于从属性视图中删除行
+	Srcs              []map[string]any `json:"srcs"`              // 用于添加属性视图行（包括绑定块）{id, content, isDetached}
+	IsDetached        bool             `json:"isDetached"`        // 用于标识是否未绑定块，仅存在于属性视图中
+	Name              string           `json:"name"`              // 属性视图列名
+	Typ               string           `json:"type"`              // 属性视图列类型
+	Format            string           `json:"format"`            // 属性视图列格式化
+	KeyID             string           `json:"keyID"`             // 属性视图字段 ID
+	RowID             string           `json:"rowID"`             // 属性视图行 ID
+	IsTwoWay          bool             `json:"isTwoWay"`          // 属性视图关联列是否是双向关系
+	BackRelationKeyID string           `json:"backRelationKeyID"` // 属性视图关联列回链关联列的 ID
+	RemoveDest        bool             `json:"removeDest"`        // 属性视图删除关联目标
+	Layout            av.LayoutType    `json:"layout"`            // 属性视图布局类型
+	GroupID           string           `json:"groupID"`           // 属性视图分组视图 ID
+	TargetGroupID     string           `json:"targetGroupID"`     // 属性视图目标分组视图 ID
+	ViewID            string           `json:"viewID"`            // 属性视图视图 ID
+	IgnoreDefaultFill bool             `json:"ignoreDefaultFill"` // 是否忽略默认填充
 
-	Context map[string]interface{} `json:"context"` // 上下文信息
+	Context map[string]any `json:"context"` // 上下文信息
 }
 
 type Transaction struct {
@@ -1909,7 +1908,7 @@ func (tx *Transaction) commit() (err error) {
 			return
 		}
 
-		var sources []interface{}
+		var sources []any
 		sources = append(sources, tx)
 		util.PushSaveDoc(tree.ID, "tx", sources)
 

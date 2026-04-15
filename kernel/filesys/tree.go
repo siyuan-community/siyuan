@@ -85,7 +85,7 @@ func batchLoadTrees(boxIDs, paths []string, luteEngine *lute.Lute) (ret []*parse
 	lock := sync.Mutex{}
 	poolSize := min(runtime.NumCPU(), 8)
 
-	p, _ := ants.NewPoolWithFunc(poolSize, func(arg interface{}) {
+	p, _ := ants.NewPoolWithFunc(poolSize, func(arg any) {
 		defer waitGroup.Done()
 
 		i := arg.(int)
@@ -149,6 +149,12 @@ func LoadTreeByData(data []byte, boxID, p string, luteEngine *lute.Lute) (ret *p
 	ret.Root.Path = p
 
 	parts := strings.Split(p, "/")
+	if len(parts) < 2 {
+		logging.LogErrorf("parse tree [%s] failed: invalid path", p)
+		err = errors.New("invalid path")
+		return
+	}
+
 	parts = parts[1 : len(parts)-1] // 去掉开头的斜杆和结尾的自己
 	if 1 > len(parts) {
 		ret.HPath = "/" + ret.Root.IALAttr("title")

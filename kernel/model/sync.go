@@ -213,7 +213,7 @@ func syncData(exit, byHand bool) {
 
 	if 1 == Conf.Sync.Mode && nil != webSocketConn && Conf.Sync.Perception && dataChanged {
 		// 如果处于自动同步模式且不是由 WS 触发的同步，则通知其他设备上的内核进行同步
-		request := map[string]interface{}{
+		request := map[string]any{
 			"cmd":    "synced",
 			"synced": Conf.Sync.Synced,
 		}
@@ -441,11 +441,6 @@ func SetSyncProviderS3(s3 *conf.S3) (err error) {
 	s3.Timeout = util.NormalizeTimeout(s3.Timeout)
 	s3.ConcurrentReqs = util.NormalizeConcurrentReqs(s3.ConcurrentReqs, conf.ProviderS3)
 
-	if !cloud.IsValidCloudDirName(s3.Bucket) {
-		util.PushErrMsg(Conf.Language(37), 5000)
-		return
-	}
-
 	Conf.Sync.S3 = s3
 	Conf.Save()
 	return
@@ -495,7 +490,7 @@ func SetSyncProviderLocal(local *conf.Local) (err error) {
 		return
 	}
 
-	if util.IsSubPath(absPath, util.WorkspaceDir) {
+	if gulu.File.IsSubPath(absPath, util.WorkspaceDir) {
 		msg := fmt.Sprintf("endpoint [%s] is parent of workspace", local.Endpoint)
 		logging.LogErrorf(msg)
 		err = fmt.Errorf(Conf.Language(77), msg)
@@ -524,7 +519,6 @@ func CreateCloudSyncDir(name string) (err error) {
 		return
 	}
 
-	name = strings.TrimSpace(name)
 	name = util.RemoveInvalid(name)
 	if !cloud.IsValidCloudDirName(name) {
 		return errors.New(Conf.Language(37))
@@ -553,10 +547,6 @@ func RemoveCloudSyncDir(name string) (err error) {
 	}
 
 	msgId := util.PushMsg(Conf.Language(116), 15000)
-
-	if "" == name {
-		return
-	}
 
 	repo, err := newRepository()
 	if err != nil {
@@ -872,7 +862,7 @@ func connectSyncWebSocket() {
 			}
 
 			logging.LogInfof("sync websocket message: %v", result)
-			data := result.Data.(map[string]interface{})
+			data := result.Data.(map[string]any)
 			switch data["cmd"].(string) {
 			case "synced":
 				// Improve data synchronization perception https://github.com/siyuan-note/siyuan/issues/13000
@@ -881,8 +871,8 @@ func connectSyncWebSocket() {
 				onlineKernelsLock.Lock()
 
 				onlineKernels = []*OnlineKernel{}
-				for _, kernel := range data["kernels"].([]interface{}) {
-					kernelMap := kernel.(map[string]interface{})
+				for _, kernel := range data["kernels"].([]any) {
+					kernelMap := kernel.(map[string]any)
 					onlineKernels = append(onlineKernels, &OnlineKernel{
 						ID:       kernelMap["id"].(string),
 						Hostname: kernelMap["hostname"].(string),

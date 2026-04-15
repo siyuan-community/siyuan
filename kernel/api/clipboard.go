@@ -65,10 +65,8 @@ func writeFilePath(c *gin.Context) {
 		return
 	}
 
-	pathArg, ok := arg["path"].(string)
-	if !ok || pathArg == "" {
-		ret.Code = -1
-		ret.Msg = "[path] is required"
+	var pathArg string
+	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("path", &pathArg, true, true)) {
 		return
 	}
 
@@ -77,7 +75,7 @@ func writeFilePath(c *gin.Context) {
 		logging.LogErrorf("get asset [%s] abs path failed: %s", pathArg, err)
 		ret.Code = -1
 		ret.Msg = err.Error()
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 
@@ -85,7 +83,7 @@ func writeFilePath(c *gin.Context) {
 		logging.LogErrorf("write file path to clipboard failed: %s", err)
 		ret.Code = -1
 		ret.Msg = err.Error()
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 }

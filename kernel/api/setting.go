@@ -94,7 +94,7 @@ func addVirtualBlockRefExclude(c *gin.Context) {
 
 	keywordsArg := arg["keywords"]
 	var keywords []string
-	for _, k := range keywordsArg.([]interface{}) {
+	for _, k := range keywordsArg.([]any) {
 		keywords = append(keywords, k.(string))
 	}
 
@@ -115,7 +115,7 @@ func addVirtualBlockRefInclude(c *gin.Context) {
 
 	keywordsArg := arg["keywords"]
 	var keywords []string
-	for _, k := range keywordsArg.([]interface{}) {
+	for _, k := range keywordsArg.([]any) {
 		keywords = append(keywords, k.(string))
 	}
 
@@ -372,7 +372,7 @@ func setExport(c *gin.Context) {
 	if err = gulu.JSON.UnmarshalJSON(param, export); err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
-		ret.Data = map[string]interface{}{"closeTimeout": 5000}
+		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
 
@@ -572,15 +572,8 @@ func setIcon(c *gin.Context) {
 
 	var icon string
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("icon", true, &icon),
+		util.BindJsonArg("icon", &icon, true, true),
 	) {
-		return
-	}
-
-	icon = strings.TrimSpace(icon)
-	if icon == "" {
-		ret.Code = -1
-		ret.Msg = "[icon] must not be empty"
 		return
 	}
 
@@ -606,9 +599,9 @@ func setTheme(c *gin.Context) {
 	var theme, appearanceMode string
 	var modesRaw []any
 	if !util.ParseJsonArgs(arg, ret,
-		util.BindJsonArg("theme", false, &theme),
-		util.BindJsonArg("modes", false, &modesRaw),
-		util.BindJsonArg("appearanceMode", false, &appearanceMode),
+		util.BindJsonArg("theme", &theme, false, false),
+		util.BindJsonArg("modes", &modesRaw, false, false),
+		util.BindJsonArg("appearanceMode", &appearanceMode, false, false),
 	) {
 		return
 	}
@@ -759,7 +752,7 @@ func setEmoji(c *gin.Context) {
 		return
 	}
 
-	argEmoji := arg["emoji"].([]interface{})
+	argEmoji := arg["emoji"].([]any)
 	var emoji []string
 	for _, ae := range argEmoji {
 		e := ae.(string)
