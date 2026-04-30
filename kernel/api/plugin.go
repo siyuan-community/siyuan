@@ -22,8 +22,8 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/plugin"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/plugin"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func listLoadedPlugins(c *gin.Context) {

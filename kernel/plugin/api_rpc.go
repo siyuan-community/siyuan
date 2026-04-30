@@ -21,8 +21,8 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/samber/lo"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 // injectRpc adds siyuan.rpc method for RPC method registration.

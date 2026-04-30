@@ -24,9 +24,9 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/samber/lo"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 // injectStorage adds siyuan.storage.* methods for scoped file CRUD.

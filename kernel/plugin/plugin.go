@@ -32,9 +32,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/lxzan/gws"
 	"github.com/samber/lo"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"github.com/smallnest/chanx"
 )
 

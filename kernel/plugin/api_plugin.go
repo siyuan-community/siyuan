@@ -21,7 +21,7 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/samber/lo"
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
 )
 
 // injectPlugin adds siyuan.plugin to the goja context.

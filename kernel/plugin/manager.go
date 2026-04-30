@@ -20,8 +20,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/model"
 )
 
 // PluginManager discovers, loads, starts, and stops kernel plugins.

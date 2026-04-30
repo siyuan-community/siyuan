@@ -30,9 +30,9 @@ import (
 	"github.com/lxzan/gws"
 	sse "github.com/r3labs/sse/v2"
 	"github.com/samber/lo"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 // injectClient adds siyuan.server to the goja context.
