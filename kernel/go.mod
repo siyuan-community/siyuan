@@ -94,7 +94,10 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
+require (
+	github.com/google/pprof v0.0.0-20250403155104-27863c87afa6 // indirect
+	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
