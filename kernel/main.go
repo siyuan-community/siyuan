@@ -22,6 +22,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/job"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/plugin"
 	"github.com/siyuan-community/siyuan/kernel/server"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -30,6 +31,7 @@ import (
 func main() {
 	util.Boot()
 
+	model.InitJwtKey()
 	model.InitConf()
 	model.InitCommunity()
 	go server.Serve(false, model.Conf.CookieKey)
@@ -53,6 +55,7 @@ func main() {
 	go model.AutoGenerateFileHistory()
 	go cache.LoadAssets()
 	go util.CheckFileSysStatus()
+	go plugin.InitManager()
 
 	model.WatchAssets()
 	model.WatchEmojis()

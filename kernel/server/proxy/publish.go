@@ -49,7 +49,7 @@ var (
 )
 
 func InitPublishService() (uint16, error) {
-	model.InitAccounts()
+	model.InitPublishAccounts()
 
 	if listener != nil {
 		if !model.Conf.Publish.Enable {
