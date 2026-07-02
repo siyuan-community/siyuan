@@ -20,7 +20,7 @@ import (
 	"encoding/hex"
 	"regexp"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // Secret 是一条命名密钥，Name 为引用名（如 weread_key），Value 在运行时为明文，落盘时由 Secrets.Encrypt 加密。

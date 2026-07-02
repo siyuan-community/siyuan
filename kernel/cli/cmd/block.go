@@ -24,10 +24,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/siyuan-note/siyuan/kernel/filesys"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/spf13/cobra"
 )
@@ -355,7 +355,7 @@ var blockUpdateCmd = &cobra.Command{
 	},
 }
 
-	var blockDeleteCmd = &cobra.Command{
+var blockDeleteCmd = &cobra.Command{
 	Use:   "delete --id <id>",
 	Short: "Delete block",
 	RunE: func(cmd *cobra.Command, args []string) error {

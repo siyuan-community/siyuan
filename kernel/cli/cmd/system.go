@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/spf13/cobra"
 )

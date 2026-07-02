@@ -17,8 +17,8 @@
 package mcp
 
 import (
-	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 var supportedProtocolVersions = map[string]bool{

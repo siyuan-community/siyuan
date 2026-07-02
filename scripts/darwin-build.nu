@@ -18,7 +18,6 @@ def main [
 
     let PROJECT_ROOT: string = ($env.FILE_PWD | path dirname)
 
-
     # fnm use 24
 
     print 'Cleaning Builds'
@@ -26,19 +25,23 @@ def main [
     rm -rf app/kernel-darwin
     rm -rf app/kernel-darwin-arm64
 
+    # Building UI
     print 'Building UI'
     cd ($PROJECT_ROOT | path join 'app')
     pnpm install
     pnpm run build
 
+    cd $PROJECT_ROOT
+
+    # Building Kernel
     print 'Building Kernel'
     cd ($PROJECT_ROOT | path join 'kernel')
     go version
 
     $env.GO111MODULE = 'on'
-    # $env:GOPROXY = 'https://goproxy.io'
-    $env.GOPROXY = 'https://mirrors.aliyun.com/goproxy/'
     $env.CGO_ENABLED = '1'
+    # $env:GOPROXY = 'https://goproxy.io'
+    # $env.GOPROXY = 'https://mirrors.aliyun.com/goproxy/'
 
     go mod tidy
     go generate
@@ -58,6 +61,7 @@ def main [
         go build -tags fts5 -v -o "../app/kernel-darwin-arm64/SiYuan-Kernel" -ldflags "-s -w" .
     }
 
+    # Build Electron App
     cd ($PROJECT_ROOT | path join 'app')
 
     $env.PYTHON_PATH = "/usr/bin/python3"

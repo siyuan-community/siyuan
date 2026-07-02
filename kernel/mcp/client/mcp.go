@@ -27,10 +27,10 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
+	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
-	"github.com/siyuan-note/siyuan/kernel/model"
 )
 
 const (

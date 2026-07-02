@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 var WorkspaceTool = &Tool{

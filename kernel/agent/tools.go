@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
-	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
 )
 
 func convertMCPToolsToOpenAI() []openai.Tool {

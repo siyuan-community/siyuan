@@ -24,8 +24,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/model"
 
 	"github.com/spf13/cobra"
 )

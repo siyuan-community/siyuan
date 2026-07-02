@@ -21,8 +21,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 type AgentTodoItem struct {

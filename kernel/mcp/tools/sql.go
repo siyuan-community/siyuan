@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/siyuan-note/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 )
 
 var SQLTool = &Tool{

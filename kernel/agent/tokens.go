@@ -23,7 +23,7 @@ import (
 	"github.com/pkoukk/tiktoken-go"
 	loader "github.com/pkoukk/tiktoken-go-loader"
 	"github.com/sashabaranov/go-openai"
-	tools "github.com/siyuan-note/siyuan/kernel/mcp/tools"
+	tools "github.com/siyuan-community/siyuan/kernel/mcp/tools"
 )
 
 // tokenCounter 用 tiktoken 对文本进行 BPE 分词计数。encoder 单例化避免重复加载编码表。

@@ -37,7 +37,6 @@ var (
 	TLSKernel   = false
 	TLSCertFile = ""
 	TLSKeyFile  = ""
-	Protocol    = "http"
 	Hostname    = "localhost"
 
 	SSL       = false

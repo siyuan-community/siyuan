@@ -22,9 +22,9 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/samber/lo"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 // pluginToolName builds the fully-qualified MCP tool name for a plugin-local tool name.

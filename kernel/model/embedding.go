@@ -32,10 +32,10 @@ import (
 
 	"github.com/88250/gulu"
 	ignore "github.com/sabhiram/go-gitignore"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/eventbus"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 const (

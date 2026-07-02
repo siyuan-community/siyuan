@@ -22,7 +22,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
 
 	"github.com/spf13/cobra"
 )
@@ -67,11 +67,11 @@ var searchCmd = &cobra.Command{
 		switch outputFormat {
 		case "json":
 			result := map[string]any{
-				"blocks":             blocks,
-				"matchedBlockCount":  matchedBlockCount,
-				"matchedRootCount":   matchedRootCount,
-				"pageCount":          pageCount,
-				"docMode":            docMode,
+				"blocks":            blocks,
+				"matchedBlockCount": matchedBlockCount,
+				"matchedRootCount":  matchedRootCount,
+				"pageCount":         pageCount,
+				"docMode":           docMode,
 			}
 			data, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println(string(data))

@@ -20,7 +20,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestHanInsensitiveRegexp(t *testing.T) {

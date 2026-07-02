@@ -22,7 +22,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
 
 	"github.com/spf13/cobra"
 )

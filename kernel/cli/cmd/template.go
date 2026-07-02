@@ -24,8 +24,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/spf13/cobra"
 )

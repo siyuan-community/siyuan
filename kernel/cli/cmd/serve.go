@@ -17,28 +17,28 @@
 package cmd
 
 import (
-	"github.com/siyuan-note/siyuan/kernel/cache"
-	"github.com/siyuan-note/siyuan/kernel/job"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/plugin"
-	"github.com/siyuan-note/siyuan/kernel/server"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/job"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/plugin"
+	"github.com/siyuan-community/siyuan/kernel/server"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/spf13/cobra"
 )
 
 // serve 子命令自己的 flag 值。--workspace 复用 rootCmd 的 persistent flag，不再重复声明。
 var (
-	serveWdPath          string
-	servePort            string
-	serveReadOnly        string
-	serveAccessAuthCode  string
-	serveLang            string
-	serveMode            string
-	serveSSL             bool
-	serveAttachUI        bool
-	serveSafeMode        bool
+	serveWdPath         string
+	servePort           string
+	serveReadOnly       string
+	serveAccessAuthCode string
+	serveLang           string
+	serveMode           string
+	serveSSL            bool
+	serveAttachUI       bool
+	serveSafeMode       bool
 )
 
 var serveCmd = &cobra.Command{

@@ -19,9 +19,9 @@ package tools
 import (
 	"fmt"
 
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // HTTPRequestTool 通用 HTTP 调用工具，供智能体访问需要鉴权的 REST API（如微信读书网关）。

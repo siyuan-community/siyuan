@@ -25,7 +25,7 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 )
 
 // UndoEntry 是撤销栈中的一条记录。跨文档操作（MutatedRootIDs 含多个 rootID）的 entry

@@ -19,7 +19,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
 
 var SyncTool = &Tool{

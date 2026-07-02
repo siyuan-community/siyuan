@@ -21,7 +21,7 @@ import (
 
 	"github.com/88250/lute"
 	"github.com/88250/lute/parse"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 var md2HTMLLutePool sync.Pool

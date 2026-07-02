@@ -21,7 +21,7 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/samber/lo"
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
 
 // injectSecretsVars adds siyuan.secrets and siyuan.vars to the plugin JS sandbox.

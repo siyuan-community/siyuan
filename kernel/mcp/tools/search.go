@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
 
 var SearchTool = &Tool{

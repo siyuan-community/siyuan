@@ -23,8 +23,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 
 	"github.com/spf13/cobra"
 )

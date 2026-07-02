@@ -33,10 +33,10 @@ import (
 	"github.com/siyuan-note/logging"
 
 	"github.com/sashabaranov/go-openai"
+	mcpclient "github.com/siyuan-community/siyuan/kernel/mcp/client"
+	kernelModel "github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
-	mcpclient "github.com/siyuan-note/siyuan/kernel/mcp/client"
-	kernelModel "github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 const systemPrompt = `You are a SiYuan AI assistant. You help users manage their notes, documents, and knowledge base through the tools provided.

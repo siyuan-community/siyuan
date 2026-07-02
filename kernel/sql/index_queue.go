@@ -28,10 +28,10 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/gofrs/flock"
+	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/eventbus"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/filesys"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 var (

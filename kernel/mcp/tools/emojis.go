@@ -24,7 +24,7 @@ import (
 
 	"github.com/88250/gulu"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // builtinEmojiUnicodes 缓存内置 emoji 的全部 unicode 码点（来自 appearance/emojis/conf.json）。
