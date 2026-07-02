@@ -18,6 +18,7 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -28,6 +29,7 @@ import (
 	mathRand "math/rand"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -45,6 +47,7 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
 	"github.com/emirpasic/gods/sets/hashset"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
@@ -70,6 +73,9 @@ func AutoPurgeRepoJob() {
 var (
 	autoPurgeRepoAfterFirstSync = false
 	lastAutoPurgeRepo           = time.Time{}
+
+	purgeCancelMu sync.Mutex
+	purgeCancel   context.CancelFunc
 )
 
 func autoPurgeRepo(cron bool) {
@@ -164,7 +170,30 @@ func autoPurgeRepo(cron bool) {
 		return
 	}
 
-	_, err = repo.Purge(retentionIndexIDs...)
+	purgeCancelMu.Lock()
+	var ctx context.Context
+	ctx, purgeCancel = context.WithCancel(context.Background())
+	cancelCtx := ctx
+	purgeCancelMu.Unlock()
+	defer func() {
+		purgeCancelMu.Lock()
+		if nil != purgeCancel {
+			purgeCancel()
+			purgeCancel = nil
+		}
+		purgeCancelMu.Unlock()
+	}()
+
+	_, err = repo.Purge(cancelCtx, retentionIndexIDs...)
+}
+
+func cancelPurge() {
+	purgeCancelMu.Lock()
+	defer purgeCancelMu.Unlock()
+	if nil != purgeCancel {
+		purgeCancel()
+		purgeCancel = nil
+	}
 }
 
 func GetRepoFile(fileID string) (ret []byte, p string, err error) {
@@ -215,6 +244,18 @@ func RollbackRepoSnapshotFile(fileID string) (err error) {
 		logging.LogErrorf("mkdir [%s] failed: %v", tempRepoDiffDir, err)
 		return
 	}
+
+	// 回滚快照时默认为当前数据创建一个快照
+	// When rolling back a snapshot, a snapshot is created for the current data by default https://github.com/siyuan-note/siyuan/issues/12470
+	FlushTxQueue()
+	_, err = repo.Index("Backup before checkout", false, map[string]any{eventbus.CtxPushMsg: eventbus.CtxPushMsgToStatusBarAndProgress})
+	if err != nil {
+		logging.LogErrorf("index repository failed: %s", err)
+		util.PushClearProgress()
+		util.PushErrMsg(fmt.Sprintf(Conf.Language(140), err), 0)
+		return
+	}
+	util.PushClearProgress()
 
 	from := filepath.Join(tempRepoDiffDir, f)
 	if err = os.WriteFile(from, data, 0644); nil != err {
@@ -406,8 +447,10 @@ type LeftRightDiff struct {
 
 type DiffFile struct {
 	FileID  string `json:"fileID"`
+	IndexID string `json:"indexID"`
 	Title   string `json:"title"`
 	Path    string `json:"path"`
+	HPath   string `json:"hPath,omitempty"`
 	HSize   string `json:"hSize"`
 	Updated int64  `json:"updated"`
 }
@@ -445,7 +488,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 	luteEngine := NewLute()
 	for _, removeRight := range diff.RemovesRight {
-		title, parseErr := parseTitleInSnapshot(removeRight.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(removeRight.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -463,7 +506,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 
 	for _, addLeft := range diff.AddsLeft {
-		title, parseErr := parseTitleInSnapshot(addLeft.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(addLeft.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -481,7 +524,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 
 	for _, updateLeft := range diff.UpdatesLeft {
-		title, parseErr := parseTitleInSnapshot(updateLeft.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(updateLeft.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -499,7 +542,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	}
 
 	for _, updateRight := range diff.UpdatesRight {
-		title, parseErr := parseTitleInSnapshot(updateRight.ID, repo, luteEngine)
+		title, _, parseErr := parseTitleInSnapshot(updateRight.ID, repo, luteEngine)
 		if "" == title || nil != parseErr {
 			continue
 		}
@@ -518,7 +561,7 @@ func DiffRepoSnapshots(left, right string) (ret *LeftRightDiff, err error) {
 	return
 }
 
-func parseTitleInSnapshot(fileID string, repo *dejavu.Repo, luteEngine *lute.Lute) (title string, err error) {
+func parseTitleInSnapshot(fileID string, repo *dejavu.Repo, luteEngine *lute.Lute) (title, rootID string, err error) {
 	file, err := repo.GetFile(fileID)
 	if err != nil {
 		logging.LogErrorf("get file [%s] failed: %s", fileID, err)
@@ -542,6 +585,7 @@ func parseTitleInSnapshot(fileID string, repo *dejavu.Repo, luteEngine *lute.Lut
 		}
 
 		title = tree.Root.IALAttr("title")
+		rootID = tree.Root.ID
 	}
 	return
 }
@@ -552,6 +596,130 @@ func parseTreeInSnapshot(data []byte, luteEngine *lute.Lute) (isLargeDoc bool, t
 	if err != nil {
 		return
 	}
+	return
+}
+
+func SearchRepoFile(keyword string, page int) (ret []*DiffFile, pageCount, totalCount int, err error) {
+	ret = []*DiffFile{}
+	if 1 > len(Conf.Repo.Key) {
+		err = errors.New(Conf.Language(26))
+		return
+	}
+
+	repo, err := newRepository()
+	if err != nil {
+		return
+	}
+
+	files, fileIndexIDs, totalCount, pageCount, err := repo.SearchFile(keyword, page, 32)
+	if err != nil {
+		logging.LogErrorf("search repo file failed: %s", err)
+		return
+	}
+
+	if 1 > len(files) {
+		return
+	}
+
+	luteEngine := NewLute()
+	for _, file := range files {
+		title, rootID, parseErr := parseTitleInSnapshot(file.ID, repo, luteEngine)
+		if "" == title || nil != parseErr {
+			title = path.Base(file.Path)
+		}
+
+		var hpath string
+		if "" != rootID && treenode.ExistBlockTree(rootID) {
+			hpath, _ = GetHPathByID(rootID)
+		} else {
+			hpath = file.Path
+		}
+		ret = append(ret, &DiffFile{
+			FileID:  file.ID,
+			IndexID: fileIndexIDs[file.ID],
+			Title:   title,
+			Path:    file.Path,
+			HPath:   hpath,
+			HSize:   humanize.BytesCustomCeil(uint64(file.Size), 2),
+			Updated: file.Updated,
+		})
+	}
+	return
+}
+
+func ExportRepoFile(id string) (exportPath string, err error) {
+	if 1 > len(Conf.Repo.Key) {
+		err = errors.New(Conf.Language(26))
+		return
+	}
+
+	repo, err := newRepository()
+	if err != nil {
+		return
+	}
+
+	file, err := repo.GetFile(id)
+	if err != nil {
+		return
+	}
+
+	data, err := repo.OpenFile(file)
+	if err != nil {
+		return
+	}
+
+	name := path.Base(file.Path)
+	exportDir := filepath.Join(util.TempDir, "export", "repo")
+
+	// 如果是 .sy 文件需要打包为 .sy.zip 以便导入
+	var docTitle string
+	if strings.HasSuffix(file.Path, ".sy") {
+		var tree *parse.Tree
+		luteEngine := NewLute()
+		tree, err = dataparser.ParseJSONWithoutFix(data, luteEngine.ParseOptions)
+		if err != nil {
+			logging.LogErrorf("parse file [%s] failed: %s", id, err)
+			return
+		}
+
+		docTitle = tree.Root.IALAttr("title")
+		exportDir = filepath.Join(exportDir, docTitle)
+	}
+
+	if err = os.MkdirAll(exportDir, 0755); err != nil {
+		logging.LogErrorf("mkdir [%s] failed: %s", exportDir, err)
+		return
+	}
+
+	exportFilePath := filepath.Join(exportDir, name)
+	if err = os.WriteFile(exportFilePath, data, 0644); err != nil {
+		logging.LogErrorf("write file [%s] failed: %s", exportFilePath, err)
+		return
+	}
+
+	if strings.HasSuffix(file.Path, ".sy") {
+		zipPath := filepath.Join(util.TempDir, "export", "repo", docTitle+".sy.zip")
+		zip, zipErr := gulu.Zip.Create(zipPath)
+		if zipErr != nil {
+			logging.LogErrorf("create export .sy.zip [%s] failed: %s", exportDir, zipErr)
+			return
+		}
+
+		if err = zip.AddDirectory(docTitle, exportDir); err != nil {
+			logging.LogErrorf("create export .sy.zip [%s] failed: %s", exportDir, err)
+			return
+		}
+
+		if err = zip.Close(); err != nil {
+			logging.LogErrorf("close export .sy.zip failed: %s", err)
+			return
+		}
+
+		exportPath = path.Join("/export/repo", url.PathEscape(filepath.Base(zipPath)))
+		return
+	}
+
+	exportPath = path.Join("/export/repo", url.PathEscape(name))
 	return
 }
 
@@ -735,7 +903,7 @@ func PurgeRepo() (err error) {
 		return
 	}
 
-	stat, err := repo.Purge()
+	stat, err := repo.Purge(context.Background())
 	if err != nil {
 		return
 	}
@@ -827,13 +995,17 @@ func initDataRepo() {
 	time.Sleep(1 * time.Second)
 	util.PushMsg(Conf.Language(138), 3000)
 	time.Sleep(1 * time.Second)
-	if initErr := IndexRepo("[Init] Init local data repo"); nil != initErr {
+	if _, initErr := IndexRepo("[Init] Init local data repo"); nil != initErr {
 		util.PushErrMsg(fmt.Sprintf(Conf.Language(140), initErr), 0)
 	}
 }
 
 func CheckoutRepo(id string) {
 	task.AppendTask(task.RepoCheckout, checkoutRepo, id)
+}
+
+func CheckoutRepoDirect(id string) {
+	checkoutRepo(id)
 }
 
 func checkoutRepo(id string) {
@@ -867,6 +1039,9 @@ func checkoutRepo(id string) {
 	syncEnabled := Conf.Sync.Enabled
 	Conf.Sync.Enabled = false
 	Conf.Save()
+	if syncEnabled {
+		util.PushMsg(Conf.Language(134), 0)
+	}
 
 	// 回滚快照时默认为当前数据创建一个快照
 	// When rolling back a snapshot, a snapshot is created for the current data by default https://github.com/siyuan-note/siyuan/issues/12470
@@ -887,12 +1062,68 @@ func checkoutRepo(id string) {
 		return
 	}
 
-	FullReindex(true)
-
-	if syncEnabled {
-		task.AppendAsyncTaskWithDelay(task.PushMsg, 7*time.Second, util.PushMsg, Conf.Language(134), 0)
-	}
+	FullReindexDirect()
+	appendAgentRollbackEntries()
+	time.Sleep(time.Second)
+	FlushTxQueue()
+	task.AppendAsyncTaskWithDelay(task.ReloadUI, 1*time.Second, util.ReloadUI)
 	return
+}
+
+func appendAgentRollbackEntries() {
+	pattern := filepath.Join(util.TempDir, "ai", "agent", "agentRollback_*.json")
+	markers, err := filepath.Glob(pattern)
+	if err != nil {
+		return
+	}
+	for _, markerPath := range markers {
+		data, err := os.ReadFile(markerPath)
+		if err != nil {
+			os.Remove(markerPath)
+			continue
+		}
+		var marker struct {
+			SessionID  string `json:"sessionID"`
+			SnapshotID string `json:"snapshotID"`
+		}
+		if nil != gulu.JSON.UnmarshalJSON(data, &marker) {
+			os.Remove(markerPath)
+			continue
+		}
+
+		sessionPath := filepath.Join(util.DataDir, "storage", "ai", "agent", "sessions",
+			marker.SessionID, "session.json")
+		sessionData, err := os.ReadFile(sessionPath)
+		if err != nil {
+			os.Remove(markerPath)
+			continue
+		}
+
+		var session map[string]interface{}
+		if nil != gulu.JSON.UnmarshalJSON(sessionData, &session) {
+			os.Remove(markerPath)
+			continue
+		}
+
+		entries, ok := session["entries"].([]interface{})
+		if !ok {
+			entries = make([]interface{}, 0)
+		}
+		entry := map[string]interface{}{
+			"type":       "rollback",
+			"snapshotID": marker.SnapshotID,
+		}
+		entries = append(entries, entry)
+		session["entries"] = entries
+
+		newData, err := gulu.JSON.MarshalIndentJSON(session, "", "\t")
+		if err != nil {
+			os.Remove(markerPath)
+			continue
+		}
+		filelock.WriteFile(sessionPath, newData)
+		os.Remove(markerPath)
+	}
 }
 
 func DownloadCloudSnapshot(tag, id string) (err error) {
@@ -1159,7 +1390,7 @@ func TagSnapshot(id, name string) (err error) {
 	return
 }
 
-func IndexRepo(memo string) (err error) {
+func IndexRepo(memo string) (id string, err error) {
 	if 1 > len(Conf.Repo.Key) {
 		err = errors.New(Conf.Language(26))
 		return
@@ -1189,6 +1420,7 @@ func IndexRepo(memo string) (err error) {
 		util.PushStatusBar("Index data repo failed: " + html.EscapeString(err.Error()))
 		return
 	}
+	id = index.ID
 	elapsed := time.Since(start)
 
 	if nil == latest || latest.ID != index.ID {
@@ -1494,7 +1726,7 @@ func bootSyncRepo() (err error) {
 
 	if 0 < len(fetchedFiles) {
 		go func() {
-			_, syncErr := syncRepo(false, false)
+			_, syncErr := syncRepoWithDNSRetry(false, false)
 			isBootSyncing.Store(false)
 			if err != nil {
 				logging.LogErrorf("boot background sync repo failed: %s", syncErr)
@@ -1740,13 +1972,17 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			upsertTrees++
 		}
 
-		if !isFileWatcherAvailable() && strings.HasPrefix(file.Path, "/assets/") {
+		if util.IsMobileContainer() && strings.HasPrefix(file.Path, "/assets/") {
 			absPath := filepath.Join(util.DataDir, file.Path)
 			HandleAssetsChangeEvent(absPath)
 		}
 
 		if file.Path == "/snippets/conf.json" {
 			needReloadSnippet = true
+		}
+
+		if strings.HasPrefix(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
+			cache.RemoveAVData(strings.TrimSuffix(filepath.Base(file.Path), ".json"))
 		}
 	}
 
@@ -1790,13 +2026,17 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			}
 		}
 
-		if !isFileWatcherAvailable() && strings.HasPrefix(file.Path, "/assets/") {
+		if util.IsMobileContainer() && strings.HasPrefix(file.Path, "/assets/") {
 			absPath := filepath.Join(util.DataDir, file.Path)
 			HandleAssetsRemoveEvent(absPath)
 		}
 
 		if file.Path == "/snippets/conf.json" {
 			needReloadSnippet = true
+		}
+
+		if strings.HasPrefix(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
+			cache.RemoveAVData(strings.TrimSuffix(filepath.Base(file.Path), ".json"))
 		}
 	}
 
@@ -1946,7 +2186,7 @@ func indexRepoBeforeCloudSync(repo *dejavu.Repo) (beforeIndex, afterIndex *entit
 	FlushTxQueue()
 
 	checkChunks := true
-	if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container || util.ContainerHarmony == util.Container {
+	if util.IsMobileContainer() {
 		// 因为移动端私有数据空间不会存在外部操作导致分块损坏的情况，所以不需要检查分块以提升性能 https://github.com/siyuan-note/siyuan/issues/13216
 		checkChunks = false
 	}

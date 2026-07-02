@@ -30,7 +30,7 @@ export const updateCalloutType = (blockElements: HTMLElement[], protyle: IProtyl
             ${window.siyuan.languages.type}
         </div>
         <span class="fn__space"></span>
-        <div class="b3-form__icona fn__flex-1">
+        <div class="b3-form__icona fn__flex-1" style="overflow: visible">
             <input value="${blockElements[0].getAttribute("data-subtype")}" type="text" class="b3-text-field fn__block b3-form__icona-input">
             <svg class="b3-form__icona-icon"><use xlink:href="#iconDown"></use></svg>
         </div>
@@ -75,6 +75,7 @@ export const updateCalloutType = (blockElements: HTMLElement[], protyle: IProtyl
             item.querySelector(".callout-title").innerHTML = title ||
                 (textElements[0].value.trim().substring(0, 1).toUpperCase() + textElements[0].value.trim().substring(1).toLowerCase());
             item.querySelector(".callout-icon").innerHTML = dialogCalloutIconElement.innerHTML;
+            item.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
             doOperations.push({
                 id,
                 data: item.outerHTML,

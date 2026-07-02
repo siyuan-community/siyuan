@@ -8,11 +8,11 @@ import {getContenteditableElement, hasNextSibling, hasPreviousSibling, isNotEdit
 import {genEmptyBlock} from "../../block/util";
 import {blockRender} from "../render/blockRender";
 import {hideElements} from "../ui/hideElements";
-import {hasClosestByAttribute, hasClosestByClassName, isInEmbedBlock} from "../util/hasClosest";
+import {hasClosestByAttribute, hasClosestByClassName} from "../util/hasClosest";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {headingTurnIntoList, turnIntoTaskList} from "./turnIntoList";
 import {updateAVName} from "../render/av/action";
-import {setFold} from "../../menus/protyle";
+import {setFold} from "../util/blockFold";
 
 export const input = async (protyle: IProtyle, blockElement: HTMLElement, range: Range, needRender = true, event?: InputEvent) => {
     if (!blockElement.parentElement) {
@@ -92,7 +92,7 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
     if ((type !== "NodeCodeBlock" && type !== "NodeHeading") && // https://github.com/siyuan-note/siyuan/issues/11851
         (editElement.innerHTML.endsWith("\n<wbr>") || editElement.innerHTML.endsWith("\n<wbr>\n"))) {
         // 软换行
-        updateTransaction(protyle, id, blockElement.outerHTML, protyle.wysiwyg.lastHTMLs[id] || blockElement.outerHTML.replace("\n<wbr>", "<wbr>"));
+        updateTransaction(protyle, blockElement, protyle.wysiwyg.lastHTMLs[id] || blockElement.outerHTML.replace("\n<wbr>", "<wbr>"));
         wbrElement.remove();
         return;
     }
@@ -126,7 +126,7 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
     } else if ((trimStartHTML.startsWith("```") || trimStartHTML.startsWith("···") || trimStartHTML.startsWith("~~~")) &&
         trimStartHTML.indexOf("\n") === -1 && trimStartHTML.replace(/·|~/g, "`").replace(/^`{3,}/g, "").indexOf("`") === -1) {
         // ```test` 后续处理，```test 不处理
-        updateTransaction(protyle, id, blockElement.outerHTML, protyle.wysiwyg.lastHTMLs[id]);
+        updateTransaction(protyle, blockElement, protyle.wysiwyg.lastHTMLs[id]);
         wbrElement.remove();
         return;
     }
@@ -184,6 +184,18 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
             }
         }
         html = protyle.lute.SpinBlockDOM(html);
+        // 列表项内紧挨标记的第一个段落块不允许产生子列表 https://github.com/siyuan-note/siyuan/issues/17890
+        if (blockElement.closest('[data-type="NodeListItem"]') &&
+            blockElement.previousElementSibling?.classList.contains("protyle-action")) {
+            const tempDiv = document.createElement("div");
+            tempDiv.innerHTML = html;
+            const firstChild = tempDiv.firstElementChild;
+            if (firstChild?.getAttribute("data-type") === "NodeList" ||
+                firstChild?.getAttribute("data-type") === "NodeListItem") {
+                const p = firstChild.querySelector('[data-type="NodeParagraph"]');
+                if (p) html = p.outerHTML;
+            }
+        }
     }
     // 在数学公式输入框中撤销到最后一步，再继续撤销会撤销编辑器正文内容，从而出发 input 事件
     hideElements(["util"], protyle, true);
@@ -209,18 +221,14 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
         if (blockElement.classList.contains("table")) {
             scrollLeft = blockElement.firstElementChild.scrollLeft;
         }
-        if (/<span data-type="backslash">.+<\/span><wbr>/.test(html)) {
-            // 转义不需要添加 zwsp
-            blockElement.outerHTML = html;
-        } else {
-            // 使用 md 闭合后继续输入应为普通文本
-            blockElement.outerHTML = html.replace("</span><wbr>", "</span>" + Constants.ZWSP + "<wbr>");
+        if (!/<span data-type="backslash">.{1,8}<\/span><wbr>/.test(html)) {
+            // 使用 md 闭合后继续输入应为普通文本, 转义不需要添加 zwsp
+            html = html.replace("</span><wbr>", "</span>" + Constants.ZWSP + "<wbr>");
         }
-        protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${id}"]`).forEach((item: HTMLElement) => {
-            if (!isInEmbedBlock(item)) {
-                blockElement = item;
-            }
-        });
+        blockElement.insertAdjacentHTML("afterend", html);
+        blockElement = blockElement.nextElementSibling as HTMLElement;
+        blockElement.previousElementSibling.remove();
+        blockElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
         // https://github.com/siyuan-note/siyuan/issues/8972
         if (html.split('<span data-type="inline-math" data-subtype="math"').length > 1) {
             Array.from(blockElement.querySelectorAll('[data-type="inline-math"]')).find((item: HTMLElement) => {

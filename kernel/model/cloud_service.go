@@ -118,6 +118,9 @@ func StartFreeTrial() (err error) {
 		logging.LogErrorf("start free trial failed: %d", resp.StatusCode)
 		return ErrFailedToConnectCloudServer
 	}
+	if -2 == requestResult.Code { // 已经试用订阅过
+		return fmt.Errorf(Conf.Language(298))
+	}
 	if 0 != requestResult.Code {
 		return errors.New(requestResult.Msg)
 	}
@@ -582,6 +585,10 @@ func getUser(token string) (*conf.User, error) {
 
 func UseActivationcode(code string) (err error) {
 	code = util.RemoveInvalid(code)
+	code = strings.TrimSpace(code)
+	if "" == code {
+		return errors.New(Conf.Language(294))
+	}
 	requestResult := gulu.Ret.NewResult()
 	request := httpclient.NewCloudRequest30s()
 	resp, err := request.
@@ -605,6 +612,12 @@ func UseActivationcode(code string) (err error) {
 
 func CheckActivationcode(code string) (retCode int, msg string) {
 	code = util.RemoveInvalid(code)
+	code = strings.TrimSpace(code)
+	if "" == code {
+		retCode = 1
+		msg = Conf.Language(294)
+		return
+	}
 	retCode = 1
 	requestResult := gulu.Ret.NewResult()
 	request := httpclient.NewCloudRequest30s()
@@ -662,7 +675,7 @@ func Login(userName, password, captcha string, cloudRegion int) (ret *gulu.Resul
 		Data: map[string]any{
 			"userName":    result["userName"],
 			"token":       result["token"],
-			"needCaptcha": result["needCaptcha"],
+			"needCaptcha": result["needCaptcha"], // 值为 user id
 		},
 	}
 	if -1 == ret.Code {

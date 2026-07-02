@@ -8,18 +8,79 @@
   transition: box-shadow 120ms 0ms cubic-bezier(0, 0, .2, 1), background-color .2s cubic-bezier(0, 0, .2, 1) 0ms;
   height: 28px;
   font-size: 14px;
-  box-shadow: inset 0 0 0 .6px var(--b3-theme-on-surface);
+  box-shadow: inset 0 0 0 1px var(--b3-border-color);
   background: var(--b3-select-background);
   appearance: none;
   cursor: pointer;
   overflow: hidden; // iphonex
 
   &:hover {
-    box-shadow: inset 0 0 0 .6px var(--b3-theme-on-background);
+    box-shadow: inset 0 0 0 1px var(--b3-border-color), 0 0 0 .6px var(--b3-border-color);
     background-color: var(--b3-theme-surface);
   }
 
   &:focus {
-    box-shadow: inset 0 0 0 1px var(--b3-theme-primary), 0 0 0 3px var(--b3-theme-primary-lightest);
+    box-shadow: inset 0 0 0 1px var(--b3-theme-primary-light), 0 0 0 .6px var(--b3-theme-primary-lighter);
+  }
+
+  &--noborder {
+    box-shadow: none;
+
+    &:hover {
+      box-shadow: none;
+    }
+  }
+
+  // 仅 Windows 桌面端与浏览器启用 base-select 统一样式
+  .body--win32 &, .body--win32-browser & {
+    @supports (appearance: base-select) {
+      appearance: base-select;
+      white-space: nowrap;
+      field-sizing: content;
+
+      &:disabled {
+        opacity: .68;
+      }
+
+      &::picker(select) {
+        appearance: base-select;
+        color: var(--b3-theme-on-background);
+        border-radius: var(--b3-border-radius-b);
+        box-shadow: var(--b3-dialog-shadow);
+        border: 1px solid var(--b3-theme-surface-lighter);
+        background-color: var(--b3-menu-background);
+        padding: 8px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--b3-scroll-color) transparent;
+      }
+
+      &::picker-icon {
+        display: none;
+      }
+
+      option {
+        padding: 0 8px;
+        margin: 1px 0;
+        border-radius: var(--b3-border-radius);
+        line-height: 28px;
+
+        &::checkmark {
+          display: none;
+        }
+
+        &:checked {
+          color: var(--b3-theme-primary);
+        }
+
+        &:hover {
+          background-color: var(--b3-list-hover);
+        }
+
+        &:focus-visible {
+          background-color: var(--b3-list-hover);
+          outline: none;
+        }
+      }
+    }
   }
 }

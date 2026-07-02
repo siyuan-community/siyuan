@@ -7,7 +7,8 @@ import {
     isInEmbedBlock
 } from "../util/hasClosest";
 import {getIconByType} from "../../editor/getIcon";
-import {enterBack, iframeMenu, setFold, tableMenu, videoMenu, zoomOut} from "../../menus/protyle";
+import {enterBack, iframeMenu, tableMenu, videoMenu, zoomOut} from "../../menus/protyle";
+import {foldBlocksRecursively, setFold} from "../util/blockFold";
 import {MenuItem} from "../../menus/Menu";
 import {copySubMenu, openAttr, openFileAttr, openWechatNotify} from "../../menus/commonMenuItem";
 import {
@@ -16,7 +17,7 @@ import {
     isInHarmony,
     isMac,
     isOnlyMeta,
-    openByMobile,
+    saveExportFile,
     updateHotkeyAfterTip,
     updateHotkeyTip,
     writeText
@@ -38,6 +39,7 @@ import {getContenteditableElement, getParentBlock, getTopAloneElement, isNotEdit
 import * as dayjs from "dayjs";
 import {fetchPost} from "../../util/fetch";
 import {cancelSB, genEmptyElement, getLangByType, insertEmptyBlock, jumpToParent,} from "../../block/util";
+import {transparentImgSrc} from "../util/dragTip";
 import {countBlockWord} from "../../layout/status";
 import {Constants} from "../../constants";
 import {mathRender} from "../render/mathRender";
@@ -62,28 +64,56 @@ import {processClonePHElement} from "../render/util";
 import {openFileById} from "../../editor/util";
 import * as path from "path";
 /// #endif
-import {hideMessage, showMessage} from "../../dialog/message";
+import {showMessage} from "../../dialog/message";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {clearSelect} from "../util/clear";
 import {chartRender} from "../render/chartRender";
 
+// 块类型 data-type 到本地化名称键的映射，用于块标提示中的 ${x}
+const BLOCK_TYPE_LANG_KEYS: { [key: string]: string } = {
+    NodeParagraph: "paragraph",
+    NodeHeading: "headings",
+    NodeList: "list1",
+    NodeListItem: "listItem",
+    NodeBlockquote: "quote",
+    NodeCallout: "callout",
+    NodeSuperBlock: "superBlock",
+    NodeTable: "table",
+    NodeCodeBlock: "code",
+    NodeMathBlock: "math",
+    NodeBlockQueryEmbed: "blockEmbed",
+    NodeThematicBreak: "line",
+    NodeVideo: "video",
+    NodeAudio: "audio",
+    NodeWidget: "widget",
+    NodeAttributeView: "database",
+};
+
+// 根据块 data-type 返回本地化的类型名，用于块标拖拽提示「拖拽 ${x} 移动位置」
+const getBlockTypeName = (type: string) => {
+    const langKey = BLOCK_TYPE_LANG_KEYS[type];
+    if (langKey && (window.siyuan.languages as { [key: string]: string })[langKey]) {
+        return (window.siyuan.languages as { [key: string]: string })[langKey];
+    }
+    // 未知类型兜底，与拖拽 ghost 文案保持一致
+    return getLangByType(type);
+};
+
 export class Gutter {
     public element: HTMLElement;
+    // 普通块标提示模板（含 ${x} 块类型占位符），反链面板使用 gutterTipBacklink
     private gutterTip: string;
+    private gutterTipBacklink: string;
 
     constructor(protyle: IProtyle) {
         if (isMac()) {
-            this.gutterTip = window.siyuan.languages.gutterTip.replace("⌥→", updateHotkeyAfterTip(window.siyuan.config.keymap.general.enter.custom, "/"))
-                .replace("⌘↑", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.collapse.custom, "/"))
-                .replace("⌥⌘A", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.attr.custom, "/"));
+            this.gutterTip = window.siyuan.languages.gutterTip.replace("⌥→", updateHotkeyAfterTip(window.siyuan.config.keymap.general.enter.custom, "/"));
+            this.gutterTipBacklink = window.siyuan.languages.gutterTipBacklink.replace("⌥→", updateHotkeyAfterTip(window.siyuan.config.keymap.general.enter.custom, "/"));
         } else {
             this.gutterTip = window.siyuan.languages.gutterTip.replace("⌥→", updateHotkeyAfterTip(window.siyuan.config.keymap.general.enter.custom, "/"))
-                .replace("⌘↑", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.collapse.custom, "/"))
-                .replace("⌥⌘A", updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.attr.custom, "/"))
                 .replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+").replace(/⌃/g, "Ctrl+");
-        }
-        if (protyle.options.backlinkData) {
-            this.gutterTip = this.gutterTip.replace(window.siyuan.languages.enter, window.siyuan.languages.openBy);
+            this.gutterTipBacklink = window.siyuan.languages.gutterTipBacklink.replace("⌥→", updateHotkeyAfterTip(window.siyuan.config.keymap.general.enter.custom, "/"))
+                .replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+").replace(/⌃/g, "Ctrl+");
         }
         this.element = document.createElement("div");
         this.element.className = "protyle-gutters";
@@ -173,10 +203,35 @@ export class Gutter {
             });
             ghostElement.setAttribute("style", `position:fixed;opacity:.1;width:${selectElements[0].clientWidth}px;padding:0;`);
             document.body.append(ghostElement);
-            event.dataTransfer.setDragImage(ghostElement, 0, 0);
-            setTimeout(() => {
-                ghostElement.remove();
-            });
+            // 普通块（段落/标题/列表块/引用块等）拖拽时隐藏原生 ghost 并改用自定义双区跟随框；AV 行保留原生 ghost
+            const isBlockDrag = !buttonElement.dataset.rowId;
+            if (isBlockDrag && !window.siyuan.touchDragActive) {
+                const transparentImg = new Image();
+                transparentImg.src = transparentImgSrc;
+                event.dataTransfer.setDragImage(transparentImg, 0, 0);
+                setTimeout(() => {
+                    ghostElement.remove();
+                });
+            } else {
+                event.dataTransfer.setDragImage(ghostElement, 0, 0);
+                if (window.siyuan.touchDragActive) {
+                    window.siyuan.touchDragGhost = ghostElement;
+                } else {
+                    setTimeout(() => {
+                        ghostElement.remove();
+                    });
+                }
+            }
+            if (isBlockDrag) {
+                const text = getContenteditableElement(selectElements[0] as HTMLElement)?.textContent?.trim() || "";
+                // 数据库块若无标题，优先用当前视图名，最后兜底为"数据库"
+                let title = text;
+                if (!title && buttonElement.getAttribute("data-type") === "NodeAttributeView") {
+                    title = (selectElements[0] as HTMLElement)?.querySelector(".av__views .item--focus")?.textContent?.trim() ||
+                        window.siyuan.languages.database;
+                }
+                window.siyuan.dragTitle = title;
+            }
             buttonElement.style.opacity = "0.38";
             window.siyuan.dragElement = avElement as HTMLElement || protyle.wysiwyg.element;
             event.dataTransfer.setData(`${Constants.SIYUAN_DROP_GUTTER}${buttonElement.getAttribute("data-type")}${Constants.ZWSP}${buttonElement.getAttribute("data-subtype")}${Constants.ZWSP}${selectIds}${Constants.ZWSP}${window.siyuan.config.system.workspaceDir}`,
@@ -187,6 +242,7 @@ export class Gutter {
                 item.style.opacity = "";
             });
             window.siyuan.dragElement = undefined;
+            window.siyuan.dragTitle = "";
         });
         this.element.addEventListener("click", (event: MouseEvent & { target: HTMLInputElement }) => {
             const buttonElement = hasClosestByTag(event.target, "BUTTON");
@@ -197,6 +253,24 @@ export class Gutter {
             event.stopPropagation();
             hideTooltip();
             clearSelect(["cell", "img"], protyle.wysiwyg.element);
+            // 框线点击：若鼠标在块标范围内（框线::before 截获了块标点击），转发为块标菜单；否则无操作
+            if (buttonElement.classList.contains("protyle-gutters__line")) {
+                if (activeBlockButton && !protyle.disabled) {
+                    const br = activeBlockButton.getBoundingClientRect();
+                    if (event.clientX >= br.left && event.clientX <= br.right &&
+                        event.clientY >= br.top && event.clientY <= br.bottom) {
+                        this.renderMenu(protyle, activeBlockButton as HTMLElement);
+                        if (!protyle.toolbar.range) {
+                            protyle.toolbar.range = getEditorRange(protyle.wysiwyg.element.querySelector(`[data-node-id="${activeBlockButton.getAttribute("data-node-id")}"]`) || protyle.wysiwyg.element.firstElementChild);
+                        }
+                        /// #if !MOBILE
+                        window.siyuan.menus.menu.popup({x: br.left, y: br.bottom, isLeft: true});
+                        focusByRange(protyle.toolbar.range);
+                        /// #endif
+                    }
+                }
+                return;
+            }
             const id = buttonElement.getAttribute("data-node-id");
             if (!id) {
                 if (buttonElement.getAttribute("disabled")) {
@@ -272,6 +346,16 @@ export class Gutter {
                 return;
             }
             const gutterRect = buttonElement.getBoundingClientRect();
+            if (buttonElement.dataset.type === "gutterPlusBefore" || buttonElement.dataset.type === "gutterPlusAfter") {
+                // 块标边缘+号：在对应块上方/下方插入新块，复用 insertEmptyBlock（列表项自动生成新列表项）
+                if (protyle.disabled || !id) {
+                    return;
+                }
+                hideElements(["gutter"], protyle);
+                countBlockWord([], protyle.block.rootID);
+                insertEmptyBlock(protyle, buttonElement.dataset.type === "gutterPlusBefore" ? "beforebegin" : "afterend", id);
+                return;
+            }
             if (buttonElement.dataset.type === "NodeAttributeViewRowMenu" || buttonElement.dataset.type === "NodeAttributeViewRow") {
                 const rowElement = Array.from(protyle.wysiwyg.element.querySelectorAll(`.av[data-node-id="${buttonElement.dataset.nodeId}"] .av__row[data-id="${buttonElement.dataset.rowId}"]`)).find((item: HTMLElement) => {
                     if (!isInEmbedBlock(item)) {
@@ -476,12 +560,142 @@ export class Gutter {
             event.preventDefault();
             event.stopPropagation();
         });
+        // 延迟隐藏计时器，鼠标在块标/框线/+号之间移动时提供缓冲，避免中途 mouseleave 误隐藏
+        let hidePlusTimeout: number;
+        // 当前悬浮的块标 button，供情况A 坐标判断（鼠标在块标内不误触发+号）
+        let activeBlockButton: Element;
+        const hideInsert = () => {
+            activeBlockButton = undefined;
+            this.element.querySelectorAll(".protyle-gutters__line, .protyle-gutters__plus").forEach(item => {
+                (item as HTMLElement).style.display = "none";
+            });
+        };
         this.element.addEventListener("mouseleave", (event: MouseEvent & { target: HTMLInputElement }) => {
+            // 鼠标移向框线或+号时不隐藏（它们定位在容器外侧，移出容器几何范围会触发 mouseleave）
+            const related = event.relatedTarget as HTMLElement;
+            if (related && (related.classList.contains("protyle-gutters__line") || related.classList.contains("protyle-gutters__plus"))) {
+                return;
+            }
+            // 块高亮立即移除，保持原有反馈；框线/+号延迟隐藏，避免移向它们途中误隐藏
             Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(item => {
                 item.classList.remove("protyle-wysiwyg--hl", "av__row--hl");
             });
+            window.clearTimeout(hidePlusTimeout);
+            hidePlusTimeout = window.setTimeout(hideInsert, 200);
             event.preventDefault();
             event.stopPropagation();
+        });
+        // 双元素交互：悬浮块标显示框线（贴边不动），悬浮框线显示+号（独立元素外偏定位）
+        this.element.addEventListener("mousemove", (event: MouseEvent & { target: HTMLElement }) => {
+            const lineBefore = this.element.querySelector('.protyle-gutters__line[data-type="gutterLineBefore"]') as HTMLElement;
+            const lineAfter = this.element.querySelector('.protyle-gutters__line[data-type="gutterLineAfter"]') as HTMLElement;
+            const plusBefore = this.element.querySelector('.protyle-gutters__plus[data-type="gutterPlusBefore"]') as HTMLElement;
+            const plusAfter = this.element.querySelector('.protyle-gutters__plus[data-type="gutterPlusAfter"]') as HTMLElement;
+            if (protyle.disabled || !lineBefore || !lineAfter || !plusBefore || !plusAfter) {
+                return;
+            }
+            // 情况A：鼠标在框线或+号上 → 显示对应+号，框线设透明（视觉隐藏但保留命中区，避免 display:none 导致脱离触发重置闪烁）
+            const lineEl = hasClosestByClassName(event.target, "protyle-gutters__line");
+            const plusEl = hasClosestByClassName(event.target, "protyle-gutters__plus");
+            const hoverEl = lineEl || plusEl;
+            if (hoverEl) {
+                window.clearTimeout(hidePlusTimeout);
+                // 鼠标若仍在块标 button 几何范围内，视为块标 hover，不触发+号
+                // 避免框线::before 扩展区侵入块标导致误把点击块标弹菜单变成插入块
+                if (activeBlockButton) {
+                    const br = activeBlockButton.getBoundingClientRect();
+                    if (event.clientX >= br.left && event.clientX <= br.right &&
+                        event.clientY >= br.top && event.clientY <= br.bottom) {
+                        return;
+                    }
+                }
+                const isBefore = hoverEl.getAttribute("data-type").includes("Before");
+                plusBefore.style.display = isBefore ? "" : "none";
+                plusAfter.style.display = isBefore ? "none" : "";
+                // 框线视觉隐藏（opacity:0），但 display 保持以维持命中区
+                lineBefore.style.opacity = "0";
+                lineAfter.style.opacity = "0";
+                return;
+            }
+            const buttonElement = hasClosestByTag(event.target, "BUTTON");
+            if (!buttonElement || buttonElement.classList.contains("protyle-gutters__line") || buttonElement.classList.contains("protyle-gutters__plus")) {
+                return;
+            }
+            const type = buttonElement.getAttribute("data-type");
+            const id = buttonElement.getAttribute("data-node-id");
+            // 情况C：非有效块标（折叠箭头、数据库行等）→ 隐藏框线与+号
+            if (type === "fold" || type === "NodeAttributeViewRow" || type === "NodeAttributeViewRowMenu" || !id) {
+                hideInsert();
+                return;
+            }
+            // 情况B：悬浮有效块标 → 显示框线（贴边），并预设+号位置（隐藏）
+            plusBefore.dataset.nodeId = id;
+            plusAfter.dataset.nodeId = id;
+            activeBlockButton = buttonElement;
+            const rect = buttonElement.getBoundingClientRect();
+            const compressed = this.element.style.width === "24px";
+            // 竖排时不显示+号提示（清空 aria-label 避免触发 tooltip），横排时恢复
+            plusBefore.setAttribute("aria-label", compressed ? "" : window.siyuan.languages.insertBefore);
+            plusAfter.setAttribute("aria-label", compressed ? "" : window.siyuan.languages.insertAfter);
+            plusBefore.style.display = "none";
+            plusAfter.style.display = "none";
+            if (compressed) {
+                // 竖排：框线贴块标左右边缘，+号定位在外偏位置
+                const iconRect = buttonElement.querySelector("svg").getBoundingClientRect();
+                const centerY = iconRect.top + iconRect.height / 2;
+                const lineH = 12;
+                const top = centerY - lineH / 2;
+                const plusSize = 16;
+                lineBefore.style.display = "";
+                lineBefore.style.opacity = "1";
+                lineBefore.style.width = "2px";
+                lineBefore.style.height = `${lineH}px`;
+                lineBefore.style.left = `${rect.left - 4}px`;
+                lineBefore.style.top = `${top}px`;
+                lineAfter.style.display = "";
+                lineAfter.style.opacity = "1";
+                lineAfter.style.width = "2px";
+                lineAfter.style.height = `${lineH}px`;
+                lineAfter.style.left = `${rect.right + 2}px`;
+                lineAfter.style.top = `${top}px`;
+                plusBefore.style.width = `${plusSize}px`;
+                plusBefore.style.height = `${plusSize}px`;
+                plusBefore.style.left = `${rect.left - 6 - plusSize / 2}px`;
+                plusBefore.style.top = `${centerY - plusSize / 2}px`;
+                plusAfter.style.width = `${plusSize}px`;
+                plusAfter.style.height = `${plusSize}px`;
+                plusAfter.style.left = `${rect.right + 4 - plusSize / 2}px`;
+                plusAfter.style.top = `${centerY - plusSize / 2}px`;
+                // 竖排时隐藏块标提示，避免其遮挡左侧框线
+                hideTooltip();
+            } else {
+                // 横排：框线贴块标上下边缘，+号定位在外偏位置
+                const lineW = 10;
+                const left = rect.left + (rect.width - lineW) / 2;
+                const plusSize = 16;
+                const plusLeft = rect.left + (rect.width - plusSize) / 2;
+                lineBefore.style.display = "";
+                lineBefore.style.opacity = "1";
+                lineBefore.style.width = `${lineW}px`;
+                lineBefore.style.height = "2px";
+                lineBefore.style.left = `${left}px`;
+                lineBefore.style.top = `${rect.top - 4}px`;
+                lineAfter.style.display = "";
+                lineAfter.style.opacity = "1";
+                lineAfter.style.width = `${lineW}px`;
+                lineAfter.style.height = "2px";
+                lineAfter.style.left = `${left}px`;
+                lineAfter.style.top = `${rect.bottom + 2}px`;
+                plusBefore.style.width = `${plusSize}px`;
+                plusBefore.style.height = `${plusSize}px`;
+                plusBefore.style.left = `${plusLeft}px`;
+                plusBefore.style.top = `${rect.top - 5 - plusSize / 2 + 1}px`;
+                plusAfter.style.width = `${plusSize}px`;
+                plusAfter.style.height = `${plusSize}px`;
+                plusAfter.style.left = `${plusLeft}px`;
+                plusAfter.style.top = `${rect.bottom + 3 - plusSize / 2 + 1}px`;
+            }
+            window.clearTimeout(hidePlusTimeout);
         });
         // https://github.com/siyuan-note/siyuan/issues/12751
         this.element.addEventListener("mousewheel", (event) => {
@@ -720,7 +934,7 @@ export class Gutter {
             }));
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "turnInto",
-                icon: "iconRefresh",
+                icon: "iconTurnInto",
                 label: window.siyuan.languages.turnInto,
                 type: "submenu",
                 submenu: turnIntoSubmenu
@@ -1322,7 +1536,7 @@ export class Gutter {
         if (turnIntoSubmenu.length > 0 && !protyle.disabled) {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "turnInto",
-                icon: "iconRefresh",
+                icon: "iconTurnInto",
                 label: window.siyuan.languages.turnInto,
                 type: "submenu",
                 submenu: turnIntoSubmenu
@@ -1487,7 +1701,7 @@ export class Gutter {
                         nodeElement.setAttribute("data-sb-layout", "col");
                     }
                     nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-                    updateTransaction(protyle, id, nodeElement.outerHTML, oldHTML);
+                    updateTransaction(protyle, nodeElement, oldHTML);
                     focusByRange(protyle.toolbar.range);
                     hideElements(["gutter"], protyle);
                 }
@@ -1576,8 +1790,7 @@ export class Gutter {
                     click() {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
                         fetchPost("/api/export/exportCodeBlock", {id}, (response) => {
-                            hideMessage(msgId);
-                            openByMobile(response.data.path);
+                            saveExportFile(response.data.path, msgId);
                         });
                     }
                 }]
@@ -1599,7 +1812,7 @@ export class Gutter {
                         element.querySelector("input").addEventListener("change", (event) => {
                             const newHeight = ((event.target as HTMLInputElement).value || "420") + "px";
                             (nodeElement as HTMLElement).style.height = newHeight;
-                            updateTransaction(protyle, id, nodeElement.outerHTML, html);
+                            updateTransaction(protyle, nodeElement, html);
                             html = nodeElement.outerHTML;
                             event.stopPropagation();
                             const renderElement = nodeElement.querySelector('[contenteditable="false"]') as HTMLElement;
@@ -1650,7 +1863,7 @@ export class Gutter {
                         id: nodeElement.getAttribute("data-av-id"),
                         blockID: id,
                     }, response => {
-                        openByMobile(response.data.zip);
+                        saveExportFile(response.data.zip);
                     });
                 }
             }).element);
@@ -1676,7 +1889,7 @@ export class Gutter {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "assetIFrame",
                 type: "submenu",
-                icon: "iconLanguage",
+                icon: "iconGlobe",
                 label: window.siyuan.languages.assets,
                 submenu: iframeMenu(protyle, nodeElement)
             }).element);
@@ -1928,6 +2141,7 @@ export class Gutter {
         if (!protyle.options.backlinkData) {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "enter",
+                icon: "iconEnter",
                 accelerator: `${window.siyuan.config.keymap.general.enter.custom ? updateHotkeyTip(window.siyuan.config.keymap.general.enter.custom) + "/" : ""}${updateHotkeyAfterTip("⌘" + window.siyuan.languages.click)}`,
                 label: window.siyuan.languages.enter,
                 click: () => {
@@ -1936,6 +2150,7 @@ export class Gutter {
             }).element);
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "enterBack",
+                icon: "iconEnterBack",
                 accelerator: window.siyuan.config.keymap.general.enterBack.custom,
                 label: window.siyuan.languages.enterBack,
                 click: () => {
@@ -1946,6 +2161,7 @@ export class Gutter {
             /// #if !MOBILE
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "enter",
+                icon: "iconEnter",
                 accelerator: `${updateHotkeyTip(window.siyuan.config.keymap.general.enter.custom)}/${updateHotkeyTip("⌘" + window.siyuan.languages.click)}`,
                 label: window.siyuan.languages.openBy,
                 click: () => {
@@ -1991,6 +2207,7 @@ export class Gutter {
         }
         window.siyuan.menus.menu.append(new MenuItem({
             id: "jumpTo",
+            icon: "iconJumpTo",
             type: "submenu",
             label: window.siyuan.languages.jumpTo,
             submenu: [{
@@ -2028,6 +2245,7 @@ export class Gutter {
         if (type !== "NodeThematicBreak") {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "fold",
+                icon: "iconFoldUnFold",
                 label: window.siyuan.languages.fold,
                 accelerator: `${updateHotkeyTip(window.siyuan.config.keymap.editor.general.collapse.custom)}/${updateHotkeyTip("⌥" + window.siyuan.languages.click)}`,
                 click() {
@@ -2035,6 +2253,18 @@ export class Gutter {
                     focusBlock(nodeElement);
                 }
             }).element);
+            if (["NodeHeading", "NodeListItem", "NodeBlockquote", "NodeCallout", "NodeSuperBlock"].includes(type)) {
+                window.siyuan.menus.menu.append(new MenuItem({
+                    id: "foldRecursive",
+                    icon: "iconListTree",
+                    label: window.siyuan.languages.foldRecursive,
+                    accelerator: window.siyuan.config.keymap.editor.general.foldRecursive?.custom,
+                    click() {
+                        foldBlocksRecursively(protyle, [nodeElement]);
+                        focusBlock(nodeElement);
+                    }
+                }).element);
+            }
             if (!protyle.disabled) {
                 window.siyuan.menus.menu.append(new MenuItem({
                     id: "attr",
@@ -2179,6 +2409,7 @@ export class Gutter {
         const disabledRTL = nodeElements.some(e => ["NodeAttributeView", "NodeCodeBlock", "NodeMathBlock"].includes(e.getAttribute("data-type")));
         window.siyuan.menus.menu.append(new MenuItem({
             id: "layout",
+            icon: "iconAlignSettings",
             label: window.siyuan.languages.layout,
             type: "submenu",
             submenu: [{
@@ -2231,7 +2462,7 @@ export class Gutter {
                 }
             }, {
                 id: "justify",
-                icon: "iconMenu",
+                icon: "iconAlignJustify",
                 label: window.siyuan.languages.justify,
                 click: () => {
                     this.genClick(nodeElements, protyle, (e: HTMLElement) => {
@@ -2303,6 +2534,7 @@ export class Gutter {
         const undoOperations: IOperation[] = [];
         const operations: IOperation[] = [];
         nodeElements.forEach((e) => {
+            e.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
             undoOperations.push({
                 action: "update",
                 id: e.getAttribute("data-node-id"),
@@ -2311,6 +2543,7 @@ export class Gutter {
         });
         inputElement.addEventListener(inputElement.type === "number" ? "blur" : "change", () => {
             nodeElements.forEach((e: HTMLElement) => {
+                e.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
                 operations.push({
                     action: "update",
                     id: e.getAttribute("data-node-id"),
@@ -2331,6 +2564,16 @@ export class Gutter {
     }
 
     private genWidths(nodeElements: Element[], protyle: IProtyle) {
+        let isInSb = false;
+        nodeElements.find((e: HTMLElement) => {
+            if (e.parentElement.classList.contains("sb")) {
+                isInSb = true;
+                return true;
+            }
+        });
+        if (isInSb) {
+            return;
+        }
         let rangeElement: HTMLInputElement;
         const firstElement = nodeElements[0] as HTMLElement;
         const styles: IMenu[] = [{
@@ -2377,6 +2620,7 @@ export class Gutter {
         const width = firstElement.style.width.endsWith("%") ? parseInt(firstElement.style.width) : 0;
         window.siyuan.menus.menu.append(new MenuItem({
             id: "width",
+            icon: "iconWidth",
             label: window.siyuan.languages.width,
             submenu: styles.concat([{
                 id: "widthDrag",
@@ -2539,7 +2783,7 @@ export class Gutter {
         while (nodeElement) {
             let parentElement = hasClosestBlock(nodeElement.parentElement);
             if (!isInEmbedBlock(nodeElement)) {
-                let type;
+                let type: string;
                 if (!hideParent) {
                     type = nodeElement.getAttribute("data-type");
                 }
@@ -2579,6 +2823,11 @@ export class Gutter {
                     }
 
                     let topElement = getTopAloneElement(nodeElement);
+                    // https://github.com/siyuan-note/siyuan/issues/17751 第二点
+                    if (topElement === nodeElement.parentElement && nodeElement.childElementCount > 3 &&
+                        nodeElement.classList.contains("li")) {
+                        topElement = nodeElement;
+                    }
                     // 提示下方仅有单个列表
                     if (topElement.classList.contains("callout") && !nodeElement.classList.contains("callout") &&
                         getParentBlock(nodeElement) !== topElement) {
@@ -2609,16 +2858,19 @@ export class Gutter {
                     html = "";
                 }
                 index += 1;
-                let gutterTip = this.gutterTip;
+                // 按块类型与是否反链面板生成提示，${x} 替换为该块的本地化类型名（如「段落/表格/超级块」）
+                // 使用回调返回值，避免类型名中可能的 $ 字符被当作替换模式
+                let gutterTip = (protyle.options.backlinkData ? this.gutterTipBacklink : this.gutterTip)
+                    .replace("${x}", () => getBlockTypeName(type));
                 if (protyle.disabled) {
-                    gutterTip = this.gutterTip.split("<br>").splice(0, 2).join("<br>");
+                    gutterTip = gutterTip.split("<br>").splice(0, 2).join("<br>");
                 }
 
                 let popoverHTML = "";
                 if (protyle.options.backlinkData) {
                     popoverHTML = `class="popover__block" data-id="${dataNodeId}"`;
                 }
-                const buttonHTML = type ? `<button class="ariaLabel" data-position="parentW" aria-label="${gutterTip}" 
+                const buttonHTML = type ? `<button class="ariaLabel" data-delay="500" data-position="parentW" aria-label="${gutterTip}"
 data-type="${type}" data-subtype="${nodeElement.getAttribute("data-subtype")}" data-node-id="${dataNodeId}">
     <svg><use xlink:href="#${getIconByType(type, nodeElement.getAttribute("data-subtype"))}"></use></svg>
     <span ${popoverHTML} ${protyle.disabled ? "" : 'draggable="true"'}></span>
@@ -2629,7 +2881,7 @@ data-type="${type}" data-subtype="${nodeElement.getAttribute("data-subtype")}" d
                 let foldHTML = "";
                 if (type === "NodeListItem" && nodeElement.childElementCount > 3 || type === "NodeHeading") {
                     const fold = nodeElement.getAttribute("fold");
-                    foldHTML = `<button class="ariaLabel" data-position="parentW" aria-label="${window.siyuan.languages.fold}" 
+                    foldHTML = `<button class="ariaLabel" data-delay="500" data-position="parentW" aria-label="${window.siyuan.languages.fold}"
 data-type="fold" style="cursor:inherit;"><svg style="width: 10px;${fold && fold === "1" ? "" : "transform:rotate(90deg)"}"><use xlink:href="#iconPlay"></use></svg></button>`;
                 }
                 if (type === "NodeListItem" || type === "NodeList") {
@@ -2644,7 +2896,12 @@ data-type="fold" style="cursor:inherit;"><svg style="width: 10px;${fold && fold 
                 if (["NodeBlockquote", "NodeCallout"].includes(type)) {
                     space += 10;
                 }
-                if ((nodeElement.previousElementSibling && nodeElement.previousElementSibling.getAttribute("data-node-id")) ||
+                // 前一个块兄弟（跳过 sb__resize 拖拽手柄，手柄无 data-node-id）
+                let previousBlock = nodeElement.previousElementSibling;
+                while (previousBlock && !previousBlock.getAttribute("data-node-id")) {
+                    previousBlock = previousBlock.previousElementSibling;
+                }
+                if ((previousBlock && previousBlock.getAttribute("data-node-id")) ||
                     nodeElement.parentElement.classList.contains("callout-content")) {
                     // 前一个块存在时，只显示到当前层级
                     hideParent = true;
@@ -2666,7 +2923,8 @@ data-type="fold" style="cursor:inherit;"><svg style="width: 10px;${fold && fold 
             }
         }
         let match = true;
-        const buttonsElement = this.element.querySelectorAll("button");
+        // 统计时排除块标边缘框线与+号元素，它们由 render 末尾单独追加，不参与防抖比较
+        const buttonsElement = this.element.querySelectorAll("button:not(.protyle-gutters__line):not(.protyle-gutters__plus)");
         if (buttonsElement.length !== html.split("</button>").length - 1) {
             match = false;
         } else {
@@ -2725,6 +2983,10 @@ data-type="fold" style="cursor:inherit;"><svg style="width: 10px;${fold && fold 
             this.element.style.left = `${rect.left - this.element.clientWidth - space / 2 + 3}px`;
             html = "";
             Array.from(this.element.children).reverse().forEach((item, index) => {
+                // 跳过块标边缘框线与+号元素，避免被压缩重排
+                if (item.classList.contains("protyle-gutters__line") || item.classList.contains("protyle-gutters__plus")) {
+                    return;
+                }
                 if (index !== 0) {
                     (item.firstElementChild as HTMLElement).style.height = "14px";
                 }
@@ -2736,5 +2998,9 @@ data-type="fold" style="cursor:inherit;"><svg style="width: 10px;${fold && fold 
                 item.style.height = "";
             });
         }
+        // 追加块标边缘悬浮触发的插入元素（默认隐藏，悬浮块标显示线条，悬浮线条变+号），由 mousemove 定位
+        // 追加块标边缘的框线（悬浮块标显示）与+号（悬浮框线显示），默认隐藏，由 mousemove 定位
+        // 双元素：框线贴块标边缘不移动（避免闪烁），+号独立定位在外偏位置，tooltip 基于+号元素对齐
+        this.element.insertAdjacentHTML("beforeend", `<button class="protyle-gutters__line" data-type="gutterLineBefore" style="display:none"></button><button class="protyle-gutters__line" data-type="gutterLineAfter" style="display:none"></button><button class="protyle-gutters__plus ariaLabel" data-type="gutterPlusBefore" data-position="4west" aria-label="${window.siyuan.languages.insertBefore}" style="display:none"><svg><use xlink:href="#iconAdd"></use></svg></button><button class="protyle-gutters__plus ariaLabel" data-type="gutterPlusAfter" data-position="4west" aria-label="${window.siyuan.languages.insertAfter}" style="display:none"><svg><use xlink:href="#iconAdd"></use></svg></button>`);
     }
 }

@@ -2,13 +2,210 @@ import {hasClosestBlock, hasClosestByClassName} from "../../util/hasClosest";
 import {focusBlock} from "../../util/selection";
 import {Menu} from "../../../plugin/Menu";
 import {transaction} from "../../wysiwyg/transaction";
-import {genCellValue, genCellValueByElement, getTypeByCellElement, renderCell, renderCellAttr} from "./cell";
+import {
+    cellValueIsEmpty,
+    genCellValue,
+    genCellValueByElement,
+    getTypeByCellElement,
+    renderCell,
+    renderCellAttr
+} from "./cell";
 import {fetchPost} from "../../../util/fetch";
 import * as dayjs from "dayjs";
 import {Constants} from "../../../constants";
 import {insertGalleryItemAnimation} from "./gallery/item";
 import {clearSelect} from "../../util/clear";
 import {isCustomAttr} from "./blockAttr";
+import {getColIconByType, getColNameByType} from "./col";
+import {unicode2Emoji} from "../../../emoji";
+import {escapeAttr} from "../../../util/escape";
+import {getCompressURL} from "../../../util/image";
+
+export const getRowHTML = (options: {
+    data: IAVView
+    row: IAVRow | IAVGalleryItem
+    rowIndex: number
+    type: TAVView
+    pinIndex?: number
+}) => {
+    let html = "";
+    if (options.type === "gallery") {
+        const galleryRow = options.row as IAVGalleryItem;
+        const kanbanData = options.data as IAVGallery;
+        html += `<div data-id="${galleryRow.id}" data-index="${options.rowIndex}" draggable="true" class="av__gallery-item">`;
+        if (kanbanData.coverFrom !== 0) {
+            const coverClass = "av__gallery-cover av__gallery-cover--" + kanbanData.cardAspectRatio;
+            if (galleryRow.coverURL) {
+                if (galleryRow.coverURL.startsWith("background")) {
+                    html += `<div class="${coverClass}"><img class="av__gallery-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" style="${galleryRow.coverURL}"></div>`;
+                } else {
+                    html += `<div class="${coverClass}"><img loading="lazy" class="av__gallery-img${kanbanData.fitImage ? " av__gallery-img--fit" : ""}" src="${getCompressURL(galleryRow.coverURL)}"></div>`;
+                }
+            } else if (galleryRow.coverContent) {
+                html += `<div class="${coverClass}"><div class="av__gallery-content">${galleryRow.coverContent}</div><div></div></div>`;
+            } else {
+                html += `<div class="${coverClass}"></div>`;
+            }
+        }
+        html += '<div class="av__gallery-fields">';
+        galleryRow.values.forEach((cell, fieldsIndex) => {
+            if (kanbanData.fields[fieldsIndex].hidden) {
+                return;
+            }
+            let checkClass = "";
+            if (cell.valueType === "checkbox") {
+                checkClass = cell.value?.checkbox?.checked ? " av__cell-check" : " av__cell-uncheck";
+            }
+            const isEmpty = cellValueIsEmpty(cell.value);
+            // NOTE: innerHTML 中不能换行否则 https://github.com/siyuan-note/siyuan/issues/15132
+            let ariaLabel = escapeAttr(kanbanData.fields[fieldsIndex].name) || getColNameByType(kanbanData.fields[fieldsIndex].type);
+            if (kanbanData.fields[fieldsIndex].desc) {
+                ariaLabel += escapeAttr(`<div class="ft__on-surface">${kanbanData.fields[fieldsIndex].desc}</div>`);
+            }
+
+            if (cell.valueType === "checkbox" && !kanbanData.displayFieldName) {
+                cell.value.checkbox.content = kanbanData.fields[fieldsIndex].name || getColNameByType(kanbanData.fields[fieldsIndex].type);
+            }
+            const cellHTML = `<div class="av__cell${checkClass}${kanbanData.displayFieldName ? "" : " ariaLabel"}" 
+data-wrap="${kanbanData.fields[fieldsIndex].wrap}" 
+aria-label="${ariaLabel}" 
+data-position="5west"
+data-id="${cell.id}" 
+data-field-id="${kanbanData.fields[fieldsIndex].id}" 
+data-dtype="${cell.valueType}" 
+${cell.value?.isDetached ? ' data-detached="true"' : ""} 
+style="${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
+${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, kanbanData.showIcon, "gallery")}</div>`;
+            if (kanbanData.displayFieldName) {
+                html += `<div class="av__gallery-field av__gallery-field--name" data-empty="${isEmpty}">
+    <div class="av__gallery-name">
+        ${kanbanData.fields[fieldsIndex].icon ? unicode2Emoji(kanbanData.fields[fieldsIndex].icon, undefined, true) : `<svg><use xlink:href="#${getColIconByType(kanbanData.fields[fieldsIndex].type)}"></use></svg>`}${Lute.EscapeHTMLStr(kanbanData.fields[fieldsIndex].name)}
+        ${kanbanData.fields[fieldsIndex].desc ? `<svg aria-label="${kanbanData.fields[fieldsIndex].desc}" data-position="north" class="ariaLabel"><use xlink:href="#iconInfo"></use></svg>` : ""}
+    </div>
+    ${cellHTML}
+</div>`;
+            } else {
+                html += `<div class="av__gallery-field" data-empty="${isEmpty}">
+    <div class="av__gallery-tip">
+        ${kanbanData.fields[fieldsIndex].icon ? unicode2Emoji(kanbanData.fields[fieldsIndex].icon, undefined, true) : `<svg><use xlink:href="#${getColIconByType(kanbanData.fields[fieldsIndex].type)}"></use></svg>`}${window.siyuan.languages.edit} ${Lute.EscapeHTMLStr(kanbanData.fields[fieldsIndex].name)}
+    </div>
+    ${cellHTML}
+</div>`;
+            }
+        });
+        html += `</div>
+    <div class="av__gallery-actions">
+        <span class="protyle-icon protyle-icon--first ariaLabel" data-position="4north" aria-label="${window.siyuan.languages.displayEmptyFields}" data-type="av-gallery-edit"><svg><use xlink:href="#iconEdit"></use></svg></span>
+        <span class="protyle-icon protyle-icon--last ariaLabel" data-position="4north" aria-label="${window.siyuan.languages.more}" data-type="av-gallery-more"><svg><use xlink:href="#iconMore"></use></svg></span>
+    </div>
+</div>`;
+        return html;
+    }
+    if (options.type === "kanban") {
+        const kanbanRow = options.row as IAVGalleryItem;
+        const kanbanData = options.data as IAVKanban;
+        html += `<div data-id="${kanbanRow.id}" data-index="${options.rowIndex}" draggable="true" class="av__gallery-item">`;
+        if (kanbanData.coverFrom !== 0) {
+            const coverClass = "av__gallery-cover av__gallery-cover--" + kanbanData.cardAspectRatio;
+            if (kanbanRow.coverURL) {
+                if (kanbanRow.coverURL.startsWith("background")) {
+                    html += `<div class="${coverClass}"><img class="av__gallery-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" style="${kanbanRow.coverURL}"></div>`;
+                } else {
+                    html += `<div class="${coverClass}"><img loading="lazy" class="av__gallery-img${kanbanData.fitImage ? " av__gallery-img--fit" : ""}" src="${getCompressURL(kanbanRow.coverURL)}"></div>`;
+                }
+            } else if (kanbanRow.coverContent.trim()) {
+                html += `<div class="${coverClass}"><div class="av__gallery-content">${kanbanRow.coverContent}</div><div></div></div>`;
+            }
+        }
+        html += '<div class="av__gallery-fields">';
+        kanbanRow.values.forEach((cell, fieldsIndex) => {
+            if (kanbanData.fields[fieldsIndex].hidden) {
+                return;
+            }
+            let checkClass = "";
+            if (cell.valueType === "checkbox") {
+                checkClass = cell.value?.checkbox?.checked ? " av__cell-check" : " av__cell-uncheck";
+            }
+            const isEmpty = cellValueIsEmpty(cell.value);
+            // NOTE: innerHTML 中不能换行否则 https://github.com/siyuan-note/siyuan/issues/15132
+            let ariaLabel = escapeAttr(kanbanData.fields[fieldsIndex].name) || getColNameByType(kanbanData.fields[fieldsIndex].type);
+            if (kanbanData.fields[fieldsIndex].desc) {
+                ariaLabel += escapeAttr(`<div class="ft__on-surface">${kanbanData.fields[fieldsIndex].desc}</div>`);
+            }
+
+            if (cell.valueType === "checkbox" && !kanbanData.displayFieldName) {
+                cell.value.checkbox.content = kanbanData.fields[fieldsIndex].name || getColNameByType(kanbanData.fields[fieldsIndex].type);
+            }
+            const cellHTML = `<div class="av__cell${checkClass}${kanbanData.displayFieldName ? "" : " ariaLabel"}" 
+data-wrap="${kanbanData.fields[fieldsIndex].wrap}" 
+aria-label="${ariaLabel}" 
+data-position="5west"
+data-id="${cell.id}" 
+data-field-id="${kanbanData.fields[fieldsIndex].id}" 
+data-dtype="${cell.valueType}" 
+${cell.value?.isDetached ? ' data-detached="true"' : ""} 
+style="${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
+${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, kanbanData.showIcon, "kanban")}</div>`;
+            if (kanbanData.displayFieldName) {
+                html += `<div class="av__gallery-field av__gallery-field--name" data-empty="${isEmpty}">
+    <div class="av__gallery-name">
+        ${kanbanData.fields[fieldsIndex].icon ? unicode2Emoji(kanbanData.fields[fieldsIndex].icon, undefined, true) : `<svg><use xlink:href="#${getColIconByType(kanbanData.fields[fieldsIndex].type)}"></use></svg>`}${Lute.EscapeHTMLStr(kanbanData.fields[fieldsIndex].name)}
+        ${kanbanData.fields[fieldsIndex].desc ? `<svg aria-label="${kanbanData.fields[fieldsIndex].desc}" data-position="north" class="ariaLabel"><use xlink:href="#iconInfo"></use></svg>` : ""}
+    </div>
+    ${cellHTML}
+</div>`;
+            } else {
+                html += `<div class="av__gallery-field" data-empty="${isEmpty}">
+    <div class="av__gallery-tip">
+        ${kanbanData.fields[fieldsIndex].icon ? unicode2Emoji(kanbanData.fields[fieldsIndex].icon, undefined, true) : `<svg><use xlink:href="#${getColIconByType(kanbanData.fields[fieldsIndex].type)}"></use></svg>`}${window.siyuan.languages.edit} ${Lute.EscapeHTMLStr(kanbanData.fields[fieldsIndex].name)}
+    </div>
+    ${cellHTML}
+</div>`;
+            }
+        });
+        html += `</div>
+    <div class="av__gallery-actions">
+        <span class="protyle-icon protyle-icon--first ariaLabel" data-position="4north" aria-label="${window.siyuan.languages.displayEmptyFields}" data-type="av-gallery-edit"><svg><use xlink:href="#iconEdit"></use></svg></span>
+        <span class="protyle-icon protyle-icon--last ariaLabel" data-position="4north" aria-label="${window.siyuan.languages.more}" data-type="av-gallery-more"><svg><use xlink:href="#iconMore"></use></svg></span>
+    </div>
+</div>`;
+        return html;
+    }
+    const tableRow = options.row as IAVRow;
+    const tableData = options.data as IAVTable;
+
+    html = `<div class="av__row" data-index="${options.rowIndex}" data-id="${tableRow.id}">`;
+    if (options.pinIndex > -1) {
+        html += '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div>';
+    } else {
+        html += '<div class="av__colsticky"><div class="av__firstcol"><svg><use xlink:href="#iconUncheck"></use></svg></div></div>';
+    }
+
+    tableRow.cells.forEach((cell, index) => {
+        const column = tableData.columns[index];
+        if (column.hidden) {
+            return;
+        }
+        // https://github.com/siyuan-note/siyuan/issues/10262
+        let checkClass = "";
+        if (cell.valueType === "checkbox") {
+            checkClass = cell.value?.checkbox?.checked ? " av__cell-check" : " av__cell-uncheck";
+        }
+        html += `<div class="av__cell${checkClass}" data-id="${cell.id}" data-col-id="${column.id}" 
+data-wrap="${column.wrap}" 
+data-dtype="${column.type}" 
+${cell.value?.isDetached ? ' data-detached="true"' : ""} 
+style="width: ${column.width || "200px"};
+${cell.valueType === "number" ? "text-align: right;" : ""}
+${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
+${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, tableData.showIcon)}</div>`;
+
+        if (options.pinIndex === index) {
+            html += "</div>";
+        }
+    });
+    return html + "<div></div></div>";
+};
 
 export const getFieldIdByCellElement = (cellElement: Element, viewType: TAVView): string => {
     if (isCustomAttr(cellElement)) {
@@ -187,40 +384,177 @@ ${colType === "block" ? ' data-detached="true"' : ""}>${renderCell(genCellValue(
     });
 };
 
-export const stickyRow = (blockElement: HTMLElement, elementRect: DOMRect, status: "top" | "bottom" | "all") => {
+const applyFixedClip = (el: HTMLElement, scrollEl: HTMLElement) => {
+    const scrollLeft = scrollEl.scrollLeft;
+    const clientWidth = scrollEl.clientWidth;
+    const scrollWidth = scrollEl.scrollWidth;
+    if (scrollWidth <= clientWidth) {
+        if (el.style.clipPath) {
+            el.style.clipPath = "";
+        }
+        return;
+    }
+    const right = Math.max(0, scrollWidth - scrollLeft - clientWidth);
+    el.style.clipPath = `inset(0 ${right}px 0 ${scrollLeft}px)`;
+};
+
+const stickyScrollElMap = new WeakMap<HTMLElement, HTMLElement>();
+
+const bindHeaderScrollSync = (blockElement: HTMLElement, scrollEl: HTMLElement) => {
+    if (stickyScrollElMap.get(blockElement) === scrollEl) {
+        return;
+    }
+    stickyScrollElMap.set(blockElement, scrollEl);
+    const syncHeaders = () => {
+        const x = -scrollEl.scrollLeft;
+        blockElement.querySelectorAll(".av__row--header--fixed, .av__row--footer--fixed").forEach((el: HTMLElement) => {
+            el.style.transform = `translateX(${x}px)`;
+            applyFixedClip(el, scrollEl);
+        });
+    };
+    scrollEl.addEventListener("scroll", syncHeaders, {passive: true});
+    if (scrollEl.scrollLeft > 0) {
+        syncHeaders();
+    }
+};
+
+const addFixedRow = (item: HTMLElement, fixedClass: string, placeholderClass: string, height: number, width: number) => {
+    item.classList.add(fixedClass);
+    const placeholder = document.createElement("div");
+    placeholder.className = placeholderClass;
+    placeholder.style.height = height + "px";
+    placeholder.style.width = width + "px";
+    item.insertAdjacentElement("afterend", placeholder);
+};
+
+const removeFixedRow = (item: HTMLElement, fixedClass: string, placeholderClass: string) => {
+    if (!item.classList.contains(fixedClass)) {
+        return;
+    }
+    item.classList.remove(fixedClass);
+    item.style.top = "";
+    item.style.bottom = "";
+    item.style.left = "";
+    item.style.width = "";
+    item.style.transform = "";
+    item.style.clipPath = "";
+    const next = item.nextElementSibling as HTMLElement;
+    if (next?.classList.contains(placeholderClass)) {
+        next.remove();
+    }
+};
+
+const syncFixedRowPos = (item: HTMLElement, bodyRect: DOMRect, scrollLeft: number, scrollEl: HTMLElement) => {
+    item.style.left = Math.round(bodyRect.left + scrollLeft) + "px";
+    item.style.width = Math.round(bodyRect.width) + "px";
+    item.style.transform = `translateX(${-scrollLeft}px)`;
+    if (scrollEl) {
+        applyFixedClip(item, scrollEl);
+    }
+};
+
+export const stickyRow = (blockElement: HTMLElement, scrollElement: HTMLElement, status: "top" | "bottom" | "all") => {
     if (blockElement.dataset.avType !== "table") {
         return;
     }
-    // 只读模式下也需固定 https://github.com/siyuan-note/siyuan/issues/11338
-    const headerElements = blockElement.querySelectorAll(".av__row--header");
-    if (headerElements.length > 0 && (status === "top" || status === "all")) {
-        headerElements.forEach((item: HTMLElement) => {
-            const bodyRect = item.parentElement.getBoundingClientRect();
-            const distance = Math.floor(elementRect.top - bodyRect.top);
-            if (distance > 0 && distance < bodyRect.height - item.clientHeight) {
-                item.style.transform = `translateY(${distance}px)`;
-            } else {
-                item.style.transform = "";
+    const scrollEl = blockElement.querySelector(".av__scroll") as HTMLElement;
+    if (scrollEl) {
+        bindHeaderScrollSync(blockElement, scrollEl);
+    }
+
+    // 先批量读取所有几何信息，再统一写入 style，避免读-写交错触发强制重排
+    const elementRect = scrollElement.getBoundingClientRect();
+    const scrollTop = scrollElement.scrollTop;
+    const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+    const doTop = status === "top" || status === "all";
+    const doBottom = status === "bottom" || status === "all";
+
+    // 第一遍：纯读取，收集每个 header/footer 的几何与判定结果
+    const headerTasks: Array<{
+        item: HTMLElement;
+        bodyRect: DOMRect;
+        headerH: number;
+        shouldFix: boolean;
+        scrollLeft: number;
+        scrollEl: HTMLElement;
+    }> = [];
+    const footerTasks: Array<{
+        item: HTMLElement;
+        bodyRect: DOMRect;
+        footerH: number;
+        shouldFix: boolean;
+        scrollLeft: number;
+        scrollEl: HTMLElement;
+    }> = [];
+    if (doTop) {
+        blockElement.querySelectorAll(".av__row--header").forEach((item: HTMLElement) => {
+            const body = item.parentElement as HTMLElement;
+            const bodyRect = body.getBoundingClientRect();
+            const offset = Math.round(bodyRect.top - elementRect.top + scrollTop);
+            const headerH = item.offsetHeight;
+            const bodyH = body.offsetHeight;
+            headerTasks.push({
+                item,
+                bodyRect,
+                headerH,
+                shouldFix: scrollTop > offset && scrollTop < offset + bodyH,
+                scrollLeft,
+                scrollEl,
+            });
+        });
+    }
+    if (doBottom) {
+        blockElement.querySelectorAll(".av__row--footer").forEach((item: HTMLElement) => {
+            if (!item.querySelector(".av__calc--ashow")) {
+                return;
             }
+            const body = item.parentElement as HTMLElement;
+            const bodyRect = body.getBoundingClientRect();
+            const bottomInit = Math.round(bodyRect.bottom + scrollTop);
+            const footerH = item.offsetHeight;
+            const bodyH = body.offsetHeight;
+            const bottomOffset = bottomInit - Math.round(elementRect.bottom);
+            const footerDist = bottomInit - scrollTop - Math.round(elementRect.bottom);
+            footerTasks.push({
+                item,
+                bodyRect,
+                footerH,
+                shouldFix: scrollTop < bottomOffset && footerDist < bodyH - footerH,
+                scrollLeft,
+                scrollEl,
+            });
         });
     }
 
-    const footerElements = blockElement.querySelectorAll(".av__row--footer");
-    if (footerElements.length > 0 && (status === "bottom" || status === "all")) {
-        footerElements.forEach((item: HTMLElement) => {
-            if (item.querySelector(".av__calc--ashow")) {
-                const bodyRect = item.parentElement.getBoundingClientRect();
-                const distance = Math.ceil(elementRect.bottom - bodyRect.bottom);
-                if (distance < 0 && -distance < bodyRect.height - item.clientHeight) {
-                    item.style.transform = `translateY(${distance}px)`;
-                } else {
-                    item.style.transform = "";
-                }
-            } else {
-                item.style.transform = "";
+    // 第二遍：纯写入，此时不再读取布局，仅触发一次重排
+    const stickyTop = Math.round(elementRect.top);
+    const stickyBottom = Math.round(window.innerHeight - elementRect.bottom);
+    headerTasks.forEach((task) => {
+        const {item, bodyRect, headerH, shouldFix} = task;
+        if (shouldFix) {
+            if (!item.classList.contains("av__row--header--fixed")) {
+                addFixedRow(item, "av__row--header--fixed", "av__row--header-placeholder", headerH, Math.round(bodyRect.width));
             }
-        });
-    }
+            syncFixedRowPos(item, bodyRect, task.scrollLeft, task.scrollEl);
+            item.style.top = bodyRect.bottom < stickyTop + headerH
+                ? Math.round(bodyRect.bottom - headerH) + "px"
+                : stickyTop + "px";
+        } else {
+            removeFixedRow(item, "av__row--header--fixed", "av__row--header-placeholder");
+        }
+    });
+    footerTasks.forEach((task) => {
+        const {item, bodyRect, footerH, shouldFix} = task;
+        if (shouldFix) {
+            if (!item.classList.contains("av__row--footer--fixed")) {
+                addFixedRow(item, "av__row--footer--fixed", "av__row--footer--placeholder", footerH, Math.round(bodyRect.width));
+            }
+            syncFixedRowPos(item, bodyRect, task.scrollLeft, task.scrollEl);
+            item.style.bottom = stickyBottom + "px";
+        } else {
+            removeFixedRow(item, "av__row--footer--fixed", "av__row--footer--placeholder");
+        }
+    });
 };
 
 const updatePageSize = (options: {
@@ -398,7 +732,7 @@ export const deleteRow = (blockElement: HTMLElement, protyle: IProtyle) => {
     rowElements.forEach(item => {
         item.remove();
     });
-    stickyRow(blockElement, protyle.contentElement.getBoundingClientRect(), "all");
+    stickyRow(blockElement, protyle.contentElement, "all");
     updateHeader(blockElement.querySelector(".av__row"));
     blockElement.setAttribute("updated", newUpdated);
 };
@@ -462,4 +796,46 @@ export const insertRows = (options: {
         });
     }
     options.blockElement.setAttribute("updated", newUpdated);
+};
+
+export const duplicateRows = (blockElement: HTMLElement, protyle: IProtyle, rowElements: NodeListOf<Element>) => {
+    const avID = blockElement.getAttribute("data-av-id");
+    const doOperations: IOperation[] = [];
+    const undoOperations: IOperation[] = [];
+    const newRowIDs: string[] = [];
+    // 副本统一插入到最后选中的条目之后，按源序排列
+    const anchorID = rowElements[rowElements.length - 1].getAttribute("data-id");
+    let previousID = anchorID;
+    rowElements.forEach(rowElement => {
+        const newRowID = Lute.NewNodeID();
+        newRowIDs.push(newRowID);
+        const srcRowID = rowElement.getAttribute("data-id");
+        doOperations.push({
+            action: "duplicateAttrViewRow",
+            avID,
+            id: newRowID,
+            srcIDs: [srcRowID],
+            previousID,
+        });
+        // 后续副本接在前一个副本之后，保证源序
+        previousID = newRowID;
+    });
+    const newUpdated = dayjs().format("YYYYMMDDHHmmss");
+    doOperations.push({
+        action: "doUpdateUpdated",
+        id: blockElement.dataset.nodeId,
+        data: newUpdated,
+    });
+    undoOperations.push({
+        action: "removeAttrViewBlock",
+        srcIDs: newRowIDs,
+        avID,
+    });
+    undoOperations.push({
+        action: "doUpdateUpdated",
+        id: blockElement.dataset.nodeId,
+        data: blockElement.getAttribute("updated")
+    });
+    transaction(protyle, doOperations, undoOperations);
+    blockElement.setAttribute("updated", newUpdated);
 };

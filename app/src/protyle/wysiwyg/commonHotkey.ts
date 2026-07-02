@@ -388,6 +388,7 @@ export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle)
                 });
                 nextElement.setAttribute("data-marker", starIndex + ".");
                 nextElement.querySelector(".protyle-action--order").textContent = starIndex + ".";
+                nextElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
                 doOperations.push({
                     action: "update",
                     data: nextElement.outerHTML,
@@ -451,7 +452,7 @@ export const alignImgCenter = (protyle: IProtyle, nodeElement: Element, assetEle
     assetElements.forEach((item: HTMLElement) => {
         item.style.minWidth = "calc(100% - 0.1em)";
     });
-    updateTransaction(protyle, id, nodeElement.outerHTML, html);
+    updateTransaction(protyle, nodeElement, html);
 };
 
 export const alignImgLeft = (protyle: IProtyle, nodeElement: Element, assetElements: Element[], id: string, html: string) => {
@@ -459,5 +460,5 @@ export const alignImgLeft = (protyle: IProtyle, nodeElement: Element, assetEleme
     assetElements.forEach((item: HTMLElement) => {
         item.removeAttribute("style");
     });
-    updateTransaction(protyle, id, nodeElement.outerHTML, html);
+    updateTransaction(protyle, nodeElement, html);
 };

@@ -1,5 +1,5 @@
 **English**
-| [中文](CONTRIBUTING_zh_CN.md)
+| [中文](CONTRIBUTING.zh-CN.md)
 
 ## Get the source code
 
@@ -8,17 +8,17 @@
 
 ## NPM dependencies
 
-Install pnpm: `npm install -g pnpm@10.33.0`
+Install pnpm: `npm install -g pnpm@11.9.0`
 
 <details>
 <summary>For China mainland</summary>
 
 Set the Electron mirror environment variable and install Electron:
 
-* macOS/Linux: `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install electron@40.9.1 -D`
+* macOS/Linux: `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install electron@42.5.0 -D`
 * Windows:
   * `SET ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
-  * `pnpm install electron@40.9.1 -D`
+  * `pnpm install electron@42.5.0 -D`
 
 NPM mirror:
 
@@ -28,9 +28,12 @@ NPM mirror:
 
 Enter the app folder and execute:
 
-* `pnpm install electron@40.9.1 -D`
+* `pnpm install electron@42.5.0 -D`
+* `pnpm run install:electron`
 * `pnpm run dev`
 * `pnpm run start`
+
+Note: Electron 42 no longer downloads its binary automatically during `pnpm install`. Run `pnpm run install:electron` (or set `ELECTRON_MIRROR` first on China mainland) to fetch the binary before `pnpm run start`.
 
 Note: In the development environment, the kernel process will not be automatically started, and you need to manually start the kernel process first.
 
@@ -45,8 +48,8 @@ Note: In the development environment, the kernel process will not be automatical
 * Windows: `go build -tags "fts5" -o "../app/kernel/SiYuan-Kernel.exe"`
 * Linux/macOS: `go build -tags "fts5" -o "../app/kernel/SiYuan-Kernel"`
 * `cd ../app/kernel`
-* Windows: `./SiYuan-Kernel.exe --wd=.. --mode=dev`
-* Linux/macOS: `./SiYuan-Kernel --wd=.. --mode=dev`
+* Windows: `./SiYuan-Kernel.exe serve --mode=dev`
+* Linux/macOS: `./SiYuan-Kernel serve --mode=dev`
 
 ### iOS
 

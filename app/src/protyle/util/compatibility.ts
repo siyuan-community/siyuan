@@ -4,10 +4,8 @@ import {Constants} from "../../constants";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
 /// #endif
-/// #if MOBILE
-import {processSYLink} from "../../editor/openLink";
-/// #endif
-import {getDefaultType} from "../../search/getDefault";
+import {getDefaultSubType, getDefaultType} from "../../search/getDefault";
+import {hideMessage, showMessage} from "../../dialog/message";
 
 export const isPhablet = () => {
     return /Android|webOS|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent) || isIPhone() || isIPad();
@@ -65,52 +63,92 @@ export const getTextSiyuanFromTextHTML = (html: string) => {
     };
 };
 
-export const openByMobile = (uri: string) => {
+export const saveExportFile = async (uri: string, msgId?: string) => {
     if (!uri) {
         return;
     }
-    /// #if MOBILE
-    if (processSYLink(window.siyuan.ws.app, uri)) {
+    /// #if !BROWSER
+    try {
+        const resolved = new URL(uri, `${location.origin}/`);
+        const pathSeg = resolved.pathname.substring(resolved.pathname.lastIndexOf("/") + 1);
+        let fileName: string;
+        try {
+            fileName = decodeURIComponent(pathSeg);
+        } catch {
+            fileName = pathSeg;
+        }
+        if (!fileName) {
+            fileName = "download";
+        }
+        const result = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
+            cmd: "showSaveDialog",
+            defaultPath: fileName,
+            properties: ["showOverwriteConfirmation"],
+        });
+        if (result.canceled || !result.filePath) {
+            if (msgId) {
+                hideMessage(msgId);
+            }
+            return;
+        }
+        const copyResponse = await (await fetch("/api/export/copyExportFile", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                srcPath: resolved.pathname,
+                dest: result.filePath,
+            }),
+        })).json();
+        if (copyResponse.code !== 0) {
+            throw new Error(copyResponse.msg);
+        }
+        if (msgId) {
+            hideMessage(msgId);
+        }
+        showMessage(window.siyuan.languages.exported);
         return;
+    } catch (e) {
+        if (msgId) {
+            hideMessage(msgId);
+        }
+        showMessage("saveExportFile failed: " + e);
+    }
+    /// #else
+    try {
+        if (isInAndroid()) {
+            window.JSAndroid.saveExportFile(uri);
+            if (msgId) {
+                hideMessage(msgId);
+            }
+            return;
+        }
+        if (isInIOS()) {
+            window.webkit.messageHandlers.saveExportFile.postMessage(uri);
+            if (msgId) {
+                hideMessage(msgId);
+            }
+            return;
+        }
+        if (isInHarmony()) {
+            window.JSHarmony.saveExportFile(uri);
+            if (msgId) {
+                hideMessage(msgId);
+            }
+            return;
+        }
+        const openUrl = new URL(uri, `${location.origin}/`);
+        openUrl.searchParams.set("download", "true");
+        window.open(openUrl.href);
+        if (msgId) {
+            hideMessage(msgId);
+        }
+    } catch (e) {
+        if (msgId) {
+            hideMessage(msgId);
+        }
+        showMessage("saveExportFile failed: " + e);
     }
     /// #endif
-    if (isInIOS()) {
-        if (uri.startsWith("assets/")) {
-            // iOS 16.7 之前的版本，uri 需要 encodeURIComponent
-            window.webkit.messageHandlers.openLink.postMessage(location.origin + "/assets/" + encodeURIComponent(uri.replace("assets/", "")));
-        } else if (uri.startsWith("/")) {
-            // 导出 zip 返回的是已经 encode 过的，因此不能再 encode
-            window.webkit.messageHandlers.openLink.postMessage(location.origin + uri);
-        } else {
-            try {
-                new URL(uri);
-                window.webkit.messageHandlers.openLink.postMessage(uri);
-            } catch (e) {
-                window.webkit.messageHandlers.openLink.postMessage("https://" + uri);
-            }
-        }
-    } else if (isInAndroid()) {
-        window.JSAndroid.openExternal(uri);
-    } else if (isInHarmony()) {
-        window.JSHarmony.openExternal(uri);
-    } else {
-        window.open(uri);
-    }
-};
-
-export const exportByMobile = (uri: string) => {
-    if (!uri) {
-        return;
-    }
-    if (isInIOS()) {
-        openByMobile(uri);
-    } else if (isInAndroid()) {
-        window.JSAndroid.exportByDefault(uri);
-    } else if (isInHarmony()) {
-        window.JSHarmony.exportByDefault(uri);
-    } else {
-        window.open(uri);
-    }
 };
 
 export const readText = () => {
@@ -385,7 +423,12 @@ export function isChromeBrowser(): boolean {
         }
     };
     if (nav.userAgentData && Array.isArray(nav.userAgentData.brands)) {
-        return nav.userAgentData.brands.some((b: any) => /Chrome|Chromium/i.test(b.brand));
+        const brands = nav.userAgentData.brands.map((b) => b.brand);
+        // Edge、Opera 等 Chromium 内核浏览器 brands 中同样包含 Chromium，需与 userAgent 回退逻辑一致排除
+        if (brands.some((brand) => /Edge|Opera|OPR/i.test(brand))) {
+            return false;
+        }
+        return brands.some((brand) => /Chrome|Chromium/i.test(brand));
     }
     // 回退到 userAgent
     const ua = nav.userAgent || "";
@@ -530,6 +573,7 @@ export const getLocalStorage = (cb: () => void) => {
             k: "",
             r: "",
             types: getDefaultType(),
+            subTypes: getDefaultSubType(),
             replaceTypes: Object.assign({}, Constants.SIYUAN_DEFAULT_REPLACETYPES),
         };
         defaultStorage[Constants.LOCAL_ZOOM] = 1;
@@ -564,6 +608,11 @@ export const getLocalStorage = (cb: () => void) => {
         if (!window.siyuan.storage[Constants.LOCAL_SEARCHDATA].replaceTypes ||
             Object.keys(window.siyuan.storage[Constants.LOCAL_SEARCHDATA].replaceTypes).length === 0) {
             window.siyuan.storage[Constants.LOCAL_SEARCHDATA].replaceTypes = Object.assign({}, Constants.SIYUAN_DEFAULT_REPLACETYPES);
+        }
+        // Migrate stored search data to include subTypes when absent
+        if (!window.siyuan.storage[Constants.LOCAL_SEARCHDATA].subTypes ||
+            Object.keys(window.siyuan.storage[Constants.LOCAL_SEARCHDATA].subTypes).length === 0) {
+            window.siyuan.storage[Constants.LOCAL_SEARCHDATA].subTypes = getDefaultSubType();
         }
         cb();
     });
@@ -620,4 +669,3 @@ export const initNativeDialogOverride = () => {
     };
 };
 /// #endif
-

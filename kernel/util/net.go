@@ -26,6 +26,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/88250/gulu"
@@ -117,6 +118,27 @@ func IsLocalOrigin(origin string) bool {
 		return IsLocalHostname(u.Hostname())
 	}
 	return false
+}
+
+// SSRFSafeDialer returns a net.Dialer whose Control hook blocks private, loopback, link-local and unspecified IPs.
+func SSRFSafeDialer(timeout time.Duration) *net.Dialer {
+	return &net.Dialer{
+		Timeout: timeout,
+		Control: func(network, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			if ip := net.ParseIP(host); ip != nil && isPrivateIP(ip) {
+				return fmt.Errorf("ip address [%s] is prohibited", host)
+			}
+			return nil
+		},
+	}
+}
+
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() || ip.IsUnspecified()
 }
 
 func IsOnline(checkURL string, skipTlsVerify bool, timeout int) bool {
@@ -248,14 +270,14 @@ func GetRequestStringParam(c *gin.Context, key string, result *gulu.Result) stri
 		return ""
 	}
 	if arg[key] == nil {
-		result.Code = -2
+		result.Code = 1
 		result.Msg = fmt.Sprintf("Request body prop [%s] does not exist", key)
 		return ""
 	}
 
 	value, ok := arg[key].(string)
 	if !ok {
-		result.Code = -3
+		result.Code = 2
 		result.Msg = fmt.Sprintf("Request body prop [%s] is not a string", key)
 		return ""
 	}
@@ -264,7 +286,7 @@ func GetRequestStringParam(c *gin.Context, key string, result *gulu.Result) stri
 
 // ParseJsonArg 使用泛型从 JSON 参数中提取指定键的值。
 //   - 如果 required 为 true 但参数缺失，则会在 ret.Msg 中说明需要传入的键
-//   - 如果 rejectEmpty 为 true 但参数值为空，则会在 ret.Msg 中说明该键必须不为空
+//   - 如果 rejectEmpty 为 true 但参数值为空，则会在 ret.Msg 中说明该键必须不为空（字符串去空白后、空数组、无任何键的对象）
 //   - 如果参数存在但类型不匹配，则会在 ret.Msg 中说明该键期望的类型
 //   - 返回值 ok 为 false 时，表示提取失败、类型不匹配或不满足非空约束
 func ParseJsonArg[T any](key string, arg map[string]any, ret *gulu.Result, required, rejectEmpty bool) (value T, ok bool) {
@@ -315,6 +337,8 @@ func ParseJsonArg[T any](key string, arg map[string]any, ret *gulu.Result, requi
 				value = any(t).(T)
 			}
 		case []any:
+			bad = len(x) == 0
+		case map[string]any:
 			bad = len(x) == 0
 		}
 		if bad {

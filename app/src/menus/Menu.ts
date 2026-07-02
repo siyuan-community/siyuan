@@ -3,6 +3,7 @@ import {setPosition} from "../util/setPosition";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
 import {isMobile} from "../util/functions";
 import {Constants} from "../constants";
+import {getTopBarHeight} from "../layout/getTopBarHeight";
 
 export class Menu {
     public element: HTMLElement;
@@ -74,7 +75,7 @@ export class Menu {
         // 垂直方向位置调整
         // 减 9px 是为了尽量对齐菜单选项（b3-menu__submenu 的默认 padding-top 加上子菜单首个 b3-menu__item 的默认 margin-top）
         // 减 1px 是为了避免在特定情况下渲染出不应存在的滚动条而做的兼容处理
-        subMenuElement.style.top = Math.max(Constants.SIZE_TOOLBAR_HEIGHT,
+        subMenuElement.style.top = Math.max(getTopBarHeight(),
             Math.min(itemRect.top - 9, window.innerHeight - subMenuRect.height - 1)) + "px";
 
         // 水平方向位置调整
@@ -285,7 +286,7 @@ export class MenuItem {
             if (typeof options.iconHTML === "string") {
                 html = options.iconHTML + html;
             } else {
-                html = `<svg class="b3-menu__icon ${options.iconClass || ""}" style="${options.icon === "iconClose" ? "height:10px;" : ""}"><use xlink:href="#${options.icon || ""}"></use></svg>${html}`;
+                html = `<svg class="b3-menu__icon ${options.iconClass || ""}"><use xlink:href="#${options.icon || ""}"></use></svg>${html}`;
             }
             if (options.accelerator) {
                 html += `<span class="b3-menu__accelerator b3-menu__accelerator--hotkey">${updateHotkeyTip(options.accelerator)}</span>`;

@@ -23,12 +23,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/textproto"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/88250/gulu"
@@ -164,13 +162,13 @@ func forwardProxy(c *gin.Context) {
 	}
 	u, e := url.ParseRequestURI(destURL)
 	if nil != e {
-		ret.Code = -1
+		ret.Code = 1
 		ret.Msg = "invalid [url]"
 		return
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {
-		ret.Code = -1
+		ret.Code = 2
 		ret.Msg = "only http/https is allowed"
 		return
 	}
@@ -188,6 +186,9 @@ func forwardProxy(c *gin.Context) {
 	}
 
 	client := getSafeClient(time.Duration(timeout) * time.Millisecond)
+	if redirectArg, ok := arg["redirect"].(bool); ok && !redirectArg {
+		client.SetRedirectPolicy(req.NoRedirectPolicy())
+	}
 	request := client.R()
 	if headers, ok := arg["headers"].([]any); ok {
 		for _, pair := range headers {
@@ -215,7 +216,7 @@ func forwardProxy(c *gin.Context) {
 		fallthrough
 	case "base64-std":
 		if payload, err := base64.StdEncoding.DecodeString(arg["payload"].(string)); err != nil {
-			ret.Code = -2
+			ret.Code = 3
 			ret.Msg = "decode base64-std payload failed: " + err.Error()
 			return
 		} else {
@@ -223,7 +224,7 @@ func forwardProxy(c *gin.Context) {
 		}
 	case "base64-url":
 		if payload, err := base64.URLEncoding.DecodeString(arg["payload"].(string)); err != nil {
-			ret.Code = -2
+			ret.Code = 4
 			ret.Msg = "decode base64-url payload failed: " + err.Error()
 			return
 		} else {
@@ -233,7 +234,7 @@ func forwardProxy(c *gin.Context) {
 		fallthrough
 	case "base32-std":
 		if payload, err := base32.StdEncoding.DecodeString(arg["payload"].(string)); err != nil {
-			ret.Code = -2
+			ret.Code = 5
 			ret.Msg = "decode base32-std payload failed: " + err.Error()
 			return
 		} else {
@@ -241,7 +242,7 @@ func forwardProxy(c *gin.Context) {
 		}
 	case "base32-hex":
 		if payload, err := base32.HexEncoding.DecodeString(arg["payload"].(string)); err != nil {
-			ret.Code = -2
+			ret.Code = 6
 			ret.Msg = "decode base32-hex payload failed: " + err.Error()
 			return
 		} else {
@@ -249,7 +250,7 @@ func forwardProxy(c *gin.Context) {
 		}
 	case "hex":
 		if payload, err := hex.DecodeString(arg["payload"].(string)); err != nil {
-			ret.Code = -2
+			ret.Code = 7
 			ret.Msg = "decode hex payload failed: " + err.Error()
 			return
 		} else {
@@ -263,14 +264,14 @@ func forwardProxy(c *gin.Context) {
 	started := time.Now()
 	resp, err := request.Send(method, destURL)
 	if err != nil {
-		ret.Code = -1
+		ret.Code = 8
 		ret.Msg = "forward request failed: " + err.Error()
 		return
 	}
 
 	bodyData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		ret.Code = -1
+		ret.Code = 9
 		ret.Msg = "read response body failed: " + err.Error()
 		return
 	}
@@ -327,31 +328,9 @@ func forwardProxy(c *gin.Context) {
 	//	elapsed.Seconds(), len(bodyData), data["url"], headers, contentType, arg["payload"], data["status"], shortBody)
 }
 
-// ssrfSafeDialer returns a net.Dialer whose Control hook blocks private IPs.
-func ssrfSafeDialer(timeout time.Duration) *net.Dialer {
-	return &net.Dialer{
-		Timeout: timeout,
-		Control: func(network, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			if ip := net.ParseIP(host); ip != nil && isPrivateIP(ip) {
-				return fmt.Errorf("ip address [%s] is prohibited", host)
-			}
-			return nil
-		},
-	}
-}
-
-// 校验 IP 是否为私有内网地址
-func isPrivateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() || ip.IsUnspecified()
-}
-
 // 创建安全的 HTTP Client，防止 SSRF 和 DNS 重绑定
 func getSafeClient(timeout time.Duration) *req.Client {
-	dialer := ssrfSafeDialer(timeout)
+	dialer := util.SSRFSafeDialer(timeout)
 
 	client := req.C()
 	client.SetTimeout(timeout)
@@ -436,7 +415,7 @@ func httpProxy(c *gin.Context) {
 	}
 
 	transport := &http.Transport{
-		DialContext: ssrfSafeDialer(30 * time.Second).DialContext,
+		DialContext: util.SSRFSafeDialer(30 * time.Second).DialContext,
 	}
 	httpClient := &http.Client{Transport: transport}
 
@@ -447,7 +426,9 @@ func httpProxy(c *gin.Context) {
 	}
 
 	proxyReq.ContentLength = c.Request.ContentLength
-	proxyReq.Header.Set("Content-Type", c.ContentType())
+	if c.ContentType() != "" {
+		proxyReq.Header.Set("Content-Type", c.ContentType())
+	}
 
 	for k, vs := range *targetHeaders {
 		for _, v := range vs {
@@ -489,7 +470,7 @@ func wsProxy(c *gin.Context) {
 	}
 
 	wsDialer := &websocket.Dialer{
-		NetDialContext:   ssrfSafeDialer(30 * time.Second).DialContext,
+		NetDialContext:   util.SSRFSafeDialer(30 * time.Second).DialContext,
 		HandshakeTimeout: 30 * time.Second,
 	}
 
@@ -582,7 +563,7 @@ func esProxy(c *gin.Context) {
 	}
 
 	transport := &http.Transport{
-		DialContext: ssrfSafeDialer(30 * time.Second).DialContext,
+		DialContext: util.SSRFSafeDialer(30 * time.Second).DialContext,
 	}
 	httpClient := &http.Client{Transport: transport}
 

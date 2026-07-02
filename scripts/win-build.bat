@@ -5,15 +5,15 @@ echo Options:
 echo   --target=^<target^>  Build target: amd64, arm64, appx-amd64, appx-arm64, or all (default: all)
 echo.
 
-REM 保存初始目录
+REM Save initial directory
 set "INITIAL_DIR=%cd%"
 
-REM 获取脚本所在目录
+REM Get script directory
 set "SCRIPT_DIR=%~dp0"
-REM 移除末尾的反斜杠
+REM Remove trailing backslash
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
-REM 获取项目根目录（脚本目录的父目录）
+REM Get project root (parent of script directory)
 for %%I in ("%SCRIPT_DIR%\..") do set "PROJECT_ROOT=%%~fI"
 
 set "TARGET=all"
@@ -75,6 +75,10 @@ call pnpm install
 if errorlevel 1 (
     exit /b %errorlevel%
 )
+call pnpm run install:electron
+if errorlevel 1 (
+    exit /b %errorlevel%
+)
 call pnpm run build
 if errorlevel 1 (
     exit /b %errorlevel%
@@ -89,7 +93,7 @@ if errorlevel 1 (
 )
 go version
 set GO111MODULE=on
-set GOPROXY=https://mirrors.aliyun.com/goproxy/
+set GOPROXY=https://mirrors.aliyun.com/goproxy/,https://goproxy.cn,direct
 set CGO_ENABLED=1
 set GOOS=windows
 
@@ -101,10 +105,11 @@ if defined BUILD_AMD64 (
     echo.
     echo Building Kernel amd64
     set GOARCH=amd64
-    go build -tags fts5 -v -o "%PROJECT_ROOT%\app\kernel\SiYuan-Kernel.exe" -ldflags "-s -w -H=windowsgui" .
+    go build -tags fts5 -o "%PROJECT_ROOT%\app\kernel\SiYuan-Kernel.exe" -ldflags "-s -w" .
     if errorlevel 1 (
         exit /b %errorlevel%
     )
+    mklink /H "%PROJECT_ROOT%\app\kernel\siyuan.exe" "%PROJECT_ROOT%\app\kernel\SiYuan-Kernel.exe"
 )
 if defined BUILD_ARM64 (
     echo.
@@ -112,10 +117,11 @@ if defined BUILD_ARM64 (
     set GOARCH=arm64
     @REM if you want to build arm64, you need to install aarch64-w64-mingw32-gcc
     set CC="D:/Program Files/llvm-mingw-20240518-ucrt-x86_64/bin/aarch64-w64-mingw32-gcc.exe"
-    go build -tags fts5 -v -o "%PROJECT_ROOT%\app\kernel-arm64\SiYuan-Kernel.exe" -ldflags "-s -w -H=windowsgui" .
+    go build -tags fts5 -o "%PROJECT_ROOT%\app\kernel-arm64\SiYuan-Kernel.exe" -ldflags "-s -w" .
     if errorlevel 1 (
         exit /b %errorlevel%
     )
+    mklink /H "%PROJECT_ROOT%\app\kernel-arm64\siyuan.exe" "%PROJECT_ROOT%\app\kernel-arm64\SiYuan-Kernel.exe"
 )
 
 if defined BUILD_AMD64 goto electron

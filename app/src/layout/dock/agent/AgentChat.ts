@@ -1,0 +1,3126 @@
+import {Tab} from "../../Tab";
+import {Model} from "../../Model";
+import {App} from "../../../index";
+import {AgentHttpError, fetchAgentSSE, IEditorContext, ISSEResult} from "./agentSSE";
+import {genUUID} from "../../../util/genID";
+import {mountComposer} from "./AgentComposer";
+import {getAllEditor} from "../../getAll";
+import "./frontendActions";
+import {listActions, lookupAction} from "./frontendActions";
+import {AgentSession, SessionStore} from "./SessionStore";
+import {AgentSessionPanel} from "./AgentSessionPanel";
+import {getDockByType} from "../../tabUtil";
+import {updateHotkeyAfterTip} from "../../../protyle/util/compatibility";
+import {getLute} from "../../../protyle/render/setLute";
+import {setPanelFocus} from "../../util";
+import {escapeAriaLabel, escapeHtml} from "../../../util/escape";
+import {setPosition} from "../../../util/setPosition";
+import {fetchPost, fetchSyncPost} from "../../../util/fetch";
+import {Constants} from "../../../constants";
+import {confirmDialog} from "../../../dialog/confirmDialog";
+import {showMessage} from "../../../dialog/message";
+import * as dayjs from "dayjs";
+import {sendNotification} from "../../../plugin/platformUtils";
+import {
+    bindThinkingCardToggle,
+    createThinkingCardElement,
+    postRender,
+    renderQuestionCardHTML,
+    renderRetryCardHTML,
+    renderTodoList,
+    renderToolsLineHTML,
+    renderWelcomeHTML
+} from "./AgentMessageRenderer";
+
+// Limit on the number of visible block IDs injected into the system prompt to control token usage.
+// Mirrors kernel/agent/agent.go maxVisibleBlockIDs.
+const maxVisibleBlockIDs = 50;
+
+type EntryBase = { id?: string };
+
+type SessionEntry =
+    | (EntryBase & { type: "user"; content: string; timestamp?: number })
+    | (EntryBase & {
+    type: "thinking";
+    steps: Array<{
+        reasoning: string;
+        reasoningContent: string;
+        toolNames?: string[];
+        content?: string
+    }>;
+    duration?: number
+})
+    | (EntryBase & {
+    type: "assistant";
+    content?: string;
+    toolCalls?: Array<{ name: string; arguments: Record<string, unknown>; result?: string }>;
+    timestamp?: number
+})
+    | (EntryBase & { type: "confirm"; name: string; args: Record<string, unknown>; confirmID: string; status?: string })
+    | (EntryBase & { type: "question"; questionID: string; questions: Array<Record<string, unknown>>; status?: string; answers?: string[] })
+    | (EntryBase & { type: "snapshot"; snapshotID: string })
+    | (EntryBase & { type: "rollback"; snapshotID: string });
+
+export class AgentChat extends Model {
+    private messagesContainer: HTMLElement;
+    private composerHost: HTMLElement;
+    private composer: ReturnType<typeof mountComposer> | null = null;
+    private sendBtn: HTMLElement;
+    private stopBtn: HTMLElement;
+    private newSessionBtn: HTMLElement;
+    private titleElement: HTMLElement;
+    private sessionMenuBtn: HTMLElement;
+    private sessionPanel: AgentSessionPanel;
+    private sessionId = "";
+    private sessionTitle = "";
+    private entries: SessionEntry[] = [];
+    private hasTitled = false;
+    private isStreaming = false;
+    private currentAIElement: HTMLElement | null = null;
+    private currentAssistantEntryId = "";
+    private currentThinkingEntryId = "";
+    private lute: Lute;
+    private currentContent = "";
+    private fullContent = "";
+    private contextTokens = 0;
+    private contextTokenBreakdown: Record<string, number> = {};
+    private contextCachedTokens = 0;
+    private contextLimit = 0;
+    private tokenPopup: HTMLElement | null = null;
+    private tokenPopupShowTimer = 0;
+    private tokenPopupHideTimer = 0;
+    private tokenPopupOutsideClickHandler: (() => void) | null = null;
+    private tokenPopupResizeHandler: (() => void) | null = null;
+    private sessionCreatedAt = 0;
+    private requestStartTime = 0;
+    private tokenDisplayEl: HTMLElement;
+    private defaultTitle = "";
+    private currentToolCalls: Array<{ name: string; arguments: Record<string, unknown>; result?: string }> = [];
+    private abortController: AbortController | null = null;
+    private currentThinkingText = "";
+    private currentThinkingReasoning = "";
+    private currentThinkingReasoningContent = "";
+    // thinking step 只保留工具名列表（去重：arguments/result 仅在 assistant entry 存一份），
+    // 不再保存 text（"已思考：Xs" 由 i18n 在渲染时从 duration 生成）。
+    private currentThinkingSteps: Array<{
+        reasoning: string;
+        reasoningContent: string;
+        toolNames?: string[];
+        content?: string
+    }> = [];
+    // 当前请求的思考耗时（秒）。持久化为 entry.duration，"已思考"文本不落盘。
+    private currentThinkingDuration = 0;
+    private currentThinkingStepContent = "";
+    private pendingConfirms: SessionEntry[] = [];
+    private renderedToolNames: Record<string, boolean> = {};
+    private hasInterveningCard = false;
+    private modelSelect: HTMLSelectElement;
+    private selectedModel: string;
+    private modelOptions: Array<{ id: string; name: string }> = [];
+    private userScrolledUp = false;
+    private programmaticScroll = false;
+    private stickResizeObserver: ResizeObserver | null = null;
+    private settingDialogObserver: MutationObserver | null = null;
+    private scrollBottomBtn: HTMLElement;
+    private navRail: HTMLElement;
+    private navExpandTimer = 0;
+    // 镜像态：当前会话正由其他实例流式对话，本实例处于只读占位锁定，期间不重绘当前视图。
+    // 由 ws 的 streamStart/streamEnd 事件驱动，与发起者的 isStreaming 互斥（发起者走 SSE）。
+    private mirrorLocked = false;
+    private mirrorPlaceholderEl: HTMLElement | null = null;
+    // 思考计时器：流式进行时每 100ms 刷新未完成思考卡片的标题为「思考中... X.Xs」。
+    private thinkingTimerId = 0;
+    // 上一个 thinking step 快照时 currentToolCalls 的长度基准，
+    // 用于计算本轮新增的工具（避免 step.toolNames 累积重复历史工具）。
+    private lastStepToolCount = 0;
+
+    constructor(app: App, tab: Tab) {
+        super({app: app});
+        this.parent = tab;
+        this.lute = getLute({
+            emojiSite: "/emojis",
+            emojis: {}
+        });
+        this.defaultTitle = window.siyuan.languages.agentChat || "Agent";
+        this.sessionTitle = this.defaultTitle;
+        this.initUI();
+        this.bindEvents();
+        // 接入 ws 以接收跨实例的会话变更通知（agentSessionChanged）。
+        // AgentChat dock 是单例常驻，ws 随之常驻，与 Backlink/Bookmark 等现有 dock 一致。
+        this.connect({
+            id: genUUID(),
+            type: "agentChat",
+            msgCallback: (data) => this.onWsMessage(data),
+        });
+        // AI 配置保存走本地 patch（aiRuntime.ts 写 window.siyuan.config.ai）不广播 ws，
+        // 故用两种方式兜底：window focus（跨窗口）+ MutationObserver 监听设置对话框关闭（同窗口即时）。
+        window.addEventListener("focus", this.checkConfigChangedHandler);
+        // 设置对话框是 SiYuan 内部模态，关闭时 window 不失焦，focus 事件不触发。
+        // 监听 body 子节点变化，当含 .config__panel 的设置 dialog 被移除时即时刷新。
+        this.settingDialogObserver = new MutationObserver(() => {
+            if (!document.querySelector(".config__panel")) {
+                this.checkConfigChanged();
+            }
+        });
+        this.settingDialogObserver.observe(document.body, {childList: true, subtree: false});
+    }
+
+    private checkConfigChangedHandler = () => {
+        this.checkConfigChanged();
+    };
+
+    // 比较 window.siyuan.config.ai 实际可用模型数与缓存 modelOptions，不一致则刷新。
+    // 仅当处于欢迎页（无会话内容）时重渲染，以便从无模型提示块切回示例或反之；
+    // 有会话内容时不重绘（避免破坏对话），refreshModelOptions 内已刷新 trigger 显示。
+    private checkConfigChanged() {
+        const actualCount = AgentChat.countUsableModels(window.siyuan.config.ai);
+        if (actualCount === this.modelOptions.length) {
+            return;
+        }
+        this.refreshModelOptions();
+        if (this.entries.length === 0 && this.messagesContainer.querySelector(".agent-welcome")) {
+            this.showWelcome();
+        }
+    }
+
+    // 与 refreshModelOptions / 后端 HasAnyProvider() 一致的"可用模型"计数。
+    private static countUsableModels(aiConfig: Config.IAI): number {
+        let count = 0;
+        for (const prov of aiConfig.providers || []) {
+            if (!prov.enabled || !prov.apiKey) {
+                continue;
+            }
+            for (const m of prov.models) {
+                if (m.enabled && (m.displayName || m.name)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private initUI() {
+        const panel = this.parent.panelElement;
+        panel.classList.add("fn__flex-column", "file-tree", "sy__agentChat", "dockPanel");
+
+        const L = window.siyuan.languages;
+
+        panel.innerHTML = '<div class="agent-chat fn__flex-column fn__flex-1">' +
+            '<div class="block__icons fn__hidescrollbar">' +
+            '<div class="block__logo fn__flex-1 agent-chat__title">' + (L.agentChat || "Agent") + "</div>" +
+            '<span data-type="new-session" class="block__icon ariaLabel" data-position="north" aria-label="' + (L.agentNewSession || "New Session") + '">' +
+            '<svg><use xlink:href="#iconAdd"></use></svg>' +
+            "</span>" +
+            '<span class="fn__space"></span>' +
+            '<span data-type="session-menu" class="block__icon ariaLabel" data-position="north" aria-label="' + L.manageSessions + '">' +
+            '<svg><use xlink:href="#iconFolderClock"></use></svg>' +
+            "</span>" +
+            '<span class="fn__space"></span>' +
+            '<span data-type="min" class="block__icon ariaLabel" data-position="north" aria-label="' + window.siyuan.languages.min + updateHotkeyAfterTip(window.siyuan.config.keymap.general.closeTab.custom) + '">' +
+            '<svg><use xlink:href="#iconMin"></use></svg>' +
+            "</span>" +
+            "</div>" +
+            '<div class="agent-chat__messages-wrap">' +
+            '<div class="agent-chat__messages fn__flex-1"></div>' +
+            '<span class="agent-chat__scroll-bottom ariaLabel" data-position="west" aria-label="' + L.scrollToBottom + '"><svg><use xlink:href="#iconArrowDown"></use></svg></span>' +
+            "</div>" +
+            '<div class="agent-chat__input-area">' +
+            '<div class="agent-chat__composer-host"></div>' +
+            '<div class="agent-chat__buttons">' +
+            '<span class="fn__flex-1"></span>' +
+            '<span class="agent-chat__tokens fn__none b3-button b3-button--icon b3-button--cancel" aria-label="' + (L.tokenUsage || "Context Usage") + '">' +
+            '<svg viewBox="0 0 24 24">' +
+            '<circle class="agent-chat__tokens-track" cx="12" cy="12" r="9" stroke-width="3"></circle>' +
+            '<circle class="agent-chat__tokens-arc" cx="12" cy="12" r="9" stroke-width="3" stroke-dasharray="0 56.55"></circle>' +
+            "</svg>" +
+            "</span>" +
+            '<select class="b3-select b3-select--noborder" tabindex="0"></select>' +
+            '<button class="agent-chat__send b3-button b3-button--icon b3-button--text b3-tooltips b3-tooltips__n" aria-label="' + (L.agentSend || "Send") + '"><svg><use xlink:href="#iconSend"></use></svg></button>' +
+            '<button class="agent-chat__stop b3-button b3-button--icon b3-button--cancel fn__none b3-tooltips b3-tooltips__n" aria-label="' + (L.agentStop || "Stop") + '"><svg><use xlink:href="#iconSquareStop"></use></svg></button>' +
+            "</div>" +
+            "</div>" +
+            '<div class="agent-chat__preview-notice">' + (L.featurePreview || "") + "</div>" +
+            "</div>";
+
+        this.messagesContainer = panel.querySelector(".agent-chat__messages") as HTMLElement;
+        this.composerHost = panel.querySelector(".agent-chat__composer-host") as HTMLElement;
+        this.sendBtn = panel.querySelector(".agent-chat__send") as HTMLElement;
+        this.stopBtn = panel.querySelector(".agent-chat__stop") as HTMLElement;
+        this.newSessionBtn = panel.querySelector('.block__icon[data-type="new-session"]') as HTMLElement;
+        this.sessionMenuBtn = panel.querySelector('.block__icon[data-type="session-menu"]') as HTMLElement;
+        this.titleElement = panel.querySelector(".agent-chat__title") as HTMLElement;
+        this.tokenDisplayEl = panel.querySelector(".agent-chat__tokens") as HTMLElement;
+        this.modelSelect = panel.querySelector(".b3-select") as HTMLSelectElement;
+        this.scrollBottomBtn = panel.querySelector(".agent-chat__scroll-bottom") as HTMLElement;
+        this.messagesContainer.addEventListener("scroll", () => {
+            if (this.programmaticScroll) {
+                return;
+            }
+            const {scrollTop, scrollHeight, clientHeight} = this.messagesContainer;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            // Hysteresis: only mark as scrolled-up when clearly above bottom (>=60),
+            // and only return to sticky when really at the bottom (<=10).
+            // This prevents the follow state from rapidly toggling while streaming
+            // causes scrollHeight to grow asynchronously.
+            if (!this.userScrolledUp) {
+                this.userScrolledUp = distanceFromBottom >= 60;
+            } else if (distanceFromBottom <= 10) {
+                this.userScrolledUp = false;
+            }
+            this.scrollBottomBtn.classList.toggle("agent-chat__scroll-bottom--visible", this.userScrolledUp);
+            this.updateActiveMarker();
+        }, {passive: true});
+
+        const messagesWrap = panel.querySelector(".agent-chat__messages-wrap") as HTMLElement;
+        this.initNavRail(messagesWrap);
+
+        this.initModelSelect();
+
+        this.composer = mountComposer(this.composerHost, () => {
+            this.sendMessage();
+        }, () => {
+            // 内容变化时刷新发送按钮可用性（含用户输入、IME、程序化 clear 等所有 doc 变更）。
+            this.updateSendButtonState();
+        });
+        // 支持从编辑器块标或文档面板拖拽块到输入框，效果等同于 @ 引用。
+        this.bindComposerDragDrop();
+        this.sessionPanel = new AgentSessionPanel(
+            this.sessionMenuBtn,
+            this.parent.panelElement,
+            () => this.sessionId,
+            () => this.defaultTitle,
+            {
+                onSwitch: (id) => this.switchSession(id),
+                onDelete: (id) => this.deleteSession(id),
+                onRename: async (id, title) => {
+                    await SessionStore.rename(id, title);
+                    if (id === this.sessionId) {
+                        this.sessionTitle = title;
+                        this.titleElement.textContent = title;
+                    }
+                },
+            }
+        );
+        this.initSessions();
+    }
+
+    private initModelSelect() {
+        this.refreshModelOptions();
+        // 选中模型变更：原生 select 的 change 事件，无需自定义菜单逻辑。
+        this.modelSelect.addEventListener("change", () => {
+            this.selectedModel = this.modelSelect.value;
+        });
+        // 无模型时拦截下拉展开，改为打开设置-人工智能面板（动态 import 避免循环依赖）。
+        this.modelSelect.addEventListener("mousedown", (e: MouseEvent) => {
+            if (this.modelOptions.length > 0) {
+                return;
+            }
+            e.preventDefault();
+            this.openAiSetting();
+        });
+    }
+
+    // 打开设置面板并切换到「人工智能」tab。动态 import config 模块避免与 AgentChat 的循环依赖。
+    private async openAiSetting() {
+        const {openSetting} = await import("../../../config");
+        // openSetting 若已有设置对话框会先销毁重建，先检测复用避免闪烁。
+        const existing = window.siyuan.dialogs.find(d => d.element.querySelector(".config__tab-container"));
+        if (!existing) {
+            openSetting(this.app, "ai");
+        }
+    }
+
+    // 绑定输入框的块拖拽：从编辑器块标或文档面板拖拽块到输入框，插入 @ 引用（mention chip）。
+    // 与 @ 搜索的 label 来源一致——用 getRefText API 按 block ID 查询引用文本。
+    private bindComposerDragDrop() {
+        this.composerHost.addEventListener("dragover", (e: DragEvent) => {
+            if (!e.dataTransfer) { return; }
+            // 仅接受块标拖拽（SIYUAN_DROP_GUTTER）和文档面板拖拽（SIYUAN_DROP_FILE）。
+            let canDrop = false;
+            for (const type of e.dataTransfer.types) {
+                if (type.startsWith(Constants.SIYUAN_DROP_GUTTER) || type === Constants.SIYUAN_DROP_FILE) {
+                    canDrop = true;
+                    break;
+                }
+            }
+            if (canDrop) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "copy";
+            }
+        });
+        this.composerHost.addEventListener("drop", async (e: DragEvent) => {
+            if (!e.dataTransfer || !this.composer) { return; }
+            const blockIds: string[] = [];
+            // 块标拖拽：从 MIME type key 提取所有 block ID（gutterTypes[2]）。
+            for (const type of e.dataTransfer.types) {
+                if (type.startsWith(Constants.SIYUAN_DROP_GUTTER)) {
+                    const gutterTypes = type.replace(Constants.SIYUAN_DROP_GUTTER, "").split(Constants.ZWSP);
+                    const ids = (gutterTypes[2] || "").split(",").filter(Boolean);
+                    blockIds.push(...ids);
+                    break;
+                }
+            }
+            // 文档面板拖拽：数据值是逗号分隔的 doc ID，全部收集。
+            if (blockIds.length === 0) {
+                const fileData = e.dataTransfer.getData(Constants.SIYUAN_DROP_FILE);
+                if (fileData) {
+                    blockIds.push(...fileData.split(",").filter(Boolean));
+                }
+            }
+            if (blockIds.length === 0) { return; }
+            e.preventDefault();
+            e.stopPropagation();
+            // 用 getRefText API 并行获取每个块的引用文本作为 label（与 @ 搜索一致），
+            // 失败时回退到 blockId。
+            const mentions: Array<{id: string; label: string}> = [];
+            await Promise.all(blockIds.map(async (id) => {
+                let label = id;
+                try {
+                    const resp = await fetchSyncPost("/api/block/getRefText", {id});
+                    if (resp && resp.data) {
+                        label = resp.data;
+                    }
+                } catch {
+                    label = id;
+                }
+                mentions.push({id, label});
+            }));
+            this.composer.insertMentions(mentions);
+        });
+    }
+
+    // 从 window.siyuan.config.ai 重新计算可用模型列表，幂等可重复调用。
+    // 与后端 HasAnyProvider()/GetModel() 判定一致：provider 需 enabled 且 apiKey 非空，model 需 enabled。
+    // 零模型时显式置空 selectedModel（避免 undefined 透传到后端），失效选择自动重置。
+    refreshModelOptions() {
+        const aiConfig = window.siyuan.config.ai;
+        const newOptions: Array<{ id: string; name: string }> = [];
+        for (const prov of aiConfig.providers || []) {
+            if (!prov.enabled || !prov.apiKey) {
+                continue;
+            }
+            for (const m of prov.models) {
+                if (!m.enabled) {
+                    continue;
+                }
+                const displayName = m.displayName || m.name;
+                if (!displayName) {
+                    continue;
+                }
+                newOptions.push({id: m.id || m.name, name: displayName});
+            }
+        }
+        this.modelOptions = newOptions;
+        // 若当前选择已失效（不在新列表中），则重置：有模型取第一个，无模型显式置空。
+        const stillValid = this.selectedModel && newOptions.some(o => o.id === this.selectedModel);
+        if (!stillValid) {
+            this.selectedModel = newOptions.length > 0 ? newOptions[0].id : "";
+        }
+        this.updateModelLabel();
+        this.updateSendButtonState();
+    }
+
+    private updateModelLabel() {
+        // 重建 <option> 列表。无可用模型时插入一个占位项，点击 select 打开设置-人工智能。
+        let html = "";
+        if (this.modelOptions.length === 0) {
+            const placeholder = window.siyuan.languages.noModelConfigured || "No model configured";
+            html = '<option value="" selected>' + escapeHtml(placeholder) + "</option>";
+            this.modelSelect.innerHTML = html;
+            this.modelSelect.disabled = true;
+            return;
+        }
+        this.modelSelect.disabled = false;
+        for (const o of this.modelOptions) {
+            html += '<option value="' + escapeHtml(o.id) + '">' + escapeHtml(o.name) + "</option>";
+        }
+        this.modelSelect.innerHTML = html;
+        this.modelSelect.value = this.selectedModel;
+    }
+
+    private getSelectedModel(): string {
+        return this.selectedModel;
+    }
+
+    // 校验会话持久化的 model ID 是否仍存在于当前配置中。有效则赋值并刷新 label，无效则保持当前选择。
+    // 避免加载旧会话时把已删除模型的 stale ID 透传给后端导致静默失败。
+    private applySessionModelIfValid(modelId?: string) {
+        if (modelId && this.modelOptions.some(o => o.id === modelId)) {
+            this.selectedModel = modelId;
+        }
+        this.updateModelLabel();
+    }
+
+    private showWelcome() {
+        const hasModel = this.modelOptions.length > 0;
+        this.messagesContainer.innerHTML = renderWelcomeHTML(hasModel);
+        if (!hasModel) {
+            // 无模型：绑定「去配置」按钮，点击打开设置-人工智能面板。
+            const goBtn = this.messagesContainer.querySelector(".agent-welcome__go-setting");
+            if (goBtn) {
+                goBtn.addEventListener("click", () => {
+                    this.openAiSetting();
+                });
+            }
+            return;
+        }
+        const examples = this.messagesContainer.querySelectorAll(".agent-welcome__example");
+        examples.forEach((example) => {
+            const ex = example as HTMLElement;
+            ex.addEventListener("click", () => {
+                const text = ex.getAttribute("data-text") || "";
+                if (text && this.composer) {
+                    this.messagesContainer.innerHTML = "";
+                    const userEntryId = SessionStore.newSessionId();
+                    this.entries.push({id: userEntryId, type: "user", content: text, timestamp: Date.now()});
+                    this.appendUserMessage(text, Date.now(), userEntryId);
+                    this.rebuildNavMarkers();
+                    this.tryGenerateTitle();
+                    this.setStreaming(true);
+                    this.abortController = new AbortController();
+                    const requestSessionId = this.sessionId;
+                    this.requestStartTime = Date.now();
+                    this.currentThinkingDuration = 0;
+                    fetchAgentSSE(text, window.siyuan.config.appearance.lang, [],
+                        (event: ISSEResult) => {
+                            if (this.sessionId !== requestSessionId) {
+                                return;
+                            }
+                            this.handleSSEEvent(event);
+                        },
+                        (err: Error) => {
+                            if (this.sessionId !== requestSessionId) {
+                                return;
+                            }
+                            this.handleConfigError(err, userEntryId);
+                        },
+                        this.abortController.signal,
+                        this.sessionId,
+                        this.getSelectedModel());
+                }
+            });
+        });
+    }
+
+    private initNavRail(wrap: HTMLElement) {
+        this.navRail = document.createElement("div");
+        this.navRail.className = "agent-chat__nav-rail";
+
+        this.navRail.addEventListener("mouseenter", () => {
+            this.navExpandTimer = window.setTimeout(() => {
+                this.navRail.classList.add("agent-chat__nav-rail--expanded");
+            }, 200);
+        });
+        this.navRail.addEventListener("mouseleave", () => {
+            clearTimeout(this.navExpandTimer);
+            this.navRail.classList.remove("agent-chat__nav-rail--expanded");
+        });
+        this.navRail.addEventListener("click", (e: MouseEvent) => {
+            const marker = (e.target as HTMLElement).closest(".agent-chat__nav-rail-marker") as HTMLElement;
+            if (!marker) {
+                return;
+            }
+            this.jumpToMessage(marker.dataset.messageId || "");
+        });
+
+        wrap.appendChild(this.navRail);
+    }
+
+    private rebuildNavMarkers() {
+        this.navRail.innerHTML = "";
+        const userEntries = this.entries.filter((e): e is {
+            id?: string;
+            type: "user";
+            content: string;
+            timestamp?: number
+        } => e.type === "user");
+        if (userEntries.length === 0) {
+            return;
+        }
+
+        const gap = Math.max(0.5, Math.min(3, 40 / userEntries.length));
+        this.navRail.style.setProperty("--nav-gap", gap + "px");
+
+        for (const entry of userEntries) {
+            const marker = document.createElement("div");
+            marker.className = "agent-chat__nav-rail-marker ariaLabel";
+            marker.dataset.messageId = entry.id || "";
+            marker.setAttribute("data-position", "west");
+            marker.setAttribute("aria-label", escapeAriaLabel(escapeHtml(entry.content)));
+            marker.textContent = entry.content.slice(0, 120);
+            this.navRail.appendChild(marker);
+        }
+        this.updateActiveMarker();
+    }
+
+    private updateActiveMarker() {
+        const userMsgs = this.messagesContainer.querySelectorAll(".agent-chat__msg--user[data-message-id]");
+        if (userMsgs.length === 0) {
+            return;
+        }
+        const threshold = this.messagesContainer.scrollTop + 50;
+        let activeId = "";
+        for (let i = 0; i < userMsgs.length; i++) {
+            if ((userMsgs[i] as HTMLElement).offsetTop <= threshold) {
+                activeId = userMsgs[i].getAttribute("data-message-id") || "";
+            } else {
+                break;
+            }
+        }
+        if (!activeId && userMsgs.length > 0) {
+            activeId = userMsgs[0].getAttribute("data-message-id") || "";
+        }
+        const markers = this.navRail.children;
+        for (let i = 0; i < markers.length; i++) {
+            markers[i].classList.toggle("agent-chat__nav-rail-marker--active",
+                markers[i].getAttribute("data-message-id") === activeId);
+        }
+    }
+
+    private jumpToMessage(messageId: string) {
+        if (!messageId) {
+            return;
+        }
+        const el = this.messagesContainer.querySelector('[data-message-id="' + messageId + '"]') as HTMLElement;
+        if (!el) {
+            return;
+        }
+        el.scrollIntoView({behavior: "smooth", block: "center"});
+        el.classList.add("agent-chat__msg--jumped");
+        setTimeout(() => {
+            el.classList.remove("agent-chat__msg--jumped");
+        }, 1500);
+    }
+
+    private bindEvents() {
+        // hover 底部 tokens 数字弹出分类明细面板。
+        // 仅在支持 hover 的设备绑定 mouseenter/mouseleave（移动端 tap 会合成 mouse 事件导致闪烁）；
+        // 不支持 hover 的设备（移动端）用 click 切换。
+        const supportsHover = window.matchMedia("(hover: hover)").matches;
+        if (supportsHover) {
+            this.tokenDisplayEl.addEventListener("mouseenter", () => {
+                window.clearTimeout(this.tokenPopupHideTimer);
+                this.tokenPopupShowTimer = window.setTimeout(() => {
+                    this.showTokenBreakdownPopup();
+                }, 200);
+            });
+            this.tokenDisplayEl.addEventListener("mouseleave", () => {
+                window.clearTimeout(this.tokenPopupShowTimer);
+                this.tokenPopupHideTimer = window.setTimeout(() => {
+                    this.closeTokenBreakdownPopup();
+                }, 300);
+            });
+        }
+        // 所有设备：点击 toggle 浮层。hover 设备上 stopPropagation 阻止冒泡到 document 的 outside click handler，
+        // 避免悬浮显示后点击反而关闭（反直觉）。
+        this.tokenDisplayEl.addEventListener("click", (e: MouseEvent) => {
+            e.stopPropagation();
+            if (this.tokenPopup) {
+                this.closeTokenBreakdownPopup();
+            } else {
+                this.showTokenBreakdownPopup();
+            }
+        });
+        this.sendBtn.addEventListener("click", (e: MouseEvent) => {
+            e.stopPropagation();
+            this.sendMessage();
+        });
+        this.stopBtn.addEventListener("click", (e: MouseEvent) => {
+            e.stopPropagation();
+            void this.stopGeneration();
+        });
+        this.newSessionBtn.addEventListener("click", (e: MouseEvent) => {
+            e.stopPropagation();
+            setPanelFocus(this.parent.panelElement);
+            this.createSession();
+        });
+        this.sessionMenuBtn.addEventListener("click", (e: MouseEvent) => {
+            e.stopPropagation();
+            setPanelFocus(this.parent.panelElement);
+            this.sessionPanel.toggle();
+        });
+
+        this.parent.panelElement.addEventListener("click", (e: MouseEvent) => {
+            setPanelFocus(this.parent.panelElement);
+            const t = e.target as HTMLElement;
+            let target = t;
+            while (target && !target.isEqualNode(this.parent.panelElement)) {
+                if (target.classList.contains("block__icon")) {
+                    const type = target.getAttribute("data-type");
+                    if (type === "min") {
+                        e.stopPropagation();
+                        getDockByType("agentChat").toggleModel("agentChat", false, true);
+                        return;
+                    }
+                    break;
+                }
+                target = target.parentElement;
+            }
+            if (t.closest(".block__icons")) {
+                return;
+            }
+            if (t.closest(".agent-chat__msg")) {
+                return;
+            }
+            if (t.closest(".agent-chat__header")) {
+                return;
+            }
+            if (t.closest(".agent-session-popup")) {
+                return;
+            }
+            if (t.closest(".b3-select")) {
+                return;
+            }
+            if (this.composer) {
+                this.composer.focus();
+            }
+        });
+        this.scrollBottomBtn.addEventListener("click", () => {
+            this.scrollToBottom(true, true);
+        });
+    }
+
+    private async initSessions() {
+        // 启动时始终进入新会话界面（欢迎页），不自动加载上次会话内容。
+        // 历史会话仍可通过会话面板点击切换查看。
+        await SessionStore.init();
+        this.sessionId = SessionStore.newSessionId();
+        this.sessionCreatedAt = Date.now();
+        this.sessionTitle = this.defaultTitle;
+        this.entries = [];
+        this.showWelcome();
+        this.scrollToBottom(true);
+    }
+
+    private async saveSession() {
+        if (this.entries.length === 0) {
+            return;
+        }
+        const session: AgentSession = {
+            id: this.sessionId,
+            title: this.sessionTitle,
+            titled: this.hasTitled,
+            entries: this.entries.slice(),
+            contextTokens: this.contextTokens,
+            contextTokenBreakdown: this.contextTokenBreakdown,
+            contextCachedTokens: this.contextCachedTokens,
+            contextLimit: this.contextLimit,
+            createdAt: this.sessionCreatedAt,
+            updatedAt: Date.now(),
+            messageHistory: this.composer?.getHistory() || [],
+            model: this.getSelectedModel(),
+        };
+        await SessionStore.save(session);
+    }
+
+    // 处理 ws 推送的跨实例会话变更通知。核心时序控制：
+    // - streamStart：其他实例开始流式，本实例（若看同一会话且非自身流式中）进入占位锁定。
+    // - streamEnd：其他实例流式结束，本实例从磁盘拉取整条会话重绘（唯一重绘触发点）。
+    // - update：会话列表元数据刷新，不重绘当前视图（回避流式中途半截 saveSession 数据的时序问题）。
+    // - delete：当前会话被删除则清空视图。
+    // 处理 ws 推送的跨实例会话变更通知。核心时序控制：
+    // - streamStart：其他实例开始流式。立即从磁盘拉取一次（发起者发消息时已把 user 消息落盘），
+    //   让本轮用户新消息尽快可见，然后进入占位锁定显示"AI 回复生成中"。
+    // - update：发起者 saveSession 落盘后广播（含流式结束写完整 AI 回复的那次）。每次都重绘，
+    //   保证镜像端始终显示发起者已落盘的最新内容。流式中途的 saveSession 只写已完成的历史
+    //   （正在生成的回复在 finishResponse 才入 entries），不会读到半截数据。
+    // - streamEnd：后端 eventCh 关闭（流结束）。此时发起者前端可能尚未 saveSession 落盘，
+    //   故只解除占位锁定、不重绘；完整内容由随后的 update 广播驱动重绘。
+    // - delete：当前会话被删除则清空视图。
+    private onWsMessage(data: IWebSocketData) {
+        if (!data || data.cmd !== "agentSessionChanged") {
+            return;
+        }
+        const payload = data.data as { sessionID: string; action: string } | undefined;
+        if (!payload) {
+            return;
+        }
+        // 所有变更都刷新会话列表（标题/时间/增删）。
+        this.sessionPanel?.refresh();
+        // 只处理当前会话；其他会话的变化仅体现在列表刷新里。
+        if (payload.sessionID !== this.sessionId) {
+            return;
+        }
+        // 发起者自身流式中忽略（它走 SSE 自渲染）。
+        if (this.isStreaming) {
+            return;
+        }
+        switch (payload.action) {
+            case "streamStart":
+                // 标记处于其他实例流式中，reloadFromDisk 重绘后会据此保留占位条。
+                this.mirrorLocked = true;
+                // 立即拉取一次：发起者发消息时已 saveSession 写入 user 消息，让本轮新消息尽快可见。
+                void this.reloadFromDisk();
+                break;
+            case "streamEnd":
+                // 流结束，解除占位锁定并移除占位条。不重绘——完整内容由随后的 update 广播驱动。
+                this.mirrorLocked = false;
+                this.removeMirrorPlaceholder();
+                break;
+            case "update":
+                void this.reloadFromDisk();
+                break;
+            case "delete":
+                this.mirrorLocked = false;
+                this.handleCurrentSessionDeleted();
+                break;
+        }
+    }
+
+    // 显示"其他实例正在对话中…"只读占位条。不进入 setStreaming 态（不切换 stop 按钮、不置灰 composer）。
+    private showMirrorPlaceholder() {
+        if (this.mirrorPlaceholderEl) {
+            return;
+        }
+        this.removeMirrorPlaceholder();
+        const L = window.siyuan.languages;
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--mirror";
+        el.innerHTML = '<div class="agent-chat__body agent-chat__body--mirror">' +
+            '<span class="agent-chat__mirror-spinner"></span>' +
+            "<span>" + escapeHtml(L.agentMirrorStreaming || "Another instance is chatting...") + "</span>" +
+            "</div>";
+        this.messagesContainer.appendChild(el);
+        this.mirrorPlaceholderEl = el;
+        this.scrollToBottom();
+    }
+
+    private removeMirrorPlaceholder() {
+        if (this.mirrorPlaceholderEl) {
+            this.mirrorPlaceholderEl.remove();
+            this.mirrorPlaceholderEl = null;
+        }
+    }
+
+    // 镜像端从磁盘拉取整条会话权威数据重绘。仅 entries 变化时清空重绘，避免无谓跳变。
+    private async reloadFromDisk() {
+        const targetSessionId = this.sessionId;
+        const session = await SessionStore.load(targetSessionId);
+        // await 期间用户可能已切换会话，丢弃过期结果。
+        if (targetSessionId !== this.sessionId) {
+            return;
+        }
+        if (!session) {
+            return;
+        }
+        const newEntries = this.buildEntriesFromSession(session);
+        if (this.entriesEqual(newEntries, this.entries)) {
+            // 内容未变，仅更新元数据（标题等）。
+            this.updateMetaFromSession(session);
+            return;
+        }
+        const atBottom = this.isScrolledToBottom();
+        const savedScroll = this.messagesContainer.scrollTop;
+        this.entries = newEntries;
+        this.updateMetaFromSession(session);
+        this.messagesContainer.innerHTML = "";
+        this.renderLoadedSession(session);
+        this.rebuildNavMarkers();
+        if (atBottom) {
+            this.scrollToBottom(true);
+        } else {
+            this.messagesContainer.scrollTop = savedScroll;
+        }
+        // 重绘会清空 DOM（含占位条）；若仍处于其他实例的流式中，重新显示占位条。
+        if (this.mirrorLocked) {
+            this.showMirrorPlaceholder();
+        } else {
+            this.removeMirrorPlaceholder();
+        }
+    }
+
+    // 从 session 更新标题/时间戳/token 计数/model 等元数据，不动 entries 与 DOM。
+    private updateMetaFromSession(session: AgentSession) {
+        this.sessionTitle = session.title || this.defaultTitle;
+        this.hasTitled = session.titled !== false;
+        this.sessionCreatedAt = session.createdAt || this.sessionCreatedAt;
+        this.contextTokens = session.contextTokens ?? 0;
+        this.contextTokenBreakdown = session.contextTokenBreakdown ?? {};
+        this.contextCachedTokens = session.contextCachedTokens ?? 0;
+        this.contextLimit = session.contextLimit ?? 0;
+        if (session.model) {
+            this.applySessionModelIfValid(session.model);
+        }
+        this.titleElement.textContent = this.sessionTitle;
+        this.updateTokenDisplay();
+    }
+
+    // 浅比较两个 entries 数组是否等价（用于判断是否需要重绘）。用 JSON 序列化比较，简单可靠。
+    private entriesEqual(a: SessionEntry[], b: SessionEntry[]): boolean {
+        if (a === b) {
+            return true;
+        }
+        if (a.length !== b.length) {
+            return false;
+        }
+        return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    private isScrolledToBottom(): boolean {
+        const {scrollTop, scrollHeight, clientHeight} = this.messagesContainer;
+        return scrollHeight - scrollTop - clientHeight <= 60;
+    }
+
+    // 当前会话被其他实例删除时，清空到欢迎页。不调 saveSession（会话已不存在于磁盘）。
+    private handleCurrentSessionDeleted() {
+        this.removeMirrorPlaceholder();
+        this.entries = [];
+        this.sessionId = SessionStore.newSessionId();
+        this.sessionCreatedAt = Date.now();
+        this.sessionTitle = this.defaultTitle;
+        this.hasTitled = false;
+        this.currentAIElement = null;
+        this.currentContent = "";
+        this.fullContent = "";
+        this.currentToolCalls = [];
+        this.pendingConfirms = [];
+        this.messagesContainer.innerHTML = "";
+        this.rebuildNavMarkers();
+        this.titleElement.textContent = this.defaultTitle;
+        this.showWelcome();
+        this.scrollToBottom(true);
+    }
+
+    private async switchSession(id: string) {
+        this.setStreaming(false);
+        this.mirrorLocked = false;
+        this.removeMirrorPlaceholder();
+        this.finishActiveThinking();
+        this.flushThinkingStep();
+        await this.saveSession();
+        const session = await SessionStore.load(id);
+        if (!session) {
+            return;
+        }
+        this.sessionId = session.id;
+        if (this.composer) {
+            this.composer.clearHistory();
+            this.composer.restoreHistory(session.messageHistory || []);
+        }
+        this.sessionCreatedAt = session.createdAt || Date.now();
+        this.sessionTitle = session.title;
+        this.titleElement.textContent = session.title || this.defaultTitle;
+        this.entries = this.buildEntriesFromSession(session);
+        this.hasTitled = session.titled !== false;
+        this.currentAIElement = null;
+        this.currentContent = "";
+        this.fullContent = "";
+        this.contextTokens = session.contextTokens ?? 0;
+        this.contextTokenBreakdown = session.contextTokenBreakdown ?? {};
+        this.contextCachedTokens = session.contextCachedTokens ?? 0;
+        this.contextLimit = session.contextLimit ?? 0;
+        if (session.model) {
+            this.applySessionModelIfValid(session.model);
+        }
+        if (this.tokenDisplayEl) {
+            this.updateTokenDisplay();
+        }
+        this.messagesContainer.classList.add("agent-chat__messages--switching");
+        this.messagesContainer.addEventListener("transitionend", () => {
+            this.messagesContainer.innerHTML = "";
+            this.titleElement.textContent = session.title;
+            this.renderLoadedSession(session);
+            this.rebuildNavMarkers();
+            this.scrollToBottom(true);
+            this.messagesContainer.classList.remove("agent-chat__messages--switching");
+        }, {once: true});
+    }
+
+    private appendPersistedAssistant(content: string, timestamp?: number, entryId?: string) {
+        if (!content || !content.trim()) {
+            return;
+        }
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--ai";
+        if (entryId) {
+            el.setAttribute("data-message-id", entryId);
+        }
+        el.innerHTML = '<div class="agent-chat__body b3-typography">' + (this.lute.ProtylePreviewStr("", content) || escapeHtml(content)) + "</div>";
+        this.messagesContainer.appendChild(el);
+        postRender(el, this.app);
+        this.addCopyButton(el, content, timestamp);
+    }
+
+    private appendPersistedToolCalls(content: string, toolCalls: Array<{
+        name: string;
+        arguments: Record<string, unknown>;
+        result?: string
+    }>, timestamp?: number, entryId?: string) {
+        let hasRendered = false;
+        for (let i = 0; i < toolCalls.length; i++) {
+            const tc = toolCalls[i];
+            if (tc.result && tc.name === "todo_write") {
+                const rel = document.createElement("div");
+                rel.className = "agent-chat__msg agent-chat__msg--tool";
+                // todo 卡片是 assistant entry 的附属展示，不单独持有 entryId
+                // （entryId 属于后续的 AI 消息元素），避免多个 todo 共享同一 id。
+                rel.innerHTML = renderTodoList(tc.result);
+                this.messagesContainer.appendChild(rel);
+                hasRendered = true;
+            }
+        }
+        if (content && content.trim()) {
+            this.appendPersistedAssistant(content, timestamp, entryId);
+            hasRendered = true;
+        }
+        if (!hasRendered) {
+            return;
+        }
+    }
+
+    private appendPersistedConfirm(entry: {
+        id?: string;
+        name: string;
+        args: Record<string, unknown>;
+        confirmID: string;
+        status?: string
+    }) {
+        const L = window.siyuan.languages;
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--confirm agent-chat__msg--confirmed";
+        if (entry.id) {
+            el.setAttribute("data-message-id", entry.id);
+        }
+        const argsStr = JSON.stringify(entry.args, null, 2);
+        const desc = (L.agentConfirmDesc || "Agent: {category} operation").replace("{category}", escapeHtml(this.toolCategory(entry.name)));
+        let statusLabel = "";
+        if (entry.status === "approved") {
+            statusLabel = L.agentConfirmApprove || "Approved";
+        } else if (entry.status === "rejected") {
+            statusLabel = L.agentConfirmReject || "Rejected";
+        } else if (entry.status === "always") {
+            statusLabel = L.agentConfirmAlways || "Session Allow";
+        } else {
+            // pending（用户未操作就切换/出错而落盘）：重载后无法再交互，
+            // 至少显示一个状态提示，避免变成无按钮无文本的死卡片。
+            statusLabel = L.agentConfirmPending || "Pending";
+        }
+        el.innerHTML = '<div class="agent-chat__confirm-card">' +
+            '<div class="agent-chat__confirm-header"><svg class="agent-chat__confirm-icon"><use xlink:href="#iconInfo"></use></svg> ' + desc + "</div>" +
+            '<pre class="agent-chat__confirm-args">' + escapeHtml(argsStr) + "</pre>" +
+            (statusLabel ? '<div class="agent-chat__confirm-actions"><span class="agent-chat__confirm-done">' + statusLabel + "</span></div>" : "") +
+            "</div>";
+        this.messagesContainer.appendChild(el);
+    }
+
+    // 持久化前精简 toolCalls：question 工具的完整 questions 参数已由独立的 question entry 存储，
+    // assistant entry 的 toolCalls 里只需保留工具名和结果（供 LLM 上下文恢复），避免重复存储。
+    private slimToolCallsForPersistence(toolCalls: Array<{
+        name: string;
+        arguments: Record<string, unknown>;
+        result?: string
+    }>): Array<{ name: string; arguments: Record<string, unknown>; result?: string }> {
+        return toolCalls.map(tc => {
+            if (tc.name === "question" && tc.arguments && tc.arguments.questions) {
+                const slim = {...tc};
+                const slimArgs = {...tc.arguments};
+                delete slimArgs.questions;
+                slim.arguments = slimArgs;
+                return slim;
+            }
+            return tc;
+        });
+    }
+
+    private appendPersistedQuestion(entry: {
+        id?: string;
+        questionID: string;
+        questions: Array<Record<string, unknown>>;
+        status?: string;
+        answers?: string[];
+    }) {
+        const L = window.siyuan.languages;
+        const el = document.createElement("div");
+        // 重载后 question 不可再交互（后端已超时或会话已切换），统一显示为已确认态。
+        el.className = "agent-chat__msg agent-chat__msg--question agent-chat__msg--confirmed";
+        if (entry.id) {
+            el.setAttribute("data-message-id", entry.id);
+        }
+        el.innerHTML = renderQuestionCardHTML(entry.questions, entry.questionID);
+        // 用状态文本替换提交按钮区域，对齐实时提交后的呈现。
+        const submit = el.querySelector(".agent-chat__question-submit") as HTMLElement;
+        if (submit) {
+            const submitted = entry.status === "submitted";
+            submit.innerHTML = '<span class="agent-chat__confirm-done">' +
+                (submitted ? (L.agentQuestionSubmitted || "Submitted") : (L.agentQuestionPending || "Awaiting answer")) +
+                "</span>";
+        }
+        // 禁用所有输入，避免用户误以为还能提交。
+        el.querySelectorAll("input").forEach((inp) => {
+            (inp as HTMLInputElement).disabled = true;
+        });
+        // 恢复已提交的选中状态（answers 中存的是选项 value）。
+        if (entry.answers && entry.answers.length > 0) {
+            el.querySelectorAll("input[type=radio], input[type=checkbox]").forEach((inp) => {
+                (inp as HTMLInputElement).checked = entry.answers!.includes((inp as HTMLInputElement).value);
+            });
+            const customInput = el.querySelector(".agent-chat__question-custom") as HTMLInputElement | null;
+            if (customInput) {
+                const customAnswer = entry.answers.find(a => el.querySelector('input[value="' + a + '"]') === null);
+                if (customAnswer) {
+                    customInput.value = customAnswer;
+                }
+            }
+        }
+        this.messagesContainer.appendChild(el);
+    }
+
+    private renderLoadedSession(session: AgentSession) {
+        for (let i = 0; i < session.entries.length; i++) {
+            const entry = session.entries[i];
+            const entryId = (entry as { id?: string }).id;
+            switch (entry.type) {
+                case "user":
+                    this.appendUserMessage((entry as { content: string }).content, (entry as {
+                        timestamp?: number
+                    }).timestamp, entryId);
+                    break;
+                case "thinking":
+                    if (entry.steps && entry.steps.length > 0) {
+                        // 老数据兼容：旧 step 可能含 text（"已思考：Xs"）和 toolCalls（{name,result}），
+                        // 这里归一化为新格式（toolNames + entry.duration）。
+                        const rawEntry = entry as {
+                            steps: Array<{
+                                reasoning: string;
+                                reasoningContent?: string;
+                                toolNames?: string[];
+                                toolCalls?: Array<{ name: string; result?: string }>;
+                                text?: string;
+                                content?: string
+                            }>;
+                            duration?: number
+                        };
+                        const normSteps = rawEntry.steps.map(s => ({
+                            reasoning: s.reasoning || "",
+                            reasoningContent: s.reasoningContent || "",
+                            toolNames: (s.toolNames && s.toolNames.length > 0)
+                                ? s.toolNames
+                                : (s.toolCalls ? s.toolCalls.map(t => t.name) : undefined),
+                            content: s.content,
+                        }));
+                        // entry.duration 优先；否则尝试从最后一个 step.text 提取（老格式）。
+                        let dur: number | undefined = rawEntry.duration;
+                        if (dur === undefined) {
+                            const lastText = rawEntry.steps[rawEntry.steps.length - 1]?.text;
+                            if (lastText) {
+                                const m = lastText.match(/([\d.]+)\s*s/i);
+                                if (m) {
+                                    dur = parseFloat(m[1]);
+                                }
+                            }
+                        }
+                        this.renderMergedThinkingCard(normSteps, entryId, dur);
+                    }
+                    break;
+                case "assistant": {
+                    const a = entry as {
+                        content: string;
+                        toolCalls?: Array<{ name: string; arguments: Record<string, unknown>; result?: string }>;
+                        timestamp?: number
+                    };
+                    if (a.toolCalls && a.toolCalls.length > 0) {
+                        this.appendPersistedToolCalls(a.content, a.toolCalls, a.timestamp, entryId);
+                    } else {
+                        this.appendPersistedAssistant(a.content, a.timestamp, entryId);
+                    }
+                    break;
+                }
+                case "confirm":
+                    this.appendPersistedConfirm(entry as unknown as {
+                        id?: string;
+                        name: string;
+                        args: Record<string, unknown>;
+                        confirmID: string;
+                        status?: string
+                    });
+                    break;
+                case "question":
+                    this.appendPersistedQuestion(entry as unknown as {
+                        id?: string;
+                        questionID: string;
+                        questions: Array<Record<string, unknown>>;
+                        status?: string;
+                        answers?: string[];
+                    });
+                    break;
+                case "snapshot":
+                    this.appendSnapshotInfo((entry as { snapshotID: string }).snapshotID, entryId);
+                    break;
+                case "rollback":
+                    this.appendRollbackInfo((entry as { snapshotID: string }).snapshotID, entryId);
+                    break;
+            }
+        }
+    }
+
+    private buildEntriesFromSession(session: AgentSession): SessionEntry[] {
+        if (session.messages && session.messages.length > 0) {
+            const entriesLen = session.entries ? session.entries.length : 0;
+            if (session.messages.length > entriesLen) {
+                const entries: SessionEntry[] = [];
+                for (let i = 0; i < session.messages.length; i++) {
+                    const msg = session.messages[i];
+                    if (msg.role === "user") {
+                        entries.push({id: SessionStore.newSessionId(), type: "user", content: msg.content});
+                    } else if (msg.role === "assistant") {
+                        entries.push({
+                            id: SessionStore.newSessionId(),
+                            type: "assistant",
+                            content: msg.content,
+                            toolCalls: msg.toolCalls ? msg.toolCalls.map(tc => ({
+                                name: tc.name,
+                                arguments: tc.arguments || {},
+                                result: tc.result,
+                            })) : undefined,
+                        });
+                    }
+                }
+                return entries;
+            }
+        }
+        if (session.entries && session.entries.length > 0) {
+            return session.entries as any as SessionEntry[];
+        }
+        return [];
+    }
+
+    private async createSession() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
+        this.setStreaming(false);
+        this.mirrorLocked = false;
+        this.removeMirrorPlaceholder();
+        this.finishActiveThinking();
+        this.flushThinkingStep();
+        await this.saveSession();
+        this.sessionId = SessionStore.newSessionId();
+        this.sessionCreatedAt = Date.now();
+        if (this.composer) {
+            this.composer.clearHistory();
+        }
+        this.sessionTitle = this.defaultTitle;
+        this.entries = [];
+        this.hasTitled = false;
+        this.currentAIElement = null;
+        this.currentContent = "";
+        this.fullContent = "";
+        this.contextTokens = 0;
+        this.contextTokenBreakdown = {};
+        this.contextCachedTokens = 0;
+        this.contextLimit = 0;
+        this.currentToolCalls = [];
+        this.lastStepToolCount = 0;
+        this.renderedToolNames = {};
+        this.hasInterveningCard = false;
+        if (this.tokenDisplayEl) {
+            this.tokenDisplayEl.classList.add("fn__none");
+        }
+        this.messagesContainer.innerHTML = "";
+        this.currentThinkingSteps = [];
+        this.currentThinkingStepContent = "";
+        this.pendingConfirms = [];
+        this.rebuildNavMarkers();
+        this.titleElement.textContent = this.defaultTitle;
+        if (this.composer) {
+            this.composer.clear();
+        }
+        if (this.composer) {
+            this.composer.focus();
+        }
+        // clear() 是程序化清空，不触发原生 input 事件，需显式刷新发送按钮（空输入 → 禁用）。
+        this.updateSendButtonState();
+        this.showWelcome();
+        this.scrollToBottom(true);
+    }
+
+    private async deleteSession(id: string) {
+        const wasCurrent = id === this.sessionId;
+        if (wasCurrent) {
+            const result = await SessionStore.list({page: 1, pageSize: 2});
+            const list = result.sessions.filter(s => s.id !== id);
+            if (list.length > 0) {
+                await this.switchSession(list[0].id);
+                await SessionStore.remove(id);
+            } else {
+                this.entries = [];
+                this.sessionId = SessionStore.newSessionId();
+                await this.createSession();
+                await SessionStore.remove(id);
+            }
+        } else {
+            await SessionStore.remove(id);
+        }
+    }
+
+    private async sendMessage() {
+        if (!this.composer) {
+            return;
+        }
+        const sendData = this.composer.getSendData();
+        const text = sendData.text;
+        const refs = sendData.references;
+        const editorContext = this.captureEditorContext();
+        const pluginActions = listActions()
+            .filter(a => a.name.startsWith("plugin__") && a.description)
+            .map(a => ({name: a.name, description: a.description as string}));
+        if (!text || this.isStreaming || this.modelOptions.length === 0) {
+            return;
+        }
+
+        this.setStreaming(true);
+        this.clearThinking();
+        this.hasInterveningCard = false;
+        this.composer.clear();
+
+        const userEntryId = SessionStore.newSessionId();
+        this.entries.push({id: userEntryId, type: "user", content: text, timestamp: Date.now()});
+        if (this.entries.length === 1) {
+            this.messagesContainer.innerHTML = "";
+        }
+        this.appendUserMessage(text, Date.now(), userEntryId);
+        this.rebuildNavMarkers();
+        this.tryGenerateTitle();
+        if (this.composer) {
+            this.composer.pushHistory(text);
+        }
+        await this.saveSession();
+
+        this.requestStartTime = Date.now();
+        this.currentThinkingDuration = 0;
+
+        this.abortController = new AbortController();
+        const requestSessionId = this.sessionId;
+
+        await fetchAgentSSE(
+            text,
+            window.siyuan.config.appearance.lang,
+            refs,
+            (event: ISSEResult) => {
+                if (this.sessionId !== requestSessionId) {
+                    return;
+                }
+                return this.handleSSEEvent(event);
+            },
+            (err: Error) => {
+                if (this.sessionId !== requestSessionId) {
+                    return;
+                }
+                // 409：该会话正在其他实例对话中（实例级互斥）。回滚刚追加的 user 消息，不进入流式。
+                if (err instanceof AgentHttpError && err.status === 409) {
+                    this.handleConflictReject(userEntryId);
+                    return;
+                }
+                return this.handleConfigError(err, userEntryId);
+            },
+            this.abortController.signal,
+            this.sessionId,
+            this.getSelectedModel(),
+            undefined,
+            editorContext,
+            pluginActions,
+        );
+    }
+
+    // 实例级互斥被拒（409）：回滚 sendMessage 已追加的 user 消息与磁盘保存，恢复到发送前状态。
+    private async handleConflictReject(userEntryId: string) {
+        this.requestStartTime = 0;
+        this.setStreaming(false);
+        // 回滚 entries 里的 user entry。
+        const idx = this.entries.findIndex(e => e.id === userEntryId);
+        if (idx >= 0) {
+            this.entries.splice(idx, 1);
+        }
+        // 回滚 DOM 上的 user 消息元素。
+        const userEl = this.messagesContainer.querySelector('.agent-chat__msg--user[data-message-id="' + userEntryId + '"]');
+        if (userEl) {
+            userEl.remove();
+        }
+        this.rebuildNavMarkers();
+        // 恢复磁盘到发送前状态（entries 已不含该 user 消息）。
+        await this.saveSession();
+        const L = window.siyuan.languages;
+        showMessage(L.agentChatBusy || "This session is busy in another instance", 3000);
+    }
+
+    // Capture a read-only snapshot of the user's editor to inject into the system prompt.
+    // Strategy: scan ALL editors. Prefer one that (a) is visible and (b) has selected blocks;
+    // this directly targets "user selected blocks here" regardless of which window has focus.
+    // Falls back to the editor hosting the DOM selection, then the most-recently-activated tab.
+    private captureEditorContext(): IEditorContext | undefined {
+        /// #if MOBILE
+        const mobEditor = window.siyuan.mobile.editor || window.siyuan.mobile.popEditor;
+        if (mobEditor?.protyle && !mobEditor.protyle.element.classList.contains("fn__none")) {
+            return this.readEditorContext(mobEditor);
+        }
+        return undefined;
+        /// #else
+        const allEditor = getAllEditor();
+        if (!allEditor || allEditor.length === 0) {
+            return undefined;
+        }
+        const isEditable = (e: { protyle: { element: HTMLElement } }) =>
+            !e.protyle.element.classList.contains("fn__none") &&
+            e.protyle.element.closest(".layout__center") !== null;
+
+        // Aggregate selected block IDs across ALL editors (user may have selected blocks
+        // in one editor while a different one is "active").
+        let allSelected: string[] = [];
+        allEditor.forEach(e => {
+            e.protyle?.wysiwyg?.element?.querySelectorAll("[data-node-id].protyle-wysiwyg--select")
+                ?.forEach(el => {
+                    const id = (el as HTMLElement).getAttribute("data-node-id");
+                    if (id) {
+                        allSelected.push(id);
+                    }
+                });
+        });
+        allSelected = Array.from(new Set(allSelected));
+
+        // Candidate selection, in priority order:
+        let candidate: {
+            protyle: {
+                block?: { id?: string; rootID?: string };
+                wysiwyg?: { element?: HTMLElement };
+                element: HTMLElement;
+                model?: { parent?: { headElement?: HTMLElement } }
+            }
+        } | undefined;
+
+        // 1) An editable editor that has its own selected blocks.
+        candidate = allEditor.find(e => isEditable(e) &&
+            !!e.protyle?.wysiwyg?.element?.querySelector(".protyle-wysiwyg--select"));
+        // 2) The editor hosting the current DOM selection.
+        if (!candidate) {
+            const domSel = window.getSelection();
+            const range = domSel && domSel.rangeCount > 0 ? domSel.getRangeAt(0) : null;
+            if (range) {
+                candidate = allEditor.find(e => e.protyle.element.contains(range.startContainer));
+            }
+        }
+        // 3) The most-recently-activated focused document tab (data-activetime).
+        if (!candidate) {
+            let activeTime = 0;
+            allEditor.forEach(e => {
+                let head = e.protyle.model?.parent?.headElement;
+                if (!head && e.protyle.element.getBoundingClientRect().height > 0) {
+                    const tabBody = e.protyle.element.closest(".fn__flex-1[data-id]");
+                    if (tabBody) {
+                        head = document.querySelector(
+                            `.layout-tab-bar .item[data-id="${tabBody.getAttribute("data-id")}"]`);
+                    }
+                }
+                if (head && head.classList.contains("item--focus") &&
+                    parseInt(head.dataset.activetime || "0") > activeTime) {
+                    activeTime = parseInt(head.dataset.activetime || "0");
+                    candidate = e;
+                }
+            });
+        }
+        // 4) Any visible (non-fn__none) editor.
+        if (!candidate) {
+            candidate = allEditor.find(e => !e.protyle.element.classList.contains("fn__none"));
+        }
+
+        const ctx = candidate ? this.readEditorContext(candidate) : undefined;
+        // Even if no candidate editor was located, surface the globally-collected selections.
+        if ((!ctx || !ctx.selectedBlockIDs || ctx.selectedBlockIDs.length === 0) && allSelected.length > 0) {
+            const merged: IEditorContext = ctx ? {...ctx} : {};
+            merged.selectedBlockIDs = allSelected;
+            return merged;
+        }
+        return ctx;
+        /// #endif
+    }
+
+    private readEditorContext(editor: {
+        protyle: {
+            block?: { id?: string; rootID?: string };
+            wysiwyg?: { element?: HTMLElement };
+            contentElement?: HTMLElement;
+            notebookId?: string;
+            title?: { editElement?: HTMLElement };
+        };
+    }): IEditorContext | undefined {
+        const p = editor.protyle;
+        if (!p) {
+            return undefined;
+        }
+        const activeDocID = p.block?.rootID;
+        const focusedBlockID = p.block?.id;
+        const activeDocTitle = p.title?.editElement?.textContent?.trim() || undefined;
+        const notebookID = p.notebookId || undefined;
+
+        const selectedBlockIDs: string[] = [];
+        p.wysiwyg?.element?.querySelectorAll("[data-node-id].protyle-wysiwyg--select")
+            ?.forEach(el => {
+                const id = (el as HTMLElement).getAttribute("data-node-id");
+                if (id) {
+                    selectedBlockIDs.push(id);
+                }
+            });
+
+        // Visible blocks: top-level [data-node-id] children whose bounding rect intersects
+        // the scroll container viewport. Long docs are lazily loaded, so wysiwyg.element's
+        // children are already the loaded subset; this further narrows to what is on screen.
+        const visibleBlockIDs: string[] = [];
+        const scrollContainer = (p.contentElement || p.wysiwyg?.element?.parentElement as HTMLElement | undefined);
+        if (scrollContainer && p.wysiwyg?.element) {
+            const view = scrollContainer.getBoundingClientRect();
+            const children = p.wysiwyg.element.children;
+            for (let i = 0; i < children.length; i++) {
+                const child = children[i] as HTMLElement;
+                const id = child.getAttribute("data-node-id");
+                if (!id) {
+                    continue;
+                }
+                const rect = child.getBoundingClientRect();
+                if (rect.height === 0) {
+                    continue;
+                }
+                if (rect.bottom >= view.top && rect.top <= view.bottom) {
+                    visibleBlockIDs.push(id);
+                }
+                if (visibleBlockIDs.length >= maxVisibleBlockIDs) {
+                    break;
+                }
+            }
+        }
+
+        if (!activeDocID && !activeDocTitle && !notebookID &&
+            !focusedBlockID && selectedBlockIDs.length === 0 && visibleBlockIDs.length === 0) {
+            return undefined;
+        }
+        const ctx: IEditorContext = {};
+        if (activeDocID) {
+            ctx.activeDocID = activeDocID;
+        }
+        if (activeDocTitle) {
+            ctx.activeDocTitle = activeDocTitle;
+        }
+        if (notebookID) {
+            ctx.notebookID = notebookID;
+        }
+        if (focusedBlockID && focusedBlockID !== activeDocID) {
+            ctx.focusedBlockID = focusedBlockID;
+        }
+        if (selectedBlockIDs.length > 0) {
+            ctx.selectedBlockIDs = selectedBlockIDs;
+        }
+        if (visibleBlockIDs.length > 0) {
+            ctx.visibleBlockIDs = visibleBlockIDs;
+        }
+        return ctx;
+    }
+
+    private async handleSSEEvent(event: ISSEResult) {
+        try {
+            switch (event.type) {
+                case "content":
+                    this.appendToken(event.token);
+                    break;
+                case "thinking":
+                    this.appendThinking(event.reasoning);
+                    break;
+                case "tool_call":
+                    this.currentToolCalls.push({name: event.name, arguments: event.arguments});
+                    break;
+                case "confirm":
+                    this.appendConfirm(event.name, event.arguments, event.confirmID);
+                    break;
+                case "tool_result":
+                    if (this.currentToolCalls.length > 0) {
+                        this.currentToolCalls[this.currentToolCalls.length - 1].result = event.result;
+                    }
+                    this.appendToolResult(event.name, event.result);
+                    break;
+                case "done":
+                    this.flushTokenUpdate();
+                    await this.finishResponse();
+                    break;
+                case "usage":
+                    this.appendUsage(event.lastPromptTokens, event.tokenBreakdown, event.cachedTokens, event.contextLimit);
+                    break;
+                case "error":
+                    this.flushTokenUpdate();
+                    // 中断时同样需把已收到的纯文本 body 富渲染（与正常结束的 finalizeStreamingBody 一致）。
+                    if (this.currentContent) {
+                        this.finalizeStreamingBody(this.currentContent, Date.now());
+                    }
+                    this.requestStartTime = 0;
+                    this.appendError(event.message);
+                    this.setStreaming(false);
+                    await this.saveSession();
+                    break;
+                case "retry":
+                    this.appendRetry(event.attempt, event.maxRetries);
+                    break;
+                case "question":
+                    this.appendQuestion(event.questionID, event.arguments);
+                    break;
+                case "reasoning":
+                    this.appendReasoning(event.token);
+                    break;
+                case "snapshot": {
+                    const snapshotEntryId = SessionStore.newSessionId();
+                    this.entries.push({id: snapshotEntryId, type: "snapshot", snapshotID: event.snapshotID});
+                    this.appendSnapshotInfo(event.snapshotID, snapshotEntryId);
+                }
+                    break;
+                case "frontend_tool_call":
+                    this.handleFrontendToolCall(event.callID, event.arguments);
+                    break;
+            }
+        } catch (e) {
+            console.error("agent SSE event handler error:", e, event);
+            this.flushTokenUpdate();
+            if (this.currentContent) {
+                this.finalizeStreamingBody(this.currentContent, Date.now());
+            }
+            this.requestStartTime = 0;
+            this.setStreaming(false);
+        }
+    }
+
+    private async handleError(err: Error) {
+        this.flushTokenUpdate();
+        if (this.currentContent) {
+            this.finalizeStreamingBody(this.currentContent, Date.now());
+        }
+        this.requestStartTime = 0;
+        this.appendError(err.message);
+        this.setStreaming(false);
+        await this.saveSession();
+    }
+
+    // 统一处理 fetchAgentSSE 的 onError：若为"未配置模型/提供商"则渲染可操作错误卡，
+    // 否则回退到普通错误卡。userEntryId 用于在"未配置"时回滚刚追加的 user 消息（避免留下空对话）。
+    private async handleConfigError(err: Error, userEntryId?: string) {
+        this.flushTokenUpdate();
+        if (this.currentContent) {
+            this.finalizeStreamingBody(this.currentContent, Date.now());
+        }
+        this.requestStartTime = 0;
+        const configMsg = window.siyuan.languages._kernel[193] || "";
+        const isConfigError = !!configMsg && err.message === configMsg;
+        if (isConfigError) {
+            if (userEntryId) {
+                this.rollbackUserEntry(userEntryId);
+            }
+            await this.appendConfigurableError(configMsg);
+        } else {
+            this.appendError(err.message);
+        }
+        this.setStreaming(false);
+        if (!isConfigError) {
+            await this.saveSession();
+        }
+    }
+
+    // 回滚刚追加的 user entry 与 DOM 元素（用于"未配置"错误时避免留下空对话）。
+    private rollbackUserEntry(userEntryId: string) {
+        const idx = this.entries.findIndex(e => e.id === userEntryId);
+        if (idx >= 0) {
+            this.entries.splice(idx, 1);
+        }
+        const userEl = this.messagesContainer.querySelector('.agent-chat__msg--user[data-message-id="' + userEntryId + '"]');
+        if (userEl) {
+            userEl.remove();
+        }
+        this.rebuildNavMarkers();
+    }
+
+    private async appendConfigurableError(message: string) {
+        this.finishActiveThinking();
+        this.clearThinking();
+        if (this.currentAIElement && !this.currentContent) {
+            this.currentAIElement.remove();
+        }
+        this.currentAIElement = null;
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--error";
+        el.innerHTML = '<div class="agent-chat__body agent-chat__body--error">' +
+            '<svg class="agent-chat__error-icon"><use xlink:href="#iconTriangleAlert"></use></svg>' +
+            "<span>" + escapeHtml(message) + "</span>" +
+            "</div>";
+        this.messagesContainer.appendChild(el);
+        this.scrollToBottom(true);
+        this.flushThinkingStep();
+    }
+
+    private appendUserMessage(text: string, timestamp?: number, entryId?: string) {
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--user";
+        if (entryId) {
+            el.setAttribute("data-message-id", entryId);
+        }
+        let html = '<div class="agent-chat__body b3-typography">' + escapeHtml(text) + "</div>";
+        html += '<div class="agent-chat__msg-actions">';
+        if (timestamp) {
+            html += '<span class="agent-chat__msg-meta agent-chat__msg-time">' + this.formatMessageTime(timestamp) + "</span>";
+        }
+        html += '<span class="block__icon block__icon--show ariaLabel" data-position="north" aria-label="' + window.siyuan.languages.copy + '"><svg><use xlink:href="#iconCopy"></use></svg></span>' +
+            "</div>";
+        el.innerHTML = html;
+        el.querySelector(".block__icon")?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(text).then(() => {
+                showMessage(window.siyuan.languages.copied, 2000);
+            }).catch(() => {
+                showMessage(window.siyuan.languages.copied, 2000);
+            });
+        });
+        this.messagesContainer.appendChild(el);
+        this.scrollToBottom(true);
+    }
+
+    private createAIMessagePlaceholder(): HTMLElement {
+        this.currentContent = "";
+        this.currentAssistantEntryId = SessionStore.newSessionId();
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--ai";
+        el.setAttribute("data-message-id", this.currentAssistantEntryId);
+        el.innerHTML = '<div class="agent-chat__body b3-typography agent-chat__body--streaming"></div>';
+        this.messagesContainer.appendChild(el);
+        this.scrollToBottom();
+        this.observeStickTarget(el);
+        return el;
+    }
+
+    private pendingTokenUpdate = false;
+    private pendingReasoningUpdate = false;
+    private rafId = 0;
+
+    private appendToken(token: string) {
+        this.currentContent += token;
+        this.fullContent += token;
+
+        const thinkBody = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-body");
+        if (thinkBody) {
+            let chatEl = thinkBody.querySelector(".agent-chat__thinking-chat--streaming") as HTMLElement;
+            if (!chatEl) {
+                chatEl = document.createElement("div");
+                chatEl.className = "agent-chat__thinking-chat b3-typography agent-chat__thinking-chat--streaming";
+                thinkBody.appendChild(chatEl);
+            }
+            if (!this.pendingTokenUpdate) {
+                this.pendingTokenUpdate = true;
+                // 用 RAF 合并更新（与普通 AI 消息一致），减少重建频率。
+                // 流式期间用 textContent 写纯文本，富渲染推迟到完成时，避免每帧重解析整段 markdown。
+                this.rafId = requestAnimationFrame(() => {
+                    this.pendingTokenUpdate = false;
+                    chatEl.textContent = this.currentContent;
+                    const body = chatEl.closest(".agent-chat__thinking-body") as HTMLElement | null;
+                    if (body) {
+                        body.scrollTop = body.scrollHeight;
+                    }
+                    this.scrollToBottom();
+                });
+            }
+            return;
+        }
+
+        if (!this.currentAIElement) {
+            this.currentAIElement = this.createAIMessagePlaceholder();
+        }
+
+        if (!this.pendingTokenUpdate) {
+            this.pendingTokenUpdate = true;
+            // 流式期间只用 textContent 写入纯文本，跳过 Lute 解析与 postRender 富渲染。
+            // 富渲染（高亮/公式/图表）推迟到 finishResponse 一次性完成，避免每帧 O(n²) 重建。
+            this.rafId = requestAnimationFrame(() => {
+                this.pendingTokenUpdate = false;
+                const bodyEl = this.currentAIElement?.querySelector(".agent-chat__body") as HTMLElement;
+                if (bodyEl) {
+                    bodyEl.textContent = this.currentContent;
+                    this.scrollToBottom();
+                }
+            });
+        }
+    }
+
+    private flushTokenUpdate() {
+        if (this.pendingTokenUpdate) {
+            this.pendingTokenUpdate = false;
+            cancelAnimationFrame(this.rafId);
+            // 思考卡片流式：更新 chatEl 并滚到底部（与 appendToken 思考分支一致）。
+            // 与 appendToken 一致用 textContent，富渲染由 finishResponse 完成时统一处理。
+            const thinkChat = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-chat--streaming") as HTMLElement;
+            if (thinkChat) {
+                thinkChat.textContent = this.currentContent;
+                const thinkBody = thinkChat.parentElement;
+                if (thinkBody) {
+                    thinkBody.scrollTop = thinkBody.scrollHeight;
+                }
+                return;
+            }
+            const bodyEl = this.currentAIElement?.querySelector(".agent-chat__body") as HTMLElement;
+            if (bodyEl) {
+                bodyEl.textContent = this.currentContent;
+            }
+        }
+    }
+
+    private appendToolResult(name: string, result: string) {
+        if (name !== "todo_write") {
+            return;
+        }
+
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--tool";
+        el.setAttribute("data-message-id", SessionStore.newSessionId());
+        el.innerHTML = renderTodoList(result);
+        this.insertBeforeAI(el);
+        this.scrollToBottom(true);
+        this.hasInterveningCard = true;
+    }
+
+    private appendThinking(reasoning: string) {
+        const L = window.siyuan.languages;
+        if (this.currentThinkingText) {
+            // step 不保存 text（渲染时由 duration 经 i18n 生成）。
+            // toolNames 只取本轮新增的工具（lastStepToolCount 之后的），
+            // 避免累积重复历史工具——完整的 arguments/result 在 assistant entry 存一份。
+            const toolNames = this.currentToolCalls.slice(this.lastStepToolCount).map(function (t) {
+                return t.name;
+            });
+            this.currentThinkingSteps.push({
+                reasoning: this.currentThinkingReasoning,
+                reasoningContent: this.currentThinkingReasoningContent,
+                toolNames: toolNames.length > 0 ? toolNames : undefined,
+            });
+            this.lastStepToolCount = this.currentToolCalls.length;
+        }
+        this.currentThinkingText = "";
+        this.currentThinkingReasoning = reasoning;
+        this.currentThinkingReasoningContent = "";
+        const text = L.agentThinking || "Thinking";
+
+        this.currentThinkingText = text;
+
+        let detailLines = "";
+        if (reasoning === "processing" && this.currentToolCalls.length > 0) {
+            const newTools: Array<{ name: string }> = [];
+            for (let i = 0; i < this.currentToolCalls.length; i++) {
+                const tc = this.currentToolCalls[i];
+                if (!this.renderedToolNames[tc.name]) {
+                    this.renderedToolNames[tc.name] = true;
+                    newTools.push({name: tc.name});
+                }
+            }
+            if (newTools.length > 0) {
+                detailLines += renderToolsLineHTML(newTools);
+            }
+        }
+
+        if (reasoning === "processing" && this.currentAIElement) {
+            if (this.currentContent) {
+                const bodyEl = this.currentAIElement.querySelector(".agent-chat__body") as HTMLElement;
+                if (bodyEl) {
+                    bodyEl.classList.remove("agent-chat__body--streaming");
+                }
+                this.attachStepContent(this.currentContent);
+                this.currentAIElement.remove();
+            } else {
+                this.currentAIElement.remove();
+            }
+            this.currentAIElement = null;
+            this.currentAssistantEntryId = "";
+            this.currentContent = "";
+        } else if (reasoning === "processing" && this.currentContent) {
+            this.attachStepContent(this.currentContent);
+            this.currentContent = "";
+            const streamingEl = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-chat--streaming") as HTMLElement;
+            if (streamingEl) {
+                streamingEl.classList.remove("agent-chat__thinking-chat--streaming");
+            }
+        }
+
+        if (reasoning === "processing" && this.hasInterveningCard) {
+            const L = window.siyuan.languages;
+            // 与 finishActiveThinking 对齐：先把本张思考卡片的耗时算出来，
+            // 既用于 DOM 显示「已思考 Xs」，也用于落盘 entry.duration（重载后仍能显示正确耗时）。
+            const durSec = this.requestStartTime ? (Date.now() - this.requestStartTime) / 1000 : 0;
+            this.currentThinkingDuration = durSec;
+            const doneText = durSec > 0
+                ? (L.agentThinkingDoneTime ? L.agentThinkingDoneTime.replace("%s", Math.round(durSec) + "s") : (L.agentThinking || "Thinking"))
+                : (L.agentThinking || "Thinking");
+            const oldCards = this.messagesContainer.querySelectorAll(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)");
+            for (let i = 0; i < oldCards.length; i++) {
+                const card = oldCards[i] as HTMLElement;
+                card.classList.add("agent-chat__msg--thinking-done");
+                const txtEl = card.querySelector(".agent-chat__thinking-text");
+                if (txtEl) {
+                    txtEl.textContent = doneText;
+                }
+            }
+            if (this.currentThinkingStepContent && this.currentThinkingSteps.length > 0) {
+                this.currentThinkingSteps[this.currentThinkingSteps.length - 1].content = this.currentThinkingStepContent;
+                this.currentThinkingStepContent = "";
+            }
+            if (this.currentThinkingSteps.length > 0) {
+                this.entries.push({
+                    id: this.currentThinkingEntryId || undefined,
+                    type: "thinking",
+                    steps: this.currentThinkingSteps.slice(),
+                    duration: this.currentThinkingDuration || undefined
+                });
+                this.currentThinkingSteps = [];
+                this.currentThinkingEntryId = "";
+                // 已落盘的卡片耗时归零，避免下一张思考卡片读到上一张的残留值。
+                this.currentThinkingDuration = 0;
+            }
+            // 卡片边界：一张思考卡片已落盘，重置工具名去重表，使下一张卡片独立显示本轮工具
+            // （与重载路径 renderMergedThinkingCard 的单卡片局部去重 seenTools 对齐）。
+            this.renderedToolNames = {};
+            // Flush tool calls as assistant entry
+            if (this.currentToolCalls.length > 0) {
+                this.entries.push({
+                    id: SessionStore.newSessionId(),
+                    type: "assistant",
+                    toolCalls: this.slimToolCallsForPersistence(this.currentToolCalls)
+                });
+                this.currentToolCalls = [];
+                this.lastStepToolCount = 0;
+            }
+            // Flush pending confirms
+            if (this.pendingConfirms.length > 0) {
+                for (const c of this.pendingConfirms) {
+                    this.entries.push(c);
+                }
+                this.pendingConfirms = [];
+            }
+            this.hasInterveningCard = false;
+        }
+
+        const existingCard = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)") as HTMLElement;
+        const existingBody = existingCard?.querySelector(".agent-chat__thinking-body");
+        if (existingBody) {
+            const textEl = existingCard.querySelector(".agent-chat__thinking-text");
+            if (textEl) {
+                textEl.textContent = text;
+            }
+            if (detailLines) {
+                existingBody.innerHTML += detailLines;
+            }
+            this.scrollToBottom();
+            this.startThinkingTimer();
+            return;
+        }
+        if (existingCard) {
+            existingCard.remove();
+        }
+
+        const bodyHTML = '<div class="agent-chat__thinking-body agent-chat__thinking-body--preview">' +
+            detailLines +
+            "</div>";
+
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--thinking";
+        if (!this.currentThinkingEntryId) {
+            this.currentThinkingEntryId = SessionStore.newSessionId();
+        }
+        el.setAttribute("data-message-id", this.currentThinkingEntryId);
+        el.innerHTML = '<div class="agent-chat__thinking-card">' +
+            '<div class="agent-chat__thinking-header">' +
+            '<span class="agent-chat__thinking-arrow">' +
+            '<svg class="agent-chat__thinking-arrow--expand"><use xlink:href="#iconExpand"></use></svg>' +
+            '<svg class="agent-chat__thinking-arrow--contract fn__none"><use xlink:href="#iconContract"></use></svg>' +
+            "</span>" +
+            '<span class="agent-chat__thinking-text">' + escapeHtml(text) + "</span>" +
+            "</div>" +
+            bodyHTML +
+            "</div>";
+
+        bindThinkingCardToggle(el);
+        this.insertBeforeAI(el);
+        this.scrollToBottom();
+        this.observeStickTarget(el);
+        this.startThinkingTimer();
+    }
+
+    private appendReasoning(token: string) {
+        const isNewRound = this.currentThinkingReasoningContent.length === 0;
+        this.currentThinkingReasoningContent += token;
+        const thinkingElems = this.messagesContainer.querySelectorAll(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-body");
+        if (thinkingElems.length === 0) {
+            return;
+        }
+        const thinking = thinkingElems[thinkingElems.length - 1];
+        // 新轮次立即创建 reasoning 元素（保证多轮顺序），文本内容用 RAF 合并追加（减少 reflow）。
+        if (isNewRound) {
+            const reasoningEl = document.createElement("div");
+            reasoningEl.className = "agent-chat__thinking-reasoning-text";
+            thinking.appendChild(reasoningEl);
+        }
+        if (!this.pendingReasoningUpdate) {
+            this.pendingReasoningUpdate = true;
+            requestAnimationFrame(() => {
+                this.pendingReasoningUpdate = false;
+                const allReasoning = thinking.querySelectorAll(".agent-chat__thinking-reasoning-text");
+                const reasoningEl = allReasoning[allReasoning.length - 1] as HTMLElement;
+                if (reasoningEl) {
+                    reasoningEl.textContent = this.currentThinkingReasoningContent;
+                    // 预览态固定高度，滚到底部让最新 reasoning 内容可见。
+                    const body = reasoningEl.closest(".agent-chat__thinking-body") as HTMLElement | null;
+                    if (body) {
+                        body.scrollTop = body.scrollHeight;
+                    }
+                }
+            });
+        }
+    }
+
+    private addCopyButton(el: HTMLElement, contentOverride?: string, timestamp?: number) {
+        const content = contentOverride || this.fullContent || el.querySelector(".agent-chat__body")?.textContent || "";
+        const L = window.siyuan.languages;
+
+        const actions = document.createElement("div");
+        actions.className = "agent-chat__msg-actions";
+
+        if (timestamp) {
+            const timeSpan = document.createElement("span");
+            timeSpan.className = "agent-chat__msg-meta agent-chat__msg-time--ai";
+            timeSpan.textContent = this.formatMessageTime(timestamp);
+            actions.appendChild(timeSpan);
+        }
+
+        const copyBtn = document.createElement("span");
+        copyBtn.className = "block__icon block__icon--show ariaLabel";
+        copyBtn.setAttribute("data-position", "north");
+        copyBtn.setAttribute("aria-label", L.copy);
+        copyBtn.innerHTML = '<svg><use xlink:href="#iconCopy"></use></svg>';
+        copyBtn.addEventListener("click", (e: Event) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(content).then(() => {
+                showMessage(window.siyuan.languages.copied, 2000);
+            }).catch(() => {
+                showMessage(window.siyuan.languages.copied, 2000);
+            });
+        });
+        actions.appendChild(copyBtn);
+
+        const regenBtn = document.createElement("span");
+        regenBtn.className = "block__icon block__icon--show ariaLabel";
+        regenBtn.setAttribute("data-position", "north");
+        regenBtn.setAttribute("aria-label", L.agentRegenerate);
+        regenBtn.innerHTML = '<svg><use xlink:href="#iconRefresh"></use></svg>';
+        regenBtn.addEventListener("click", (e: Event) => {
+            e.stopPropagation();
+            this.regenerateResponse();
+        });
+        actions.appendChild(regenBtn);
+
+        el.appendChild(actions);
+    }
+
+    private async regenerateResponse() {
+        if (this.isStreaming || this.modelOptions.length === 0) {
+            return;
+        }
+        // Pop all entries after the last user entry
+        while (this.entries.length > 0 && this.entries[this.entries.length - 1].type !== "user") {
+            this.entries.pop();
+        }
+        // Remove all AI/tool/thinking/error DOM after last user message
+        const all = this.messagesContainer.querySelectorAll(".agent-chat__msg");
+        for (let i = all.length - 1; i >= 0; i--) {
+            if (all[i].classList.contains("agent-chat__msg--user")) {
+                break;
+            }
+            all[i].remove();
+        }
+        this.currentAIElement = null;
+        this.observeStickTarget(null);
+        this.currentContent = "";
+        this.fullContent = "";
+        this.currentToolCalls = [];
+        this.lastStepToolCount = 0;
+        this.renderedToolNames = {};
+        this.hasInterveningCard = false;
+        this.currentThinkingSteps = [];
+        this.currentThinkingStepContent = "";
+        this.currentThinkingText = "";
+        this.currentThinkingReasoning = "";
+        this.currentThinkingReasoningContent = "";
+        this.rebuildNavMarkers();
+
+        // Re-submit
+        this.setStreaming(true);
+        this.mirrorLocked = false;
+        this.removeMirrorPlaceholder();
+        this.requestStartTime = Date.now();
+        this.currentThinkingDuration = 0;
+        const lastUserEntry = this.entries[this.entries.length - 1];
+        const lastUserText = lastUserEntry.type === "user" ? lastUserEntry.content : "";
+        this.abortController = new AbortController();
+        const requestSessionId = this.sessionId;
+        await fetchAgentSSE(
+            lastUserText,
+            window.siyuan.config.appearance.lang,
+            [],
+            (event: ISSEResult) => {
+                if (this.sessionId !== requestSessionId) {
+                    return;
+                }
+                return this.handleSSEEvent(event);
+            },
+            (err: Error) => {
+                if (this.sessionId !== requestSessionId) {
+                    return;
+                }
+                // 409：该会话正在其他实例对话中（实例级互斥），不进入流式。
+                if (err instanceof AgentHttpError && err.status === 409) {
+                    this.requestStartTime = 0;
+                    this.setStreaming(false);
+                    const L = window.siyuan.languages;
+                    showMessage(L.agentChatBusy || "This session is busy in another instance", 3000);
+                    return;
+                }
+                return this.handleConfigError(err);
+            },
+            this.abortController.signal,
+            this.sessionId,
+            this.getSelectedModel(),
+            true,
+        );
+    }
+
+    // 流式结束时把 currentAIElement 的 body 从纯文本一次性转为富渲染（Lute + postRender）。
+    // 由 finishResponse（正常结束）与 error 路径（中断）共用，保证流式期轻渲染后仍得到完整富文本。
+    private finalizeStreamingBody(content: string, ts: number) {
+        if (!this.currentAIElement) {
+            return;
+        }
+        const bodyEl = this.currentAIElement.querySelector(".agent-chat__body") as HTMLElement;
+        if (!bodyEl) {
+            return;
+        }
+        bodyEl.classList.remove("agent-chat__body--streaming");
+        if (content) {
+            // 富渲染只在此处执行一次，避免流式期间每帧 O(n²) 重建带来的卡顿。
+            bodyEl.innerHTML = this.lute.ProtylePreviewStr("", content) || escapeHtml(content);
+            postRender(bodyEl, this.app);
+            this.addCopyButton(this.currentAIElement, undefined, ts);
+            this.scrollToBottom(true);
+        }
+    }
+
+    private async finishResponse() {
+        // 思考结束前先记录最后一张未完成的思考卡片，折叠后用于定位滚动锚点。
+        const activeThinkCard = this.messagesContainer.querySelector(
+            ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)"
+        ) as HTMLElement | null;
+        this.finishActiveThinking();
+        const savedContent = this.currentContent;
+        const savedFullContent = this.fullContent;
+        const ts = Date.now();
+        // 流式结束：把 body 从流式期的纯文本转为一次性完整富渲染（Lute + postRender）。
+        // 场景一：内容在流式期间落到了思考卡片里（currentAIElement 仍为空），需新建普通 AI 消息承载。
+        if (!this.currentAIElement && savedContent) {
+            const thinkBody = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-body");
+            if (thinkBody) {
+                const streamingEl = thinkBody.querySelector(".agent-chat__thinking-chat--streaming") as HTMLElement;
+                if (streamingEl) {
+                    streamingEl.remove();
+                }
+            }
+            this.currentAssistantEntryId = SessionStore.newSessionId();
+            const el = document.createElement("div");
+            el.className = "agent-chat__msg agent-chat__msg--ai";
+            el.setAttribute("data-message-id", this.currentAssistantEntryId);
+            el.innerHTML = '<div class="agent-chat__body b3-typography">' + (this.lute.ProtylePreviewStr("", savedContent) || escapeHtml(savedContent)) + "</div>";
+            this.messagesContainer.appendChild(el);
+            postRender(el, this.app);
+            this.currentAIElement = el;
+            this.currentContent = savedContent;
+            this.fullContent = savedFullContent;
+            this.addCopyButton(el, undefined, ts);
+            // 思考结束场景：定位到思考卡片下方（卡片贴顶、正文向下展开），而非直接滚到对话最底部。
+            if (activeThinkCard) {
+                this.scrollToThinkingCardBelow(activeThinkCard);
+            } else {
+                this.scrollToBottom(true);
+            }
+        } else if (this.currentAIElement) {
+            // 场景二：普通流式元素（createAIMessagePlaceholder 创建，body 仍是纯文本），一次性富渲染。
+            this.finalizeStreamingBody(savedContent, ts);
+        }
+        this.flushThinkingStep();
+        if (this.pendingConfirms.length > 0) {
+            for (const c of this.pendingConfirms) {
+                this.entries.push(c);
+            }
+            this.pendingConfirms = [];
+        }
+        if (this.currentContent) {
+            this.entries.push({
+                id: this.currentAssistantEntryId || undefined,
+                type: "assistant",
+                content: this.currentContent,
+                toolCalls: this.currentToolCalls.length > 0 ? this.slimToolCallsForPersistence(this.currentToolCalls) : undefined,
+                timestamp: ts,
+            });
+        } else if (this.currentToolCalls.length > 0) {
+            this.entries.push({
+                id: SessionStore.newSessionId(),
+                type: "assistant",
+                toolCalls: this.slimToolCallsForPersistence(this.currentToolCalls)
+            });
+        }
+        this.currentAIElement = null;
+        this.observeStickTarget(null);
+        this.currentAssistantEntryId = "";
+        this.currentContent = "";
+        this.fullContent = "";
+        this.currentToolCalls = [];
+        this.lastStepToolCount = 0;
+        this.renderedToolNames = {};
+        if (this.requestStartTime) {
+            this.requestStartTime = 0;
+        }
+        this.updateTokenDisplay();
+        this.setStreaming(false);
+        await this.saveSession();
+        this.rebuildNavMarkers();
+        if (savedContent && (!document.hasFocus() || document.hidden)) {
+            const L = window.siyuan.languages;
+            sendNotification({title: L.agentNotifyDone, timeoutType: "default"});
+        }
+    }
+
+    // 把上一轮在思考卡片内显示过的 content 归属到刚 push 的最后一个 step，
+    // 并清空 currentThinkingStepContent。这样每个 step 的 content 都能正确归属到自己的轮次，
+    // 而不会被 flushThinkingStep 错挂到下一轮的 step（导致重载后 content 位置错位）。
+    private attachStepContent(content: string) {
+        if (content && this.currentThinkingSteps.length > 0) {
+            this.currentThinkingSteps[this.currentThinkingSteps.length - 1].content = content;
+        }
+        this.currentThinkingStepContent = "";
+    }
+
+    private flushThinkingStep() {
+        if (this.currentThinkingText) {
+            const toolNames = this.currentToolCalls.slice(this.lastStepToolCount).map(function (t) {
+                return t.name;
+            });
+            this.currentThinkingSteps.push({
+                reasoning: this.currentThinkingReasoning,
+                reasoningContent: this.currentThinkingReasoningContent,
+                toolNames: toolNames.length > 0 ? toolNames : undefined,
+                content: this.currentThinkingStepContent || undefined,
+            });
+            this.lastStepToolCount = this.currentToolCalls.length;
+            this.currentThinkingText = "";
+            this.currentThinkingStepContent = "";
+        }
+        if (this.currentThinkingSteps.length > 0) {
+            this.entries.push({
+                id: this.currentThinkingEntryId || undefined,
+                type: "thinking",
+                steps: this.currentThinkingSteps.slice(),
+                duration: this.currentThinkingDuration || undefined,
+            });
+            this.currentThinkingSteps = [];
+            this.currentThinkingEntryId = "";
+            // 卡片边界：与 appendThinking 的 hasInterveningCard 分支一致，重置工具名去重表。
+            this.renderedToolNames = {};
+        }
+    }
+
+    private tryGenerateTitle() {
+        if (this.hasTitled) {
+            return;
+        }
+        this.hasTitled = true;
+        const userEntry = this.entries.find((e): e is { type: "user"; content: string } => e.type === "user");
+        const userMsg = userEntry?.content?.slice(0, 500) || "";
+        fetch("/api/ai/agent/title", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                message: userMsg,
+                model: this.getSelectedModel(),
+                language: window.siyuan.config.appearance.lang
+            }),
+        }).then((resp) => resp.json()).then((data) => {
+            if (data.code === 0 && data.data && data.data !== this.sessionTitle) {
+                this.sessionTitle = data.data;
+                this.titleElement.textContent = data.data;
+                this.saveSession();
+            }
+        }).catch((e) => {
+            console.error("agent title request error:", e);
+        });
+    }
+
+    private async appendError(message: string) {
+        this.finishActiveThinking();
+        this.clearThinking();
+        if (this.currentAIElement && !this.currentContent) {
+            this.currentAIElement.remove();
+        }
+        this.currentAIElement = null;
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--error";
+        el.innerHTML = '<div class="agent-chat__body agent-chat__body--error"><svg class="agent-chat__error-icon"><use xlink:href="#iconTriangleAlert"></use></svg><span>' + escapeHtml(message) + "</span></div>";
+        this.messagesContainer.appendChild(el);
+        this.scrollToBottom(true);
+        this.flushThinkingStep();
+        await this.saveSession();
+    }
+
+    private appendRetry(attempt: number, maxRetries: number) {
+        this.finishActiveThinking();
+        this.currentThinkingSteps = [];
+        this.currentThinkingStepContent = "";
+        this.renderedToolNames = {};
+        this.clearThinking();
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--retry";
+        el.innerHTML = renderRetryCardHTML(attempt, maxRetries);
+        this.insertBeforeAI(el);
+        this.scrollToBottom(true);
+        this.hasInterveningCard = true;
+    }
+
+    private appendSnapshotInfo(snapshotID: string, entryId?: string) {
+        const L = window.siyuan.languages;
+        const shortID = snapshotID.length > 7 ? snapshotID.substring(0, 7) : snapshotID;
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--snapshot";
+        if (entryId) {
+            el.setAttribute("data-message-id", entryId);
+        }
+        el.innerHTML = '<div class="agent-chat__snapshot-body">' +
+            '<span class="agent-chat__snapshot-icon"><svg><use xlink:href="#iconHistory"></use></svg></span>' +
+            '<span class="agent-chat__snapshot-text">' + escapeHtml((L.snapshotAutoCreated || "Auto snapshot created") + " " + shortID) + "</span>" +
+            '<button class="b3-button b3-button--text agent-chat__snapshot-rollback b3-tooltips b3-tooltips__n" aria-label="' + (L.rollback || "Rollback") + '"><svg><use xlink:href="#iconUndo"></use></svg></button>' +
+            "</div>";
+        const rollbackBtn = el.querySelector(".agent-chat__snapshot-rollback") as HTMLButtonElement;
+        rollbackBtn.addEventListener("click", () => {
+            const confirmText = (L.rollbackConfirm || "Rollback cannot be undone").replace("${name}", L.dataSnapshot || "Snapshot").replace("${time}", shortID);
+            confirmDialog("⚠️ " + (L.rollback || "Rollback"), confirmText, () => {
+                fetchPost("/api/repo/checkoutRepo", {id: snapshotID, sessionID: this.sessionId}, () => {
+                    // 记录回滚操作，使重载会话后仍可见「已回滚」提示（激活 appendRollbackInfo 渲染分支）。
+                    const rollbackEntryId = SessionStore.newSessionId();
+                    this.entries.push({id: rollbackEntryId, type: "rollback", snapshotID: snapshotID});
+                    this.appendRollbackInfo(snapshotID, rollbackEntryId);
+                    void this.saveSession();
+                });
+            });
+        });
+        // 快照应在执行区域之前：有确认卡片时插到确认卡片前，否则查找活跃的思考卡片
+        const confirmCards = this.messagesContainer.querySelectorAll(".agent-chat__msg--confirm");
+        if (confirmCards.length > 0) {
+            this.messagesContainer.insertBefore(el, confirmCards[confirmCards.length - 1]);
+        } else {
+            const activeThinking = this.messagesContainer.querySelector(
+                ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)"
+            );
+            if (activeThinking) {
+                this.messagesContainer.insertBefore(el, activeThinking);
+            } else {
+                this.insertBeforeAI(el);
+            }
+        }
+        this.scrollToBottom(true);
+        this.hasInterveningCard = true;
+    }
+
+    private appendRollbackInfo(snapshotID: string, entryId?: string) {
+        const L = window.siyuan.languages;
+        const shortID = snapshotID.length > 7 ? snapshotID.substring(0, 7) : snapshotID;
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--snapshot";
+        if (entryId) {
+            el.setAttribute("data-message-id", entryId);
+        }
+        el.innerHTML = '<div class="agent-chat__snapshot-body">' +
+            '<span class="agent-chat__snapshot-icon"><svg><use xlink:href="#iconHistory"></use></svg></span>' +
+            '<span class="agent-chat__snapshot-text">' + escapeHtml((L.rollbackCompleted || "Rollback completed") + " " + shortID) + "</span>" +
+            "</div>";
+        this.messagesContainer.appendChild(el);
+        this.scrollToBottom(true);
+    }
+
+    private async stopGeneration() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
+        this.flushTokenUpdate();
+        this.finishActiveThinking();
+        const savedContent = this.currentContent;
+        const savedFullContent = this.fullContent;
+        const ts = Date.now();
+        if (!this.currentAIElement && savedContent) {
+            const thinkBody = this.messagesContainer.querySelector(".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-body");
+            if (thinkBody) {
+                const streamingEl = thinkBody.querySelector(".agent-chat__thinking-chat--streaming") as HTMLElement;
+                if (streamingEl) {
+                    streamingEl.remove();
+                }
+            }
+            this.currentAssistantEntryId = SessionStore.newSessionId();
+            const el = document.createElement("div");
+            el.className = "agent-chat__msg agent-chat__msg--ai";
+            el.setAttribute("data-message-id", this.currentAssistantEntryId);
+            el.innerHTML = '<div class="agent-chat__body b3-typography">' + (this.lute.ProtylePreviewStr("", savedContent) || escapeHtml(savedContent)) + "</div>";
+            this.messagesContainer.appendChild(el);
+            postRender(el, this.app);
+            this.currentAIElement = el;
+            this.currentContent = savedContent;
+            this.fullContent = savedFullContent;
+            this.addCopyButton(el, undefined, ts);
+            this.scrollToBottom(true);
+        }
+        this.flushThinkingStep();
+        if (this.currentContent) {
+            this.entries.push({
+                id: this.currentAssistantEntryId || undefined,
+                type: "assistant",
+                content: this.currentContent,
+                toolCalls: this.currentToolCalls.length > 0 ? this.slimToolCallsForPersistence(this.currentToolCalls) : undefined,
+                timestamp: ts,
+            });
+        }
+        this.currentAIElement = null;
+        this.observeStickTarget(null);
+        this.currentAssistantEntryId = "";
+        this.currentContent = "";
+        this.fullContent = "";
+        this.currentToolCalls = [];
+        this.lastStepToolCount = 0;
+        this.renderedToolNames = {};
+        if (this.requestStartTime) {
+            this.requestStartTime = 0;
+        }
+        this.updateTokenDisplay();
+        this.setStreaming(false);
+        await this.saveSession();
+        this.rebuildNavMarkers();
+    }
+
+    private insertBeforeAI(el: HTMLElement) {
+        if (this.currentAIElement) {
+            this.messagesContainer.insertBefore(el, this.currentAIElement);
+        } else {
+            this.messagesContainer.appendChild(el);
+        }
+    }
+
+    private async appendConfirm(name: string, args: Record<string, unknown>, confirmID: string) {
+        this.finishActiveThinking();
+        this.flushThinkingStep();
+        const L = window.siyuan.languages;
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--confirm";
+        const argsStr = JSON.stringify(args, null, 2);
+        const desc = (L.agentConfirmDesc || "Agent: {category} operation").replace("{category}", escapeHtml(this.toolCategory(name)));
+        el.innerHTML = '<div class="agent-chat__confirm-card">' +
+            '<div class="agent-chat__confirm-header"><svg class="agent-chat__confirm-icon"><use xlink:href="#iconInfo"></use></svg> ' + desc + "</div>" +
+            '<pre class="agent-chat__confirm-args">' + escapeHtml(argsStr) + "</pre>" +
+            '<div class="agent-chat__confirm-actions">' +
+            '<button class="b3-button b3-button--cancel agent-chat__confirm-reject">' + (L.agentConfirmReject || "Reject") + "</button>" +
+            '<button class="b3-button b3-button--text agent-chat__confirm-approve">' + (L.agentConfirmApprove || "Approve") + "</button>" +
+            '<button class="b3-button b3-button--text agent-chat__confirm-always ariaLabel" data-position="n" aria-label="' + (L.agentConfirmAlwaysDesc || "Session Allow") + '">' + (L.agentConfirmAlways || "Session Allow") + "</button>" +
+            "</div>" +
+            "</div>";
+        const approveBtn = el.querySelector(".agent-chat__confirm-approve");
+        if (approveBtn) {
+            approveBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                el.classList.add("agent-chat__msg--confirmed");
+                const btns = el.querySelector(".agent-chat__confirm-actions") as HTMLElement;
+                if (btns) {
+                    btns.innerHTML = '<span class="agent-chat__confirm-done">' + (L.agentConfirmApprove || "Approved") + "</span>";
+                }
+                this.postConfirm(confirmID, true);
+            });
+        }
+        const rejectBtn = el.querySelector(".agent-chat__confirm-reject");
+        if (rejectBtn) {
+            rejectBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                el.classList.add("agent-chat__msg--confirmed");
+                const btns = el.querySelector(".agent-chat__confirm-actions") as HTMLElement;
+                if (btns) {
+                    btns.innerHTML = '<span class="agent-chat__confirm-done">' + (L.agentConfirmReject || "Rejected") + "</span>";
+                }
+                this.postConfirm(confirmID, false);
+            });
+        }
+        const alwaysBtn = el.querySelector(".agent-chat__confirm-always");
+        if (alwaysBtn) {
+            alwaysBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                el.classList.add("agent-chat__msg--confirmed");
+                const btns = el.querySelector(".agent-chat__confirm-actions") as HTMLElement;
+                if (btns) {
+                    btns.innerHTML = '<span class="agent-chat__confirm-done">' + (L.agentConfirmAlways || "Session Allow") + "</span>";
+                }
+                this.postConfirm(confirmID, true, true);
+            });
+        }
+        this.insertBeforeAI(el);
+        this.scrollToBottom(true);
+        this.hasInterveningCard = true;
+        const confirmEntryId = SessionStore.newSessionId();
+        el.setAttribute("data-message-id", confirmEntryId);
+        this.pendingConfirms.push({id: confirmEntryId, type: "confirm", name, args, confirmID, status: "pending"});
+        if (!document.hasFocus() || document.hidden) {
+            sendNotification({title: L.agentNotifyConfirm, body: "", timeoutType: "default"});
+        }
+    }
+
+    private async postConfirm(confirmID: string, approved: boolean, always?: boolean) {
+        const body: Record<string, unknown> = {confirmID: confirmID, approved: approved};
+        if (always) {
+            body.always = true;
+        }
+        try {
+            const resp = await fetch("/api/ai/agent/confirm", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            });
+            if (!resp.ok) {
+                console.error("agent confirm request failed:", resp.status);
+            }
+        } catch (e) {
+            console.error("agent confirm request error:", e);
+        }
+        const entry = this.entries.find(e => e.type === "confirm" && e.confirmID === confirmID) as {
+            status?: string
+        } | undefined;
+        if (entry) {
+            entry.status = always ? "always" : (approved ? "approved" : "rejected");
+        }
+        await this.saveSession();
+    }
+
+    private async handleFrontendToolCall(callID: string, args: Record<string, unknown>) {
+        // Resolve the action name ("frontend" tool calls carry the action in args.action).
+        const action = (args.action as string | undefined) || "";
+        const handler = lookupAction(action);
+        if (!handler) {
+            await this.postFrontendResult(callID, `Unknown frontend action: ${action}`, true);
+            return;
+        }
+        try {
+            const outcome = await handler.handler(args, this.app);
+            const result = outcome.result || "";
+            const error = outcome.error || "";
+            await this.postFrontendResult(callID, error ? error : result, !!error);
+        } catch (e) {
+            await this.postFrontendResult(callID, `Frontend action threw: ${(e as Error).message}`, true);
+        }
+    }
+
+    private async postFrontendResult(callID: string, result: string, isError: boolean) {
+        try {
+            const resp = await fetch("/api/ai/agent/frontendToolResult", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({callID, result, isError}),
+            });
+            if (!resp.ok) {
+                console.error("agent frontend result request failed:", resp.status);
+            }
+        } catch (e) {
+            console.error("agent frontend result request error:", e);
+        }
+    }
+
+    private appendQuestion(questionID: string, args: Record<string, unknown>) {
+        this.finishActiveThinking();
+        this.flushThinkingStep();
+        const L = window.siyuan.languages;
+        const rawQuestions = args.questions as Array<Record<string, unknown>>;
+        if (!rawQuestions || rawQuestions.length === 0) {
+            return;
+        }
+
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--question";
+        el.setAttribute("data-question-id", questionID);
+
+        el.innerHTML = renderQuestionCardHTML(rawQuestions, questionID);
+
+        el.querySelectorAll(".agent-chat__question-option").forEach((option) => {
+            const input = option.querySelector("input") as HTMLInputElement;
+            if (!input) return;
+            let wasChecked = false;
+            option.addEventListener("mousedown", () => {
+                wasChecked = input.checked;
+            });
+            option.addEventListener("click", (e) => {
+                if (el.classList.contains("agent-chat__msg--confirmed")) {
+                    return;
+                }
+                if (input.type === "radio" && wasChecked) {
+                    e.preventDefault();
+                    input.checked = false;
+                }
+            });
+        });
+
+        const submitBtn = el.querySelector(".agent-chat__question-submit-btn");
+        if (submitBtn) {
+            submitBtn.addEventListener("click", () => {
+                const answers: string[] = [];
+                for (let qi = 0; qi < rawQuestions.length; qi++) {
+                    const optEl = el.querySelector('.agent-chat__question-options[data-qi="' + qi + '"]');
+                    if (optEl) {
+                        const selected = optEl.querySelectorAll("input:checked") as NodeListOf<HTMLInputElement>;
+                        for (let si = 0; si < selected.length; si++) {
+                            answers.push(selected[si].value);
+                        }
+                    }
+                    const customInput = el.querySelector('.agent-chat__question-custom[data-qi="' + qi + '"]') as HTMLInputElement;
+                    if (customInput && customInput.value.trim()) {
+                        answers.push(customInput.value.trim());
+                    }
+                }
+                el.classList.add("agent-chat__msg--confirmed");
+                const actions = el.querySelector(".agent-chat__question-submit");
+                if (actions) {
+                    (actions as HTMLElement).innerHTML = '<span class="agent-chat__confirm-done">' + (L.agentQuestionSubmitted || "Submitted") + "</span>";
+                }
+                // 提交后禁用所有输入，不可再修改。
+                el.querySelectorAll("input").forEach((inp) => {
+                    (inp as HTMLInputElement).disabled = true;
+                });
+                this.postQuestionAnswer(questionID, answers);
+            });
+        }
+
+        this.insertBeforeAI(el);
+        this.scrollToBottom(true);
+        this.hasInterveningCard = true;
+        const questionEntryId = SessionStore.newSessionId();
+        el.setAttribute("data-message-id", questionEntryId);
+        this.entries.push({
+            id: questionEntryId,
+            type: "question",
+            questionID: questionID,
+            questions: rawQuestions,
+            status: "pending",
+        });
+    }
+
+    private async postQuestionAnswer(questionID: string, answers: string[]) {
+        try {
+            const resp = await fetch("/api/ai/agent/question", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({questionID: questionID, answers: answers}),
+            });
+            if (!resp.ok) {
+                console.error("agent question request failed:", resp.status);
+            }
+        } catch (e) {
+            console.error("agent question request error:", e);
+        }
+        const entry = this.entries.find(e => e.type === "question" && e.questionID === questionID) as {
+            status?: string; answers?: string[]
+        } | undefined;
+        if (entry) {
+            entry.status = "submitted";
+            entry.answers = answers;
+        }
+        await this.saveSession();
+    }
+
+    private renderSingleThinkingCard(step: {
+        reasoning: string;
+        text: string;
+        toolNames?: string[];
+        reasoningContent: string
+    }) {
+        const el = createThinkingCardElement(step);
+        bindThinkingCardToggle(el);
+        this.messagesContainer.appendChild(el);
+    }
+
+    private renderMergedThinkingCard(steps: Array<{
+        reasoning: string;
+        reasoningContent: string;
+        toolNames?: string[];
+        content?: string
+    }>, entryId?: string, duration?: number) {
+        if (!steps || steps.length === 0) {
+            return;
+        }
+        let detail = "";
+        const seenTools: Record<string, boolean> = {};
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            if (step.content) {
+                detail += '<div class="agent-chat__thinking-chat b3-typography">' + (this.lute.ProtylePreviewStr("", step.content) || escapeHtml(step.content)) + "</div>";
+            }
+            if (step.reasoningContent) {
+                detail += '<div class="agent-chat__thinking-reasoning-text">' + escapeHtml(step.reasoningContent) + "</div>";
+            }
+            // 工具行放在该步 reasoning 之后，对齐实时流式渲染中
+            // 「reasoning/content 先到、工具行在下一轮 thinking 时补到末尾」的实际呈现。
+            const names = step.toolNames && step.toolNames.length > 0
+                ? step.toolNames
+                : undefined;
+            if (names && names.length > 0) {
+                const newTools = names.filter(n => !seenTools[n]);
+                if (newTools.length > 0) {
+                    detail += "<div class=\"agent-chat__thinking-tools-line\"><span class=\"agent-chat__thinking-summary\">Tool calls:</span>";
+                    for (let j = 0; j < newTools.length; j++) {
+                        seenTools[newTools[j]] = true;
+                        detail += '<span class="agent-chat__thinking-tool">' + escapeHtml(newTools[j]) + "</span>";
+                    }
+                    detail += "</div>";
+                }
+            }
+        }
+
+        const headerText = this.formatThinkingHeader(duration);
+
+        const el = document.createElement("div");
+        el.className = "agent-chat__msg agent-chat__msg--thinking agent-chat__msg--thinking-done";
+        if (entryId) {
+            el.setAttribute("data-message-id", entryId);
+        }
+        el.innerHTML = '<div class="agent-chat__thinking-card">' +
+            '<div class="agent-chat__thinking-header">' +
+            '<span class="agent-chat__thinking-arrow">' +
+            '<svg class="agent-chat__thinking-arrow--expand"><use xlink:href="#iconExpand"></use></svg>' +
+            '<svg class="agent-chat__thinking-arrow--contract fn__none"><use xlink:href="#iconContract"></use></svg>' +
+            "</span>" +
+            '<span class="agent-chat__thinking-text">' + escapeHtml(headerText) + "</span>" +
+            "</div>" +
+            '<div class="agent-chat__thinking-body">' +
+            detail +
+            "</div>" +
+            "</div>";
+
+        bindThinkingCardToggle(el);
+        this.messagesContainer.appendChild(el);
+        postRender(el, this.app);
+    }
+
+    // 由 duration 经 i18n 生成"已思考：Xs"标题文本；无 duration 时回退到"思考中..."。
+    private formatThinkingHeader(duration?: number): string {
+        const L = window.siyuan.languages;
+        if (duration && duration > 0) {
+            return L.agentThinkingDoneTime ? L.agentThinkingDoneTime.replace("%s", Math.round(duration) + "s") : (L.agentThinking || "Thinking");
+        }
+        return L.agentThinking || "Thinking";
+    }
+
+    // 刷新底部 token 圆环显示。contextTokens 为 0 时隐藏（含切换到无统计的旧会话场景）。
+    private updateTokenDisplay() {
+        if (!this.tokenDisplayEl) {
+            return;
+        }
+        if (this.contextTokens === 0) {
+            this.tokenDisplayEl.classList.add("fn__none");
+            return;
+        }
+        this.tokenDisplayEl.classList.remove("fn__none");
+        const arc = this.tokenDisplayEl.querySelector(".agent-chat__tokens-arc") as SVGCircleElement | null;
+        if (!arc) {
+            return;
+        }
+        const circumference = 2 * Math.PI * 9; // r=9 → ≈56.55
+        const tokens = this.contextTokens;
+        const limit = this.contextLimit;
+        // 弧长：已知上限按真实占用率；未知上限（limit=0）不画弧（只留灰色轨道圈）。
+        // 颜色统一主色，不再按占用率分档。
+        const ratio = limit > 0 ? Math.min(tokens / limit, 1) : 0;
+        const filled = circumference * ratio;
+        arc.setAttribute("stroke-dasharray", filled.toFixed(2) + " " + circumference.toFixed(2));
+    }
+
+    // 记录最近一轮的 prompt tokens（= 当前上下文已用）+ 分类明细 + 缓存命中 + 模型上限，覆盖式更新而非累加。
+    private appendUsage(lastPromptTokens: number, tokenBreakdown: Record<string, number>, cachedTokens: number, contextLimit: number) {
+        this.contextTokens = lastPromptTokens;
+        this.contextTokenBreakdown = tokenBreakdown;
+        this.contextCachedTokens = cachedTokens;
+        this.contextLimit = contextLimit;
+        this.updateTokenDisplay();
+    }
+
+    // 弹出 token 分类明细面板。breakdown 全 0 时不弹（无内容可显示）。
+    private showTokenBreakdownPopup() {
+        if (!this.formatTokenBreakdown().length && this.contextCachedTokens === 0) {
+            return;
+        }
+        this.closeTokenBreakdownPopup();
+        const L = window.siyuan.languages;
+        const popup = document.createElement("div");
+        popup.className = "agent-token-popup b3-menu";
+        let html = '<div class="b3-menu__items">';
+        // 第一行：已用 / 上限 · 占用百分比；未知上限时仅显示已用。
+        const limitLine = this.contextLimit > 0
+            ? this.formatTokenCount(this.contextTokens) + " / " + this.formatTokenCount(this.contextLimit) + " · " + Math.round(this.contextTokens / this.contextLimit * 100) + "%"
+            : this.formatTokenCount(this.contextTokens);
+        html += '<div class="agent-token-popup__total">' +
+            '<span class="agent-token-popup__label">' + (L.tokenUsage || "Context Usage") + "</span>" +
+            '<span class="agent-token-popup__value">' + limitLine + "</span>" +
+            "</div>";
+        // 第一行下方的占用横条：总长=上限，填充=已用占比，颜色统一主色。
+        // 未知上限（contextLimit=0）时不画横条（无总长基线）。
+        if (this.contextLimit > 0) {
+            const ratio = Math.min(this.contextTokens / this.contextLimit, 1);
+            html += '<div class="agent-token-popup__bar">' +
+                '<span style="width:' + (ratio * 100).toFixed(1) + '%"></span>' +
+                "</div>";
+        } else {
+            html += '<div class="agent-token-popup__divider"></div>';
+        }
+        // 各分类（0 值跳过），百分比格式。
+        for (const row of this.formatTokenBreakdown()) {
+            html += '<div class="agent-token-popup__row">' +
+                '<span class="agent-token-popup__label">' + escapeHtml(row.label) + "</span>" +
+                '<span class="agent-token-popup__value">' + row.percent + "</span>" +
+                "</div>";
+        }
+        // 缓存命中（独立维度，分隔线隔开，为 0 不显示——不返回缓存字段的模型整行不出现）。
+        if (this.contextCachedTokens > 0 && this.contextTokens > 0) {
+            html += '<div class="agent-token-popup__divider"></div>';
+            const cachedPercent = Math.round(this.contextCachedTokens / this.contextTokens * 1000) / 10;
+            html += '<div class="agent-token-popup__row">' +
+                '<span class="agent-token-popup__label">' + (L.tokenCatCached || "Cache Hits") + "</span>" +
+                '<span class="agent-token-popup__value">' + cachedPercent + "%</span>" +
+                "</div>";
+        }
+        html += "</div>";
+        popup.innerHTML = html;
+        document.body.appendChild(popup);
+        popup.style.zIndex = (++window.siyuan.zIndex).toString();
+        // 定位：与模型选择弹出一致——右对齐 trigger 右边缘（width 280px 固定），垂直在 trigger 下方。
+        const rect = this.tokenDisplayEl.getBoundingClientRect();
+        setPosition(popup, rect.right - 280, rect.bottom, rect.height, rect.width);
+        // popup 自身 hover 保持显示（鼠标移入时取消关闭计时，移出时关闭）。
+        popup.addEventListener("mouseenter", () => {
+            window.clearTimeout(this.tokenPopupHideTimer);
+        });
+        popup.addEventListener("mouseleave", () => {
+            this.tokenPopupHideTimer = window.setTimeout(() => {
+                this.closeTokenBreakdownPopup();
+            }, 300);
+        });
+        // 点击外部/resize/ESC 关闭。
+        popup.addEventListener("click", (e: MouseEvent) => {
+            e.stopPropagation();
+        });
+        // 点击外部/resize 关闭。监听器存为字段，closeTokenBreakdownPopup 统一清理，避免泄漏。
+        this.tokenPopupOutsideClickHandler = () => {
+            this.closeTokenBreakdownPopup();
+        };
+        this.tokenPopupResizeHandler = () => {
+            this.closeTokenBreakdownPopup();
+        };
+        setTimeout(() => {
+            if (this.tokenPopupOutsideClickHandler) {
+                document.addEventListener("click", this.tokenPopupOutsideClickHandler);
+            }
+        }, 10);
+        window.addEventListener("resize", this.tokenPopupResizeHandler);
+        this.tokenPopup = popup;
+    }
+
+    private closeTokenBreakdownPopup() {
+        // 统一清理外部监听器，避免多次开合 popup 累积监听器导致内存泄漏。
+        if (this.tokenPopupOutsideClickHandler) {
+            document.removeEventListener("click", this.tokenPopupOutsideClickHandler);
+            this.tokenPopupOutsideClickHandler = null;
+        }
+        if (this.tokenPopupResizeHandler) {
+            window.removeEventListener("resize", this.tokenPopupResizeHandler);
+            this.tokenPopupResizeHandler = null;
+        }
+        if (this.tokenPopup) {
+            this.tokenPopup.remove();
+            this.tokenPopup = null;
+        }
+    }
+
+    // 把 contextTokenBreakdown（后端估算的 9 类 + other）格式化为 [{label, percent}]，跳过 0 值。
+    // percent = 各类 token / contextTokens * 100（contextTokens 为 0 时显示 "-")。
+    private formatTokenBreakdown(): Array<{ label: string; percent: string }> {
+        const L = window.siyuan.languages;
+        // 固定顺序展示（与后端 key 对应）。
+        const order: Array<{ key: string; labelKey: string }> = [
+            {key: "system", labelKey: "tokenCatSystem"},
+            {key: "skills", labelKey: "tokenCatSkills"},
+            {key: "messages", labelKey: "tokenCatMessages"},
+            {key: "nativeToolsDef", labelKey: "tokenCatNativeToolsDef"},
+            {key: "pluginToolsDef", labelKey: "tokenCatPluginToolsDef"},
+            {key: "mcpToolsDef", labelKey: "tokenCatMcpToolsDef"},
+            {key: "nativeTool", labelKey: "tokenCatNativeTool"},
+            {key: "pluginTool", labelKey: "tokenCatPluginTool"},
+            {key: "mcpTool", labelKey: "tokenCatMcpTool"},
+            {key: "other", labelKey: "tokenCatOther"},
+        ];
+        const result: Array<{ label: string; percent: string }> = [];
+        for (const item of order) {
+            const tokens = this.contextTokenBreakdown[item.key] || 0;
+            if (tokens <= 0) {
+                continue;
+            }
+            // 占比保留 1 位小数；四舍五入为 0 的类（占比极小）跳过不显示，避免无意义的 0%。
+            const rounded = this.contextTokens > 0
+                ? Math.round(tokens / this.contextTokens * 1000) / 10
+                : 0;
+            if (rounded <= 0) {
+                continue;
+            }
+            const label = (L as Record<string, string>)[item.labelKey] || item.key;
+            result.push({label, percent: rounded + "%"});
+        }
+        return result;
+    }
+
+    // token 数格式化：1024 进制值（2^N，如 131072=128×1024）转成业界惯称（128k、1M），
+    // 仅当「能整除 1024 且商在白名单」时才用 1024 进制，避免 256000 这种 1000 进制值被误判为 250k。
+    // 其余按 1000 进制（200000→200k、1048576→1.0M）。
+    private formatTokenCount(n: number): string {
+        if (n <= 0) {
+            return String(n);
+        }
+        // 白名单：业界常见的 2^N 商（8k/16k/32k/64k/128k/256k/512k/1M）+ 200（200k=204800 少见但存在）。
+        const niceMultiples = new Set([8, 16, 32, 64, 128, 200, 256, 512, 1024]);
+        if (n >= 1024 && n % 1024 === 0 && niceMultiples.has(n / 1024)) {
+            const quotient = n / 1024;
+            if (quotient >= 1024) {
+                return (quotient / 1024) + "M";
+            }
+            return quotient + "k";
+        }
+        // 1000 进制或其他：除以 1000 / 1000000，整除时省略小数（200000→200k，3500→3.5k）。
+        if (n >= 1000000) {
+            return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + "M";
+        }
+        if (n >= 1000) {
+            return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + "k";
+        }
+        return String(n);
+    }
+
+    private clearThinking() {
+        const items = this.messagesContainer.querySelectorAll(
+            ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)"
+        );
+        for (let i = 0; i < items.length; i++) {
+            items[i].remove();
+        }
+    }
+
+    // 启动思考计时器，每 100ms 刷新所有未完成思考卡片的标题文本为「思考中... X.Xs」。
+    private startThinkingTimer() {
+        this.stopThinkingTimer();
+        if (!this.requestStartTime) {
+            return;
+        }
+        const tick = () => {
+            const sec = Math.floor((Date.now() - this.requestStartTime) / 1000);
+            const L = window.siyuan.languages;
+            const live = (L.agentThinking || "Thinking") + " " + sec + "s";
+            const cards = this.messagesContainer.querySelectorAll(
+                ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done) .agent-chat__thinking-text"
+            );
+            for (let i = 0; i < cards.length; i++) {
+                (cards[i] as HTMLElement).textContent = live;
+            }
+        };
+        tick();
+        this.thinkingTimerId = window.setInterval(tick, 100);
+    }
+
+    // 停止思考计时器（思考结束/切换会话/停止生成时调用，避免泄漏）。
+    private stopThinkingTimer() {
+        if (this.thinkingTimerId) {
+            clearInterval(this.thinkingTimerId);
+            this.thinkingTimerId = 0;
+        }
+    }
+
+    private finishActiveThinking() {
+        this.stopThinkingTimer();
+        const L = window.siyuan.languages;
+        // 耗时存为数值（用于持久化 entry.duration），"已思考：Xs" 文本只在 DOM 显示、不落盘。
+        const durSec = this.requestStartTime ? (Date.now() - this.requestStartTime) / 1000 : 0;
+        this.currentThinkingDuration = durSec;
+        const doneText = durSec > 0
+            ? (L.agentThinkingDoneTime ? L.agentThinkingDoneTime.replace("%s", Math.round(durSec) + "s") : (L.agentThinking || "Thinking"))
+            : (L.agentThinking || "Thinking");
+
+        const items = this.messagesContainer.querySelectorAll(
+            ".agent-chat__msg--thinking:not(.agent-chat__msg--thinking-done)"
+        );
+        for (let i = 0; i < items.length; i++) {
+            const el = items[i] as HTMLElement;
+            if (i === items.length - 1) {
+                const streamingChat = el.querySelector(".agent-chat__thinking-chat--streaming");
+                if (streamingChat) {
+                    streamingChat.remove();
+                }
+            }
+            // 用户未手动操作且仍在预览态 → 思考完成后自动折叠（尊重用户已展开/折叠的最终状态）。
+            if (!el.hasAttribute("data-user-interacted")) {
+                const body = el.querySelector(".agent-chat__thinking-body");
+                body?.classList.remove("agent-chat__thinking-body--preview");
+            }
+            el.classList.add("agent-chat__msg--thinking-done");
+            if (doneText) {
+                const textEl = el.querySelector(".agent-chat__thinking-text");
+                if (textEl) {
+                    textEl.textContent = doneText;
+                }
+            }
+        }
+    }
+
+    private setStreaming(streaming: boolean) {
+        this.isStreaming = streaming;
+        this.sendBtn.classList.toggle("fn__none", streaming);
+        this.stopBtn.classList.toggle("fn__none", !streaming);
+        this.updateSendButtonState();
+    }
+
+    // 根据"是否流式中"、"是否有可用模型"、"输入框是否有内容"综合决定发送按钮与输入框可用性。
+    // 无模型时一并禁用发送按钮与输入框（attr disabled + 灰样式 + composer-host 禁用态），从源头阻止无效请求。
+    private updateSendButtonState() {
+        const disabled = this.isStreaming || this.modelOptions.length === 0 || !this.hasComposerInput();
+        if (disabled) {
+            this.sendBtn.setAttribute("disabled", "disabled");
+        } else {
+            this.sendBtn.removeAttribute("disabled");
+        }
+        if (this.composerHost) {
+            // 复用流式时已有的禁用态样式（灰显 + 阻止交互）。
+            // 注意：仅流式 / 无模型时禁用 composer；输入为空不禁用 composer（用户仍可正常编辑）。
+            const composerDisabled = this.isStreaming || this.modelOptions.length === 0;
+            this.composerHost.classList.toggle("agent-chat__composer-host--disabled", composerDisabled);
+        }
+    }
+
+    // 输入框当前是否有可发送内容（含 @引用也算）。无 composer 时返回 false。
+    private hasComposerInput(): boolean {
+        if (!this.composer) {
+            return false;
+        }
+        return this.composer.getSendData().text.length > 0;
+    }
+
+    // 思考结束后定位到思考卡片下方：让折叠后的思考卡片底部贴近容器视口顶部，
+    // 其下方留出空间承载即将/已开始流式的正文。delay 用于等待卡片折叠的 max-height 过渡（约 0.2s）完成。
+    private scrollToThinkingCardBelow(card: HTMLElement, delay = 220) {
+        const align = () => {
+            if (!card.isConnected) {
+                return;
+            }
+            // 用 getBoundingClientRect 计算卡片底部相对滚动容器的偏移，
+            // 避免依赖 offsetParent 是否为滚动容器（定位祖先可能不是 messagesContainer）。
+            const containerRect = this.messagesContainer.getBoundingClientRect();
+            const cardRect = card.getBoundingClientRect();
+            // 卡片底部在文档中的位置 - 容器顶部在文档中的位置 + 当前已滚动量 = 卡片底部的 scrollTop 目标值。
+            const target = this.messagesContainer.scrollTop + (cardRect.bottom - containerRect.top) + 8;
+            const max = this.messagesContainer.scrollHeight - this.messagesContainer.clientHeight;
+            this.programmaticScroll = true;
+            this.messagesContainer.scrollTop = Math.min(target, max);
+            requestAnimationFrame(() => {
+                this.programmaticScroll = false;
+            });
+        };
+        if (delay > 0) {
+            window.setTimeout(align, delay);
+        } else {
+            align();
+        }
+    }
+
+    private scrollToBottom(force = false, smooth = false) {
+        if (!force && this.userScrolledUp) {
+            return;
+        }        // Guard with a flag so the resulting scroll event can be told apart from
+        // a user-driven scroll. Without this, the programmatic stick-to-bottom
+        // write itself trips the scroll handler and, while streaming, flips
+        // userScrolledUp on transiently (scrollHeight keeps growing) which
+        // immediately breaks follow-scroll.
+        this.programmaticScroll = true;
+        requestAnimationFrame(() => {
+            if (smooth) {
+                // Smooth scrolling fires scroll events asynchronously throughout the
+                // animation, so keep the guard raised until scrolling settles: on
+                // scrollend, on a 1s timeout fallback, or immediately if the user
+                // wheels/touches during the animation (counts as a user scroll).
+                const finish = () => {
+                    this.messagesContainer.removeEventListener("scrollend", finish);
+                    this.messagesContainer.removeEventListener("wheel", onWheel);
+                    clearTimeout(timer);
+                    this.programmaticScroll = false;
+                };
+                const onWheel = () => {
+                    this.messagesContainer.removeEventListener("scrollend", finish);
+                    clearTimeout(timer);
+                    this.programmaticScroll = false;
+                };
+                const timer = window.setTimeout(finish, 1000);
+                this.messagesContainer.addEventListener("scrollend", finish, {once: true});
+                this.messagesContainer.addEventListener("wheel", onWheel, {once: true, passive: true});
+                this.messagesContainer.scrollTo({top: this.messagesContainer.scrollHeight, behavior: "smooth"});
+            } else {
+                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+                // Reset the flag only after the scroll event caused by this write has
+                // been dispatched (a second RAF runs after layout/event delivery).
+                requestAnimationFrame(() => {
+                    this.programmaticScroll = false;
+                });
+            }
+        });
+    }
+
+    // Observe a streaming message card so that asynchronous content growth
+    // (code highlighting, images, mermaid, fonts) keeps the view pinned to the
+    // bottom while the user has not scrolled up. token frames only fire when a
+    // chunk arrives; this closes the gap between chunks.
+    private observeStickTarget(el: HTMLElement | null) {
+        if (this.stickResizeObserver) {
+            this.stickResizeObserver.disconnect();
+            this.stickResizeObserver = null;
+        }
+        if (!el) {
+            return;
+        }
+        this.stickResizeObserver = new ResizeObserver(() => {
+            if (!this.userScrolledUp) {
+                this.scrollToBottom();
+            }
+        });
+        this.stickResizeObserver.observe(el);
+    }
+
+    private toolCategory(name: string): string {
+        const L = window.siyuan.languages;
+        const m: Record<string, string | undefined> = {
+            "block": L.agentCatBlock, "document": L.agentCatDoc,
+            "notebook": L.agentCatNotebook, "tag": L.agentCatTag,
+            "bookmark": L.agentCatBookmark, "file": L.agentCatFile,
+            "asset": L.agentCatAsset, "attr": L.agentCatAttr,
+            "dailynote": L.agentCatDailynote, "import": L.agentCatImport,
+            "repo": L.agentCatRepo, "history": L.agentCatHistory,
+            "sync": L.agentCatSync, "database": L.agentCatDatabase,
+        };
+        return m[name] || L.agentCatDefault;
+    }
+
+    private formatMessageTime(ts: number): string {
+        const d = dayjs(ts);
+        if (d.format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD")) {
+            return d.format("HH:mm");
+        }
+        return d.format("YYYY-MM-DD HH:mm");
+    }
+
+}

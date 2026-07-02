@@ -640,7 +640,9 @@ func normalizeTree(tree *parse.Tree) (yfmRootID, yfmTitle, yfmUpdated string) {
 			}
 
 			// Import the YAML at the beginning of the Markdown as a code block https://github.com/siyuan-note/siyuan/issues/16488
-			codeBlock := &ast.Node{Type: ast.NodeCodeBlock}
+			codeBlock := &ast.Node{Type: ast.NodeCodeBlock, ID: ast.NewNodeID()}
+			codeBlock.SetIALAttr("id", codeBlock.ID)
+			codeBlock.SetIALAttr("updated", codeBlock.ID[:14])
 			openMarker := &ast.Node{Type: ast.NodeCodeBlockFenceOpenMarker, Tokens: []byte("```"), CodeBlockFenceLen: 3}
 			codeBlock.AppendChild(openMarker)
 			info := &ast.Node{Type: ast.NodeCodeBlockFenceInfoMarker, CodeBlockInfo: []byte("yaml")}
@@ -787,10 +789,6 @@ func VacuumDataIndex() {
 func FullReindex(needResetScroll bool) {
 	util.PushEndlessProgress(Conf.language(35))
 
-	cache.ClearTreeCache()
-	cache.ClearDocsIAL()
-	cache.ClearBlocksIAL()
-
 	task.AppendTask(task.DatabaseIndexFull, fullReindex)
 	task.AppendTask(task.DatabaseIndexRef, IndexRefs)
 	go func() {
@@ -805,7 +803,30 @@ func FullReindex(needResetScroll bool) {
 	}
 }
 
+func FullReindexDirect() {
+	fullReindex()
+}
+
+func ReindexFTS() {
+	defer logging.Recover()
+
+	util.PushEndlessProgress(Conf.language(296))
+	defer util.PushClearProgress()
+
+	sql.FlushQueue()
+	FlushTxQueue()
+	if err := sql.RebuildFTSIndex(); err != nil {
+		logging.LogErrorf("rebuild fts index failed, falling back to full reindex: %s", err)
+		FullReindex(false)
+	}
+}
+
 func fullReindex() {
+	cache.ClearTreeCache()
+	cache.ClearDocsIAL()
+	cache.ClearBlocksIAL()
+	cache.ClearAVCache()
+
 	pushSQLInsertBlocksFTSMsg, pushSQLDeleteBlocksMsg = true, true
 	defer func() {
 		sql.FlushQueue()

@@ -149,6 +149,7 @@ func ClearWorkspaceHistory() (err error) {
 }
 
 func GetDocHistoryContent(historyPath, keyword string, highlight bool) (id, rootID, content string, isLargeDoc bool, err error) {
+	historyPath = filepath.Join(util.WorkspaceDir, historyPath)
 	if !util.IsAbsPathInWorkspace(historyPath) {
 		msg := "Path [" + historyPath + "] is not in workspace"
 		logging.LogErrorf(msg)
@@ -227,13 +228,24 @@ func GetDocHistoryContent(historyPath, keyword string, highlight bool) (id, root
 	return
 }
 
-func RollbackDocHistory(boxID, historyPath string) (err error) {
+func RollbackDocHistory(historyPath string) (err error) {
+	historyPath = filepath.Join(util.WorkspaceDir, historyPath)
 	if !gulu.File.IsExist(historyPath) {
 		logging.LogWarnf("doc history [%s] not exist", historyPath)
 		return
 	}
 
 	FlushTxQueue()
+
+	relPath := strings.TrimPrefix(historyPath, util.HistoryDir)
+	relPath = strings.TrimPrefix(relPath, string(os.PathSeparator))
+	relPath = filepath.ToSlash(relPath)
+	parts := strings.SplitN(relPath, "/", 3)
+	if len(parts) < 3 {
+		logging.LogWarnf("invalid history path [%s]", historyPath)
+		return
+	}
+	boxID := parts[1]
 
 	box, needResetTree, err := getRollbackBox(boxID)
 	if err != nil {
@@ -258,11 +270,7 @@ func RollbackDocHistory(boxID, historyPath string) (err error) {
 	var avIDs []string
 	tree, _ := loadTree(srcPath, util.NewLute())
 	if nil != tree {
-		historyDir := strings.TrimPrefix(historyPath, util.HistoryDir+string(os.PathSeparator))
-		if strings.Contains(historyDir, string(os.PathSeparator)) {
-			historyDir = historyDir[:strings.Index(historyDir, string(os.PathSeparator))]
-		}
-		historyDir = filepath.Join(util.HistoryDir, historyDir)
+		historyDir := filepath.Join(util.HistoryDir, parts[0])
 
 		avNodes := tree.Root.ChildrenByType(ast.NodeAttributeView)
 		for _, avNode := range avNodes {
@@ -272,6 +280,7 @@ func RollbackDocHistory(boxID, historyPath string) (err error) {
 				if copyErr := filelock.CopyNewtimes(srcAvPath, destAvPath); nil != copyErr {
 					logging.LogErrorf("copy av [%s] failed: %s", srcAvPath, copyErr)
 				}
+				cache.RemoveAVData(avNode.AttributeViewID)
 			}
 
 			avIDs = append(avIDs, avNode.AttributeViewID)
@@ -426,6 +435,7 @@ func RollbackAssetsHistory(historyPath string) (err error) {
 }
 
 func RollbackNotebookHistory(historyPath string) (err error) {
+	historyPath = filepath.Join(util.WorkspaceDir, historyPath)
 	if !gulu.File.IsExist(historyPath) {
 		logging.LogWarnf("notebook history [%s] not exist", historyPath)
 		return
@@ -445,6 +455,7 @@ func RollbackNotebookHistory(historyPath string) (err error) {
 }
 
 func RollbackAttributeViewHistory(historyPath string) (err error) {
+	historyPath = filepath.Join(util.WorkspaceDir, historyPath)
 	if !gulu.File.IsExist(historyPath) {
 		logging.LogWarnf("av history [%s] not exist", historyPath)
 		return
@@ -457,6 +468,7 @@ func RollbackAttributeViewHistory(historyPath string) (err error) {
 		logging.LogErrorf("copy file [%s] to [%s] failed: %s", from, to, err)
 		return
 	}
+	cache.RemoveAVData(strings.TrimSuffix(filepath.Base(historyPath), ".json"))
 	IncSync()
 	util.PushMsg(Conf.Language(102), 3000)
 	return nil
@@ -615,7 +627,7 @@ func GetNotebookHistory() (ret []*History, err error) {
 			HCreated: t,
 			Items: []*HistoryItem{{
 				Title: c.Name,
-				Path:  filepath.Dir(filepath.Dir(historyNotebookConf)),
+				Path:  filepath.ToSlash(strings.TrimPrefix(filepath.Dir(filepath.Dir(historyNotebookConf)), util.WorkspaceDir)),
 				Op:    HistoryOpDelete,
 			}},
 		})
@@ -832,6 +844,15 @@ func generateOpTypeHistory(tree *parse.Tree, opType string) {
 	indexHistoryDir(filepath.Base(historyDir), util.NewLute())
 }
 
+func CreateDocHistory(id string) (err error) {
+	tree, err := LoadTreeByBlockID(id)
+	if err != nil {
+		return
+	}
+	generateOpTypeHistory(tree, HistoryOpUpdate)
+	return
+}
+
 func generateTreeHistory(tree *parse.Tree, historyDir string) {
 	historyPath := filepath.Join(historyDir, tree.Box, tree.Path)
 	var err error
@@ -1014,12 +1035,10 @@ func fromSQLHistories(sqlHistories []*sql.History) (ret []*HistoryItem) {
 	for _, sqlHistory := range sqlHistories {
 		item := &HistoryItem{
 			Title: sqlHistory.Title,
-			Path:  filepath.Join(util.HistoryDir, sqlHistory.Path),
+			Path:  filepath.ToSlash(strings.TrimPrefix(filepath.Join(util.HistoryDir, sqlHistory.Path), util.WorkspaceDir)),
 			Op:    sqlHistory.Op,
 		}
-		if HistoryTypeAsset == sqlHistory.Type {
-			item.Path = filepath.ToSlash(strings.TrimPrefix(item.Path, util.WorkspaceDir))
-		} else {
+		if HistoryTypeAsset != sqlHistory.Type {
 			parts := strings.Split(sqlHistory.Path, "/")
 			if 2 <= len(parts) {
 				item.Notebook = parts[1]

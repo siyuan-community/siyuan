@@ -17,6 +17,10 @@
 package api
 
 import (
+	"fmt"
+	"net/http"
+
+	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-note/logging"
@@ -27,6 +31,7 @@ func ServeAPI(ginServer *gin.Engine) {
 
 	ginServer.Handle("GET", "/api/system/bootProgress", bootProgress)
 	ginServer.Handle("POST", "/api/system/bootProgress", bootProgress)
+	ginServer.Handle("GET", "/api/system/bootProgressSSE", bootProgressSSE)
 	ginServer.Handle("GET", "/api/system/version", version)
 	ginServer.Handle("POST", "/api/system/version", version)
 	ginServer.Handle("POST", "/api/system/currentTime", currentTime)
@@ -34,9 +39,9 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/system/loginAuth", model.LoginAuth)
 	ginServer.Handle("POST", "/api/system/logoutAuth", model.LogoutAuth)
 	ginServer.Handle("GET", "/api/system/getCaptcha", model.GetCaptcha)
-	ginServer.Handle("GET", "/api/icon/getDynamicIcon", getDynamicIcon)
-
 	// 需要鉴权
+
+	ginServer.Handle("GET", "/api/icon/getDynamicIcon", model.CheckAuth, getDynamicIcon)
 
 	ginServer.Handle("POST", "/api/system/getEmojiConf", model.CheckAuth, getEmojiConf)
 	ginServer.Handle("POST", "/api/system/setAPIToken", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setAPIToken)
@@ -69,26 +74,29 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/system/exportConf", model.CheckAuth, model.CheckAdminRole, exportConf)
 	ginServer.Handle("POST", "/api/system/importConf", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importConf)
 	ginServer.Handle("POST", "/api/system/getWorkspaceInfo", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getWorkspaceInfo)
-	ginServer.Handle("POST", "/api/system/reloadUI", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, reloadUI, deprecated) // TODO 请使用 /api/ui/reloadUI，该端点计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/15308#issuecomment-3077675356
+	ginServer.Handle("POST", "/api/system/reloadUI", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, deprecated) // TODO 请使用 /api/ui/reloadUI，该端点将于 2026 年 12 月 1 日后删除
 	ginServer.Handle("POST", "/api/system/addMicrosoftDefenderExclusion", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, addMicrosoftDefenderExclusion)
 	ginServer.Handle("POST", "/api/system/ignoreAddMicrosoftDefenderExclusion", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, ignoreAddMicrosoftDefenderExclusion)
 	ginServer.Handle("POST", "/api/system/vacuumDataIndex", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, vacuumDataIndex)
 	ginServer.Handle("POST", "/api/system/clearTempFiles", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, clearTempFiles)
 	ginServer.Handle("POST", "/api/system/rebuildDataIndex", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, rebuildDataIndex)
 
-	ginServer.Handle("POST", "/api/storage/setLocalStorage", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setLocalStorage, deprecated) // TODO 请使用 /api/storage/setLocalStorageVal，该端点计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/16664#issuecomment-3694774305
 	ginServer.Handle("POST", "/api/storage/getLocalStorage", model.CheckAuth, getLocalStorage)
+	ginServer.Handle("POST", "/api/storage/getLocalStorageVal", model.CheckAuth, getLocalStorageVal)
+	ginServer.Handle("POST", "/api/storage/getLocalStorageVals", model.CheckAuth, getLocalStorageVals)
+	ginServer.Handle("POST", "/api/storage/setLocalStorage", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, deprecated) // TODO 请使用 /api/storage/setLocalStorageVal，该端点将于 2026 年 12 月 1 日后删除
 	ginServer.Handle("POST", "/api/storage/setLocalStorageVal", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setLocalStorageVal)
+	ginServer.Handle("POST", "/api/storage/setLocalStorageVals", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setLocalStorageVals)
+	ginServer.Handle("POST", "/api/storage/removeLocalStorageVal", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeLocalStorageVal)
 	ginServer.Handle("POST", "/api/storage/removeLocalStorageVals", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeLocalStorageVals)
-	ginServer.Handle("POST", "/api/storage/setCriterion", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setCriterion)
 	ginServer.Handle("POST", "/api/storage/getCriteria", model.CheckAuth, getCriteria)
+	ginServer.Handle("POST", "/api/storage/setCriterion", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setCriterion)
 	ginServer.Handle("POST", "/api/storage/removeCriterion", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeCriterion)
 	ginServer.Handle("POST", "/api/storage/getRecentDocs", model.CheckAuth, getRecentDocs)
+	ginServer.Handle("POST", "/api/storage/updateRecentDocOpenTime", model.CheckAuth, updateRecentDocOpenTime)
 	ginServer.Handle("POST", "/api/storage/updateRecentDocViewTime", model.CheckAuth, updateRecentDocViewTime)
 	ginServer.Handle("POST", "/api/storage/updateRecentDocCloseTime", model.CheckAuth, updateRecentDocCloseTime)
 	ginServer.Handle("POST", "/api/storage/batchUpdateRecentDocCloseTime", model.CheckAuth, batchUpdateRecentDocCloseTime)
-	ginServer.Handle("POST", "/api/storage/updateRecentDocOpenTime", model.CheckAuth, updateRecentDocOpenTime)
-
 	ginServer.Handle("POST", "/api/storage/getOutlineStorage", model.CheckAuth, getOutlineStorage)
 	ginServer.Handle("POST", "/api/storage/setOutlineStorage", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setOutlineStorage)
 	ginServer.Handle("POST", "/api/storage/removeOutlineStorage", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeOutlineStorage)
@@ -116,6 +124,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/filetree/getDoc", model.CheckAuth, getDoc)
 	ginServer.Handle("POST", "/api/filetree/getDocCreateSavePath", model.CheckAuth, getDocCreateSavePath)
 	ginServer.Handle("POST", "/api/filetree/getRefCreateSavePath", model.CheckAuth, getRefCreateSavePath)
+	ginServer.Handle("POST", "/api/filetree/getShorthandSavePath", model.CheckAuth, getShorthandSavePath)
 	ginServer.Handle("POST", "/api/filetree/changeSort", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, changeSort)
 	ginServer.Handle("POST", "/api/filetree/createDocWithMd", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, createDocWithMd)
 	ginServer.Handle("POST", "/api/filetree/createDailyNote", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, createDailyNote)
@@ -141,7 +150,6 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/filetree/removeIndexes", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeIndexes)
 	ginServer.Handle("POST", "/api/filetree/listDocTree", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, listDocTree)
 	ginServer.Handle("POST", "/api/filetree/moveLocalShorthands", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, moveLocalShorthands)
-	ginServer.Handle("POST", "/api/filetree/refreshFiletree ", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, rebuildDataIndex, deprecated) // TODO 请使用 /api/system/rebuildDataIndex，该端点计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/15663#issuecomment-3219296189
 	ginServer.Handle("POST", "/api/filetree/setPublishAccess", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setPublishAccess)
 	ginServer.Handle("POST", "/api/filetree/getPublishAccess", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getPublishAccess)
 	ginServer.Handle("POST", "/api/filetree/authFilePublishAccess", model.CheckAuth, authFilePublishAccess)
@@ -160,6 +168,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/history/reindexHistory", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, reindexHistory)
 	ginServer.Handle("POST", "/api/history/searchHistory", model.CheckAuth, model.CheckAdminRole, searchHistory)
 	ginServer.Handle("POST", "/api/history/getHistoryItems", model.CheckAuth, model.CheckAdminRole, getHistoryItems)
+	ginServer.Handle("POST", "/api/history/createDocHistory", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, createDocHistory)
 
 	ginServer.Handle("POST", "/api/outline/getDocOutline", model.CheckAuth, getDocOutline)
 
@@ -174,24 +183,26 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/lute/spinBlockDOM", model.CheckAuth, spinBlockDOM) // 未测试
 	ginServer.Handle("POST", "/api/lute/html2BlockDOM", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, html2BlockDOM)
 	ginServer.Handle("POST", "/api/lute/copyStdMarkdown", model.CheckAuth, copyStdMarkdown)
+	ginServer.Handle("POST", "/api/lute/md2html", model.CheckAuth, md2HTML)
 
 	ginServer.Handle("POST", "/api/query/sql", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, SQL)
 	ginServer.Handle("POST", "/api/sqlite/flushTransaction", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, flushTransaction)
 
-	ginServer.Handle("POST", "/api/search/searchTag", model.CheckAuth, searchTag)
-	ginServer.Handle("POST", "/api/search/searchTemplate", model.CheckAuth, searchTemplate)
+	ginServer.Handle("POST", "/api/search/searchTag", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, searchTag)
+	ginServer.Handle("POST", "/api/search/searchTemplate", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, searchTemplate)
 	ginServer.Handle("POST", "/api/search/removeTemplate", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeTemplate)
-	ginServer.Handle("POST", "/api/search/searchWidget", model.CheckAuth, searchWidget)
+	ginServer.Handle("POST", "/api/search/searchWidget", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, searchWidget)
 	ginServer.Handle("POST", "/api/search/searchRefBlock", model.CheckAuth, searchRefBlock)
 	ginServer.Handle("POST", "/api/search/searchEmbedBlock", model.CheckAuth, searchEmbedBlock)
 	ginServer.Handle("POST", "/api/search/getEmbedBlock", model.CheckAuth, getEmbedBlock)
 	ginServer.Handle("POST", "/api/search/updateEmbedBlock", model.CheckAuth, updateEmbedBlock)
 	ginServer.Handle("POST", "/api/search/fullTextSearchBlock", model.CheckAuth, fullTextSearchBlock)
-	ginServer.Handle("POST", "/api/search/searchAsset", model.CheckAuth, searchAsset)
+	ginServer.Handle("POST", "/api/search/searchAsset", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, searchAsset)
 	ginServer.Handle("POST", "/api/search/findReplace", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, findReplace)
 	ginServer.Handle("POST", "/api/search/fullTextSearchAssetContent", model.CheckAuth, fullTextSearchAssetContent)
 	ginServer.Handle("POST", "/api/search/getAssetContent", model.CheckAuth, getAssetContent)
 	ginServer.Handle("POST", "/api/search/listInvalidBlockRefs", model.CheckAuth, listInvalidBlockRefs)
+	ginServer.Handle("POST", "/api/search/semanticSearchBlock", model.CheckAuth, semanticSearchBlock)
 
 	ginServer.Handle("POST", "/api/block/getBlockInfo", model.CheckAuth, getBlockInfo)
 	ginServer.Handle("POST", "/api/block/getBlockDOM", model.CheckAuth, model.CheckAdminRole, getBlockDOM)
@@ -217,6 +228,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/block/getDocInfo", model.CheckAuth, getDocInfo)
 	ginServer.Handle("POST", "/api/block/getDocsInfo", model.CheckAuth, getDocsInfo)
 	ginServer.Handle("POST", "/api/block/checkBlockExist", model.CheckAuth, checkBlockExist)
+	ginServer.Handle("POST", "/api/block/checkBlocksExist", model.CheckAuth, checkBlocksExist)
 	ginServer.Handle("POST", "/api/block/getUnfoldedParentID", model.CheckAuth, getUnfoldedParentID)
 	ginServer.Handle("POST", "/api/block/checkBlockFold", model.CheckAuth, checkBlockFold)
 	ginServer.Handle("POST", "/api/block/insertBlock", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, insertBlock)
@@ -267,16 +279,17 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/ref/getBackmentionDoc", model.CheckAuth, getBackmentionDoc)
 
 	ginServer.Handle("POST", "/api/attr/getBookmarkLabels", model.CheckAuth, getBookmarkLabels)
-	ginServer.Handle("POST", "/api/attr/resetBlockAttrs", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, resetBlockAttrs, deprecated) // TODO 请使用 /api/attr/setBlockAttrs，该端点计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/pull/17027
+	ginServer.Handle("POST", "/api/attr/resetBlockAttrs", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, deprecated) // TODO 请使用 /api/attr/setBlockAttrs，该端点将于 2026 年 12 月 1 日后删除
 	ginServer.Handle("POST", "/api/attr/setBlockAttrs", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setBlockAttrs)
 	ginServer.Handle("POST", "/api/attr/batchSetBlockAttrs", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, batchSetBlockAttrs)
 	ginServer.Handle("POST", "/api/attr/getBlockAttrs", model.CheckAuth, getBlockAttrs)
 	ginServer.Handle("POST", "/api/attr/batchGetBlockAttrs", model.CheckAuth, batchGetBlockAttrs)
 
 	ginServer.Handle("POST", "/api/cloud/getCloudSpace", model.CheckAuth, model.CheckAdminRole, getCloudSpace)
+	ginServer.Handle("POST", "/api/cloud/setCloudReminder", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setCloudReminder)
 
 	ginServer.Handle("POST", "/api/sync/setSyncEnable", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setSyncEnable)
-	ginServer.Handle("POST", "/api/sync/setSyncInterval", model.CheckAuth, setSyncInterval)
+	ginServer.Handle("POST", "/api/sync/setSyncInterval", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setSyncInterval)
 	ginServer.Handle("POST", "/api/sync/setSyncPerception", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setSyncPerception)
 	ginServer.Handle("POST", "/api/sync/setSyncGenerateConflictDoc", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setSyncGenerateConflictDoc)
 	ginServer.Handle("POST", "/api/sync/setSyncMode", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setSyncMode)
@@ -357,6 +370,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/export/exportEPUB", model.CheckAuth, model.CheckAdminRole, exportEPUB)
 	ginServer.Handle("POST", "/api/export/exportAttributeView", model.CheckAuth, model.CheckAdminRole, exportAttributeView)
 	ginServer.Handle("POST", "/api/export/exportCodeBlock", model.CheckAuth, model.CheckAdminRole, exportCodeBlock)
+	ginServer.Handle("POST", "/api/export/copyExportFile", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, copyExportFile)
 
 	ginServer.Handle("POST", "/api/import/importStdMd", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importStdMd)
 	ginServer.Handle("POST", "/api/import/importZipMd", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importZipMd)
@@ -370,6 +384,10 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/template/renderSprig", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, renderSprig)
 
 	ginServer.Handle("POST", "/api/transactions", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, performTransactions)
+	ginServer.Handle("POST", "/api/transactions/undoState", model.CheckAuth, undoState)
+	ginServer.Handle("POST", "/api/transactions/undo", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, performUndo)
+	ginServer.Handle("POST", "/api/transactions/redo", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, performRedo)
+	ginServer.Handle("POST", "/api/transactions/clearHistory", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, clearHistory)
 
 	ginServer.Handle("POST", "/api/setting/setAccount", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setAccount)
 	ginServer.Handle("POST", "/api/setting/setEditor", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setEditor)
@@ -386,6 +404,8 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/setting/setEmoji", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setEmoji)
 	ginServer.Handle("POST", "/api/setting/setFlashcard", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setFlashcard)
 	ginServer.Handle("POST", "/api/setting/setAI", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setAI)
+	ginServer.Handle("POST", "/api/setting/setSecrets", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setSecrets)
+	ginServer.Handle("POST", "/api/setting/setVariables", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setVariables)
 	ginServer.Handle("POST", "/api/setting/setBazaar", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setBazaar)
 	ginServer.Handle("POST", "/api/setting/setPublish", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setPublish)
 	ginServer.Handle("POST", "/api/setting/getPublish", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getPublish)
@@ -434,6 +454,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/repo/tagSnapshot", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, tagSnapshot)
 	ginServer.Handle("POST", "/api/repo/checkoutRepo", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, checkoutRepo)
 	ginServer.Handle("POST", "/api/repo/getRepoSnapshots", model.CheckAuth, model.CheckAdminRole, getRepoSnapshots)
+	ginServer.Handle("POST", "/api/repo/searchRepoFile", model.CheckAuth, model.CheckAdminRole, searchRepoFile)
 	ginServer.Handle("POST", "/api/repo/getRepoTagSnapshots", model.CheckAuth, model.CheckAdminRole, getRepoTagSnapshots)
 	ginServer.Handle("POST", "/api/repo/removeRepoTagSnapshot", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeRepoTagSnapshot)
 	ginServer.Handle("POST", "/api/repo/getCloudRepoTagSnapshots", model.CheckAuth, model.CheckAdminRole, getCloudRepoTagSnapshots)
@@ -444,6 +465,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/repo/diffRepoSnapshots", model.CheckAuth, model.CheckAdminRole, diffRepoSnapshots)
 	ginServer.Handle("POST", "/api/repo/openRepoSnapshotFile", model.CheckAuth, model.CheckAdminRole, openRepoSnapshotFile)
 	ginServer.Handle("POST", "/api/repo/rollbackRepoSnapshotFile", model.CheckAuth, model.CheckAdminRole, rollbackRepoSnapshotFile)
+	ginServer.Handle("POST", "/api/repo/exportRepoFile", model.CheckAuth, model.CheckAdminRole, exportRepoFile)
 	ginServer.Handle("POST", "/api/repo/getRepoFile", model.CheckAuth, model.CheckAdminRole, getRepoFile)
 	ginServer.Handle("POST", "/api/repo/setRepoIndexRetentionDays", model.CheckAuth, model.CheckAdminRole, setRepoIndexRetentionDays)
 	ginServer.Handle("POST", "/api/repo/setRetentionIndexesDaily", model.CheckAuth, model.CheckAdminRole, setRetentionIndexesDaily)
@@ -482,9 +504,11 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/av/searchAttributeView", model.CheckAuth, model.CheckReadonly, searchAttributeView)
 	ginServer.Handle("POST", "/api/av/getAttributeView", model.CheckAuth, model.CheckReadonly, getAttributeView)
 	ginServer.Handle("POST", "/api/av/searchAttributeViewRelationKey", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, searchAttributeViewRelationKey)
-	ginServer.Handle("POST", "/api/av/searchAttributeViewNonRelationKey", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, searchAttributeViewNonRelationKey, deprecated) // TODO 请勿使用，该端点计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/15727
+	ginServer.Handle("POST", "/api/av/searchAttributeViewNonRelationKey", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, deprecated) // TODO 请勿使用，该端点将于 2026 年 12 月 1 日后删除
 	ginServer.Handle("POST", "/api/av/searchAttributeViewRollupDestKeys", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, searchAttributeViewRollupDestKeys)
 	ginServer.Handle("POST", "/api/av/getAttributeViewFilterSort", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getAttributeViewFilterSort)
+	ginServer.Handle("POST", "/api/av/setAttrViewFilters", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setAttrViewFilters)
+	ginServer.Handle("POST", "/api/av/setAttrViewSorts", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setAttrViewSorts)
 	ginServer.Handle("POST", "/api/av/addAttributeViewKey", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, addAttributeViewKey)
 	ginServer.Handle("POST", "/api/av/removeAttributeViewKey", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeAttributeViewKey)
 	ginServer.Handle("POST", "/api/av/sortAttributeViewViewKey", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, sortAttributeViewViewKey)
@@ -511,24 +535,41 @@ func ServeAPI(ginServer *gin.Engine) {
 
 	ginServer.Handle("POST", "/api/ai/chatGPT", model.CheckAuth, model.CheckAdminRole, chatGPT)
 	ginServer.Handle("POST", "/api/ai/chatGPTWithAction", model.CheckAuth, model.CheckAdminRole, chatGPTWithAction)
+	ginServer.Handle("POST", "/api/ai/testModel", model.CheckAuth, model.CheckAdminRole, testModel)
+	ginServer.Handle("POST", "/api/ai/listModels", model.CheckAuth, model.CheckAdminRole, listModels)
+	ginServer.Handle("POST", "/api/ai/agent/chat", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, agentChat)
+	ginServer.Handle("POST", "/api/ai/agent/confirm", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, agentChatConfirm)
+	ginServer.Handle("POST", "/api/ai/agent/question", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, agentChatQuestion)
+	ginServer.Handle("POST", "/api/ai/agent/frontendToolResult", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, agentChatFrontendResult)
+	ginServer.Handle("POST", "/api/ai/agent/title", model.CheckAuth, model.CheckAdminRole, agentChatTitle)
+	ginServer.Handle("POST", "/api/ai/agent/lsSessions", model.CheckAuth, model.CheckAdminRole, lsSessions)
+	ginServer.Handle("POST", "/api/ai/agent/getSession", model.CheckAuth, model.CheckAdminRole, getSession)
+	ginServer.Handle("POST", "/api/ai/agent/saveSession", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, saveSession)
+	ginServer.Handle("POST", "/api/ai/agent/removeSession", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeSession)
+	ginServer.Handle("POST", "/api/ai/agent/lsSkills", model.CheckAuth, model.CheckAdminRole, lsSkills)
+	ginServer.Handle("POST", "/api/ai/agent/getSkill", model.CheckAuth, model.CheckAdminRole, getSkill)
+	ginServer.Handle("POST", "/api/ai/agent/saveSkill", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, saveSkill)
+	ginServer.Handle("POST", "/api/ai/agent/removeSkill", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, removeSkill)
+	ginServer.Handle("POST", "/api/ai/agent/renameSkill", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, renameSkill)
 
 	ginServer.Handle("POST", "/api/petal/loadPetals", model.CheckAuth, loadPetals)
 	ginServer.Handle("POST", "/api/petal/setPetalEnabled", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setPetalEnabled)
 
-	ginServer.Handle("GET", "/api/plugin", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, listLoadedPlugins)
-	ginServer.Handle("GET", "/api/plugin/rpc", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getLoadedPlugin)
-	ginServer.Handle("GET", "/api/plugin/rpc/:name", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getLoadedPlugin)
+	ginServer.Handle("GET", "/api/plugin/rpc", model.CheckAuth, getLoadedPlugin)
+	ginServer.Handle("GET", "/api/plugin/rpc/:name", model.CheckAuth, getLoadedPlugin)
+	ginServer.Handle("GET", "/api/plugin", model.CheckAuth, listLoadedPlugins)
+
+	ginServer.Handle("POST", "/api/plugin/getLoadedPlugin", model.CheckAuth, getLoadedPlugin)
+	ginServer.Handle("POST", "/api/plugin/listLoadedPlugins", model.CheckAuth, listLoadedPlugins)
+
+	ginServer.Handle("POST", "/api/plugin/rpc", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, pluginJsonRpcHttp)
+	ginServer.Handle("POST", "/api/plugin/rpc/:name", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, pluginJsonRpcHttp)
 
 	ginServer.Handle("GET", "/ws/plugin/rpc", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, pluginJsonRpcWebSocket)
 	ginServer.Handle("GET", "/ws/plugin/rpc/:name", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, pluginJsonRpcWebSocket)
 
 	// ginServer.Any("/plugin/public/:name/*path", pluginPublicWebServer)
-	ginServer.Any("/plugin/private/:name/*path", model.CheckAuth, model.CheckAdminRole, pluginPrivateWebServer)
-
-	ginServer.Handle("POST", "/api/plugin/getLoadedPlugin", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, getLoadedPlugin)
-	ginServer.Handle("POST", "/api/plugin/listLoadedPlugins", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, listLoadedPlugins)
-	ginServer.Handle("POST", "/api/plugin/rpc", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, pluginJsonRpcHttp)
-	ginServer.Handle("POST", "/api/plugin/rpc/:name", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, pluginJsonRpcHttp)
+	ginServer.Any("/plugin/private/:name/*path", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, pluginPrivateWebServer)
 
 	ginServer.Any("/api/network/echo", model.CheckAuth, model.CheckAdminRole, echo)
 	ginServer.Any("/api/network/echo/*path", model.CheckAuth, model.CheckAdminRole, echo)
@@ -559,6 +600,13 @@ func ServeAPI(ginServer *gin.Engine) {
 }
 
 func deprecated(c *gin.Context) {
-	logging.LogWarnf("[%s] is deprecated, it will be removed at [%s], visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
-		c.Request.RequestURI, "2026-06-30")
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	msg := fmt.Sprintf("[%s] is deprecated, visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
+		c.Request.RequestURI)
+	logging.LogWarnf(msg)
+
+	ret.Code = -1
+	ret.Msg = msg
 }

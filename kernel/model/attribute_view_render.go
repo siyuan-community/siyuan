@@ -35,7 +35,7 @@ import (
 	"github.com/siyuan-note/logging"
 )
 
-func RenderAttributeView(blockID, avID, viewID, query string, page, pageSize int, groupPaging map[string]any, createIfNotExist bool) (viewable av.Viewable, attrView *av.AttributeView, err error) {
+func RenderAttributeView(blockID, avID, viewID, query string, page, pageSize int, groupPaging map[string]any, createIfNotExist, ignoreRows bool) (viewable av.Viewable, attrView *av.AttributeView, err error) {
 	waitForSyncingStorages()
 
 	if avJSONPath := av.GetAttributeViewDataPath(avID); !filelock.IsExist(avJSONPath) {
@@ -62,7 +62,7 @@ func RenderAttributeView(blockID, avID, viewID, query string, page, pageSize int
 		return
 	}
 
-	viewable, err = renderAttributeView(attrView, blockID, viewID, query, page, pageSize, groupPaging)
+	viewable, err = renderAttributeView(attrView, blockID, viewID, query, page, pageSize, groupPaging, ignoreRows)
 	return
 }
 
@@ -74,7 +74,7 @@ const (
 	groupValueNext7Days, groupValueNext30Days                = "_@next7Days@_", "_@next30Days@_"
 )
 
-func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, query string, page, pageSize int, groupPaging map[string]any) (viewable av.Viewable, err error) {
+func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, query string, page, pageSize int, groupPaging map[string]any, ignoreRows bool) (viewable av.Viewable, err error) {
 	// 获取待渲染的视图
 	view, err := getRenderAttributeViewView(attrView, viewID, nodeID)
 	if nil != err {
@@ -86,18 +86,20 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, query strin
 	upgradeAttributeViewSpec(attrView)
 
 	// 渲染视图
-	viewable = sql.RenderView(attrView, view, query)
-	err = renderViewableInstance(viewable, view, attrView, page, pageSize)
+	viewable = sql.RenderView(attrView, view, query, ignoreRows)
+	err = renderViewableInstance(viewable, view, attrView, page, pageSize, ignoreRows)
 	if nil != err {
 		return
 	}
 
-	// 渲染分组视图
-	err = renderAttributeViewGroups(viewable, attrView, view, query, page, pageSize, groupPaging)
+	// 渲染分组视图。当 ignoreRows 时若有已生成的分组则渲染元数据供面板使用，无分组则跳过（生成分组需要行数据）
+	if !ignoreRows || len(view.Groups) > 0 {
+		err = renderAttributeViewGroups(viewable, attrView, view, query, page, pageSize, groupPaging, ignoreRows)
+	}
 	return
 }
 
-func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView, view *av.View, query string, page, pageSize int, groupPaging map[string]any) (err error) {
+func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView, view *av.View, query string, page, pageSize int, groupPaging map[string]any, ignoreRows bool) (err error) {
 	groupKey := view.GetGroupKey(attrView)
 	if nil == groupKey {
 		if view.LayoutType == av.LayoutTypeKanban {
@@ -117,8 +119,9 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 		}
 	}
 
-	// 当前日期可能会变，所以如果是按日期分组则需要重新生成分组
-	if isGroupByDate(view) {
+	// 当前日期可能会变，所以如果是按日期分组则需要重新生成分组。
+	// ignoreRows 时跳过重新生成（需要行数据），沿用已保存的分组。
+	if !ignoreRows && isGroupByDate(view) {
 		createdDate := time.UnixMilli(view.GroupCreated).Format("2006-01-02")
 		if time.Now().Format("2006-01-02") != createdDate {
 			genAttrViewGroups(view, attrView) // 仅重新生成一个视图的分组以提升性能
@@ -129,8 +132,9 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 		}
 	}
 
-	// 如果是按模板分组则需要重新生成分组
-	if isGroupByTemplate(attrView, view) {
+	// 如果是按模板分组则需要重新生成分组。
+	// ignoreRows 时跳过重新生成（需要行数据），沿用已保存的分组。
+	if !ignoreRows && isGroupByTemplate(attrView, view) {
 		genAttrViewGroups(view, attrView) // 仅重新生成一个视图的分组以提升性能
 		if err = av.SaveAttributeView(attrView); err != nil {
 			logging.LogErrorf("save attribute view [%s] failed: %s", attrView.ID, err)
@@ -138,8 +142,11 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 		}
 	}
 
-	// 渲染分组视图
+	// 渲染分组视图。ignoreRows 时若已存在分组则渲染元数据供面板使用，若无分组则返回（生成需要行数据）
 	if nil == view.Groups {
+		if ignoreRows {
+			return
+		}
 		genAttrViewGroups(view, attrView)
 		if err = av.SaveAttributeView(attrView); err != nil {
 			logging.LogErrorf("save attribute view [%s] failed: %s", attrView.ID, err)
@@ -190,12 +197,14 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 			}
 		}
 
-		err = renderViewableInstance(groupViewable, view, attrView, groupPage, groupPageSize)
+		err = renderViewableInstance(groupViewable, view, attrView, groupPage, groupPageSize, ignoreRows)
 		if nil != err {
 			return
 		}
 
-		hideEmptyGroupViews(view, groupViewable)
+		if !ignoreRows {
+			hideEmptyGroupViews(view, groupViewable)
+		}
 		groups = append(groups, groupViewable)
 
 		// 将分组视图的分组字段清空，减少冗余（字段信息可以在总的视图 view 对象上获取到）
@@ -400,10 +409,15 @@ func isGroupByTemplate(attrView *av.AttributeView, view *av.View) bool {
 	return av.KeyTypeTemplate == groupKey.Type
 }
 
-func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.AttributeView, page, pageSize int) (err error) {
+func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.AttributeView, page, pageSize int, ignoreRows bool) (err error) {
 	if nil == viewable {
 		err = av.ErrViewNotFound
 		logging.LogErrorf("render attribute view [%s] failed", attrView.ID)
+		return
+	}
+
+	// ignoreRows 时行已为空，跳过 filter/sort/calc 和分页（菜单不需要行数据）
+	if ignoreRows {
 		return
 	}
 
@@ -547,7 +561,7 @@ func RenderRepoSnapshotAttributeView(indexID, avID string) (viewable av.Viewable
 		return
 	}
 
-	viewable, err = renderAttributeView(attrView, "", "", "", 1, -1, nil)
+	viewable, err = renderAttributeView(attrView, "", "", "", 1, -1, nil, false)
 	return
 }
 
@@ -607,6 +621,6 @@ func RenderHistoryAttributeView(blockID, avID, viewID, query string, page, pageS
 		return
 	}
 
-	viewable, err = renderAttributeView(attrView, blockID, viewID, query, page, pageSize, groupPaging)
+	viewable, err = renderAttributeView(attrView, blockID, viewID, query, page, pageSize, groupPaging, false)
 	return
 }

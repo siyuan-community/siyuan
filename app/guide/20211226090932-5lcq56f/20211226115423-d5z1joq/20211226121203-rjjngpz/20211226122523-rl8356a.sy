@@ -39,7 +39,7 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
-					"TextMarkTextContent": "設置"
+					"TextMarkTextContent": "設定"
 				},
 				{
 					"Type": "NodeText",
@@ -48,7 +48,7 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
-					"TextMarkTextContent": "關於"
+					"TextMarkTextContent": "鑑權"
 				},
 				{
 					"Type": "NodeText",
@@ -197,7 +197,7 @@
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "鑒權密碼"
+					"Data": "鎖屏密碼"
 				}
 			]
 		},
@@ -216,7 +216,7 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
-					"TextMarkTextContent": "設置"
+					"TextMarkTextContent": "設定"
 				},
 				{
 					"Type": "NodeText",
@@ -225,11 +225,11 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
-					"TextMarkTextContent": "關於"
+					"TextMarkTextContent": "鑑權"
 				},
 				{
 					"Type": "NodeText",
-					"Data": " 中可配置瀏覽器存取鑒權密碼，留空表示不啟用鑒權。這在開放網絡（比如辦公場所和公網）會比較有用，只有鑒權通過後才能進入工作空間。"
+					"Data": " 中可配置瀏覽器鎖屏密碼，留空表示不啟用。這在開放網絡（比如辦公場所和公網）會比較有用，只有密碼驗證通過後才能進入工作空間。"
 				}
 			]
 		}

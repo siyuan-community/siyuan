@@ -2,13 +2,14 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <title>SiYuan</title>
     <meta name="viewport" content="width=device-width, height=device-height, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 </head>
 <body class="fn__flex-column">
 <div id="loading" class="b3-dialog b3-dialog--open">
     <div class="b3-dialog__scrim" style="background-color: #1e1e1e"></div>
-    <img style="position: absolute;width: 36vh;" src="../../icon.png">
+    <img style="position: absolute;width: 24vh;" src="../../icon.svg">
 </div>
 <div class="toolbar toolbar--border">
     <svg id="toolbarFile" class="toolbar__icon">
@@ -27,9 +28,9 @@
 <div id="sidebar" class="side-panel fn__flex-column">
     <div class="toolbar toolbar--border" style="-webkit-user-select: none">
         <svg data-type="sidebar-file-tab" class="toolbar__icon toolbar__icon--active"><use xlink:href="#iconFiles"></use></svg>
-        <svg data-type="sidebar-outline-tab" class="toolbar__icon"><use xlink:href="#iconAlignCenter"></use></svg>
+        <svg data-type="sidebar-outline-tab" class="toolbar__icon"><use xlink:href="#iconOutline"></use></svg>
         <svg data-type="sidebar-bookmark-tab" class="toolbar__icon"><use xlink:href="#iconBookmark"></use></svg>
-        <svg data-type="sidebar-tag-tab" class="toolbar__icon"><use xlink:href="#iconTags"></use></svg>
+        <svg data-type="sidebar-tag-tab" class="toolbar__icon"><use xlink:href="#iconTag"></use></svg>
         <svg data-type="sidebar-backlink-tab" class="toolbar__icon"><use xlink:href="#iconLink"></use></svg>
         <svg data-type="sidebar-inbox-tab" class="toolbar__icon"><use xlink:href="#iconInbox"></use></svg>
         <svg data-menu="true" data-type="sidebar-plugin-tab" class="toolbar__icon"><use xlink:href="#iconPlugin"></use></svg>

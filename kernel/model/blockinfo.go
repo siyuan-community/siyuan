@@ -53,7 +53,7 @@ type AttrView struct {
 	Name string `json:"name"`
 }
 
-func GetDocInfo(blockID string) (ret *BlockInfo) {
+func GetDocInfo(blockID string) (ret *BlockInfo, err error) {
 	FlushTxQueue()
 
 	tree, err := LoadTreeByBlockID(blockID)
@@ -67,6 +67,11 @@ func GetDocInfo(blockID string) (ret *BlockInfo) {
 	ret.IAL = parse.IAL2Map(tree.Root.KramdownIAL)
 	scrollData := ret.IAL["scroll"]
 	if 0 < len(scrollData) {
+		// scroll 属性值在持久化时会被 html.EscapeAttrVal() 进行 HTML 转义（如 " 变为 &quot;），
+		// 虽然 parse.IAL2Map() 中会调用 html.UnescapeAttrVal() 进行反转义，
+		// 但部分历史数据或某些路径下可能出现反转义不完整的情况，导致 JSON 解析失败，
+		// 这里做一次防御性反转义，确保 JSON 解析不会因为残留的 HTML 实体而报错
+		scrollData = util.UnescapeHTML(scrollData)
 		scroll := map[string]any{}
 		if parseErr := gulu.JSON.UnmarshalJSON([]byte(scrollData), &scroll); nil != parseErr {
 			logging.LogWarnf("parse scroll data [%s] failed: %s", scrollData, parseErr)
@@ -107,6 +112,10 @@ func GetDocInfo(blockID string) (ret *BlockInfo) {
 	// 填充属性视图角标 Display the database title on the block superscript https://github.com/siyuan-note/siyuan/issues/10545
 	avIDs := strings.Split(ret.IAL[av.NodeAttrNameAvs], ",")
 	for _, avID := range avIDs {
+		if !ast.IsNodeIDPattern(avID) {
+			continue
+		}
+
 		avName, getErr := av.GetAttributeViewName(avID)
 		if nil != getErr {
 			continue
@@ -150,6 +159,11 @@ func GetDocsInfo(blockIDs []string, queryRefCount bool, queryAv bool) (rets []*B
 		ret.IAL = parse.IAL2Map(tree.Root.KramdownIAL)
 		scrollData := ret.IAL["scroll"]
 		if 0 < len(scrollData) {
+			// scroll 属性值在持久化时会被 html.EscapeAttrVal() 进行 HTML 转义（如 " 变为 &quot;），
+			// 虽然 parse.IAL2Map() 中会调用 html.UnescapeAttrVal() 进行反转义，
+			// 但部分历史数据或某些路径下可能出现反转义不完整的情况，导致 JSON 解析失败，
+			// 这里做一次防御性反转义，确保 JSON 解析不会因为残留的 HTML 实体而报错
+			scrollData = util.UnescapeHTML(scrollData)
 			scroll := map[string]any{}
 			if parseErr := gulu.JSON.UnmarshalJSON([]byte(scrollData), &scroll); nil != parseErr {
 				logging.LogWarnf("parse scroll data [%s] failed: %s", scrollData, parseErr)
@@ -191,6 +205,10 @@ func GetDocsInfo(blockIDs []string, queryRefCount bool, queryAv bool) (rets []*B
 			// 填充属性视图角标 Display the database title on the block superscript https://github.com/siyuan-note/siyuan/issues/10545
 			avIDs := strings.Split(ret.IAL[av.NodeAttrNameAvs], ",")
 			for _, avID := range avIDs {
+				if !ast.IsNodeIDPattern(avID) {
+					continue
+				}
+
 				avName, getErr := av.GetAttributeViewName(avID)
 				if nil != getErr {
 					continue
@@ -587,6 +605,12 @@ func buildBlockBreadcrumb(node *ast.Node, excludeTypes []string, isEmbedBlock bo
 				Type:    parent.Type.String(),
 				SubType: treenode.SubTypeAbbr(parent),
 			}}, ret...)
+		}
+
+		// 容器块（引述/超级块/列表等）内部的标题构成独立的子大纲，扫描容器外部同级标题前需重置标题层级约束，
+		// 否则容器内部更宽（层级更小）的标题会错误地限制容器外部同级标题的收集 https://github.com/siyuan-note/siyuan/issues/17930
+		if ast.NodeDocument != parent.Type && parent.IsContainerBlock() {
+			headingLevel = 16
 		}
 
 		for prev := parent.Previous; nil != prev; prev = prev.Previous {

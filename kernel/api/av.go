@@ -17,11 +17,13 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
+	goccyJSON "github.com/goccy/go-json"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
@@ -216,13 +218,61 @@ func setAttrViewGroup(c *gin.Context) {
 		return
 	}
 
-	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false)
+	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false, false)
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
 		retDataMap["view"] = model.FilterViewByPublishAccess(c, publishAccess, retDataMap["view"].(av.Viewable))
 	}
 
+	c.JSON(http.StatusOK, ret)
+}
+
+func setAttrViewFilters(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	avID := arg["avID"].(string)
+	blockID := arg["blockID"].(string)
+	data := arg["data"].([]any)
+
+	err := model.SetAttrViewFilters(avID, blockID, data)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	model.ReloadAttrView(avID)
+	c.JSON(http.StatusOK, ret)
+}
+
+func setAttrViewSorts(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	avID := arg["avID"].(string)
+	blockID := arg["blockID"].(string)
+	data := arg["data"].([]any)
+
+	err := model.SetAttrViewSorts(avID, blockID, data)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+
+	model.ReloadAttrView(avID)
 	c.JSON(http.StatusOK, ret)
 }
 
@@ -245,7 +295,7 @@ func changeAttrViewLayout(c *gin.Context) {
 		return
 	}
 
-	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false)
+	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, false, false)
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
@@ -628,24 +678,6 @@ func getAttributeViewFilterSort(c *gin.Context) {
 	}
 }
 
-func searchAttributeViewNonRelationKey(c *gin.Context) {
-	ret := gulu.Ret.NewResult()
-	defer c.JSON(http.StatusOK, ret)
-
-	arg, _ := util.JsonArg(c, ret)
-	if nil == arg {
-		return
-	}
-
-	avID := arg["avID"].(string)
-	keyword := arg["keyword"].(string)
-
-	nonRelationKeys := model.SearchAttributeViewNonRelationKey(avID, keyword)
-	ret.Data = map[string]any{
-		"keys": nonRelationKeys,
-	}
-}
-
 func searchAttributeViewRollupDestKeys(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -886,22 +918,38 @@ func renderAttributeView(c *gin.Context) {
 		createIfNotExist = createIfNotExistArg.(bool)
 	}
 
-	ret = renderAttrView(blockID, id, viewID, query, page, pageSize, groupPaging, createIfNotExist)
+	ignoreRows := false
+	ignoreRowsArg := arg["ignoreRows"]
+	if nil != ignoreRowsArg {
+		ignoreRows = ignoreRowsArg.(bool)
+	}
+
+	ret = renderAttrView(blockID, id, viewID, query, page, pageSize, groupPaging, createIfNotExist, ignoreRows)
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
 		retDataMap["view"] = model.FilterViewByPublishAccess(c, publishAccess, retDataMap["view"].(av.Viewable))
 	}
 
-	c.JSON(http.StatusOK, ret)
+	// 大体量响应（如全量数据库视图）用 goccy 序列化后直接写字节，跳过 gin 内部基于标准库的二次序列化
+	marshalBytes, marshalErr := goccyJSON.Marshal(ret)
+	if nil != marshalErr || 0 == len(marshalBytes) {
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", marshalBytes)
 }
 
-func renderAttrView(blockID, avID, viewID, query string, page, pageSize int, groupPaging map[string]any, createIfNotExist bool) (ret *gulu.Result) {
+func renderAttrView(blockID, avID, viewID, query string, page, pageSize int, groupPaging map[string]any, createIfNotExist, ignoreRows bool) (ret *gulu.Result) {
 	ret = gulu.Ret.NewResult()
-	view, attrView, err := model.RenderAttributeView(blockID, avID, viewID, query, page, pageSize, groupPaging, createIfNotExist)
+	view, attrView, err := model.RenderAttributeView(blockID, avID, viewID, query, page, pageSize, groupPaging, createIfNotExist, ignoreRows)
 	if err != nil {
 		ret.Code = -1
-		ret.Msg = err.Error()
+		if errors.Is(err, av.ErrSpecTooNew) {
+			ret.Msg = model.Conf.Language(215)
+		} else {
+			ret.Msg = err.Error()
+		}
 		return
 	}
 
@@ -994,10 +1042,13 @@ func setAttributeViewBlockAttr(c *gin.Context) {
 	if _, ok := arg["itemID"]; ok {
 		itemID = arg["itemID"].(string)
 	} else if _, ok := arg["rowID"]; ok {
-		// TODO 计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/15708#issuecomment-3239694546
-		itemID = arg["rowID"].(string)
-		logging.LogWarnf("[%s] parameter [%s] is deprecated, it will be removed at [%s], visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
-			c.Request.RequestURI, "rowID", "2026-06-30")
+		// TODO 该参数将于 2026 年 12 月 1 日后删除
+		msg := fmt.Sprintf("[%s] parameter [%s] is deprecated, visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
+			c.Request.RequestURI, "rowID")
+		logging.LogWarnf(msg)
+		ret.Code = -1
+		ret.Msg = msg
+		return
 	}
 	value := arg["value"].(any)
 	updatedVal, err := model.UpdateAttributeViewCell(nil, avID, keyID, itemID, value)

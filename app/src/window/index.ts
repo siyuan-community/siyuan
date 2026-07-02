@@ -6,17 +6,15 @@ import {initBlockPopover} from "../block/popover";
 import {addScript, addScriptSync} from "../protyle/util/addScript";
 import {genUUID} from "../util/genID";
 import {fetchGet, fetchPost} from "../util/fetch";
-import {addBaseURL, redirectToCheckAuth, setNoteBook} from "../util/pathName";
+import {addBaseURL, getDocDisplayName, redirectToCheckAuth, setNoteBook} from "../util/pathName";
 import {openFileById} from "../editor/util";
 import {
     processSync,
     progressBackgroundTask,
     progressLoading,
     progressStatus,
-    reloadSync,
     setDefRefCount,
     setRefDynamicText,
-    setTitle,
     transactionError
 } from "../dialog/processSystem";
 import {initMessage} from "../dialog/message";
@@ -26,8 +24,11 @@ import {init} from "./init";
 import {loadPlugins, reloadPlugin} from "../plugin/loader";
 import {hideAllElements} from "../protyle/ui/hideElements";
 import {reloadEmoji} from "../emoji";
-import {updateAppearance} from "../config/util/updateAppearance";
+import {appearanceConfigApi} from "../config/tabs/appearanceRuntime";
 import {renderSnippet} from "../config/util/snippets";
+import {setBodyHighlight} from "../util/assets";
+import {reloadSync} from "../util/reloadSync";
+import {setTitle} from "../util/processTitle";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -36,22 +37,12 @@ class App {
     constructor() {
         addBaseURL();
         this.appId = Constants.SIYUAN_APPID;
-        window.siyuan = {
-            zIndex: 10,
-            transactions: [],
-            reqIds: {},
-            backStack: [],
-            layout: {},
-            dialogs: [],
-            blockPanels: [],
-            closedTabs: [],
-            ctrlIsPressed: false,
-            altIsPressed: false,
-            ws: new Model({
-                app: this,
-                id: genUUID(),
-                type: "main",
-                msgCallback: (data) => {
+
+        const mainWs = new Model({app: this});
+        mainWs.connect({
+            id: genUUID(),
+            type: "main",
+            msgCallback: (data) => {
                     this.plugins.forEach((plugin) => {
                         plugin.eventBus.emit("ws-main", data);
                     });
@@ -61,7 +52,7 @@ class App {
                                 redirectToCheckAuth();
                                 break;
                             case "setAppearance":
-                                updateAppearance(data.data);
+                                appearanceConfigApi.apply(data.data);
                                 break;
                             case "setSnippet":
                                 window.siyuan.config.snippet = data.data;
@@ -96,7 +87,22 @@ class App {
                                 progressLoading(data);
                                 break;
                             case "setLocalStorageVal":
-                                window.siyuan.storage[data.data.key] = data.data.val;
+                                if (window.siyuan.storage) {
+                                    window.siyuan.storage[data.data.key] = data.data.val;
+                                }
+                                break;
+                            case "setLocalStorageVals":
+                                Object.keys(data.data.keyVals).forEach((k) => {
+                                    window.siyuan.storage[k] = data.data.keyVals[k];
+                                });
+                                break;
+                            case "removeLocalStorageVal":
+                                delete window.siyuan.storage[data.data.key];
+                                break;
+                            case "removeLocalStorageVals":
+                                data.data.keys.forEach((k: string) => {
+                                    delete window.siyuan.storage[k];
+                                });
                                 break;
                             case "rename":
                                 getAllTabs().forEach((tab) => {
@@ -105,7 +111,7 @@ class App {
                                         if (initTab) {
                                             const initTabData = JSON.parse(initTab);
                                             if (initTabData.instance === "Editor" && initTabData.rootId === data.data.id) {
-                                                tab.updateTitle(data.data.title);
+                                                tab.updateTitle(getDocDisplayName(data.data.title, data.data.empty));
                                             }
                                         }
                                     }
@@ -163,12 +169,25 @@ class App {
                         }
                     }
                 }
-            }),
+        });
+
+        window.siyuan = {
+            zIndex: 10,
+            reqIds: {},
+            backStack: [],
+            layout: {},
+            dialogs: [],
+            blockPanels: [],
+            closedTabs: [],
+            ctrlIsPressed: false,
+            altIsPressed: false,
+            ws: mainWs,
         };
         fetchPost("/api/system/getConf", {}, async (response) => {
             addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
             addScript(`${Constants.PROTYLE_CDN}/js/protyle-html.js?v=${Constants.SIYUAN_VERSION}`, "protyleWcHtmlScript");
             window.siyuan.config = response.data.conf;
+            setBodyHighlight();
             window.siyuan.isPublish = response.data.isPublish;
             await loadPlugins(this);
             getLocalStorage(() => {

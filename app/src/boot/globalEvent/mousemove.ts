@@ -78,9 +78,9 @@ export const windowMouseMove = (event: MouseEvent, mouseIsEnter: boolean) => {
         if (event.clientX < Math.max(document.getElementById("dockLeft").clientWidth + 1, 16)) {
             if (!window.siyuan.layout.leftDock.pin && window.siyuan.layout.leftDock.layout.element.clientWidth > 0 &&
                 // 隐藏停靠栏会导致点击两侧内容触发浮动面板弹出，因此需减小鼠标范围
-                (window.siyuan.layout.leftDock.element.clientWidth > 0 || (window.siyuan.layout.leftDock.element.clientWidth === 0 && event.clientX < 8))) {
+                (window.siyuan.layout.leftDock.elements[0].clientWidth > 0 || (window.siyuan.layout.leftDock.elements[0].clientWidth === 0 && event.clientX < 8))) {
                 if (event.clientY > document.getElementById("toolbar").clientHeight &&
-                    event.clientY < window.innerHeight - document.getElementById("status").clientHeight - document.getElementById("dockBottom").clientHeight) {
+                    event.clientY < window.innerHeight - document.getElementById("status").clientHeight) {
                     if (!hasClosestByClassName(target, "b3-menu") &&
                         !hasClosestByClassName(target, "protyle-toolbar") &&
                         !hasClosestByClassName(target, "protyle-util") &&
@@ -94,9 +94,9 @@ export const windowMouseMove = (event: MouseEvent, mouseIsEnter: boolean) => {
             }
         } else if (event.clientX > window.innerWidth - Math.max(document.getElementById("dockRight").clientWidth - 2, 16)) {
             if (!window.siyuan.layout.rightDock.pin && window.siyuan.layout.rightDock.layout.element.clientWidth > 0 &&
-                (window.siyuan.layout.rightDock.element.clientWidth > 0 || (window.siyuan.layout.rightDock.element.clientWidth === 0 && event.clientX > window.innerWidth - 8))) {
+                (window.siyuan.layout.rightDock.elements[0].clientWidth > 0 || (window.siyuan.layout.rightDock.elements[0].clientWidth === 0 && event.clientX > window.innerWidth - 8))) {
                 if (event.clientY > document.getElementById("toolbar").clientHeight &&
-                    event.clientY < window.innerHeight - document.getElementById("status").clientHeight - document.getElementById("dockBottom").clientHeight) {
+                    event.clientY < window.innerHeight - document.getElementById("status").clientHeight) {
                     if (!hasClosestByClassName(target, "b3-menu") &&
                         !hasClosestByClassName(target, "layout--float") &&
                         !hasClosestByClassName(target, "protyle-toolbar") &&
@@ -109,7 +109,7 @@ export const windowMouseMove = (event: MouseEvent, mouseIsEnter: boolean) => {
                 }
             }
         }
-        if (event.clientY > Math.min(window.innerHeight - 10, window.innerHeight - (window.siyuan.config.uiLayout.hideDock ? 0 : document.getElementById("dockBottom").clientHeight) - document.querySelector("#status").clientHeight)) {
+        if (event.clientY > Math.min(window.innerHeight - 10, window.innerHeight - document.querySelector("#status").clientHeight)) {
             window.siyuan.layout.bottomDock.showDock();
         }
     }
@@ -168,7 +168,7 @@ export const windowMouseMove = (event: MouseEvent, mouseIsEnter: boolean) => {
     if (eventPath0 && eventPath0.nodeType !== 3 && (
         eventPath0.classList.contains("li") ||
         eventPath0.classList.contains("list") ||
-        (eventPath0.classList.contains("protyle-action") && eventPath0.getAttribute("data-type") === "NodeListItem")
+        (eventPath0.classList.contains("protyle-action") && eventPath0.parentElement.getAttribute("data-type") === "NodeListItem")
     )) {
         // 光标在列表下部应显示右侧的元素，而不是列表本身
         const targetBlockElement = getRightBlock(eventPath0, eventPath0.getBoundingClientRect().left + 1, event.clientY);
@@ -257,9 +257,12 @@ export const windowMouseMove = (event: MouseEvent, mouseIsEnter: boolean) => {
                 const rect = cellElement.getBoundingClientRect();
                 if (rect.right - event.clientX < 3 && rect.right - event.clientX > 0) {
                     resizeElement.setAttribute("data-col-index", (getColIndex(cellElement) + cellElement.colSpan - 1).toString());
+                    // 记录基础 left（不含 scrollLeft），以便横向滚动后重新定位 https://github.com/siyuan-note/siyuan/issues/13828
+                    resizeElement.setAttribute("data-left", (cellElement.offsetWidth + cellElement.offsetLeft - 3).toString());
                     resizeElement.setAttribute("style", `top:${captionHeight}px;height:${tableHeight}px;left: ${Math.round(cellElement.offsetWidth + cellElement.offsetLeft - blockElement.firstElementChild.scrollLeft - 3)}px;display:block`);
                 } else if (event.clientX - rect.left < 3 && event.clientX - rect.left > 0 && cellElement.previousElementSibling) {
                     resizeElement.setAttribute("data-col-index", (getColIndex(cellElement) - 1).toString());
+                    resizeElement.setAttribute("data-left", (cellElement.offsetLeft - 3).toString());
                     resizeElement.setAttribute("style", `top:${captionHeight}px;height:${tableHeight}px;left: ${Math.round(cellElement.offsetLeft - blockElement.firstElementChild.scrollLeft - 3)}px;display:block`);
                 }
             }

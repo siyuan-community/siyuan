@@ -66,16 +66,15 @@
       background-color: transparent;
 
       .item__graphic {
-        height: calc(1.625em - 10px);
-        width: calc(1.625em - 10px);
-        padding: 10px 5px 10px 8px;
-        line-height: calc(1.625em - 10px);
+        height: calc(1.625em - 8px);
+        width: calc(1.625em - 8px);
+        line-height: calc(1.625em - 8px);
+        padding: 8px 0 8px 8px;
         font-size: inherit;
         text-align: center;
       }
 
       .item__text {
-        padding-left: 5px;
         line-height: normal;
       }
     }
@@ -140,6 +139,11 @@
     overflow: auto hidden;
   }
 
+  &__spacer {
+    grid-column: 1 / -1;
+    pointer-events: none;
+  }
+
   &__row {
     display: flex;
     border-bottom: 1px solid var(--b3-theme-surface-lighter);
@@ -188,11 +192,6 @@
         height: 1em;
         width: 1em;
       }
-    }
-
-    &--header,
-    &--footer {
-      background-color: var(--b3-parent-background);
     }
 
     &--footer {
@@ -248,6 +247,15 @@
         &:hover {
           background-color: var(--b3-list-hover);
         }
+      }
+    }
+
+    &--header,
+    &--footer {
+      background-color: var(--b3-parent-background);
+
+      &--fixed {
+        position: fixed;
       }
     }
 
@@ -748,6 +756,7 @@
     border-radius: 50%;
     box-sizing: border-box;
     cursor: ns-resize;
+    touch-action: none;
   }
 
   &__celltext {
@@ -817,6 +826,7 @@
     right: -2.5px;
     transition: var(--b3-background-transition);
     z-index: 1;
+    touch-action: none;
 
     &:hover {
       background-color: var(--b3-theme-primary);
@@ -829,6 +839,10 @@
     .b3-menu {
       min-width: 290px;
       max-width: 290px;
+
+      &__items {
+        max-height: calc(100vh - 60px);
+      }
 
       &__item .b3-chip {
         max-width: 100%;
@@ -871,10 +885,6 @@
         min-height: 30px;
       }
 
-      &__icon.fn__grab {
-        color: var(--b3-theme-on-surface-light);
-      }
-
       &__item {
         transition: margin .2s cubic-bezier(0, 0, .2, 1) 0ms;
 
@@ -907,6 +917,106 @@
         opacity: 1;
       }
 
+      .av__filter-group-item {
+        padding: 0 8px;
+        margin: 6px 0;
+        gap: 6px;
+        display: flex;
+        align-items: center;
+
+        &:hover > .b3-menu__action {
+          opacity: 1;
+        }
+      }
+
+      // “当/且/或”只读标签，盒模型与 b3-select 对齐以保证垂直居中一致
+      .av__filter-label {
+        flex-shrink: 0;
+        height: 28px;
+        line-height: 20px;
+        padding: 4px 0;
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .av__filter-group-left {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+      }
+
+      .av__filter-group-children {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 6px 0;
+        border-radius: var(--b3-border-radius);
+        border: 1px solid var(--b3-theme-surface-lighter);
+
+        &--depth1 {
+          background-color: color-mix(in srgb, var(--b3-theme-on-background) 1%, transparent);
+        }
+
+        &--depth2 {
+          background-color: color-mix(in srgb, var(--b3-theme-on-background) 2%, transparent);
+        }
+
+        &--depth3 {
+          background-color: color-mix(in srgb, var(--b3-theme-on-background) 3%, transparent);
+        }
+      }
+
+      .av__filter-group-children .b3-menu__item {
+        background-color: transparent;
+      }
+
+      .av__filter-group-actions {
+        display: flex;
+        justify-content: flex-start;
+        gap: 6px;
+        padding-left: 8px;
+
+        .block__icon {
+          font-size: 14px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 2px;
+          padding: 0;
+
+          svg {
+            width: 10px;
+            height: 10px;
+            flex-shrink: 0;
+          }
+        }
+      }
+
+      // 分组行尾“更多”按钮与底部下拉箭头统一尺寸
+      .av__filter-group-item > .b3-menu__action {
+        flex-shrink: 0;
+        align-self: center;
+      }
+
+      .av__filter-arrow {
+        width: 10px;
+        height: 10px;
+        flex-shrink: 0;
+        align-self: center;
+        margin-left: 4px;
+      }
+
+      // “添加筛选条件”按钮：label 按内容宽度，使下拉箭头紧跟文案而非被推到最右
+      .av__filter-add-label {
+        flex: none;
+      }
+
       &__item[data-type="nobg"] {
         cursor: auto;
       }
@@ -914,6 +1024,183 @@
       &__item:not([data-type="nobg"]):hover,
       &__item--current:not([data-type="nobg"]) {
         background-color: var(--b3-list-hover);
+      }
+
+      .b3-menu__item.av__filter-row {
+        margin: 6px 0;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .av__filter-rowinner {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        min-height: 28px;
+        gap: 6px;
+      }
+
+      .av__filter-group-children .b3-menu__item.av__filter-row,
+      .av__filter-group-children .av__filter-group-item {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+
+      // 筛选面板内的下拉/输入控件统一为描边卡片样式（与字段选择器一致）
+      .av__filter-row .b3-select,
+      .av__filter-row .b3-text-field--text,
+      .av__filter-group-left .b3-select {
+        border: 1px solid var(--b3-theme-surface-lighter);
+        border-radius: var(--b3-border-radius);
+        background-color: var(--b3-menu-background);
+        box-shadow: none;
+
+        &:hover,
+        &:focus {
+          box-shadow: none;
+        }
+      }
+
+      .av__filter-field {
+        max-width: 120px;
+      }
+
+      .av__filter-num {
+        width: 50px;
+      }
+
+      .av__field-wrapper {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        height: 28px;
+        border: 1px solid var(--b3-theme-surface-lighter);
+        border-radius: var(--b3-border-radius);
+        padding: 0 4px 0 6px;
+        gap: 2px;
+        box-sizing: border-box;
+        background-color: var(--b3-menu-background);
+      }
+
+      // 字段选择器嵌入描边容器内，去掉自身描边避免双重描边
+      .av__field-wrapper .b3-select {
+        border: 0;
+        box-shadow: none;
+        background-color: transparent;
+
+        &:hover,
+        &:focus {
+          box-shadow: none;
+        }
+      }
+
+      .av__field-wrapper .b3-menu__icon {
+        margin-right: 0;
+        width: 16px;
+        height: 16px;
+      }
+
+      .b3-menu__item.av__filter-row:hover {
+        background-color: transparent;
+      }
+
+      .av__filter-value {
+        display: inline-flex;
+        align-items: center;
+        flex: 1;
+        min-width: 60px;
+      }
+
+      &.av__filter-panel {
+        min-width: 340px;
+        max-width: 80vw;
+        width: fit-content;
+      }
+
+      .av__filter-date-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .av__filter-date-col {
+        display: inline-flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .av__select-trigger {
+        display: inline-flex;
+        align-items: center;
+        flex: 1;
+        min-width: 60px;
+        cursor: pointer;
+        overflow: hidden;
+        gap: 4px;
+        color: var(--b3-theme-on-surface);
+
+        .ft__on-surface {
+          font-size: 14px;
+        }
+
+        &-arrow {
+          flex-shrink: 0;
+          width: 10px;
+          height: 10px;
+        }
+      }
+
+      .av__select-dropdown {
+        position: fixed;
+        width: fit-content;
+        min-width: 120px;
+        max-height: 240px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding: 4px;
+        box-shadow: var(--b3-dialog-shadow);
+        border-radius: var(--b3-border-radius);
+        background-color: var(--b3-menu-background);
+      }
+
+      .av__select-options {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        overflow: hidden;
+      }
+
+      // 触发器内已选 chip
+      .av__select-chip {
+        margin: 1px 2px;
+      }
+
+      // 下拉面板内的选项 chip
+      .av__select-option {
+        margin: 2px 0;
+        cursor: pointer;
+        width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+
+        svg {
+          width: 12px;
+          height: 12px;
+          flex-shrink: 0;
+        }
+
+        .fn__ellipsis {
+          min-width: 0;
+        }
+      }
+
+      // 下拉内搜索框，复用 input 的外观但占满宽度
+      .av__select-dropdown .b3-text-field {
+        margin: 0 0 4px 0;
+        height: 28px;
+        font-size: 14px;
+        width: 100%;
       }
     }
   }
@@ -940,7 +1227,7 @@
         padding: 0 4px;
 
         &:hover {
-          background-color: var(--b3-theme-background);
+          background-color: var(--b3-list-icon-hover);
         }
       }
     }

@@ -1,21 +1,14 @@
-import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "../../../util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName} from "../../../util/hasClosest";
 import {Constants} from "../../../../constants";
 import {fetchSyncPost} from "../../../../util/fetch";
-import {escapeAttr} from "../../../../util/escape";
-import {unicode2Emoji} from "../../../../emoji";
-import {cellValueIsEmpty, renderCell} from "../cell";
 import {focusBlock} from "../../../util/selection";
-import {electronUndo} from "../../../undo";
-import {addClearButton} from "../../../../util/addClearButton";
 import {avRender, genTabHeaderHTML, getGroupTitleHTML, updateSearch} from "../render";
+import {bindAvSearch} from "../search";
 import {processRender} from "../../../util/processCode";
-import {getColIconByType, getColNameByType} from "../col";
-import {getCompressURL} from "../../../../util/image";
 import {getPageSize} from "../groups";
-/// #if MOBILE
-import {activeBlur} from "../../../../mobile/util/keyboardToolbar";
-/// #endif
 import {renderKanban} from "../kanban/render";
+import {initVirtualScroll} from "../virtualScroll";
+import {getRowHTML} from "../row";
 
 interface IIds {
     groupId: string,
@@ -37,80 +30,26 @@ interface ITableOptions {
         query: string,
         oldOffset: number,
         left?: number,
+        virtualData: { [key: string]: IAVVirtualData },
     }
 }
 
-const getGalleryHTML = (data: IAVGallery) => {
+const getGalleryHTML = (data: IAVGallery, e: HTMLElement, virtualData: IAVVirtualData) => {
     let galleryHTML = "";
     // body
     data.cards.forEach((item: IAVGalleryItem, rowIndex: number) => {
-        galleryHTML += `<div data-id="${item.id}" draggable="true" class="av__gallery-item">`;
-        if (data.coverFrom !== 0) {
-            const coverClass = "av__gallery-cover av__gallery-cover--" + data.cardAspectRatio;
-            if (item.coverURL) {
-                if (item.coverURL.startsWith("background")) {
-                    galleryHTML += `<div class="${coverClass}"><img class="av__gallery-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" style="${item.coverURL}"></div>`;
-                } else {
-                    galleryHTML += `<div class="${coverClass}"><img loading="lazy" class="av__gallery-img${data.fitImage ? " av__gallery-img--fit" : ""}" src="${getCompressURL(item.coverURL)}"></div>`;
-                }
-            } else if (item.coverContent) {
-                galleryHTML += `<div class="${coverClass}"><div class="av__gallery-content">${item.coverContent}</div><div></div></div>`;
-            } else {
-                galleryHTML += `<div class="${coverClass}"></div>`;
+        if (virtualData && virtualData.renderedEnd) {
+            if (rowIndex === 0) {
+                e.setAttribute(Constants.ATTRIBUTE_V_SCROLL, "true");
             }
-        }
-        galleryHTML += '<div class="av__gallery-fields">';
-        item.values.forEach((cell, fieldsIndex) => {
-            if (data.fields[fieldsIndex].hidden) {
+            if (rowIndex > virtualData.renderedEnd || rowIndex < virtualData.renderedStart) {
                 return;
             }
-            let checkClass = "";
-            if (cell.valueType === "checkbox") {
-                checkClass = cell.value?.checkbox?.checked ? " av__cell-check" : " av__cell-uncheck";
-            }
-            const isEmpty = cellValueIsEmpty(cell.value);
-            // NOTE: innerHTML 中不能换行否则 https://github.com/siyuan-note/siyuan/issues/15132
-            let ariaLabel = escapeAttr(data.fields[fieldsIndex].name) || getColNameByType(data.fields[fieldsIndex].type);
-            if (data.fields[fieldsIndex].desc) {
-                ariaLabel += escapeAttr(`<div class="ft__on-surface">${data.fields[fieldsIndex].desc}</div>`);
-            }
-
-            if (cell.valueType === "checkbox" && !data.displayFieldName) {
-                cell.value.checkbox.content = data.fields[fieldsIndex].name || getColNameByType(data.fields[fieldsIndex].type);
-            }
-            const cellHTML = `<div class="av__cell${checkClass}${data.displayFieldName ? "" : " ariaLabel"}" 
-data-wrap="${data.fields[fieldsIndex].wrap}" 
-aria-label="${ariaLabel}" 
-data-position="5west"
-data-id="${cell.id}" 
-data-field-id="${data.fields[fieldsIndex].id}" 
-data-dtype="${cell.valueType}" 
-${cell.value?.isDetached ? ' data-detached="true"' : ""} 
-style="${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
-${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, rowIndex, data.showIcon, "gallery")}</div>`;
-            if (data.displayFieldName) {
-                galleryHTML += `<div class="av__gallery-field av__gallery-field--name" data-empty="${isEmpty}">
-    <div class="av__gallery-name">
-        ${data.fields[fieldsIndex].icon ? unicode2Emoji(data.fields[fieldsIndex].icon, undefined, true) : `<svg><use xlink:href="#${getColIconByType(data.fields[fieldsIndex].type)}"></use></svg>`}${Lute.EscapeHTMLStr(data.fields[fieldsIndex].name)}
-        ${data.fields[fieldsIndex].desc ? `<svg aria-label="${data.fields[fieldsIndex].desc}" data-position="north" class="ariaLabel"><use xlink:href="#iconInfo"></use></svg>` : ""}
-    </div>
-    ${cellHTML}
-</div>`;
-            } else {
-                galleryHTML += `<div class="av__gallery-field" data-empty="${isEmpty}">
-    <div class="av__gallery-tip">
-        ${data.fields[fieldsIndex].icon ? unicode2Emoji(data.fields[fieldsIndex].icon, undefined, true) : `<svg><use xlink:href="#${getColIconByType(data.fields[fieldsIndex].type)}"></use></svg>`}${window.siyuan.languages.edit} ${Lute.EscapeHTMLStr(data.fields[fieldsIndex].name)}
-    </div>
-    ${cellHTML}
-</div>`;
-            }
-        });
-        galleryHTML += `</div>
-    <div class="av__gallery-actions">
-        <span class="protyle-icon protyle-icon--first ariaLabel" data-position="4north" aria-label="${window.siyuan.languages.displayEmptyFields}" data-type="av-gallery-edit"><svg><use xlink:href="#iconEdit"></use></svg></span>
-        <span class="protyle-icon protyle-icon--last ariaLabel" data-position="4north" aria-label="${window.siyuan.languages.more}" data-type="av-gallery-more"><svg><use xlink:href="#iconMore"></use></svg></span>
-    </div>
-</div>`;
+        } else if (data.pageSize > 100 && rowIndex > 99) {
+            e.setAttribute(Constants.ATTRIBUTE_V_SCROLL, "true");
+            return true;
+        }
+        galleryHTML += getRowHTML({data, row: item, rowIndex, type: "gallery"});
     });
     galleryHTML += `<div class="av__gallery-add" data-type="av-add-bottom"><svg class="svg"><use xlink:href="#iconAdd"></use></svg><span class="fn__space"></span>${window.siyuan.languages.newRow}</div>`;
     return `<div class="av__gallery${data.cardSize === 0 ? " av__gallery--small" : (data.cardSize === 2 ? " av__gallery--big" : "")}">
@@ -134,12 +73,12 @@ const renderGroupGallery = (options: ITableOptions) => {
     options.data.view.groups.forEach((group: IAVGallery) => {
         if (group.groupHidden === 0) {
             avBodyHTML += `${getGroupTitleHTML(group, group.cardCount)}
-<div data-group-id="${group.id}" data-page-size="${group.pageSize}" data-dtype="${group.groupKey.type}" data-content="${Lute.EscapeHTMLStr(group.groupValue.text?.content || "")}" class="av__body${group.groupFolded ? " fn__none" : ""}">${getGalleryHTML(group)}</div>`;
+<div data-group-id="${group.id}" data-page-size="${group.pageSize}" data-dtype="${group.groupKey.type}" data-content="${Lute.EscapeHTMLStr(group.groupValue.text?.content || "")}" class="av__body${group.groupFolded ? " fn__none" : ""}">${getGalleryHTML(group, options.blockElement, options.resetData.virtualData[group.id])}</div>`;
         }
     });
     if (options.renderAll) {
         options.blockElement.firstElementChild.outerHTML = `<div class="av__container fn__block">
-    ${genTabHeaderHTML(options.data, isSearching || !!query, !options.protyle.disabled && !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed"))}
+    ${genTabHeaderHTML(options.data, isSearching || !!query, !options.protyle.disabled)}
     <div>
         ${avBodyHTML}
     </div>
@@ -212,64 +151,13 @@ export const afterRenderGallery = (options: ITableOptions) => {
     if (!options.renderAll) {
         return;
     }
-    const viewsElement = options.blockElement.querySelector(".av__views") as HTMLElement;
-    const searchInputElement = options.blockElement.querySelector('[data-type="av-search"]') as HTMLElement;
-    searchInputElement.textContent = options.resetData.query || "";
-    if (options.resetData.isSearching) {
-        searchInputElement.focus();
-    }
-    searchInputElement.addEventListener("compositionstart", (event: KeyboardEvent) => {
-        event.stopPropagation();
+    bindAvSearch({
+        blockElement: options.blockElement,
+        query: options.resetData.query,
+        isSearching: options.resetData.isSearching,
+        onChange: () => updateSearch(options.blockElement, options.protyle),
     });
-    searchInputElement.addEventListener("keydown", (event: KeyboardEvent) => {
-        if (event.isComposing) {
-            return;
-        }
-        electronUndo(event);
-    });
-    searchInputElement.addEventListener("input", (event: KeyboardEvent) => {
-        event.stopPropagation();
-        if (event.isComposing) {
-            return;
-        }
-        if (searchInputElement.textContent || document.activeElement === searchInputElement) {
-            viewsElement.classList.add("av__views--show");
-        } else {
-            viewsElement.classList.remove("av__views--show");
-        }
-        updateSearch(options.blockElement, options.protyle);
-    });
-    searchInputElement.addEventListener("compositionend", () => {
-        updateSearch(options.blockElement, options.protyle);
-    });
-    searchInputElement.addEventListener("blur", (event: KeyboardEvent) => {
-        if (event.isComposing) {
-            return;
-        }
-        if (!searchInputElement.textContent) {
-            viewsElement.classList.remove("av__views--show");
-            searchInputElement.style.width = "0";
-            searchInputElement.style.paddingLeft = "0";
-            searchInputElement.style.marginRight = "0";
-        }
-    });
-    addClearButton({
-        inputElement: searchInputElement,
-        right: 0,
-        width: "1em",
-        height: searchInputElement.clientHeight,
-        clearCB() {
-            viewsElement.classList.remove("av__views--show");
-            searchInputElement.style.width = "0";
-            searchInputElement.style.paddingLeft = "0";
-            searchInputElement.style.marginRight = "0";
-            focusBlock(options.blockElement);
-            updateSearch(options.blockElement, options.protyle);
-            /// #if MOBILE
-            activeBlur();
-            /// #endif
-        }
-    });
+    initVirtualScroll(options);
 };
 
 export const renderGallery = async (options: {
@@ -298,8 +186,17 @@ export const renderGallery = async (options: {
         }
     });
     const pageSizes: { [key: string]: string } = {};
+    const virtualData: { [key: string]: IAVVirtualData } = {};
     options.blockElement.querySelectorAll(".av__body").forEach((item: HTMLElement) => {
         pageSizes[item.dataset.groupId || "unGroup"] = item.dataset.pageSize;
+        if (!item.querySelector(".av__gallery-item") || options.blockElement.getAttribute(Constants.ATTRIBUTE_V_SCROLL) !== "true") {
+            return;
+        }
+        virtualData[item.getAttribute("data-group-id") || "all"] = ({
+            renderedStart: parseInt(item.querySelector(".av__gallery-item").getAttribute("data-index")),
+            renderedEnd: parseInt(item.querySelector(".av__gallery-add").previousElementSibling.getAttribute("data-index")),
+            topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
+        });
     });
     const resetData = {
         isSearching: searchInputElement && document.activeElement === searchInputElement,
@@ -309,6 +206,7 @@ export const renderGallery = async (options: {
         editIds,
         selectItemIds,
         pageSizes,
+        virtualData
     };
     if (options.blockElement.firstElementChild.innerHTML === "") {
         options.blockElement.style.alignSelf = "";
@@ -363,10 +261,10 @@ export const renderGallery = async (options: {
         });
         return;
     }
-    const bodyHTML = getGalleryHTML(view);
+    const bodyHTML = getGalleryHTML(view, options.blockElement, virtualData.all);
     if (options.renderAll) {
         options.blockElement.firstElementChild.outerHTML = `<div class="av__container fn__block">
-    ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, !options.protyle.disabled && !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed"))}
+    ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, !options.protyle.disabled)}
     <div>
         <div class="av__body" data-group-id="" data-page-size="${view.pageSize}">
             ${bodyHTML}

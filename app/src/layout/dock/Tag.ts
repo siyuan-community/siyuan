@@ -18,46 +18,18 @@ export class Tag extends Model {
     private element: Element;
 
     constructor(app: App, tab: Tab) {
-        super({
-            app,
+        super({app});
+        this.connect({
             id: tab.id,
             type: "tag",
-            msgCallback(data) {
-                if (data) {
-                    switch (data.cmd) {
-                        case "transactions":
-                            data.data[0].doOperations.forEach((item: IOperation) => {
-                                let needReload = false;
-                                if ((item.action === "update" || item.action === "insert") && item.data.indexOf('data-type="tag"') > -1) {
-                                    needReload = true;
-                                } else if (item.action === "delete") {
-                                    needReload = true;
-                                }
-                                if (needReload) {
-                                    this.update();
-                                }
-                            });
-                            break;
-                        case "closeBox":
-                        case "removeBox":
-                        case "removeDoc":
-                        case "mount":
-                            if (data.cmd !== "mount" || data.code !== 1) {
-                                this.update();
-                            }
-                            break;
-                    }
-                }
-            }
+            msgCallback: this.handleMsgCallback.bind(this)
         });
 
         this.element = tab.panelElement;
         this.element.classList.add("fn__flex-column", "file-tree", "sy__tag", "dockPanel");
 
         this.element.innerHTML = `<div class="block__icons">
-    <div class="block__logo fn__flex-1">
-        <svg class="block__logoicon"><use xlink:href="#iconTags"></use></svg>${window.siyuan.languages.tag}
-    </div>
+    <div class="block__logo fn__flex-1">${window.siyuan.languages.tag}</div>
     <span data-type="refresh" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.refresh}"><svg><use xlink:href='#iconRefresh'></use></svg></span>
     <span class="fn__space"></span>
     <span data-type="sort" class="block__icon ariaLabel${window.siyuan.config.readonly ? " fn__none" : ""}" data-position="north" aria-label="${window.siyuan.languages.sort}">
@@ -176,6 +148,34 @@ export class Tag extends Model {
             }
         });
         this.update(false);
+    }
+
+    private handleMsgCallback(data: IWebSocketData) {
+        if (data) {
+            switch (data.cmd) {
+                case "transactions":
+                    data.data[0].doOperations.forEach((item: IOperation) => {
+                        let needReload = false;
+                        if ((item.action === "update" || item.action === "insert") && item.data.indexOf('data-type="tag"') > -1) {
+                            needReload = true;
+                        } else if (item.action === "delete") {
+                            needReload = true;
+                        }
+                        if (needReload) {
+                            this.update();
+                        }
+                    });
+                    break;
+                case "closeBox":
+                case "removeBox":
+                case "removeDoc":
+                case "mount":
+                    if (data.cmd !== "mount" || data.code !== 1) {
+                        this.update();
+                    }
+                    break;
+            }
+        }
     }
 
     public update(ignoreMaxListHint = true) {

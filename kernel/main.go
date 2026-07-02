@@ -19,46 +19,13 @@
 package main
 
 import (
-	"github.com/siyuan-community/siyuan/kernel/cache"
-	"github.com/siyuan-community/siyuan/kernel/job"
-	"github.com/siyuan-community/siyuan/kernel/model"
-	"github.com/siyuan-community/siyuan/kernel/plugin"
-	"github.com/siyuan-community/siyuan/kernel/server"
-	"github.com/siyuan-community/siyuan/kernel/sql"
-	"github.com/siyuan-community/siyuan/kernel/util"
+	"os"
+
+	"github.com/siyuan-community/siyuan/kernel/cli/cmd"
 )
 
 func main() {
-	util.Boot()
-
-	model.InitJwtKey()
-	model.InitConf()
-	model.InitCommunity()
-	go server.Serve(false, model.Conf.CookieKey)
-	model.InitAppearance()
-	sql.InitDatabase(false)
-	sql.InitHistoryDatabase(false)
-	sql.InitAssetContentDatabase(false)
-	sql.SetCaseSensitive(model.Conf.Search.CaseSensitive)
-	sql.SetIndexAssetPath(model.Conf.Search.IndexAssetPath)
-
-	model.BootSyncData()
-	model.InitBoxes()
-	model.LoadFlashcards()
-	util.LoadAssetsTexts()
-
-	util.SetBooted()
-	util.PushClearAllMsg()
-
-	job.StartCron()
-
-	go model.AutoGenerateFileHistory()
-	go cache.LoadAssets()
-	go util.CheckFileSysStatus()
-	go plugin.InitManager()
-
-	model.WatchAssets()
-	model.WatchEmojis()
-	model.WatchThemes()
-	model.HandleSignal()
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }

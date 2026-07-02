@@ -16,8 +16,9 @@ extraFiles:
     to: "LICENSE"
 
 linux:
-  icon: "src/assets/icon.icns"
+  icon: "src/assets/icon/"
   category: "Utility"
+  syncDesktopName: true
   executableName: "siyuan"
   desktop: {
     entry: {
@@ -34,6 +35,7 @@ linux:
     - target: "tar.gz"
     - target: "AppImage"
     - target: "deb"
+    - target: "rpm"
 
 extraResources:
   - from: "changelogs"

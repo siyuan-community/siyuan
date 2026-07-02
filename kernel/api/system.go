@@ -17,6 +17,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -125,13 +127,20 @@ func getChangelog(c *gin.Context) {
 		return
 	}
 
-	changelogPath := filepath.Join(changelogsDir, "v"+util.Ver, "v"+util.Ver+"_"+model.Conf.Lang+".md")
+	if !util.IsReleaseVer(util.Ver) {
+		model.Conf.ShowChangelog = false
+		model.Conf.Save()
+		return
+	}
+
+	verDir := filepath.Join(changelogsDir, "v"+util.Ver)
+	changelogPath := filepath.Join(verDir, "v"+util.Ver+"."+model.Conf.Lang+".md")
 	if !gulu.File.IsExist(changelogPath) {
-		changelogPath = filepath.Join(changelogsDir, "v"+util.Ver, "v"+util.Ver+".md")
-		if !gulu.File.IsExist(changelogPath) {
-			logging.LogErrorf("changelog not found: %s", changelogPath)
-			return
-		}
+		changelogPath = filepath.Join(verDir, "v"+util.Ver+".md")
+	}
+	if !gulu.File.IsExist(changelogPath) {
+		logging.LogErrorf("changelog not found in %s", verDir)
+		return
 	}
 
 	contentData, err := os.ReadFile(changelogPath)
@@ -141,6 +150,7 @@ func getChangelog(c *gin.Context) {
 	}
 
 	model.Conf.ShowChangelog = false
+	model.Conf.Save()
 	luteEngine := lute.New()
 	htmlContent := luteEngine.MarkdownStr("", string(contentData))
 	htmlContent = util.LinkTarget(htmlContent, "")
@@ -345,7 +355,6 @@ func exportConf(c *gin.Context) {
 	clonedConf.Repo = nil
 	clonedConf.Publish = nil
 	clonedConf.CloudRegion = 0
-	clonedConf.DataIndexState = 0
 
 	data, err = gulu.JSON.MarshalIndentJSON(clonedConf, "", "  ")
 	if err != nil {
@@ -560,6 +569,17 @@ func getConf(c *gin.Context) {
 		maskedConf = model.FilterConfByPublishIgnore(publishIgnore, maskedConf)
 	}
 
+	// 浏览器环境下不返回工作空间绝对路径，避免泄露用户名等敏感信息
+	// 原生客户端（桌面 Electron、移动端）UA 以 "SiYuan/" 开头，照常返回真实路径
+	// REF: https://github.com/siyuan-note/siyuan/issues/17410
+	if util.IsBrowserRequest(c) {
+		maskedConf.System.WorkspaceDir = ""
+		maskedConf.System.AppDir = ""
+		maskedConf.System.ConfDir = ""
+		maskedConf.System.DataDir = ""
+		maskedConf.System.HomeDir = ""
+	}
+
 	ret.Data = map[string]any{
 		"conf":      maskedConf,
 		"start":     !util.IsUILoaded,
@@ -632,8 +652,16 @@ func setAccessAuthCode(c *gin.Context) {
 		aac = model.Conf.AccessAuthCode
 	}
 
+	originalLen := len(aac)
+
 	aac = util.RemoveInvalid(aac)
 	aac = strings.TrimSpace(aac)
+
+	if 0 < originalLen && 0 == len(aac) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(287)
+		return
+	}
 
 	model.Conf.AccessAuthCode = aac
 	model.Conf.Save()
@@ -668,15 +696,9 @@ func setFollowSystemLockScreen(c *gin.Context) {
 func getSysFonts(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
-	fonts := util.LoadSysFonts()
 
-	// TODO: 字重 https://github.com/siyuan-note/siyuan/issues/10313
-	var families []string
-	for _, font := range fonts {
-		families = append(families, font.Family)
-	}
-	families = gulu.Str.RemoveDuplicatedElem(families)
-	ret.Data = families
+	fonts := util.LoadSysFonts()
+	ret.Data = fonts
 }
 
 func version(c *gin.Context) {
@@ -699,6 +721,64 @@ func bootProgress(c *gin.Context) {
 
 	progress, details := util.GetBootProgressDetails()
 	ret.Data = map[string]any{"progress": progress, "details": details}
+}
+
+// bootProgressSSE 以 Server-Sent Events 推送启动进度，仅在进度发生变化时写一帧。
+func bootProgressSSE(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Writer.Flush()
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return
+	}
+
+	// 连接后立即推送当前进度，避免等待第一个 tick
+	progress, details := util.GetBootProgressDetails()
+	lastProgress, lastDetails := progress, details
+	if err := writeBootProgressSSE(c, flusher, progress, details); err != nil {
+		return
+	}
+	if 100 <= progress {
+		return
+	}
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	ctx := c.Request.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			// 客户端断开连接
+			return
+		case <-ticker.C:
+			progress, details = util.GetBootProgressDetails()
+			if progress == lastProgress && details == lastDetails {
+				continue
+			}
+			lastProgress, lastDetails = progress, details
+			if err := writeBootProgressSSE(c, flusher, progress, details); err != nil {
+				return
+			}
+			if 100 <= progress {
+				return
+			}
+		}
+	}
+}
+
+func writeBootProgressSSE(c *gin.Context, flusher http.Flusher, progress int32, details string) error {
+	data, err := json.Marshal(map[string]any{"progress": progress, "details": details})
+	if err != nil {
+		return err
+	}
+	if _, err = fmt.Fprintf(c.Writer, "data: %s\n\n", data); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
 }
 
 func setAppearanceMode(c *gin.Context) {

@@ -18,6 +18,7 @@ package model
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -394,63 +395,9 @@ func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, group
 	}
 
 	filterKeyIDs := map[string]bool{}
-	for _, filter := range view.Filters {
-		filterKeyIDs[filter.Column] = true
-		keyValues, _ := attrView.GetKeyValues(filter.Column)
-		if nil == keyValues {
-			continue
-		}
-
-		if av.KeyTypeTemplate == keyValues.Key.Type && nil != nearItem {
-			if keys := templateRelevantKeys[keyValues.Key.ID]; 0 < len(keys) {
-				for _, k := range keys {
-					if nil == ret[k.ID] {
-						ret[k.ID] = getNewValueByNearItem(nearItem, k, addingItemID)
-					}
-				}
-			}
-			continue
-		}
-
-		if av.KeyTypeRollup == keyValues.Key.Type && nil != nearItem {
-			if relKey, ok := rollupRelevantKeys[keyValues.Key.ID]; ok {
-				if nil == ret[relKey.ID] {
-					ret[relKey.ID] = getNewValueByNearItem(nearItem, relKey, addingItemID)
-				}
-			}
-			continue
-		}
-
-		if av.KeyTypeMAsset == keyValues.Key.Type {
-			if nil != nearItem {
-				if _, ok := ret[keyValues.Key.ID]; !ok {
-					ret[keyValues.Key.ID] = getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
-				}
-			}
-			return
-		}
-
-		newValue := filter.GetAffectValue(keyValues.Key, addingItemID)
-		if nil == newValue {
-			if filter.IsValid() {
-				newValue = getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
-			}
-		}
-		if nil != newValue {
-			if av.KeyTypeDate == keyValues.Key.Type {
-				if nil != nearItem {
-					nearValue := getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
-					newValue.Date.IsNotTime = nearValue.Date.IsNotTime
-				}
-
-				if nil != keyValues.Key.Date && keyValues.Key.Date.AutoFillNow {
-					newValue.Date.Content = time.Now().UnixMilli()
-					newValue.Date.IsNotEmpty = true
-				}
-			}
-
-			ret[keyValues.Key.ID] = newValue
-		}
+	if applyFilterDefaultValues(view.Filters, attrView, addingItemID, nearItem, templateRelevantKeys, rollupRelevantKeys, ret, filterKeyIDs) {
+		// 遇到 mAsset 过滤即结束全部默认值计算（保留原外层 return 语义）
+		return
 	}
 
 	groupKey := view.GetGroupKey(attrView)
@@ -593,6 +540,83 @@ func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, group
 		}
 	}
 	return
+}
+
+// applyFilterDefaultValues 递归遍历过滤节点树，对叶子节点计算新增行的默认值。
+// 分组节点只负责向下递归；叶子节点保留原扁平时代的默认值计算逻辑。
+// 返回 true 表示遇到 mAsset 过滤，调用方应立即结束全部默认值计算（保留原外层 return 语义）。
+func applyFilterDefaultValues(filters []*av.ViewFilter, attrView *av.AttributeView, addingItemID string, nearItem av.Item,
+	templateRelevantKeys map[string][]*av.Key, rollupRelevantKeys map[string]*av.Key,
+	ret map[string]*av.Value, filterKeyIDs map[string]bool) (stop bool) {
+	for _, filter := range filters {
+		if nil == filter {
+			continue
+		}
+		if filter.IsGroup() {
+			if applyFilterDefaultValues(filter.Filters, attrView, addingItemID, nearItem, templateRelevantKeys, rollupRelevantKeys, ret, filterKeyIDs) {
+				return true
+			}
+			continue
+		}
+
+		filterKeyIDs[filter.Column] = true
+		keyValues, _ := attrView.GetKeyValues(filter.Column)
+		if nil == keyValues {
+			continue
+		}
+
+		if av.KeyTypeTemplate == keyValues.Key.Type && nil != nearItem {
+			if keys := templateRelevantKeys[keyValues.Key.ID]; 0 < len(keys) {
+				for _, k := range keys {
+					if nil == ret[k.ID] {
+						ret[k.ID] = getNewValueByNearItem(nearItem, k, addingItemID)
+					}
+				}
+			}
+			continue
+		}
+
+		if av.KeyTypeRollup == keyValues.Key.Type && nil != nearItem {
+			if relKey, ok := rollupRelevantKeys[keyValues.Key.ID]; ok {
+				if nil == ret[relKey.ID] {
+					ret[relKey.ID] = getNewValueByNearItem(nearItem, relKey, addingItemID)
+				}
+			}
+			continue
+		}
+
+		if av.KeyTypeMAsset == keyValues.Key.Type {
+			if nil != nearItem {
+				if _, ok := ret[keyValues.Key.ID]; !ok {
+					ret[keyValues.Key.ID] = getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
+				}
+			}
+			return true // 保留原语义：遇到 mAsset 过滤即结束默认值计算
+		}
+
+		newValue := filter.GetAffectValue(keyValues.Key, addingItemID)
+		if nil == newValue {
+			if filter.IsValid() {
+				newValue = getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
+			}
+		}
+		if nil != newValue {
+			if av.KeyTypeDate == keyValues.Key.Type {
+				if nil != nearItem {
+					nearValue := getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
+					newValue.Date.IsNotTime = nearValue.Date.IsNotTime
+				}
+
+				if nil != keyValues.Key.Date && keyValues.Key.Date.AutoFillNow {
+					newValue.Date.Content = time.Now().UnixMilli()
+					newValue.Date.IsNotEmpty = true
+				}
+			}
+
+			ret[keyValues.Key.ID] = newValue
+		}
+	}
+	return false
 }
 
 func (tx *Transaction) doSortAttrViewGroup(operation *Operation) (ret *TxErr) {
@@ -888,7 +912,7 @@ func setAttributeViewGroup(attrView *av.AttributeView, view *av.View, group *av.
 			for _, g := range view.Groups {
 				groupViewable := sql.RenderGroupView(attrView, view, g, "")
 				// 必须经过渲染才能得到最终的条目数
-				renderViewableInstance(groupViewable, view, attrView, 1, -1)
+				renderViewableInstance(groupViewable, view, attrView, 1, -1, false)
 				if g.GroupHidden == 0 && 1 > groupViewable.(av.Collection).CountItems() {
 					g.GroupHidden = 1
 				}
@@ -897,7 +921,7 @@ func setAttributeViewGroup(attrView *av.AttributeView, view *av.View, group *av.
 		if oldHideEmpty && !view.Group.HideEmpty { // 禁用隐藏空分组
 			for _, g := range view.Groups {
 				groupViewable := sql.RenderGroupView(attrView, view, g, "")
-				renderViewableInstance(groupViewable, view, attrView, 1, -1)
+				renderViewableInstance(groupViewable, view, attrView, 1, -1, false)
 				if g.GroupHidden == 1 && 1 > groupViewable.(av.Collection).CountItems() {
 					g.GroupHidden = 0
 				}
@@ -1443,6 +1467,176 @@ func AppendAttributeViewDetachedBlocksWithValues(avID string, blocksValues [][]*
 	return
 }
 
+// DuplicateAttributeViewRow 创建源行的纯文本副本，复制除主键、Rollup、Created、Updated 外的所有字段值，
+// 双向关联同步更新目标属性视图的反向关联列。新行 ID 由调用方（前端）生成并通过 newRowID 传入，
+// 副本插入到 previousItemID（通常为最后选中的条目）之后。
+func DuplicateAttributeViewRow(tx *Transaction, avID, previousItemID, srcRowID, newRowID string) (err error) {
+	attrView, err := av.ParseAttributeView(avID)
+	if err != nil {
+		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
+		return
+	}
+
+	blockKeyValues := attrView.GetBlockKeyValues()
+	if nil == blockKeyValues {
+		err = fmt.Errorf("attribute view [%s] has no block key", avID)
+		return
+	}
+
+	srcBlockVal := blockKeyValues.GetValue(srcRowID)
+	if nil == srcBlockVal {
+		err = fmt.Errorf("source row [%s] not found in attribute view [%s]", srcRowID, avID)
+		return
+	}
+
+	if "" == newRowID {
+		newRowID = ast.NewNodeID()
+	}
+
+	now := util.CurrentTimeMillis()
+
+	// 创建副本的主键值，强制为纯文本（非绑定块）
+	blockContent := ""
+	if nil != srcBlockVal.Block {
+		blockContent = srcBlockVal.Block.Content
+	}
+	newBlockVal := &av.Value{
+		ID:         ast.NewNodeID(),
+		KeyID:      blockKeyValues.Key.ID,
+		BlockID:    newRowID,
+		Type:       av.KeyTypeBlock,
+		IsDetached: true,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Block:      &av.ValueBlock{Content: blockContent, Created: now, Updated: now},
+	}
+	blockKeyValues.Values = append(blockKeyValues.Values, newBlockVal)
+
+	// 收集双向关联字段，循环结束后统一处理，避免跨属性视图重复 parse/save
+	type pendingTwoWay struct {
+		key *av.Key
+		val *av.Value
+	}
+	var pendingTwoWays []*pendingTwoWay
+
+	for _, keyValues := range attrView.KeyValues {
+		if av.KeyTypeBlock == keyValues.Key.Type {
+			continue // 主键已处理
+		}
+		if av.KeyTypeRollup == keyValues.Key.Type || av.KeyTypeCreated == keyValues.Key.Type || av.KeyTypeUpdated == keyValues.Key.Type {
+			continue // 汇总/创建时间/更新时间字段在渲染或自动生成时处理，不复制
+		}
+
+		srcVal := keyValues.GetValue(srcRowID)
+		if nil == srcVal {
+			continue // 源行该字段无值，跳过
+		}
+
+		newVal := srcVal.Clone()
+		if nil == newVal {
+			continue
+		}
+		newVal.ID = ast.NewNodeID()
+		newVal.BlockID = newRowID
+		newVal.IsDetached = false
+		newVal.CreatedAt = now
+		newVal.UpdatedAt = now
+		newVal.IsRenderAutoFill = false
+		if nil != newVal.Relation {
+			newVal.Relation.Contents = nil // 清除渲染期数据
+		}
+
+		// 单选/多选选项同步，保证目标属性视图存在对应选项 https://github.com/siyuan-note/siyuan/issues/12475
+		if av.KeyTypeSelect == newVal.Type || av.KeyTypeMSelect == newVal.Type {
+			if 0 < len(newVal.MSelect) {
+				for _, valOpt := range newVal.MSelect {
+					if opt := keyValues.Key.GetOption(valOpt.Content); nil == opt {
+						opt = &av.SelectOption{Name: valOpt.Content, Color: valOpt.Color}
+						keyValues.Key.Options = append(keyValues.Key.Options, opt)
+					} else {
+						valOpt.Color = opt.Color
+					}
+				}
+			}
+		}
+
+		keyValues.Values = append(keyValues.Values, newVal)
+
+		// 双向关联值收集，稍后统一更新目标属性视图的反向列
+		if av.KeyTypeRelation == newVal.Type && nil != keyValues.Key.Relation && keyValues.Key.Relation.IsTwoWay && 0 < len(newVal.Relation.BlockIDs) {
+			pendingTwoWays = append(pendingTwoWays, &pendingTwoWay{key: keyValues.Key, val: newVal})
+		}
+	}
+
+	// 在所有视图上添加新行，插入位置为 previousItemID 之后
+	for _, v := range attrView.Views {
+		addRowToViewItems(v, newRowID, previousItemID)
+	}
+
+	// 统一处理双向关联：按目标属性视图聚合，每个目标只 parse/save 一次
+	twoWayByDestAv := map[string][]*pendingTwoWay{}
+	for _, p := range pendingTwoWays {
+		destAvID := p.key.Relation.AvID
+		twoWayByDestAv[destAvID] = append(twoWayByDestAv[destAvID], p)
+	}
+	for destAvID, items := range twoWayByDestAv {
+		if destAvID == attrView.ID {
+			// 自关联，直接在内存对象上更新，随主属性视图一起保存
+			for _, p := range items {
+				updateTwoWayRelationDestAttrView(attrView, p.key, p.val, 1, nil)
+			}
+			continue
+		}
+
+		destAv, parseErr := av.ParseAttributeView(destAvID)
+		if nil != parseErr || nil == destAv {
+			logging.LogWarnf("parse dest attribute view [%s] failed: %s", destAvID, parseErr)
+			continue
+		}
+		for _, p := range items {
+			// 复用反向更新逻辑，传入 mode=1（增加）、oldBlockIDs 为空
+			updateTwoWayRelationDestAttrView(destAv, p.key, p.val, 1, nil)
+		}
+		regenAttrViewGroups(destAv)
+		if saveErr := av.SaveAttributeView(destAv); nil != saveErr {
+			logging.LogErrorf("save dest attribute view [%s] failed: %s", destAvID, saveErr)
+		}
+		if nil != tx {
+			tx.relatedAvIDs = append(tx.relatedAvIDs, destAvID)
+		}
+		ReloadAttrView(destAvID)
+	}
+
+	regenAttrViewGroups(attrView)
+	if err = av.SaveAttributeView(attrView); err != nil {
+		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
+		return
+	}
+	return
+}
+
+// addRowToViewItems 将 newRowID 插入到视图及其所有分组的项目列表中，位置在 previousItemID 之后；
+// 若 previousItemID 为空或未找到，则追加到末尾。
+func addRowToViewItems(view *av.View, newRowID, previousItemID string) {
+	view.ItemIDs = insertItemAfter(view.ItemIDs, newRowID, previousItemID)
+	for _, g := range view.Groups {
+		g.GroupItemIDs = insertItemAfter(g.GroupItemIDs, newRowID, previousItemID)
+	}
+}
+
+// insertItemAfter 将 item 插入到 items 中 previousItemID 之后；若 previousItemID 为空或未找到，则追加到末尾。
+func insertItemAfter(items []string, item, previousItemID string) []string {
+	if "" != previousItemID {
+		for i, id := range items {
+			if id == previousItemID {
+				items = append(items[:i+1], append([]string{item}, items[i+1:]...)...)
+				return items
+			}
+		}
+	}
+	return append(items, item)
+}
+
 func DuplicateDatabaseBlock(avID string) (newAvID, newBlockID string, err error) {
 	storageAvDir := filepath.Join(util.DataDir, "storage", "av")
 	oldAvPath := filepath.Join(storageAvDir, avID+".json")
@@ -1626,26 +1820,6 @@ func GetAttributeViewFilterSort(avID, blockID string) (filters []*av.ViewFilter,
 	}
 	if 1 > len(sorts) {
 		sorts = []*av.ViewSort{}
-	}
-	return
-}
-
-func SearchAttributeViewNonRelationKey(avID, keyword string) (ret []*av.Key) {
-	waitForSyncingStorages()
-
-	ret = []*av.Key{}
-	attrView, err := av.ParseAttributeView(avID)
-	if err != nil {
-		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
-		return
-	}
-
-	for _, keyValues := range attrView.KeyValues {
-		if av.KeyTypeRelation != keyValues.Key.Type && av.KeyTypeRollup != keyValues.Key.Type && av.KeyTypeLineNumber != keyValues.Key.Type {
-			if strings.Contains(strings.ToLower(keyValues.Key.Name), strings.ToLower(keyword)) {
-				ret = append(ret, keyValues.Key)
-			}
-		}
 	}
 	return
 }
@@ -1914,7 +2088,7 @@ func GetBlockAttributeViewKeys(nodeID string) (ret []*BlockAttributeViewKeys) {
 		}
 
 		// 渲染填充 attrView.KeyValues
-		sql.RenderView(attrView, view, "")
+		sql.RenderView(attrView, view, "", false)
 
 		var keyValues []*av.KeyValues
 		for _, kv := range attrView.KeyValues {
@@ -2001,7 +2175,7 @@ func genAttrViewGroups(view *av.View, attrView *av.AttributeView) {
 
 	group := view.Group
 	view.Groups = nil
-	viewable := sql.RenderView(attrView, view, "")
+	viewable := sql.RenderView(attrView, view, "", false)
 	var items []av.Item
 	for _, item := range viewable.(av.Collection).GetItems() {
 		items = append(items, item)
@@ -2540,12 +2714,10 @@ func updateAttributeViewColRollup(operation *Operation) (err error) {
 
 	// 如果存在该汇总字段的过滤条件，则移除该过滤条件 https://github.com/siyuan-note/siyuan/issues/15660
 	for _, view := range attrView.Views {
-		for i, filter := range view.Filters {
-			if filter.Column != rollUpKey.ID {
-				continue
-			}
-
-			view.Filters = append(view.Filters[:i], view.Filters[i+1:]...)
+		view.Filters = av.RemoveFiltersByColumn(view.Filters, rollUpKey.ID)
+		if 0 == len(view.Filters) {
+			// 保持 spec 5 根组不变量：根组被裁空后补一个空 AND 根组
+			view.Filters = []*av.ViewFilter{{Combination: av.FilterCombinationAnd}}
 		}
 	}
 
@@ -2859,6 +3031,20 @@ func getMirrorBlocksNodes(avID string) (trees []*parse.Tree, nodes []*ast.Node) 
 	return
 }
 
+func (tx *Transaction) doDuplicateAttrViewRow(operation *Operation) (ret *TxErr) {
+	srcRowID := ""
+	if 0 < len(operation.SrcIDs) {
+		srcRowID = operation.SrcIDs[0]
+	}
+	if "" == srcRowID {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: "source row id is empty"}
+	}
+	if err := DuplicateAttributeViewRow(tx, operation.AvID, operation.PreviousID, srcRowID, operation.ID); err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
 func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr) {
 	var err error
 	avID := operation.AvID
@@ -2910,16 +3096,7 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 	view.LayoutType = masterView.LayoutType
 	view.PageSize = masterView.PageSize
 
-	for _, filter := range masterView.Filters {
-		view.Filters = append(view.Filters, &av.ViewFilter{
-			Column:        filter.Column,
-			Qualifier:     filter.Qualifier,
-			Operator:      filter.Operator,
-			Value:         filter.Value,
-			RelativeDate:  filter.RelativeDate,
-			RelativeDate2: filter.RelativeDate2,
-		})
-	}
+	view.Filters = av.CloneFilters(masterView.Filters)
 
 	for _, s := range masterView.Sorts {
 		view.Sorts = append(view.Sorts, &av.ViewSort{
@@ -3281,7 +3458,7 @@ func getAvNames(avIDs string) (ret string) {
 		}
 
 		tpl := strings.ReplaceAll(attrAvNameTpl, "${avID}", nodeAvID)
-		tpl = strings.ReplaceAll(tpl, "${avName}", nodeAvName)
+		tpl = strings.ReplaceAll(tpl, "${avName}", util.EscapeHTML(nodeAvName))
 		avNames.WriteString(tpl)
 		avNames.WriteString("&nbsp;")
 	}
@@ -3294,27 +3471,36 @@ func getAvNames(avIDs string) (ret string) {
 
 func (tx *Transaction) getAttrViewBoundNodes(attrView *av.AttributeView) (trees map[string]*parse.Tree, nodes []*ast.Node) {
 	blockKeyValues := attrView.GetBlockKeyValues()
+	if nil == blockKeyValues || nil == blockKeyValues.Values {
+		return
+	}
+
 	trees = map[string]*parse.Tree{}
 	for _, blockKeyValue := range blockKeyValues.Values {
-		if blockKeyValue.IsDetached {
+		if blockKeyValue.IsDetached || nil == blockKeyValue.Block {
+			continue
+		}
+
+		blockID := blockKeyValue.Block.ID
+		if "" == blockID {
 			continue
 		}
 
 		var tree *parse.Tree
-		tree = trees[blockKeyValue.Block.ID]
+		tree = trees[blockID]
 		if nil == tree {
 			if nil == tx {
-				tree, _ = LoadTreeByBlockID(blockKeyValue.Block.ID)
+				tree, _ = LoadTreeByBlockID(blockID)
 			} else {
-				tree, _ = tx.loadTree(blockKeyValue.Block.ID)
+				tree, _ = tx.loadTree(blockID)
 			}
 		}
 		if nil == tree {
 			continue
 		}
-		trees[blockKeyValue.Block.ID] = tree
+		trees[blockID] = tree
 
-		node := treenode.GetNodeInTree(tree, blockKeyValue.Block.ID)
+		node := treenode.GetNodeInTree(tree, blockID)
 		if nil == node {
 			continue
 		}
@@ -3325,31 +3511,45 @@ func (tx *Transaction) getAttrViewBoundNodes(attrView *av.AttributeView) (trees 
 }
 
 func (tx *Transaction) doSetAttrViewFilters(operation *Operation) (ret *TxErr) {
-	err := setAttributeViewFilters(operation)
+	err := SetAttrViewFilters(operation.AvID, operation.BlockID, operation.Data.([]any))
 	if err != nil {
 		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
 	}
 	return
 }
 
-func setAttributeViewFilters(operation *Operation) (err error) {
-	attrView, err := av.ParseAttributeView(operation.AvID)
+// SetAttrViewFilters 用新的过滤规则数组整体替换指定视图的过滤规则，并持久化。
+// data 为 JSON 反序列化前的 []any（通常是前端传来的过滤节点树）。
+func SetAttrViewFilters(avID, blockID string, data []any) (err error) {
+	attrView, err := av.ParseAttributeView(avID)
 	if err != nil {
 		return
 	}
 
-	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	view, err := getAttrViewViewByBlockID(attrView, blockID)
 	if err != nil {
 		return
 	}
 
-	operationData := operation.Data.([]any)
-	data, err := gulu.JSON.MarshalJSON(operationData)
+	jsonData, err := gulu.JSON.MarshalJSON(data)
 	if err != nil {
 		return
 	}
 
-	if err = gulu.JSON.UnmarshalJSON(data, &view.Filters); err != nil {
+	var newFilters []*av.ViewFilter
+	if err = gulu.JSON.UnmarshalJSON(jsonData, &newFilters); err != nil {
+		return
+	}
+	view.Filters = newFilters
+
+	// 归一化为单一根组：spec 5 起顶层应为一个根组。
+	// 兜底旧前端/异常数据发来的扁平叶子数组，在内存里包成 AND 根组后再持久化。
+	if 1 != len(view.Filters) || nil == view.Filters[0] || !view.Filters[0].IsGroup() {
+		view.Filters = []*av.ViewFilter{{Combination: av.FilterCombinationAnd, Filters: view.Filters}}
+	}
+
+	// 限制筛选嵌套深度，防止异常数据创建过深的嵌套分组。
+	if err = av.ValidateFilterDepth(view.Filters); nil != err {
 		return
 	}
 
@@ -3358,33 +3558,36 @@ func setAttributeViewFilters(operation *Operation) (err error) {
 }
 
 func (tx *Transaction) doSetAttrViewSorts(operation *Operation) (ret *TxErr) {
-	err := setAttributeViewSorts(operation)
+	err := SetAttrViewSorts(operation.AvID, operation.BlockID, operation.Data.([]any))
 	if err != nil {
 		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
 	}
 	return
 }
 
-func setAttributeViewSorts(operation *Operation) (err error) {
-	attrView, err := av.ParseAttributeView(operation.AvID)
+// SetAttrViewSorts 用新的排序规则数组整体替换指定视图的排序规则，并持久化。
+// data 为 JSON 反序列化前的 []any。
+func SetAttrViewSorts(avID, blockID string, data []any) (err error) {
+	attrView, err := av.ParseAttributeView(avID)
 	if err != nil {
 		return
 	}
 
-	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	view, err := getAttrViewViewByBlockID(attrView, blockID)
 	if err != nil {
 		return
 	}
 
-	operationData := operation.Data.([]any)
-	data, err := gulu.JSON.MarshalJSON(operationData)
+	jsonData, err := gulu.JSON.MarshalJSON(data)
 	if err != nil {
 		return
 	}
 
-	if err = gulu.JSON.UnmarshalJSON(data, &view.Sorts); err != nil {
+	var newSorts []*av.ViewSort
+	if err = gulu.JSON.UnmarshalJSON(jsonData, &newSorts); err != nil {
 		return
 	}
+	view.Sorts = newSorts
 
 	err = av.SaveAttributeView(attrView)
 	return
@@ -3551,7 +3754,7 @@ func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previous
 				err = av.SaveAttributeView(attrView)
 			}
 
-			msg := fmt.Sprintf(Conf.language(269), getAttrViewName(attrView))
+			msg := fmt.Sprintf(Conf.language(269), util.EscapeHTML(getAttrViewName(attrView)))
 			util.PushMsg(msg, 5000)
 			return
 		}
@@ -4667,6 +4870,16 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 		av.KeyTypeRelation, av.KeyTypeRollup, av.KeyTypeLineNumber:
 		for _, keyValues := range attrView.KeyValues {
 			if keyValues.Key.ID == operation.ID {
+				isPrimaryKey := av.KeyTypeBlock == keyValues.Key.Type
+				if isPrimaryKey != (av.KeyTypeBlock == colType) {
+					if isPrimaryKey {
+						err = errors.New("cannot change type of primary key field")
+					} else {
+						err = errors.New("cannot change field type to primary key")
+					}
+					return
+				}
+
 				keyValues.Key.Name = strings.TrimSpace(operation.Name)
 
 				changeType = keyValues.Key.Type != colType
@@ -4732,6 +4945,16 @@ func (tx *Transaction) doRemoveAttrViewColumn(operation *Operation) (ret *TxErr)
 func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err error) {
 	attrView, err := av.ParseAttributeView(avID)
 	if err != nil {
+		return
+	}
+
+	key, keyErr := attrView.GetKey(keyID)
+	if nil != keyErr {
+		err = keyErr
+		return
+	}
+	if av.KeyTypeBlock == key.Type {
+		err = errors.New("cannot remove primary key field")
 		return
 	}
 
@@ -5005,10 +5228,13 @@ func BatchUpdateAttributeViewCells(tx *Transaction, avID string, values []any) (
 		if _, ok := v["itemID"]; ok {
 			itemID = v["itemID"].(string)
 		} else if _, ok := v["rowID"]; ok {
-			// TODO 计划于 2026 年 6 月 30 日后删除 https://github.com/siyuan-note/siyuan/issues/15708#issuecomment-3239694546
+			// TODO 该参数将于 2026 年 12 月 1 日后删除
 			itemID = v["rowID"].(string)
-			logging.LogWarnf("[%s] parameter [%s] is deprecated, it will be removed at [%s], visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
-				"/api/av/batchSetAttributeViewBlockAttrs", "rowID", "2026-06-30")
+			msg := fmt.Sprintf("[%s] parameter [%s] is deprecated, visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
+				"/api/av/batchSetAttributeViewBlockAttrs", "rowID")
+			logging.LogWarnf(msg)
+			err = fmt.Errorf(msg)
+			return
 		}
 		valueData := v["value"]
 		_, err = updateAttributeViewValue(tx, attrView, keyID, itemID, valueData)
@@ -5572,32 +5798,10 @@ func removeAttributeViewColumnOption(operation *Operation) (err error) {
 
 	// 如果存在选项对应的过滤条件，则删除过滤条件中设置的选项值 https://github.com/siyuan-note/siyuan/issues/15536
 	for _, view := range attrView.Views {
-		for _, filter := range view.Filters {
-			if filter.Column != operation.ID {
-				continue
-			}
-
-			if nil != filter.Value && (av.KeyTypeSelect == filter.Value.Type || av.KeyTypeMSelect == filter.Value.Type) {
-				if av.FilterOperatorIsEmpty == filter.Operator || av.FilterOperatorIsNotEmpty == filter.Operator {
-					continue
-				}
-
-				for i, opt := range filter.Value.MSelect {
-					if optName == opt.Content {
-						filter.Value.MSelect = append(filter.Value.MSelect[:i], filter.Value.MSelect[i+1:]...)
-						break
-					}
-				}
-				if 1 > len(filter.Value.MSelect) {
-					// 如果删除后选项值为空，则删除过滤条件
-					for i, f := range view.Filters {
-						if f.Column == operation.ID && f.Value == filter.Value {
-							view.Filters = append(view.Filters[:i], view.Filters[i+1:]...)
-							break
-						}
-					}
-				}
-			}
+		view.Filters = av.RemoveSelectOptionFromFilters(view.Filters, operation.ID, optName)
+		if 0 == len(view.Filters) {
+			// 保持 spec 5 根组不变量
+			view.Filters = []*av.ViewFilter{{Combination: av.FilterCombinationAnd}}
 		}
 	}
 
@@ -5703,21 +5907,7 @@ func updateAttributeViewColumnOption(operation *Operation) (err error) {
 	// 如果存在选项对应的过滤条件，需要更新过滤条件中设置的选项值
 	// Database select field filters follow option editing changes https://github.com/siyuan-note/siyuan/issues/10881
 	for _, view := range attrView.Views {
-		for _, filter := range view.Filters {
-			if filter.Column != key.ID {
-				continue
-			}
-
-			if nil != filter.Value && (av.KeyTypeSelect == filter.Value.Type || av.KeyTypeMSelect == filter.Value.Type) {
-				for i, opt := range filter.Value.MSelect {
-					if oldName == opt.Content {
-						filter.Value.MSelect[i].Content = newName
-						filter.Value.MSelect[i].Color = newColor
-						break
-					}
-				}
-			}
-		}
+		av.RenameSelectOptionInFilters(view.Filters, key.ID, oldName, newName, newColor)
 	}
 
 	regenAttrViewGroups(attrView)
@@ -5791,11 +5981,21 @@ func updateBoundBlockAvsAttribute(avIDs []string) {
 		}
 
 		blockKeyValues := attrView.GetBlockKeyValues()
+		if nil == blockKeyValues || nil == blockKeyValues.Values {
+			continue
+		}
+
 		for _, blockValue := range blockKeyValues.Values {
-			if blockValue.IsDetached {
+			if blockValue.IsDetached || nil == blockValue.Block {
 				continue
 			}
-			bt := treenode.GetBlockTree(blockValue.BlockID)
+
+			boundBlockID := blockValue.Block.ID
+			if "" == boundBlockID {
+				continue
+			}
+
+			bt := treenode.GetBlockTree(boundBlockID)
 			if nil == bt {
 				continue
 			}
@@ -5809,7 +6009,7 @@ func updateBoundBlockAvsAttribute(avIDs []string) {
 				cachedTrees[bt.RootID] = tree
 			}
 
-			node := treenode.GetNodeInTree(tree, blockValue.BlockID)
+			node := treenode.GetNodeInTree(tree, boundBlockID)
 			if nil == node {
 				continue
 			}

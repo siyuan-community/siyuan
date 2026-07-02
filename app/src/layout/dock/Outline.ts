@@ -28,6 +28,7 @@ import {mathRender} from "../../protyle/render/mathRender";
 import {genEmptyElement} from "../../block/util";
 import {focusBlock, focusByWbr} from "../../protyle/util/selection";
 import {dragOverScroll, stopScrollAnimation} from "../../boot/globalEvent/dragover";
+import {getDocDisplayName} from "../../util/pathName";
 
 export class Outline extends Model {
     public tree: Tree;
@@ -36,6 +37,7 @@ export class Outline extends Model {
     public type: "pin" | "local";
     public blockId: string;
     public isPreview: boolean;
+    public protyle: IProtyle;
     private preFilterExpandIds: string[] | null = null;
 
     constructor(options: {
@@ -45,62 +47,19 @@ export class Outline extends Model {
         type: "pin" | "local",
         isPreview: boolean
     }) {
-        super({
-            app: options.app,
+        super({app: options.app});
+        this.connect({
             id: options.tab.id,
             type: "outline",
-            callback() {
-                if (this.type === "local") {
-                    fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
-                        if (!existResponse.data) {
-                            this.parent.parent.removeTab(this.parent.id);
-                        }
-                    });
-                }
-            },
-            msgCallback(data) {
-                if (data) {
-                    switch (data.cmd) {
-                        case "savedoc":
-                            this.onTransaction(data);
-                            break;
-                        case "rename":
-                            if (this.type === "local" && this.blockId === data.data.id) {
-                                this.parent.updateTitle(data.data.title);
-                            } else {
-                                this.updateDocTitle({
-                                    title: data.data.title,
-                                    icon: Constants.ZWSP
-                                }, -1);
-                            }
-                            break;
-                        case "closeBox":
-                        case "removeBox":
-                            if (this.type === "local") {
-                                fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
-                                    if (!existResponse.data) {
-                                        this.parent.parent.removeTab(this.parent.id);
-                                    }
-                                });
-                            }
-                            break;
-                        case "removeDoc":
-                            if (data.data.ids.includes(this.blockId) && this.type === "local") {
-                                this.parent.parent.removeTab(this.parent.id);
-                            }
-                            break;
-                    }
-                }
-            }
+            callback: this.handleCallback.bind(this),
+            msgCallback: this.handleMsgCallback.bind(this)
         });
         this.isPreview = options.isPreview;
         this.blockId = options.blockId;
         this.type = options.type;
         options.tab.panelElement.classList.add("fn__flex-column", "file-tree", "sy__outline", "dockPanel");
         options.tab.panelElement.innerHTML = `<div class="block__icons fn__hidescrollbar">
-    <div class="block__logo fn__flex-1">
-        <svg class="block__logoicon"><use xlink:href="#iconAlignCenter"></use></svg>${window.siyuan.languages.outline}
-    </div>
+    <div class="block__logo fn__flex-1">${window.siyuan.languages.outline}</div>
     <input class="b3-text-field search__label fn__none fn__size200" placeholder="${window.siyuan.languages.filterKeywordEnter}" />
     <span data-type="search" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.filter}">
         <svg><use xlink:href='#iconFilter'></use></svg>
@@ -111,7 +70,7 @@ export class Outline extends Model {
     </span>
     <span class="fn__space"></span>
     <span data-type="expandLevel" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.expandLevel}">
-        <svg><use xlink:href="#iconList"></use></svg>
+        <svg><use xlink:href="#iconExpandLevel"></use></svg>
     </span>
     <span class="fn__space"></span>
     <span data-type="expand" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.expandAll}${updateHotkeyAfterTip(window.siyuan.config.keymap.editor.general.expand.custom)}">
@@ -287,6 +246,7 @@ export class Outline extends Model {
                     switch (type) {
                         case "min":
                             getDockByType("outline").toggleModel("outline", false, true);
+                            isFocus = false;
                             break;
                         case "search":
                             inputElement.classList.remove("fn__none");
@@ -337,6 +297,52 @@ export class Outline extends Model {
                 this.updateDocTitle((options.tab.model as Editor)?.editor?.protyle?.background?.ial, response.data?.length || 0);
             }
         });
+    }
+
+    private handleCallback() {
+        if (this.type === "local") {
+            fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
+                if (!existResponse.data) {
+                    this.parent.parent.removeTab(this.parent.id);
+                }
+            });
+        }
+    }
+
+    private handleMsgCallback(data: IWebSocketData) {
+        if (data) {
+            switch (data.cmd) {
+                case "savedoc":
+                    this.onTransaction(data);
+                    break;
+                case "rename":
+                    if (this.type === "local" && this.blockId === data.data.id) {
+                        this.parent.updateTitle(getDocDisplayName(data.data.title, data.data.empty));
+                        this.protyle.model.parent.updateTitle(getDocDisplayName(data.data.title, data.data.empty));
+                    } else {
+                        this.updateDocTitle({
+                            title: data.data.title,
+                            icon: Constants.ZWSP
+                        }, -1);
+                    }
+                    break;
+                case "closeBox":
+                case "removeBox":
+                    if (this.type === "local") {
+                        fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
+                            if (!existResponse.data) {
+                                this.parent.parent.removeTab(this.parent.id);
+                            }
+                        });
+                    }
+                    break;
+                case "removeDoc":
+                    if (data.data.ids.includes(this.blockId) && this.type === "local") {
+                        this.parent.parent.removeTab(this.parent.id);
+                    }
+                    break;
+            }
+        }
     }
 
     private bindSort() {
@@ -492,8 +498,9 @@ export class Outline extends Model {
                 if (ial.icon === Constants.ZWSP && docTitleElement.firstElementChild) {
                     iconHTML = docTitleElement.firstElementChild.outerHTML;
                 }
-                docTitleElement.innerHTML = `${iconHTML}<span class="b3-list-item__text">${escapeHtml(ial.title)}</span>${docTitleElement.querySelector(".counter")?.outerHTML || ""}`;
-                docTitleElement.setAttribute("title", ial.title);
+                const title = getDocDisplayName(ial.title, ial[Constants.CUSTOM_SY_TITLE_EMPTY] === "true");
+                docTitleElement.innerHTML = `${iconHTML}<span class="b3-list-item__text">${escapeHtml(title)}</span>${docTitleElement.querySelector(".counter")?.outerHTML || ""}`;
+                docTitleElement.setAttribute("title", title);
                 docTitleElement.classList.remove("fn__none");
             }
             // count 为 -1 时，不对数量进行更新

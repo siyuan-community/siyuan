@@ -7,23 +7,30 @@ import {Custom} from "../layout/dock/Custom";
 import {getAllEditor, getAllModels} from "../layout/getAll";
 import {Tab} from "../layout/Tab";
 import {resizeTopBar, setPanelFocus} from "../layout/util";
-import {getDockByType} from "../layout/tabUtil";
+import {getDockByType, setTabPosition} from "../layout/tabUtil";
+import {clearOBG} from "../layout/dock/util";
 ///#else
 import {MobileCustom} from "../mobile/dock/MobileCustom";
+/// #endif
+/// #if !BROWSER
+import {ipcRenderer} from "electron";
 /// #endif
 import {hasClosestByAttribute} from "../protyle/util/hasClosest";
 import {BlockPanel} from "../block/Panel";
 import {Setting} from "./Setting";
-import {clearOBG} from "../layout/dock/util";
+import {settingTabToMenuId} from "../config/setting/tabs";
 import {Constants} from "../constants";
 import {uninstall} from "./uninstall";
-import {afterLoadPlugin, loadPlugins} from "./loader";
+import {addPluginDock, afterLoadPlugin, loadPlugins} from "./loader";
 import {normalizeStoragePath} from "../util/pathName";
+import {Kernel} from "./kernel";
+import {registerAction} from "../layout/dock/agent/frontendActions";
 
 export class Plugin {
     private app: App;
     public i18n: IObject;
     public eventBus: EventBus;
+    public kernel: Kernel;
     public data: any = {};
     public displayName: string;
     public readonly name: string;
@@ -46,6 +53,9 @@ export class Plugin {
     public setting: Setting;
     public statusBarIcons: Element[] = [];
     public commands: ICommand[] = [];
+    // Full names of agent actions this plugin registered (plugin__<name>__<action>), tracked
+    // so they can be unregistered on uninstall.
+    public agentActions: string[] = [];
     public models: {
         /// #if !MOBILE
         [key: string]: (options: { tab: Tab, data: any }) => Custom
@@ -73,6 +83,11 @@ export class Plugin {
         this.i18n = options.i18n;
         this.displayName = options.displayName;
         this.eventBus = new EventBus(options.name);
+        this.kernel = new Kernel({
+            appId: options.app.appId,
+            name: options.name,
+            eventBus: this.eventBus,
+        });
 
         // https://github.com/siyuan-note/siyuan/issues/9943
         Object.defineProperty(this, "name", {
@@ -126,9 +141,14 @@ export class Plugin {
         // 兼容 3.4.1 以前同步数据使用重载插件的问题
         uninstall(this.app, this.name, true);
         loadPlugins(this.app, [this.name], false).then(() => {
-            afterLoadPlugin(this);
-            getAllEditor().forEach(editor => {
-                editor.protyle.toolbar.update(editor.protyle);
+            this.app.plugins.find(item => {
+                if (this.name === item.name) {
+                    afterLoadPlugin(item);
+                    getAllEditor().forEach(editor => {
+                        editor.protyle.toolbar.update(editor.protyle);
+                    });
+                    return true;
+                }
             });
         });
     }
@@ -174,6 +194,14 @@ export class Plugin {
             console.error(`${this.name} - commands data is error and has been removed.`);
         } else {
             this.commands.push(command);
+            /// #if !BROWSER
+            if (command.globalCallback) {
+                ipcRenderer.send(Constants.SIYUAN_CMD, {
+                    cmd: "registerGlobalShortcut",
+                    accelerator: command.customHotkey
+                });
+            }
+            /// #endif
         }
     }
 
@@ -222,7 +250,7 @@ export class Plugin {
         }
         if (isMobile() && window.siyuan.storage) {
             if (!window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].includes(iconElement.id)) {
-                document.querySelector("#menuAbout")?.after(iconElement);
+                document.querySelector("#" + settingTabToMenuId("about"))?.after(iconElement);
             }
         } else if (!isWindow() && window.siyuan.storage) {
             if (window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].includes(iconElement.id)) {
@@ -231,6 +259,11 @@ export class Plugin {
             document.querySelector("#" + (iconElement.getAttribute("data-location") === "right" ? "barPlugins" : "drag"))?.before(iconElement);
         }
         this.topBarIcons.push(iconElement);
+        /// #if !MOBILE
+        if (!isWindow()) {
+            setTabPosition(true);
+        }
+        /// #endif
         return iconElement;
     }
 
@@ -382,6 +415,40 @@ export class Plugin {
         /// #endif
     }
 
+    // Register a frontend action that the AI agent can discover and invoke. The action is exposed
+    // to the LLM under the full name "plugin__<pluginName>__<name>" with the given description, and
+    // is dispatched via the "frontend" tool. On uninstall, all registered actions are removed.
+    /**
+     * 按名称取密钥值（来自「设置 → 密钥和变量」的密钥库）。找不到时返回空字符串。
+     * 密钥在内核侧加密存储，此处读到的是运行时明文；仅在本地管理员身份下可用。
+     */
+    public getSecret(name: string): string {
+        const found = window.siyuan.config.secrets?.items?.find((item) => item.name === name);
+        return found ? found.value : "";
+    }
+
+    /**
+     * 按名称取变量值（来自「设置 → 密钥和变量」的变量库）。找不到时返回空字符串。
+     * 变量以明文存储，用于非敏感配置。
+     */
+    public getVariable(name: string): string {
+        const found = window.siyuan.config.variables?.items?.find((item) => item.name === name);
+        return found ? found.value : "";
+    }
+
+    public addAgentAction(options: {
+        name: string,
+        description: string,
+        handler: (args: Record<string, unknown>, app: App) => Promise<{result?: string; error?: string}>
+    }): string {
+        const fullName = "plugin__" + this.name + "__" + options.name;
+        if (!this.agentActions.includes(fullName)) {
+            registerAction({name: fullName, description: options.description, handler: options.handler});
+            this.agentActions.push(fullName);
+        }
+        return fullName;
+    }
+
     public addDock(options: {
         config: IPluginDockTab,
         data: any,
@@ -450,6 +517,7 @@ export class Plugin {
             }
             window.siyuan.config.keymap.plugin[this.name][type2]["default"] = hotkey;
         }
+        addPluginDock(this);
         return this.docks[type2];
     }
 

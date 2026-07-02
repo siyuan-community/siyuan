@@ -238,16 +238,6 @@ func openNotebook(c *gin.Context) {
 		return
 	}
 
-	if isUserGuide && util.ContainerIOS == util.Container {
-		// iOS 端不再支持打开用户指南，请参考桌面端用户指南
-		// 用户指南中包含了付费相关内容，无法通过商店上架审核
-		// Opening the user guide is no longer supported on iOS https://github.com/siyuan-note/siyuan/issues/11492
-		ret.Code = -1
-		ret.Msg = model.Conf.Language(215)
-		ret.Data = map[string]any{"closeTimeout": 7000}
-		return
-	}
-
 	msgId := util.PushMsg(model.Conf.Language(45), 1000*60*15)
 	defer util.PushClearMsg(msgId)
 	existed, err := model.Mount(notebook)
@@ -380,12 +370,9 @@ func setNotebookConf(c *gin.Context) {
 		return
 	}
 
+	boxConf.DocCreateSavePath = util.TrimSpaceInPath(boxConf.DocCreateSavePath)
+
 	boxConf.RefCreateSavePath = util.TrimSpaceInPath(boxConf.RefCreateSavePath)
-	if "" != boxConf.RefCreateSavePath {
-		if !strings.HasSuffix(boxConf.RefCreateSavePath, "/") {
-			boxConf.RefCreateSavePath += "/"
-		}
-	}
 
 	boxConf.DailyNoteSavePath = util.TrimSpaceInPath(boxConf.DailyNoteSavePath)
 	if "" != boxConf.DailyNoteSavePath {
@@ -408,8 +395,6 @@ func setNotebookConf(c *gin.Context) {
 			boxConf.DailyNoteTemplatePath = "/" + boxConf.DailyNoteTemplatePath
 		}
 	}
-
-	boxConf.DocCreateSavePath = util.TrimSpaceInPath(boxConf.DocCreateSavePath)
 
 	box.SaveConf(boxConf)
 	ret.Data = boxConf

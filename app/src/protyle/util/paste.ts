@@ -3,10 +3,10 @@ import {uploadFiles, uploadLocalFiles} from "../upload";
 import {processPasteCode, processRender} from "./processCode";
 import {getLocalFiles, getTextSiyuanFromTextHTML, readText} from "./compatibility";
 import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "./hasClosest";
-import {getEditorRange} from "./selection";
+import {getEditorRange, getSelectionOffset} from "./selection";
 import {blockRender} from "../render/blockRender";
 import {highlightRender} from "../render/highlightRender";
-import {fetchPost} from "../../util/fetch";
+import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {isDynamicRef, isFileAnnotation} from "../../util/functions";
 import {insertHTML} from "./insertHTML";
 import {scrollCenter} from "../../util/highlightById";
@@ -18,6 +18,28 @@ import {clearBlockElement} from "./clear";
 import {removeZWJ} from "./normalizeText";
 import {base64ToURL} from "../../util/image";
 import {resolveLinkDest} from "../toolbar/util";
+
+export const beforePaste = (protyle: IProtyle, blockElement: HTMLElement) => {
+    // 链接，备注，样式，引用，pdf标注粘贴 https://github.com/siyuan-note/siyuan/issues/11572
+    const range = getSelection().getRangeAt(0);
+    protyle.toolbar.range = range;
+    const inlineElement = range.startContainer.parentElement;
+    if (range.toString() === "" && inlineElement.tagName === "SPAN") {
+        const currentTypes = (inlineElement.getAttribute("data-type") || "").split(" ");
+        if (currentTypes.includes("inline-memo") || currentTypes.includes("text") ||
+            currentTypes.includes("block-ref") || currentTypes.includes("file-annotation-ref") ||
+            currentTypes.includes("a")) {
+            const offset = getSelectionOffset(inlineElement, blockElement, range);
+            if (offset.start === 0) {
+                range.setStartBefore(inlineElement);
+                range.collapse(true);
+            } else if (offset.start === inlineElement.textContent.length) {
+                range.setEndAfter(inlineElement);
+                range.collapse(false);
+            }
+        }
+    }
+};
 
 export const getTextStar = (blockElement: HTMLElement, contentOnly = false) => {
     const dataType = blockElement.dataset.type;
@@ -192,6 +214,9 @@ export const pasteAsPlainText = async (protyle: IProtyle) => {
         textPlain = textPlain.replace(/__@kbd@__/g, "<kbd>").replace(/__@\/kbd@__/g, "</kbd>");
         textPlain = textPlain.replace(/__@u@__/g, "<u>").replace(/__@\/u@__/g, "</u>");
 
+        // 临界区：Lute 已是所有编辑器共享的单例，此处临时把 inline-syntax 标志置 true 再恢复。
+        // enable/transform/restore 必须保持同步执行，中间不得插入 await，否则并发编辑器的
+        // 转换调用（如实时输入的 SpinBlockDOM）会读到被改写的标志而产生错误输出。
         enableLuteMarkdownSyntax(protyle);
         const content = protyle.lute.BlockDOM2EscapeMarkerContent(protyle.lute.Md2BlockDOM(textPlain));
         restoreLuteMarkdownSyntax(protyle);
@@ -355,7 +380,12 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         }
     }
 
-    const nodeElement = hasClosestBlock(event.target);
+
+    let nodeElement = hasClosestBlock(event.target);
+    const range = getEditorRange(protyle.wysiwyg.element);
+    if (!nodeElement) {
+        nodeElement = hasClosestBlock(range.startContainer);
+    }
     if (!nodeElement) {
         if (files && files.length > 0) {
             uploadFiles(protyle, files);
@@ -368,16 +398,48 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         item.classList.remove("protyle-wysiwyg--hl");
     });
     const code = processPasteCode(textHTML, textPlain, originalTextHTML, protyle);
-    const range = getEditorRange(protyle.wysiwyg.element);
     if (nodeElement.getAttribute("data-type") === "NodeCodeBlock" ||
         protyle.toolbar.getCurrentType(range).includes("code")) {
         // https://github.com/siyuan-note/siyuan/issues/13552
         insertHTML(removeZWJ(textPlain).replace(/```/g, "\u200D```"), protyle);
         return;
     } else if (siyuanHTML) {
+        async function streamInsert(container: HTMLElement, bigHtmlString: string) {
+            const iframe = document.createElement("iframe");
+            iframe.style.display = "none";
+            document.body.appendChild(iframe);
+
+            const doc = iframe.contentWindow.document;
+            doc.open();
+
+            const chunkSize = 102400;
+            let offset = 0;
+            while (offset < bigHtmlString.length) {
+                const chunk = bigHtmlString.substring(offset, offset + chunkSize);
+                doc.write(chunk);
+                offset += chunkSize;
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+
+            doc.close();
+
+            const fragment = document.createDocumentFragment();
+            while (doc.body.firstChild) {
+                fragment.appendChild(doc.body.firstChild);
+            }
+
+            container.appendChild(fragment);
+
+            document.body.removeChild(iframe);
+        }
+
         // 编辑器内部粘贴
         const tempElement = document.createElement("div");
-        tempElement.innerHTML = siyuanHTML;
+        if (1024 * 512 < siyuanHTML.length) {
+            await streamInsert(tempElement, siyuanHTML);
+        } else {
+            tempElement.innerHTML = siyuanHTML;
+        }
         if (range.toString()) {
             let types: string[] = [];
             let linkElement: HTMLElement;
@@ -420,12 +482,26 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
             }
         }
         let isBlock = false;
-        tempElement.querySelectorAll("[data-node-id]").forEach((e) => {
-            const newId = Lute.NewNodeID();
-            e.setAttribute("data-node-id", newId);
-            clearBlockElement(e);
+        const pastedBlockElements = tempElement.querySelectorAll("[data-node-id]");
+        if (pastedBlockElements.length > 0) {
             isBlock = true;
-        });
+            // 剪切后粘贴时原块已被删除,保留原 ID 可避免该块被其他位置的引用失效;
+            // 仅当 ID 仍存在(复制粘贴)时才生成新 ID
+            const oldIds: string[] = [];
+            pastedBlockElements.forEach((e) => {
+                oldIds.push(e.getAttribute("data-node-id"));
+            });
+            const existResponse = await fetchSyncPost("/api/block/checkBlocksExist", {ids: oldIds});
+            pastedBlockElements.forEach((e) => {
+                const originalId = e.getAttribute("data-node-id");
+                const isCutPaste = existResponse.data[originalId] === false; // 剪切来的（原块已删）
+                if (!isCutPaste) {
+                    // 复制粘贴：生成新 ID
+                    e.setAttribute("data-node-id", Lute.NewNodeID());
+                }
+                clearBlockElement(e, isCutPaste); // 剪切粘贴保留引用角标
+            });
+        }
         if (nodeElement.classList.contains("table")) {
             isBlock = false;
         }
@@ -508,6 +584,14 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                     0 > textHTMLLowercase.indexOf("</h5>") && 0 > textHTMLLowercase.indexOf("</h6>"))) {
                 // 豆包复制粘贴问题 https://github.com/siyuan-note/siyuan/issues/13265 https://github.com/siyuan-note/siyuan/issues/14313
                 isHTML = false;
+            }
+        } else if (textPlain && textPlain.trimStart().startsWith("<")) {
+            // 剪贴板没有 text/html，但 text/plain 实际是 HTML 表格（如从纯文本编辑器复制的表格 HTML）
+            // Md2BlockDOM 会把标签当字面文本，需走 html2BlockDOM 解析
+            // Improve pasting for tables containing merged cells https://github.com/siyuan-note/siyuan/issues/11888
+            if (textPlain.toLowerCase().indexOf("</table>") > -1) {
+                textHTML = textPlain;
+                isHTML = true;
             }
         }
         if (isHTML) {

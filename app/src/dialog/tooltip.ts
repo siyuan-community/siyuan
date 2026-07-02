@@ -1,5 +1,8 @@
 import {isMobile} from "../util/functions";
 
+// 记录当前 tooltip 对应的触发元素，便于判断鼠标是否已离开触发区域
+export let tooltipTargetElement: Element | null = null;
+
 export const showTooltip = (
     message: string,
     target: Element,
@@ -10,6 +13,7 @@ export const showTooltip = (
     if (isMobile() || !message) {
         return;
     }
+    tooltipTargetElement = target;
     let targetRect = target.getBoundingClientRect();
     // 跨行元素
     const clientRects = Array.from(target.getClientRects());
@@ -38,7 +42,7 @@ export const showTooltip = (
     }
     const messageElement = document.getElementById("tooltip");
     messageElement.className = tooltipClass ? `tooltip tooltip--${tooltipClass}` : "tooltip";
-    messageElement.innerHTML = message;
+    messageElement.innerHTML = window.DOMPurify.sanitize(message);
     // 避免原本的 top 和 left 影响计算
     messageElement.removeAttribute("style");
     const position = target.getAttribute("data-position");
@@ -124,9 +128,15 @@ export const showTooltip = (
         }
     }
     messageElement.style.top = top + "px";
-    messageElement.style.left = left + "px";
+    messageElement.style.left = Math.max(0, left) + "px";
+    // 与 data-position 同套风格：触发元素可用 data-delay 指定悬浮延迟（毫秒），未设置时沿用 SCSS 默认值
+    const tooltipDelay = target.getAttribute("data-delay");
+    if (tooltipDelay) {
+        messageElement.style.animationDelay = tooltipDelay + "ms";
+    }
 };
 
 export const hideTooltip = () => {
+    tooltipTargetElement = null;
     document.getElementById("tooltip").classList.add("fn__none");
 };

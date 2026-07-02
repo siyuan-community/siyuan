@@ -69,7 +69,7 @@ export const genCardHTML = (options: {
 </div>`;
     /// #else
     iconsHTML = `<div class="block__icons">
-        ${options.isTab ? '<div class="fn__flex-1"></div>' : `<div class="block__logo">
+        ${options.isTab ? '<div class="fn__flex-1"></div>' : `<div class="block__logo block__logo--icon">
             <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>${window.siyuan.languages.riffCard}
         </div>`}
         <span class="fn__flex-1 resize__move" style="min-height: 100%"></span>
@@ -814,7 +814,7 @@ export const openCardByData = async (app: App, cardsData: ICardData, cardType: T
         positionId: Constants.DIALOG_OPENCARD,
         content: genCardHTML({id, cardType, cardsData, isTab: false}),
         width: isMobile() ? "100vw" : "80vw",
-        height: isMobile() ? "100vh" : "70vh",
+        height: isMobile() ? "100dvh" : "70vh",
         destroyCallback() {
             if (editor) {
                 editor.destroy();

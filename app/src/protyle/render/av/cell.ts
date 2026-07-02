@@ -14,7 +14,7 @@ import {Constants} from "../../../constants";
 import {hintRef} from "../../hint/extend";
 import {getAssetName, pathPosix} from "../../../util/pathName";
 import {mergeAddOption} from "./select";
-import {escapeAttr, escapeHtml} from "../../../util/escape";
+import {escapeAriaLabel, escapeAttr, escapeHtml} from "../../../util/escape";
 import {electronUndo} from "../../undo";
 import {getFieldIdByCellElement} from "./row";
 import {getFieldsByData} from "./view";
@@ -1003,9 +1003,9 @@ export const renderCell = (cellValue: IAVCellValue, rowIndex = 0, showIcon = tru
     } else if (cellValue.type === "mAsset") {
         cellValue?.mAsset?.forEach((item) => {
             if (item.type === "image") {
-                text += `<img loading="lazy" class="av__cellassetimg ariaLabel" aria-label="${escapeAttr(item.content)}" src="${getCompressURL(encodeURI(item.content))}">`;
+                text += `<img loading="lazy" class="av__cellassetimg ariaLabel" aria-label="${escapeAriaLabel(item.content)}" src="${getCompressURL(encodeURI(item.content))}">`;
             } else {
-                text += `<span class="b3-chip av__celltext--url ariaLabel" aria-label="${escapeAttr(item.content)}" data-name="${escapeAttr(item.name)}" data-url="${escapeAttr(item.content)}">${item.name || item.content}</span>`;
+                text += `<span class="b3-chip av__celltext--url ariaLabel" aria-label="${escapeAriaLabel(item.content)}" data-name="${escapeAttr(item.name)}" data-url="${escapeAttr(item.content)}">${escapeHtml(item.name || item.content)}</span>`;
             }
         });
     } else if (cellValue.type === "checkbox") {
@@ -1124,20 +1124,28 @@ export const updateHeaderCell = (cellElement: HTMLElement, headerValue: {
 };
 
 export const getPositionByCellElement = (cellElement: HTMLElement) => {
-    let rowElement = hasClosestByClassName(cellElement, "av__row");
+    const rowElement = hasClosestByClassName(cellElement, "av__row");
     if (!rowElement) {
         return;
     }
+    // 直接取该行在 body 内 .av__row 列表中的序号，与划选/拖拽填充遍历 querySelectorAll(".av__row")
+    // 时的 index 保持同一基准，避免固定表头占位、虚拟滚动 spacer 等结构导致 previousElementSibling 计数错位
+    const bodyElement = hasClosestByClassName(rowElement, "av__body");
     let rowIndex = -1;
-    while (rowElement) {
-        rowElement = rowElement.previousElementSibling as HTMLElement;
-        rowIndex++;
+    if (bodyElement) {
+        Array.from(bodyElement.querySelectorAll(".av__row")).find((item: HTMLElement, index: number) => {
+            if (item === rowElement) {
+                rowIndex = index;
+                return true;
+            }
+        });
     }
     let celIndex = -2;
-    while (cellElement) {
-        cellElement = cellElement.previousElementSibling as HTMLElement;
-        if (cellElement && cellElement.classList.contains("av__colsticky")) {
-            cellElement = cellElement.lastElementChild as HTMLElement;
+    let currentCellElement = cellElement;
+    while (currentCellElement) {
+        currentCellElement = currentCellElement.previousElementSibling as HTMLElement;
+        if (currentCellElement && currentCellElement.classList.contains("av__colsticky")) {
+            currentCellElement = currentCellElement.lastElementChild as HTMLElement;
         }
         celIndex++;
     }

@@ -86,8 +86,10 @@ var IsExiting = atomic.Bool{}
 // MobileOSVer 移动端操作系统版本。
 var MobileOSVer string
 
-// DatabaseVer 数据库版本。修改表结构的话需要修改这里。
-const DatabaseVer = "20220501"
+// DatabaseVer 数据库版本。
+// 格式：yyyyMMddHHmm。修改表结构时需要更新此值，启动时会检测版本变化，
+// 若不一致则自动移除旧数据库文件并重建表结构，同时触发全量重建索引。
+const DatabaseVer = "202606122207"
 
 func logBootInfo() {
 	plat := GetOSPlatform()
@@ -127,8 +129,10 @@ func logBootInfo() {
 
 		if ghw.DriveTypeSSD.String() != driveType {
 			logging.LogWarnf("workspace dir [%s] is not in SSD drive, performance may be affected", WorkspaceDir)
-			WaitForUILoaded()
-			time.Sleep(3 * time.Second)
+			if AttachUI {
+				WaitForUILoaded()
+				time.Sleep(3 * time.Second)
+			}
 			PushErrMsg(Langs[Lang][278], 15000)
 		}
 	}()
@@ -139,7 +143,7 @@ func getWorkspaceDriveType() string {
 		return ghw.DriveTypeSSD.String()
 	}
 
-	if ContainerAndroid == Container || ContainerIOS == Container || ContainerHarmony == Container {
+	if IsMobileContainer() {
 		return ghw.DriveTypeSSD.String()
 	}
 
@@ -511,3 +515,6 @@ const (
 )
 
 var SearchCaseSensitive bool
+
+// SearchHanSensitive 是否区分繁简，由 sql.SetHanSensitive 维护；默认 true 与既往行为一致
+var SearchHanSensitive = true

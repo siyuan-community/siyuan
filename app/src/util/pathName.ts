@@ -2,7 +2,7 @@ import * as path from "path";
 import {fetchPost} from "./fetch";
 import {Dialog} from "../dialog";
 import {escapeHtml} from "./escape";
-import {getSearch, isMobile} from "./functions";
+import {isMobile} from "./functions";
 import {focusByRange} from "../protyle/util/selection";
 import {unicode2Emoji} from "../emoji";
 import {Constants} from "../constants";
@@ -16,6 +16,7 @@ import {isOnlyMeta, isWindows, setStorageVal, updateHotkeyTip} from "../protyle/
 import {matchHotKey} from "../protyle/util/hotKey";
 import {Menu} from "../plugin/Menu";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
+import {mergePathSegments} from "./mergePathSegments";
 
 export const useShell = (cmd: "showItemInFolder" | "openPath", filePath: string) => {
     /// #if !BROWSER
@@ -26,39 +27,77 @@ export const useShell = (cmd: "showItemInFolder" | "openPath", filePath: string)
     /// #endif
 };
 
-export const getIdZoomInByPath = () => {
+/**
+ * Check if the given URI is a valid SiYuan URI protocol (siyuan:// or web+siyuan://)
+ * @param uri - the URI to check
+ */
+export const isSiYuanUriProtocol = (uri: URL | string | null | undefined): boolean => {
+    try {
+        if (uri == null) return false;
+
+        const uriObj = uri instanceof URL ? uri : new URL(uri);
+        if (uriObj.protocol === "siyuan:" || uriObj.protocol === "web+siyuan:") {
+            return true;
+        }
+        return false;
+    } catch (error) {
+        return false;
+    }
+};
+
+/**
+ * Parse siyuan://blocks/20221031001313-rk7sd0e?focus=1&fullscreen=1
+ * @param uri - the siyuan block uri to parse
+ * @returns the block id and other info, or null if the uri is not a valid siyuan block uri
+ */
+export const parseSiYuanUriInfo = (uri: URL | string | null | undefined): ISiYuanUriBlockInfo | null => {
+    try {
+        if (uri == null) return null;
+
+        const uriObj = uri instanceof URL ? uri : new URL(uri);
+        if (!isSiYuanUriProtocol(uriObj)) {
+            return null;
+        }
+        if (uriObj.hostname === "blocks" && /^\/\d{14}-\w{7}/.test(uriObj.pathname)) {
+            return {
+                id: uriObj.pathname.substring(1, 1 + 22),
+                focus: uriObj.searchParams.get("focus") === "1",
+                fullscreen: uriObj.searchParams.get("fullscreen") === "1",
+            };
+        }
+        return null;
+    } catch (error) {
+        return null;
+    }
+};
+
+export const parseUriInfo = (): ISiYuanUriBlockInfo => {
     const searchParams = new URLSearchParams(window.location.search);
     const PWAURL = searchParams.get("url");
-    const data = {
-        id: "",
-        isZoomIn: false,
-    };
     if (/^web\+siyuan:\/\/blocks\/\d{14}-\w{7}/.test(PWAURL)) {
-        // PWA 捕获 web+siyuan://blocks/20221031001313-rk7sd0e?focus=1
-        data.id = PWAURL.substring(20, 20 + 22);
-        data.isZoomIn = getSearch("focus", PWAURL) === "1";
-        window.siyuan.editorIsFullscreen = getSearch("fullscreen", PWAURL) === "1";
-    } else if (window.JSAndroid) {
-        // PAD 通过思源协议打开
-        const SYURL = window.JSAndroid.getBlockURL();
-        data.id = getIdFromSYProtocol(SYURL);
-        data.isZoomIn = getSearch("focus", SYURL) === "1";
-        window.siyuan.editorIsFullscreen = getSearch("fullscreen", SYURL) === "1";
-    } else {
-        // 支持通过 URL 查询字符串参数 `id` 和 `focus` 跳转到 Web 端指定块 https://github.com/siyuan-note/siyuan/pull/7086
-        data.id = searchParams.get("id");
-        data.isZoomIn = searchParams.get("focus") === "1";
-        window.siyuan.editorIsFullscreen = searchParams.get("fullscreen") === "1";
+        const dataInfo = parseSiYuanUriInfo(PWAURL);
+        if (dataInfo != null) {
+            window.siyuan.editorIsFullscreen = dataInfo.fullscreen;
+            return dataInfo;
+        }
     }
-    return data;
-};
 
-export const isSYProtocol = (url: string) => {
-    return /^siyuan:\/\/blocks\/\d{14}-\w{7}/.test(url);
-};
+    if (window.JSAndroid) {
+        const dataInfo = parseSiYuanUriInfo(window.JSAndroid.getBlockURL());
+        if (dataInfo != null) {
+            window.siyuan.editorIsFullscreen = dataInfo.fullscreen;
+            return dataInfo;
+        }
+    }
 
-export const getIdFromSYProtocol = (url: string) => {
-    return url.substring(16, 16 + 22);
+    // 支持通过 URL 查询字符串参数 `id` 和 `focus` 跳转到 Web 端指定块 https://github.com/siyuan-note/siyuan/pull/7086
+    const fullscreen = searchParams.get("fullscreen") === "1";
+    window.siyuan.editorIsFullscreen = fullscreen;
+    return {
+        id: searchParams.get("id") ?? "",
+        focus: searchParams.get("focus") === "1",
+        fullscreen,
+    };
 };
 
 /* redirect to auth page */
@@ -92,6 +131,17 @@ export const getDisplayName = (filePath: string, basename = true, removeSY = fal
         name = name.substr(0, name.length - 3);
     }
     return name;
+};
+
+export const getDocDisplayName = (name: string, titleEmpty?: boolean, escape?: boolean) => {
+    if (titleEmpty) {
+        return window.siyuan.languages["_kernel"][16];
+    }
+    const displayName = getDisplayName(name, true, true);
+    if (escape) {
+        return Lute.EscapeHTMLStr(displayName);
+    }
+    return displayName;
 };
 
 export const getAssetName = (assetPath: string) => {
@@ -648,7 +698,7 @@ const getLeaf = (liElement: HTMLElement, flashcard: boolean) => {
         <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
     </span>
     ${unicode2Emoji(item.icon || (item.subFileCount === 0 ? window.siyuan.storage[Constants.LOCAL_IMAGES].file : window.siyuan.storage[Constants.LOCAL_IMAGES].folder), "b3-list-item__graphic", true)}
-    <span class="b3-list-item__text ariaLabel" data-position="parentE" aria-label="${getDisplayName(Lute.EscapeHTMLStr(item.name), true, true)} <small class='ft__on-surface'>${item.hSize}</small>${item.bookmark ? "<br>" + window.siyuan.languages.bookmark + " " + item.bookmark : ""}${item.name1 ? "<br>" + window.siyuan.languages.name + " " + item.name1 : ""}${item.alias ? "<br>" + window.siyuan.languages.alias + " " + item.alias : ""}${item.memo ? "<br>" + window.siyuan.languages.memo + " " + item.memo : ""}${item.subFileCount !== 0 ? window.siyuan.languages.includeSubFile.replace("x", item.subFileCount) : ""}<br>${window.siyuan.languages.modifiedAt} ${item.hMtime}<br>${window.siyuan.languages.createdAt} ${item.hCtime}">${getDisplayName(Lute.EscapeHTMLStr(item.name), true, true)}</span>
+    <span class="b3-list-item__text ariaLabel" data-position="parentE" aria-label="${getDocDisplayName(item.name, item.titleEmpty, true)} <small class='ft__on-surface'>${item.hSize}</small>${item.bookmark ? "<br>" + window.siyuan.languages.bookmark + " " + item.bookmark : ""}${item.name1 ? "<br>" + window.siyuan.languages.name + " " + item.name1 : ""}${item.alias ? "<br>" + window.siyuan.languages.alias + " " + item.alias : ""}${item.memo ? "<br>" + window.siyuan.languages.memo + " " + item.memo : ""}${item.subFileCount !== 0 ? window.siyuan.languages.includeSubFile.replace("x", item.subFileCount) : ""}<br>${window.siyuan.languages.modifiedAt} ${item.hMtime}<br>${window.siyuan.languages.createdAt} ${item.hCtime}">${getDocDisplayName(item.name, item.titleEmpty, true)}</span>
     ${countHTML}
 </li>`;
         });
@@ -728,16 +778,7 @@ export const setNoteBook = (cb?: (notebook: INotebook[]) => void, flashcard = fa
  * @returns 规范化后的相对路径（使用 /），若路径非法则返回替换后的合法路径
  */
 export const normalizeStoragePath = (storageName: string): string | null => {
-    const parts = storageName.replace(/\\/g, "/").split("/");
-    const resolved: string[] = [];
-    for (const part of parts) {
-        if (part === "..") {
-            if (resolved.length > 0) {
-                resolved.pop();
-            }
-        } else if (part && part !== ".") {
-            resolved.push(part);
-        }
-    }
-    return resolved.length > 0 ? resolved.join("/") : storageName.replace(/[\/\\]+/g, "");
+    const segments = storageName.replace(/\\/g, "/").split("/");
+    const merged = mergePathSegments([], segments);
+    return merged.length > 0 ? merged.join("/") : storageName.replace(/[\/\\]+/g, "");
 };

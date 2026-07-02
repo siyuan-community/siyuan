@@ -27,6 +27,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/server/proxy"
 	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
@@ -156,6 +157,18 @@ func setBazaar(c *gin.Context) {
 		return
 	}
 
+	if bazaar.PetalDisabled || !bazaar.Trust {
+		// disable all kernel plugins
+		if model.OnKernelPluginsStop != nil {
+			model.OnKernelPluginsStop()
+		}
+	} else {
+		// enable all kernel plugins
+		if model.OnKernelPluginsStart != nil {
+			model.OnKernelPluginsStart()
+		}
+	}
+
 	model.Conf.Bazaar = bazaar
 	model.Conf.Save()
 
@@ -185,29 +198,70 @@ func setAI(c *gin.Context) {
 		return
 	}
 
-	if 5 > ai.OpenAI.APITimeout {
-		ai.OpenAI.APITimeout = 5
-	}
-	if 600 < ai.OpenAI.APITimeout {
-		ai.OpenAI.APITimeout = 600
-	}
-
-	if 0 > ai.OpenAI.APIMaxTokens {
-		ai.OpenAI.APIMaxTokens = 0
-	}
-
-	if 0 >= ai.OpenAI.APITemperature || 2 < ai.OpenAI.APITemperature {
-		ai.OpenAI.APITemperature = 1.0
-	}
-
-	if 1 > ai.OpenAI.APIMaxContexts || 64 < ai.OpenAI.APIMaxContexts {
-		ai.OpenAI.APIMaxContexts = 7
-	}
-
 	model.Conf.AI = ai
+
+	model.Conf.AI.Normalize()
 	model.Conf.Save()
 
-	ret.Data = ai
+	ret.Data = model.Conf.AI
+}
+
+func setSecrets(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	param, err := gulu.JSON.MarshalJSON(arg)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	secrets := &conf.Secrets{}
+	if err = gulu.JSON.UnmarshalJSON(param, secrets); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	model.Conf.Secrets = secrets
+	model.Conf.Save()
+
+	ret.Data = model.Conf.Secrets
+}
+
+func setVariables(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	param, err := gulu.JSON.MarshalJSON(arg)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	variables := &conf.Variables{}
+	if err = gulu.JSON.UnmarshalJSON(param, variables); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	model.Conf.Variables = variables
+	model.Conf.Save()
+
+	ret.Data = model.Conf.Variables
 }
 
 func setFlashcard(c *gin.Context) {
@@ -376,6 +430,14 @@ func setExport(c *gin.Context) {
 		return
 	}
 
+	// 重置为空字符串表示恢复内置 Pandoc：先落盘清空自定义路径，再重新初始化并写回默认路径
+	if "" == export.PandocBin {
+		model.Conf.Export = export
+		model.Conf.Save()
+		util.InitPandoc()
+		export.PandocBin = util.PandocBinPath
+	}
+
 	if "" != export.PandocBin {
 		if !util.IsValidPandocBin(export.PandocBin) {
 			util.PushErrMsg(fmt.Sprintf(model.Conf.Language(117), export.PandocBin), 5000)
@@ -414,14 +476,16 @@ func setFiletree(c *gin.Context) {
 		return
 	}
 
+	fileTree.DocCreateSavePath = util.TrimSpaceInPath(fileTree.DocCreateSavePath)
+
 	fileTree.RefCreateSavePath = util.TrimSpaceInPath(fileTree.RefCreateSavePath)
-	if "" != fileTree.RefCreateSavePath {
-		if !strings.HasSuffix(fileTree.RefCreateSavePath, "/") {
-			fileTree.RefCreateSavePath += "/"
+
+	fileTree.ShorthandSavePath = util.TrimSpaceInPath(fileTree.ShorthandSavePath)
+	if "" != fileTree.ShorthandSavePath {
+		if !strings.HasPrefix(fileTree.ShorthandSavePath, "/") {
+			fileTree.ShorthandSavePath = "/" + fileTree.ShorthandSavePath
 		}
 	}
-
-	fileTree.DocCreateSavePath = util.TrimSpaceInPath(fileTree.DocCreateSavePath)
 
 	if 1 > fileTree.MaxOpenTabCount {
 		fileTree.MaxOpenTabCount = 8
@@ -469,11 +533,17 @@ func setSearch(c *gin.Context) {
 		return
 	}
 
+	if s.HanSensitive == nil {
+		// 兼容未携带该字段的旧版前端/第三方调用：保持当前值，避免被零值意外关闭并触发重建索引
+		s.HanSensitive = model.Conf.Search.HanSensitive
+	}
+
 	if 32 > s.Limit {
 		s.Limit = 32
 	}
 
 	oldCaseSensitive := model.Conf.Search.CaseSensitive
+	oldHanSensitive := model.Conf.Search.HanSensitiveVal()
 	oldIndexAssetPath := model.Conf.Search.IndexAssetPath
 
 	oldVirtualRefName := model.Conf.Search.VirtualRefName
@@ -485,9 +555,13 @@ func setSearch(c *gin.Context) {
 	model.Conf.Save()
 
 	sql.SetCaseSensitive(s.CaseSensitive)
+	sql.SetHanSensitive(s.HanSensitiveVal())
 	sql.SetIndexAssetPath(s.IndexAssetPath)
 
-	if needFullReindex := s.CaseSensitive != oldCaseSensitive || s.IndexAssetPath != oldIndexAssetPath; needFullReindex {
+	ftsChanged := s.CaseSensitive != oldCaseSensitive || s.HanSensitiveVal() != oldHanSensitive
+	if ftsChanged && s.IndexAssetPath == oldIndexAssetPath {
+		task.AppendTask(task.DatabaseIndexFTS, model.ReindexFTS)
+	} else if ftsChanged || s.IndexAssetPath != oldIndexAssetPath {
 		model.FullReindex(false)
 	}
 
@@ -552,7 +626,7 @@ func setAppearance(c *gin.Context) {
 
 	model.Conf.Appearance = appearance
 	util.StatusBarCfg = model.Conf.Appearance.StatusBar
-	model.Conf.Lang = appearance.Lang
+	model.Conf.Lang = util.LangToBCP47(appearance.Lang) // 兼容历史下划线值，如 zh_CN → zh-CN
 	util.Lang = model.Conf.Lang
 	model.Conf.Save()
 	model.InitAppearance()

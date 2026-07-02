@@ -13,6 +13,7 @@ import {openGlobalSearch} from "../../search/util";
 import {App} from "../../index";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {Editor} from "../../editor";
+import {getDocDisplayName} from "../../util/pathName";
 
 declare const vis: any;
 
@@ -38,52 +39,12 @@ export class Graph extends Model {
         rootId?: string
         type: "local" | "pin" | "global"
     }) {
-        super({
-            app: options.app,
+        super({app: options.app});
+        this.connect({
             id: options.tab.id,
             type: "graph",
-            callback() {
-                if (this.type === "local") {
-                    fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
-                        if (!existResponse.data) {
-                            this.parent.parent.removeTab(this.parent.id);
-                        }
-                    });
-                }
-            },
-            msgCallback(data) {
-                if (data) {
-                    switch (data.cmd) {
-                        case "mount":
-                            if (this.type === "global" && data.code !== 1) {
-                                this.searchGraph(false);
-                            }
-                            break;
-                        case "rename":
-                            if (this.graphData && data.data.box === this.graphData.box && this.rootId === data.data.id) {
-                                this.searchGraph(false);
-                                if (this.type === "local") {
-                                    this.parent.updateTitle(data.data.title);
-                                }
-                            }
-                            if (this.type === "global") {
-                                this.searchGraph(false);
-                            }
-                            break;
-                        case "closeBox":
-                        case "removeBox":
-                            if (this.type === "local" && this.graphData && this.graphData.box === data.data.box) {
-                                this.parent.parent.removeTab(this.parent.id);
-                            }
-                            break;
-                        case "removeDoc":
-                            if (this.type === "local" && data.data.ids.includes(this.rootId)) {
-                                this.parent.parent.removeTab(this.parent.id);
-                            }
-                            break;
-                    }
-                }
-            }
+            callback: this.handleCallback.bind(this),
+            msgCallback: this.handleMsgCallback.bind(this)
         });
         this.element = options.tab.panelElement;
         this.blockId = options.blockId;
@@ -266,9 +227,7 @@ export class Graph extends Model {
 <button class="b3-button b3-button--small fn__block">${window.siyuan.languages.reset}</button>`;
         }
         this.element.innerHTML = `<div class="block__icons"> 
-    <div class="block__logo fn__flex-1">
-        <svg class="block__logoicon"><use xlink:href="#icon${this.type === "global" ? "GlobalGraph" : "Graph"}"></use></svg>${this.type === "global" ? window.siyuan.languages.globalGraph : window.siyuan.languages.graphView}
-    </div>
+    <div class="block__logo fn__flex-1">${this.type === "global" ? window.siyuan.languages.globalGraph : window.siyuan.languages.graphView}</div>
     <input class="b3-text-field search__label fn__size200 fn__none" placeholder="${window.siyuan.languages.search}" />
     <span data-type="search" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.search}"><svg><use xlink:href='#iconFilter'></use></svg></span>
     <span class="fn__space"></span>
@@ -374,6 +333,50 @@ export class Graph extends Model {
             });
         });
         this.searchGraph(options.type !== "global");
+    }
+
+    private handleCallback() {
+        if (this.type === "local") {
+            fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
+                if (!existResponse.data) {
+                    this.parent.parent.removeTab(this.parent.id);
+                }
+            });
+        }
+    }
+
+    private handleMsgCallback(data: IWebSocketData) {
+        if (data) {
+            switch (data.cmd) {
+                case "mount":
+                    if (this.type === "global" && data.code !== 1) {
+                        this.searchGraph(false);
+                    }
+                    break;
+                case "rename":
+                    if (this.graphData && data.data.box === this.graphData.box && this.rootId === data.data.id) {
+                        this.searchGraph(false);
+                        if (this.type === "local") {
+                            this.parent.updateTitle(getDocDisplayName(data.data.title, data.data.empty));
+                        }
+                    }
+                    if (this.type === "global") {
+                        this.searchGraph(false);
+                    }
+                    break;
+                case "closeBox":
+                case "removeBox":
+                    if (this.type === "local" && this.graphData && this.graphData.box === data.data.box) {
+                        this.parent.parent.removeTab(this.parent.id);
+                    }
+                    break;
+                case "removeDoc":
+                    if (this.type === "local" && data.data.ids.includes(this.rootId)) {
+                        this.parent.parent.removeTab(this.parent.id);
+                    }
+                    break;
+            }
+        }
     }
 
     private reset(conf: IGraphCommon & ({ dailyNote: boolean } | { minRefs: number, dailyNote: boolean })) {
@@ -602,6 +605,7 @@ export class Graph extends Model {
                 autoResize: true,
                 interaction: {
                     hover: true,
+                    zoomSpeed: 0.5, // 1 is default
                 },
                 nodes: {
                     borderWidth: 0,

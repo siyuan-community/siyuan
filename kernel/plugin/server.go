@@ -18,10 +18,15 @@ package plugin
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
 	"github.com/dop251/goja"
 	"github.com/gin-gonic/gin"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 )
 
@@ -106,8 +111,8 @@ type RequestBody struct {
 }
 
 type RequestForm struct {
-	Value map[string][]string      `json:"values"` // e.g. {"field1": ["value1"], "field2": ["value2-1", "value2-2"]}
-	File  map[string][]RequestFile `json:"files"`  // e.g. {"file1": [{"Filename": "hello.txt", "Headers": {"Content-Disposition": ["form-data; name=\"file1\"; filename=\"hello.txt\""], "Content-Type": ["text/plain"]}, "Size": 123, "Data": []byte{...}}]}
+	Value map[string][]string       `json:"values"` // e.g. {"field1": ["value1"], "field2": ["value2-1", "value2-2"]}
+	File  map[string][]*RequestFile `json:"files"`  // e.g. {"file1": [{"Filename": "hello.txt", "Headers": {"Content-Disposition": ["form-data; name=\"file1\"; filename=\"hello.txt\""], "Content-Type": ["text/plain"]}, "Size": 123, "Data": []byte{...}}]}
 }
 
 type RequestFile struct {
@@ -144,6 +149,7 @@ type ResponseBody struct {
 	String   *ResponseString         `json:"string"`   // if the response is a formatted string, String will be non-nil.
 	Raw      *ResponseRawData        `json:"raw"`      // if the response is raw data, Raw will be non-nil.
 	Redirect *ResponseRedirect       `json:"redirect"` // if the response is a redirect, Redirect will be non-nil.
+	Proxy    *ResponseProxy          `json:"proxy"`    // if the response is a streaming proxy, Proxy will be non-nil.
 }
 
 type ResponseSerializedData struct {
@@ -170,9 +176,128 @@ type ResponseRedirect struct {
 	Location string `json:"location"` // the URL to redirect to
 }
 
+type ResponseProxy struct {
+	URL     string              `json:"url"`     // target http/https URL
+	Method  string              `json:"method"`  // optional, defaults to the incoming request method, only GET/HEAD are supported
+	Headers map[string][]string `json:"headers"` // request headers forwarded to the target
+}
+
 // isSseRequest checks if the incoming HTTP request is a Server-Sent Events (SSE) request by inspecting the "Accept" header for the "text/event-stream" value.
 func isSseRequest(c *gin.Context) bool {
 	return c.GetHeader(SseHeaderAcceptName) == SseHeaderAcceptValue
+}
+
+func isHopByHopHeader(header string) bool {
+	switch strings.ToLower(header) {
+	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
+}
+
+func connectionHopByHopHeaders(header http.Header) map[string]bool {
+	result := map[string]bool{}
+	for _, value := range header.Values("Connection") {
+		for _, part := range strings.Split(value, ",") {
+			if name := strings.ToLower(strings.TrimSpace(part)); name != "" {
+				result[name] = true
+			}
+		}
+	}
+	return result
+}
+
+func shouldProxyHeader(name string, connectionHeaders map[string]bool) bool {
+	lower := strings.ToLower(name)
+	return lower != "set-cookie" && !isHopByHopHeader(lower) && !connectionHeaders[lower]
+}
+
+func copyProxyHeaders(dst http.Header, src http.Header) {
+	connectionHeaders := connectionHopByHopHeaders(src)
+	for key, values := range src {
+		if !shouldProxyHeader(key, connectionHeaders) {
+			continue
+		}
+		dst.Del(key)
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func newProxyHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext:        util.SSRFSafeDialer(30 * time.Second).DialContext,
+			DisableCompression: true,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			req.Header.Del("Referer")
+			return nil
+		},
+		Timeout: 0,
+	}
+}
+
+func writeProxyResponse(c *gin.Context, proxy *ResponseProxy) {
+	if proxy.URL == "" {
+		c.String(http.StatusBadRequest, "missing proxy url")
+		return
+	}
+	targetURL, err := url.ParseRequestURI(proxy.URL)
+	if err != nil {
+		c.String(http.StatusBadRequest, "parse proxy url failed: %s", err.Error())
+		return
+	}
+	if targetURL.Scheme != "http" && targetURL.Scheme != "https" {
+		c.String(http.StatusBadRequest, "only http/https proxy url is allowed")
+		return
+	}
+
+	method := proxy.Method
+	if method == "" {
+		method = c.Request.Method
+	}
+	method = strings.ToUpper(method)
+	if method != http.MethodGet && method != http.MethodHead {
+		c.String(http.StatusBadRequest, "only GET/HEAD proxy method is allowed")
+		return
+	}
+	req, err := http.NewRequestWithContext(c.Request.Context(), method, targetURL.String(), nil)
+	if err != nil {
+		c.String(http.StatusBadRequest, "create proxy request failed: %s", err.Error())
+		return
+	}
+	requestConnectionHeaders := connectionHopByHopHeaders(http.Header(proxy.Headers))
+	for key, values := range proxy.Headers {
+		if !shouldProxyHeader(key, requestConnectionHeaders) {
+			continue
+		}
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+
+	client := newProxyHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		c.String(http.StatusBadGateway, "proxy request failed: %s", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	copyProxyHeaders(c.Writer.Header(), resp.Header)
+	c.Writer.WriteHeader(resp.StatusCode)
+	if method == http.MethodHead {
+		return
+	}
+	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
+		logging.LogWarnf("plugin proxy copy response failed: %s", err.Error())
+	}
 }
 
 func parseRequest(c *gin.Context) (request *Request, err error) {
@@ -185,29 +310,32 @@ func parseRequest(c *gin.Context) (request *Request, err error) {
 		// multipart/form-data
 		form = &RequestForm{
 			Value: multipartForm.Value,
-			File:  make(map[string][]RequestFile),
+			File:  make(map[string][]*RequestFile),
 		}
 
 		for partName, fileHandlers := range multipartForm.File {
-			files := make([]RequestFile, len(fileHandlers))
+			files := make([]*RequestFile, len(fileHandlers))
 			form.File[partName] = files
 			for i, handler := range fileHandlers {
-				files[i].Filename = handler.Filename
-				files[i].Headers = handler.Header
-				files[i].Size = handler.Size
-				if file, openErr := handler.Open(); openErr != nil {
+				files[i] = &RequestFile{
+					Filename: handler.Filename,
+					Headers:  handler.Header,
+					Size:     handler.Size,
+				}
+				file, openErr := handler.Open()
+				if openErr != nil {
 					err = fmt.Errorf("open form part [%s] file [%s] error: %s", partName, handler.Filename, openErr.Error())
 					return
-				} else {
-					content := make([]byte, handler.Size)
-					if n, readErr := file.Read(content); readErr != nil {
-						err = fmt.Errorf("read form part [%s] file [%s] error: %s", partName, handler.Filename, readErr.Error())
-						return
-					} else {
-						fileData := content[:n]
-						files[i].Data = &fileData
-					}
 				}
+				content := make([]byte, handler.Size)
+				n, readErr := file.Read(content)
+				file.Close()
+				if readErr != nil {
+					err = fmt.Errorf("read form part [%s] file [%s] error: %s", partName, handler.Filename, readErr.Error())
+					return
+				}
+				fileData := content[:n]
+				files[i].Data = &fileData
 			}
 		}
 	} else if len(c.Request.PostForm) > 0 {
@@ -236,7 +364,7 @@ func parseRequest(c *gin.Context) (request *Request, err error) {
 		}
 	}
 
-	headers := map[string][]string(c.Request.Header)
+	headers := map[string][]string(c.Request.Header.Clone())
 	delete(headers, "Cookie")
 	delete(headers, "Authorization")
 
@@ -407,6 +535,10 @@ func HandleHttpRequest(c *gin.Context, scope AccessScope) {
 		} else if response.Body.Redirect != nil {
 			// Redirect
 			c.Redirect(response.StatusCode, response.Body.Redirect.Location)
+			return
+		} else if response.Body.Proxy != nil {
+			// Streaming proxy
+			writeProxyResponse(c, response.Body.Proxy)
 			return
 		} else {
 			// No body

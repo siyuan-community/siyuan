@@ -33,7 +33,6 @@ import (
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
 	"github.com/Xuanwo/go-locale"
-	"github.com/sashabaranov/go-openai"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
@@ -65,13 +64,15 @@ type AppConf struct {
 	Account        *conf.Account    `json:"account"`        // 帐号配置
 	ReadOnly       bool             `json:"readonly"`       // 是否是以只读模式运行
 	ServerAddrs    []string         `json:"serverAddrs"`    // 本地服务器地址列表
-	AccessAuthCode string           `json:"accessAuthCode"` // 访问授权码
+	AccessAuthCode string           `json:"accessAuthCode"` // 锁屏密码
 	System         *conf.System     `json:"system"`         // 系统配置
 	Keymap         *conf.Keymap     `json:"keymap"`         // 快捷键配置
 	Sync           *conf.Sync       `json:"sync"`           // 同步配置
 	Search         *conf.Search     `json:"search"`         // 搜索配置
 	Flashcard      *conf.Flashcard  `json:"flashcard"`      // 闪卡配置
 	AI             *conf.AI         `json:"ai"`             // 人工智能配置
+	Secrets        *conf.Secrets    `json:"secrets"`        // 全局密钥库
+	Variables      *conf.Variables  `json:"variables"`      // 全局变量库
 	Bazaar         *conf.Bazaar     `json:"bazaar"`         // 集市配置
 	Stat           *conf.Stat       `json:"stat"`           // 统计
 	Api            *conf.API        `json:"api"`            // API
@@ -131,17 +132,24 @@ func InitConf() {
 		if data, err := os.ReadFile(confPath); err != nil {
 			logging.LogErrorf("load conf [%s] failed: %s", confPath, err)
 		} else {
+			// 解析失败时保留已成功写入的字段；未导出字段（m、userLock）与未触及的导出字段保持 NewAppConf() 初值。
 			if err = gulu.JSON.UnmarshalJSON(data, Conf); err != nil {
-				logging.LogErrorf("parse conf [%s] failed: %s", confPath, err)
+				logging.LogWarnf("parse conf failed, parsed fields retained: %s", err)
 			} else {
 				logging.LogInfof("loaded conf [%s]", confPath)
+			}
+
+			if conf.NeedsAIMigration(data) {
+				Conf.AI = conf.MigrateAI(data)
+				Conf.Save()
+				logging.LogInfof("migrated AI config [%s]", confPath)
 			}
 		}
 	}
 
 	if "" != util.Lang {
 		initialized := false
-		if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container || util.ContainerHarmony == util.Container {
+		if util.IsMobileContainer() {
 			// 移动端以上次设置的外观语言为准
 			if "" != Conf.Lang && util.Lang != Conf.Lang {
 				util.Lang = Conf.Lang
@@ -154,33 +162,51 @@ func InitConf() {
 			Conf.Lang = util.Lang
 			logging.LogInfof("initialized the specified language [%s]", util.Lang)
 		}
-	} else {
-		if "" == Conf.Lang {
-			// 未指定外观语言时使用系统语言
-
-			if userLang, err := locale.Detect(); err == nil {
-				var supportLangs []language.Tag
-				for lang := range util.Langs {
-					if tag, err := language.Parse(lang); err == nil {
-						supportLangs = append(supportLangs, tag)
-					} else {
-						logging.LogErrorf("load language [%s] failed: %s", lang, err)
-					}
+	} else if "" == Conf.Lang {
+		// 未指定外观语言时使用系统语言
+		// DetectAll 返回按优先级排序的系统语言 Tag 列表（如 en-US、en）
+		deviceLangTags, detectErr := locale.DetectAll()
+		if detectErr != nil {
+			logging.LogDebugf("check device locale failed [%s], using default language [en]", detectErr)
+			util.Lang = "en"
+		} else if len(deviceLangTags) == 0 {
+			logging.LogDebugf("device locale list is empty, using default language [en]")
+			util.Lang = "en"
+		} else {
+			// siYuanLangNames 与 bcp47Tags 按相同顺序排列，Match 返回的 matchIndex 即对应 siYuanLangNames 中的语言名
+			siYuanLangNames := make([]string, 0, len(util.Langs))
+			bcp47Tags := make([]language.Tag, 0, len(util.Langs))
+			for langName := range util.Langs {
+				bcp47Tag, err := language.Parse(langName)
+				if err != nil {
+					logging.LogErrorf("load language [%s] failed: %s", langName, err)
+					continue
 				}
-				matcher := language.NewMatcher(supportLangs)
-				lang, _, _ := matcher.Match(userLang)
-				base, _ := lang.Base()
-				region, _ := lang.Region()
-				util.Lang = base.String() + "_" + region.String()
-				Conf.Lang = util.Lang
-				logging.LogInfof("initialized language [%s] based on device locale", Conf.Lang)
-			} else {
-				logging.LogDebugf("check device locale failed [%s], using default language [en_US]", err)
-				util.Lang = "en_US"
-				Conf.Lang = util.Lang
+				siYuanLangNames = append(siYuanLangNames, langName)
+				bcp47Tags = append(bcp47Tags, bcp47Tag)
 			}
+			util.Lang = "en"
+			if len(bcp47Tags) > 0 {
+				matcher := language.NewMatcher(bcp47Tags)
+				_, matchIndex, confidence := matcher.Match(deviceLangTags...)
+				// 系统语言与 SiYuan 支持列表不存在有效匹配时 confidence 为 No，保持默认 en
+				if confidence != language.No {
+					util.Lang = siYuanLangNames[matchIndex]
+				}
+			}
+			logging.LogInfof("initialized language [%s] based on device locale", util.Lang)
 		}
+		Conf.Lang = util.Lang
+	} else {
+		// conf.json 已保存外观语言
 		util.Lang = Conf.Lang
+	}
+
+	// 历史下划线语言代码迁移为 BCP 47 新值（zh_CN → zh-CN 等）
+	if migrated := util.LangToBCP47(Conf.Lang); migrated != Conf.Lang {
+		logging.LogInfof("migrate legacy lang [%s] → [%s]", Conf.Lang, migrated)
+		Conf.Lang = migrated
+		util.Lang = migrated
 	}
 
 	Conf.Langs = loadLangs()
@@ -195,10 +221,34 @@ func InitConf() {
 		}
 	}
 	if !langOK {
-		Conf.Lang = "en_US"
+		Conf.Lang = "en"
 		util.Lang = Conf.Lang
 	}
 	Conf.Appearance.Lang = Conf.Lang
+
+	// 历史下划线命名的 i18n 文件（zh_CN.json 等）已重命名为 BCP 47（zh-CN.json 等），
+	// 清理 ConfDir/appearance/langs/ 下的旧名残留，避免僵尸文件。
+	if langsDir := filepath.Join(util.AppearancePath, "langs"); gulu.File.IsDir(langsDir) {
+		if entries, err := os.ReadDir(langsDir); err == nil {
+			for _, entry := range entries {
+				name := entry.Name()
+				if entry.IsDir() || !strings.HasSuffix(name, ".json") {
+					continue
+				}
+				stem := strings.TrimSuffix(name, ".json")
+				if _, ok := util.LangLegacyToBCP47[stem]; !ok {
+					continue
+				}
+				os.RemoveAll(filepath.Join(langsDir, name))
+			}
+		}
+	}
+	if "ant" == Conf.Appearance.Icon || "material" == Conf.Appearance.Icon {
+		// v3.7.0 移除了 ant/material 图标包，如果用户之前选择了这两个其中之一，升级后改为 litheness 图标包，避免图标显示异常 https://github.com/siyuan-note/siyuan/issues/7976
+		Conf.Appearance.Icon = "litheness"
+	}
+	os.RemoveAll(filepath.Join(util.IconsPath, "ant"))
+	os.RemoveAll(filepath.Join(util.IconsPath, "material"))
 	if nil == Conf.UILayout {
 		Conf.UILayout = &conf.UILayout{}
 	}
@@ -229,6 +279,7 @@ func InitConf() {
 	}
 	Conf.FileTree.DocCreateSavePath = util.TrimSpaceInPath(Conf.FileTree.DocCreateSavePath)
 	Conf.FileTree.RefCreateSavePath = util.TrimSpaceInPath(Conf.FileTree.RefCreateSavePath)
+	Conf.FileTree.ShorthandSavePath = util.TrimSpaceInPath(Conf.FileTree.ShorthandSavePath)
 	util.UseSingleLineSave = Conf.FileTree.UseSingleLineSave
 	if 2 > Conf.FileTree.LargeFileWarningSize {
 		Conf.FileTree.LargeFileWarningSize = 8
@@ -335,9 +386,7 @@ func InitConf() {
 
 	if nil == Conf.System {
 		Conf.System = conf.NewSystem()
-		if util.ContainerIOS != util.Container {
-			Conf.OpenHelp = true
-		}
+		Conf.OpenHelp = true
 	} else {
 		cmp := semver.Compare("v"+util.Ver, "v"+Conf.System.KernelVersion)
 		if 0 < cmp {
@@ -490,6 +539,10 @@ func InitConf() {
 	if 1 > Conf.Search.BacklinkMentionKeywordsLimit {
 		Conf.Search.BacklinkMentionKeywordsLimit = 512
 	}
+	if nil == Conf.Search.HanSensitive {
+		Conf.Search.SetHanSensitive(true)
+	}
+	sql.SetHanSensitive(Conf.Search.HanSensitiveVal())
 
 	if nil == Conf.Stat {
 		Conf.Stat = conf.NewStat()
@@ -543,47 +596,51 @@ func InitConf() {
 
 	if nil == Conf.AI {
 		Conf.AI = conf.NewAI()
+	} else {
+		Conf.AI.DecryptAPIKeys()
 	}
-	if "" == Conf.AI.OpenAI.APIModel {
-		Conf.AI.OpenAI.APIModel = openai.GPT3Dot5Turbo
-	}
-	if "" == Conf.AI.OpenAI.APIUserAgent {
-		Conf.AI.OpenAI.APIUserAgent = util.UserAgent
-	}
-	if strings.HasPrefix(Conf.AI.OpenAI.APIUserAgent, "SiYuan/") {
-		Conf.AI.OpenAI.APIUserAgent = util.UserAgent
-	}
-	if "" == Conf.AI.OpenAI.APIProvider {
-		Conf.AI.OpenAI.APIProvider = "OpenAI"
-	}
-	if 0 > Conf.AI.OpenAI.APIMaxTokens {
-		Conf.AI.OpenAI.APIMaxTokens = 0
-	}
-	if 0 >= Conf.AI.OpenAI.APITemperature || 2 < Conf.AI.OpenAI.APITemperature {
-		Conf.AI.OpenAI.APITemperature = 1.0
-	}
-	if 1 > Conf.AI.OpenAI.APIMaxContexts || 64 < Conf.AI.OpenAI.APIMaxContexts {
-		Conf.AI.OpenAI.APIMaxContexts = 7
+	Conf.AI.Normalize()
+
+	if nil == Conf.Secrets {
+		Conf.Secrets = conf.NewSecrets()
+	} else {
+		Conf.Secrets.Decrypt()
 	}
 
-	if "" != Conf.AI.OpenAI.APIKey {
-		logging.LogInfof("OpenAI API enabled\n"+
-			"    userAgent=%s\n"+
+	if nil == Conf.Variables {
+		Conf.Variables = conf.NewVariables()
+	}
+
+	for _, p := range Conf.AI.Providers {
+		if p == nil || len(p.APIKey) == 0 {
+			continue
+		}
+		for _, m := range p.Models {
+			if m.Name == "" {
+				continue
+			}
+			logging.LogInfof("AI provider enabled\n"+
+				"    baseURL=%s\n"+
+				"    timeout=%ds\n"+
+				"    model=%s\n"+
+				"    maxCompletionTokens=%d\n"+
+				"    temperature=%.1f\n"+
+				"    maxHistoryMessages=%d",
+				p.BaseURL,
+				p.RequestTimeout,
+				m.Name,
+				Conf.AI.Editing.MaxCompletionTokens,
+				Conf.AI.Editing.Temperature,
+				Conf.AI.Editing.MaxHistoryMessages)
+		}
+	}
+
+	if Conf.AI.Embedding != nil && len(Conf.AI.Embedding.APIKey) > 0 {
+		logging.LogInfof("embedding API enabled\n"+
 			"    baseURL=%s\n"+
-			"    timeout=%ds\n"+
-			"    proxy=%s\n"+
-			"    model=%s\n"+
-			"    maxTokens=%d\n"+
-			"    temperature=%.1f\n"+
-			"    maxContexts=%d",
-			Conf.AI.OpenAI.APIUserAgent,
-			Conf.AI.OpenAI.APIBaseURL,
-			Conf.AI.OpenAI.APITimeout,
-			Conf.AI.OpenAI.APIProxy,
-			Conf.AI.OpenAI.APIModel,
-			Conf.AI.OpenAI.APIMaxTokens,
-			Conf.AI.OpenAI.APITemperature,
-			Conf.AI.OpenAI.APIMaxContexts)
+			"    model=%s",
+			Conf.AI.Embedding.BaseURL,
+			Conf.AI.Embedding.Name)
 	}
 
 	if nil == Conf.Community {
@@ -599,15 +656,8 @@ func InitConf() {
 	Conf.AccessAuthCode = strings.TrimSpace(Conf.AccessAuthCode)
 
 	if 1 == Conf.DataIndexState {
-		// 上次未正常完成数据索引
-		go func() {
-			util.WaitForUILoaded()
-			if util.ContainerIOS == util.Container || util.ContainerAndroid == util.Container || util.ContainerHarmony == util.Container {
-				task.AppendAsyncTaskWithDelay(task.PushMsg, 2*time.Second, util.PushMsg, Conf.language(245), 15000)
-			} else {
-				task.AppendAsyncTaskWithDelay(task.PushMsg, 2*time.Second, util.PushMsg, Conf.language(244), 15000)
-			}
-		}()
+		// 上次未正常完成数据索引，后续会由 recoverIndexQueue() 恢复
+		logging.LogInfof("data index state is [%d], will recover through index queue", Conf.DataIndexState)
 	}
 
 	Conf.DataIndexState = 0
@@ -622,6 +672,24 @@ func InitConf() {
 	}
 
 	Conf.Save()
+
+	// 安全模式：渲染进程崩溃恢复后由桌面端主进程通过 --safe-mode 注入。
+	// safeMode 是纯运行时状态，不随 conf.json 持久化（Save 时会被排除），故每次启动都按 util.SafeMode 重新赋值。
+	Conf.System.SafeMode = util.SafeMode
+	if util.SafeMode {
+		// 直接覆盖外观、集市、代码片段相关配置并持久化，禁用代码片段、插件、自定义主题与图标，以排除扩展导致再次崩溃的可能。
+		// 注意：这是破坏性操作，会覆盖用户原有配置，后续不会自动恢复。
+		Conf.Appearance.ThemeLight = "daylight"
+		Conf.Appearance.ThemeDark = "midnight"
+		Conf.Appearance.Icon = "litheness"
+		Conf.Appearance.ThemeJS = false
+		Conf.Bazaar.PetalDisabled = true
+		Conf.Snippet.EnabledCSS = false
+		Conf.Snippet.EnabledJS = false
+		Conf.Save()
+		logging.LogInfof("booted in safe mode")
+	}
+
 	logging.SetLogLevel(Conf.LogLevel)
 
 	util.SetNetworkProxy(Conf.System.NetworkProxy.String())
@@ -681,6 +749,7 @@ func initLang() {
 			logging.LogErrorf("read language configuration [%s] failed: %s", jsonPath, err)
 			continue
 		}
+		data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 		langMap := map[string]any{}
 		if err := gulu.JSON.UnmarshalJSON(data, &langMap); err != nil {
 			logging.LogErrorf("parse language configuration failed [%s] failed: %s", jsonPath, err)
@@ -750,10 +819,11 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	util.PushMsg(Conf.Language(95), 10000*60)
 	FlushTxQueue()
 
+	cancelPurge()
+
 	if !force {
-		// Stop kernel plugins early in shutdown
-		if OnKernelPluginShutdown != nil {
-			OnKernelPluginShutdown()
+		if OnKernelPluginsStop != nil {
+			OnKernelPluginsStop()
 		}
 
 		if Conf.Sync.Enabled && 3 != Conf.Sync.Mode &&
@@ -791,6 +861,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 
 	Conf.Close()
 	sql.CloseDatabase()
+	closePushQueue()
 	util.SaveAssetsTexts()
 	clearWorkspaceTemp()
 	clearCorruptedNotebooks()
@@ -803,7 +874,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 		if err != nil {
 			logging.LogErrorf("read workspace paths failed: %s", err)
 		} else {
-			workspacePaths = gulu.Str.RemoveElem(workspacePaths, util.WorkspaceDir)
+			workspacePaths = util.RemoveWorkspacePath(workspacePaths, util.WorkspaceDir)
 			workspacePaths = append(workspacePaths, util.WorkspaceDir)
 			util.WriteWorkspacePaths(workspacePaths)
 		}
@@ -834,7 +905,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 		}
 		util.HttpServing = false
 
-		if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container || util.ContainerHarmony == util.Container {
+		if util.IsMobileContainer() {
 			return
 		}
 
@@ -886,6 +957,22 @@ func (conf *AppConf) Save() {
 
 	Conf.m.Lock()
 	defer Conf.m.Unlock()
+
+	if nil != Conf.AI {
+		Conf.AI.EncryptAPIKeys()
+		defer Conf.AI.DecryptAPIKeys()
+	}
+
+	if nil != Conf.Secrets {
+		Conf.Secrets.Encrypt()
+		defer Conf.Secrets.Decrypt()
+	}
+
+	// safeMode 是纯运行时状态（由 --safe-mode 注入），不随 conf.json 持久化，避免跨启动残留。
+	// 序列化写盘时临时清零，写完恢复内存值（供 getConf 等运行时读取）。
+	safeMode := Conf.System.SafeMode
+	Conf.System.SafeMode = false
+	defer func() { Conf.System.SafeMode = safeMode }()
 
 	newData, _ := gulu.JSON.MarshalIndentJSON(Conf, "", "  ")
 	confPath := filepath.Join(util.ConfDir, "conf.json")
@@ -1006,7 +1093,7 @@ func (conf *AppConf) language(num int) (ret string) {
 	if "" != ret {
 		return
 	}
-	ret = util.Langs["en_US"][num]
+	ret = util.Langs["en"][num]
 	return
 }
 
@@ -1080,6 +1167,8 @@ func HideConfSecret(c *AppConf) {
 	c.Publish = &conf.Publish{}
 	c.Repo = &conf.Repo{}
 	c.Sync = &conf.Sync{}
+	c.Secrets = &conf.Secrets{}
+	c.Variables = &conf.Variables{}
 	c.System.AppDir = ""
 	c.System.ConfDir = ""
 	c.System.DataDir = ""
@@ -1206,6 +1295,11 @@ func clearWorkspaceTemp() {
 	os.RemoveAll(filepath.Join(util.TempDir, "blocktree.msgpack")) // v2.7.2 前旧版的块树数据
 	os.RemoveAll(filepath.Join(util.DataDir, "%"))                 // v3.0.6 生成的错误历史文件夹
 	os.RemoveAll(filepath.Join(util.TempDir, "blocktree"))         // v3.1.0 前旧版的块树数据
+
+	// v3.7.0-dev 开发版遗留文件清理
+	os.RemoveAll(filepath.Join(util.TempDir, "queue.wal"))
+	os.RemoveAll(filepath.Join(util.TempDir, "queue.wal.lock"))
+	os.RemoveAll(filepath.Join(util.DataDir, "storage", "ai", "agent", "todos"))
 
 	logging.LogInfof("cleared workspace temp")
 }

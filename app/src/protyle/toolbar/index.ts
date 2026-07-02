@@ -17,7 +17,7 @@ import {Link} from "./Link";
 import {setPosition} from "../../util/setPosition";
 import {transaction, updateTransaction} from "../wysiwyg/transaction";
 import {Constants} from "../../constants";
-import {copyPlainText, openByMobile, readClipboard, setStorageVal} from "../util/compatibility";
+import {copyPlainText, readClipboard, saveExportFile, setStorageVal} from "../util/compatibility";
 import {upDownHint} from "../../util/upDownHint";
 import {highlightRender} from "../render/highlightRender";
 import {getContenteditableElement, hasNextSibling, hasPreviousSibling} from "../wysiwyg/getBlock";
@@ -36,7 +36,7 @@ import {matchHotKey} from "../util/hotKey";
 import {hideElements} from "../ui/hideElements";
 import {electronUndo} from "../undo";
 import {previewTemplate, toolbarKeyToMenu} from "./util";
-import {hideMessage, showMessage} from "../../dialog/message";
+import {showMessage} from "../../dialog/message";
 import {InlineMath} from "./InlineMath";
 import {InlineMemo} from "./InlineMemo";
 import {mathRender} from "../render/mathRender";
@@ -46,6 +46,7 @@ import {confirmDialog} from "../../dialog/confirmDialog";
 import {paste, pasteAsPlainText, pasteEscaped} from "../util/paste";
 import {escapeHtml} from "../../util/escape";
 import {resizeSide} from "../../history/resizeSide";
+import {activeBlur} from "../../mobile/util/keyboardToolbar";
 
 export class Toolbar {
     public element: HTMLElement;
@@ -53,6 +54,7 @@ export class Toolbar {
     public subElementCloseCB: () => void;
     public range: Range;
     public toolbarHeight: number;
+    private readonly LINE_HEIGHT = 32;
 
     constructor(protyle: IProtyle) {
         const options = protyle.options;
@@ -89,7 +91,40 @@ export class Toolbar {
 
     public update(protyle: IProtyle) {
         this.element.innerHTML = "";
-        protyle.options.toolbar = toolbarKeyToMenu(Constants.PROTYLE_TOOLBAR);
+        protyle.options.toolbar = toolbarKeyToMenu(isMobile() ? [
+            "block-ref",
+            "a",
+            "|",
+            "text",
+            "strong",
+            "em",
+            "u",
+            "clear",
+            "|",
+            "code",
+            "tag",
+            "inline-math",
+            "inline-memo",
+        ] : [
+            "block-ref",
+            "a",
+            "|",
+            "text",
+            "strong",
+            "em",
+            "u",
+            "s",
+            "mark",
+            "sup",
+            "sub",
+            "clear",
+            "|",
+            "code",
+            "kbd",
+            "tag",
+            "inline-math",
+            "inline-memo",
+        ]);
         protyle.app.plugins.forEach(item => {
             const pluginToolbar = item.updateProtyleToolbar(protyle.options.toolbar);
             pluginToolbar.forEach(toolbarItem => {
@@ -701,7 +736,7 @@ export class Toolbar {
                 }
                 if (currentNode && currentNode.nodeType !== 3) {
                     const currentType = (currentNode.getAttribute("data-type") || "").split(" ");
-                    if (currentNode.tagName !== "BR" &&
+                    if (currentNode.tagName !== "BR" && !currentNode.classList.contains("img") &&
                         previousElement && previousElement.nodeType !== 3 &&
                         currentNode.nodeType !== 3 &&
                         isArrayEqual(currentType, (previousElement.getAttribute("data-type") || "").split(" ")) &&
@@ -812,7 +847,7 @@ export class Toolbar {
             }
         }
         nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-        updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, html);
+        updateTransaction(protyle, nodeElement, html);
         nodeElement.querySelectorAll("wbr").forEach(item => {
             item.remove();
         });
@@ -861,6 +896,8 @@ export class Toolbar {
         if (!nodeElement) {
             return;
         }
+        // https://github.com/siyuan-note/siyuan/issues/17814
+        nodeElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
         hideElements(["hint", "select"], protyle);
         window.siyuan.menus.menu.remove();
         const id = nodeElement.getAttribute("data-node-id");
@@ -932,7 +969,7 @@ export class Toolbar {
     <span class="fn__space"></span>
     <button data-type="pin" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw" aria-label="${isPin ? window.siyuan.languages.unpin : window.siyuan.languages.pin}"><svg><use xlink:href="#icon${isPin ? "Unpin" : "Pin"}"></use></svg></button>
     <span class="fn__space"></span>
-    <button data-type="close" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw" aria-label="${window.siyuan.languages.close}"><svg style="width: 10px;margin: 0 2px;"><use xlink:href="#iconClose"></use></svg></button>
+    <button data-type="close" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw" aria-label="${window.siyuan.languages.close}"><svg><use xlink:href="#iconClose"></use></svg></button>
 </div>
 <textarea ${protyle.disabled ? " readonly" : ""} spellcheck="false" class="b3-text-field b3-text-field--text fn__block" placeholder="${placeholder}" style="${isMobile() ? "" : "width:" + Math.max(480, renderElement.clientWidth * 0.7) + "px"};max-height:calc(80vh - 44px);min-height: 48px;min-width: 268px;border-radius: 0 0 var(--b3-border-radius-b) var(--b3-border-radius-b);font-family: var(--b3-font-family-code);"></textarea></div>`;
         const autoHeight = () => {
@@ -1018,14 +1055,13 @@ export class Toolbar {
                     formData.append("file", blob);
                     formData.append("type", "image/svg+xml");
                     fetchPost("/api/export/exportAsFile", formData, (response) => {
-                        openByMobile(response.data.file);
-                        hideMessage(msgId);
+                        saveExportFile(response.data.file, msgId);
                     });
                 });
                 return;
             }
             setTimeout(() => {
-                addScript("/stage/protyle/js/html-to-image.min.js?v=1.11.13", "protyleHtml2image").then(() => {
+                addScript(`${Constants.PROTYLE_CDN}/js/html-to-image.min.js?v=1.11.13`, "protyleHtml2image").then(() => {
                     (renderElement as HTMLHtmlElement).style.display = "inline-block";
                     window.htmlToImage.toBlob(renderElement).then(blob => {
                         (renderElement as HTMLHtmlElement).style.display = "";
@@ -1033,8 +1069,7 @@ export class Toolbar {
                         formData.append("file", blob);
                         formData.append("type", "image/png");
                         fetchPost("/api/export/exportAsFile", formData, (response) => {
-                            openByMobile(response.data.file);
-                            hideMessage(msgId);
+                            saveExportFile(response.data.file, msgId);
                         });
                     });
                 });
@@ -1207,7 +1242,7 @@ export class Toolbar {
 
             if (!noChange && nodeElement.outerHTML !== html) {
                 nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-                updateTransaction(protyle, id, nodeElement.outerHTML, html);
+                updateTransaction(protyle, nodeElement, html);
             }
         };
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
@@ -1377,6 +1412,59 @@ export class Toolbar {
         inputElement.select();
     }
 
+    public showMultiSelectMode(protyle: IProtyle, blockElement: HTMLElement) {
+        blockElement.classList.add("protyle-wysiwyg--select");
+        window.siyuan.menus.menu.remove();
+
+        this.subElement.style.width = window.innerWidth - 16 + "px";
+        this.subElement.style.padding = "0";
+        this.subElement.innerHTML = `<div class="block__icons">
+    <div class="block__logo">
+        <svg class="block__logoicon"><use xlink:href="#iconCheck"></use></svg> 
+        <span class="multiSelectCount">${protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select").length}</span>
+    </div>
+    <span class="fn__flex-1"></span>
+    <button class="block__icon block__icon--show" data-type="menu" data-menu="true"><svg><use xlink:href="#iconMore"></use></svg></button>
+    <span class="fn__space"></span>
+    <button class="block__icon block__icon--show" data-type="exitMultiSelectMode"><svg><use xlink:href="#iconClose"></use></svg></button>
+</div>`;
+        this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
+        this.subElement.classList.remove("fn__none");
+        this.subElementCloseCB = undefined;
+        this.subElement.firstElementChild.addEventListener("click", (event) => {
+            let target = event.target as HTMLElement;
+            while (target && target !== this.subElement) {
+                if (target.dataset.type === "exitMultiSelectMode") {
+                    this.subElement.classList.add("fn__none");
+                    this.subElement.innerHTML = "";
+                    hideElements(["select"], protyle);
+                    event.preventDefault();
+                    event.stopPropagation();
+                    break;
+                } else if (target.dataset.type === "menu") {
+                    protyle.gutter.renderMenu(protyle, protyle.wysiwyg.element.querySelector(".protyle-wysiwyg--select"));
+                    window.siyuan.menus.menu.fullscreen();
+                    event.preventDefault();
+                    event.stopPropagation();
+                    break;
+                }
+                target = target.parentElement;
+            }
+        });
+        setPosition(this.subElement, 8, 8);
+        this.element.classList.add("fn__none");
+        activeBlur();
+    }
+
+    public isMultiSelectMode() {
+        let result = false;
+        /// #if MOBILE
+        result = !this.subElement.classList.contains("fn__none") &&
+            !!this.subElement.querySelector('[data-type="exitMultiSelectMode"]');
+        /// #endif
+        return result;
+    }
+
     public showTpl(protyle: IProtyle, nodeElement: HTMLElement, range: Range) {
         this.range = range;
         hideElements(["hint"], protyle);
@@ -1472,7 +1560,7 @@ export class Toolbar {
                     previewPath = response.data.templates[0]?.path;
                     /// #if !MOBILE
                     const rangePosition = getSelectionPosition(nodeElement, range);
-                    setPosition(this.subElement, rangePosition.left, rangePosition.top + 18, Constants.SIZE_TOOLBAR_HEIGHT);
+                    setPosition(this.subElement, rangePosition.left, rangePosition.top + 18, this.LINE_HEIGHT);
                     (this.subElement.firstElementChild as HTMLElement).style.maxHeight = Math.min(window.innerHeight * 0.8, window.innerHeight - this.subElement.getBoundingClientRect().top) - 16 + "px";
                     /// #else
                     setPosition(this.subElement, 0, 0);
@@ -1593,7 +1681,11 @@ export class Toolbar {
                 k: inputElement.value,
             }, (response) => {
                 let searchHTML = "";
-                response.data.widgets.forEach((item: { path: string, content: string, name: string }, index: number) => {
+                response.data.widgets.forEach((item: {
+                    path: string,
+                    content: string,
+                    name: string
+                }, index: number) => {
                     searchHTML += `<div data-value="${item.path}" data-content="${item.content}" class="b3-list-item${index === 0 ? " b3-list-item--focus" : ""}">
     ${item.name}
     <span class="b3-list-item__meta">${item.content}</span>
@@ -1603,7 +1695,7 @@ export class Toolbar {
                 if (init) {
                     /// #if !MOBILE
                     const rangePosition = getSelectionPosition(nodeElement, range);
-                    setPosition(this.subElement, rangePosition.left, rangePosition.top + 18, Constants.SIZE_TOOLBAR_HEIGHT);
+                    setPosition(this.subElement, rangePosition.left, rangePosition.top + 18, this.LINE_HEIGHT);
                     /// #else
                     setPosition(this.subElement, 0, 0);
                     /// #endif
@@ -1680,7 +1772,7 @@ export class Toolbar {
                 currentRange.extractContents();
                 focusByWbr(nodeElement, currentRange);
                 focusByRange(currentRange);
-                updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+                updateTransaction(protyle, nodeElement, oldHTML);
                 this.subElement.classList.add("fn__none");
             } else if (action === "paste") {
                 focusByRange(getEditorRange(nodeElement));
@@ -1720,7 +1812,7 @@ export class Toolbar {
 <button class="keyboard__action${protyle.disabled ? " fn__none" : ""}" data-action="pasteEscaped"><span>${window.siyuan.languages.pasteEscaped}</span></button>
 <div class="keyboard__split${protyle.disabled ? " fn__none" : ""}"></div>
 <button class="keyboard__action" data-action="back"><svg><use xlink:href="#iconBack"></use></svg></button>`;
-                setPosition(this.subElement, rangePosition.left, rangePosition.top + 28, Constants.SIZE_TOOLBAR_HEIGHT);
+                setPosition(this.subElement, rangePosition.left, rangePosition.top + 28, this.LINE_HEIGHT);
             }
         });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
@@ -1728,7 +1820,7 @@ export class Toolbar {
         this.subElementCloseCB = undefined;
         this.element.classList.add("fn__none");
         const rangePosition = getSelectionPosition(nodeElement, range);
-        setPosition(this.subElement, rangePosition.left, rangePosition.top - 48, Constants.SIZE_TOOLBAR_HEIGHT);
+        setPosition(this.subElement, rangePosition.left, rangePosition.top - 48, this.LINE_HEIGHT);
     }
 
     private genItem(protyle: IProtyle, menuItem: IMenuItem) {
@@ -1839,6 +1931,7 @@ export class Toolbar {
                     highlightRender(nodeElement);
                 }
                 nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
+                nodeElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
                 doOperations.push({
                     id,
                     data: nodeElement.outerHTML,

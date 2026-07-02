@@ -1,41 +1,40 @@
 import {Constants} from "../constants";
 /// #if !MOBILE
-import {Tab} from "./Tab";
+import type {Tab} from "./Tab";
 /// #endif
+import type {App} from "../index";
+import {kernelError} from "../util/kernelFault";
 import {processMessage} from "../util/processMessage";
-import {kernelError, reloadSync} from "../dialog/processSystem";
-import {App} from "../index";
+import {reloadSync} from "../util/reloadSync";
+
+interface IConnectOptions {
+    id: string,
+    type?: TWS,
+    callback?: () => void,
+    msgCallback?: (data: IWebSocketData) => void
+}
 
 export class Model {
     public ws: WebSocket;
     public reqId: number;
-    /// #if !MOBILE
-    public parent: Tab;
+
+    public parent:
+
+        /// #if !MOBILE
+        Tab;
     /// #else
     // @ts-ignore
-    public parent: any;
+    null;
     /// #endif
     public app: App;
 
     constructor(options: {
         app: App,
-        id: string,
-        type?: TWS,
-        callback?: () => void,
-        msgCallback?: (data: IWebSocketData) => void
     }) {
         this.app = options.app;
-        if (options.msgCallback) {
-            this.connect(options);
-        }
     }
 
-    private connect(options: {
-        id: string,
-        type?: TWS,
-        callback?: () => void,
-        msgCallback?: (data: IWebSocketData) => void
-    }) {
+    public connect(options: IConnectOptions) {
         const websocketURL = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
         const ws = new WebSocket(`${websocketURL}?app=${Constants.SIYUAN_APPID}&id=${options.id}${options.type ? "&type=" + options.type : ""}`);
         ws.onopen = () => {
@@ -83,6 +82,10 @@ export class Model {
                 kernelError();
             }
         };
+        if (this.ws) {
+            this.ws.onclose = null;
+            this.ws.close();
+        }
         this.ws = ws;
     }
 
@@ -90,7 +93,7 @@ export class Model {
         if (!this.ws) { // Inbox 无 ws
             return;
         }
-        this.reqId = process ? 0 : new Date().getTime();
+        this.reqId = process ? 0 : Date.now();
         this.ws.send(JSON.stringify({
             cmd,
             reqId: this.reqId,

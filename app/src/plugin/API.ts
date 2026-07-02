@@ -9,7 +9,7 @@ import {openFile, openFileById} from "../editor/util";
 import {openNewWindow, openNewWindowById} from "../window/openNewWindow";
 import {Tab} from "../layout/Tab";
 /// #endif
-import {updateHotkeyTip} from "../protyle/util/compatibility";
+import {saveExportFile, updateHotkeyTip} from "../protyle/util/compatibility";
 import * as platformUtils from "./platformUtils";
 import {App} from "../index";
 import {Constants} from "../constants";
@@ -17,20 +17,21 @@ import {Setting} from "./Setting";
 import {Menu} from "./Menu";
 import {Protyle} from "../protyle";
 import {openMobileFileById} from "../mobile/editor";
-import {lockScreen, exitSiYuan} from "../dialog/processSystem";
+import {exitSiYuan, lockScreen} from "../dialog/processSystem";
 import {Model} from "../layout/Model";
-import {getActiveTab, getDockByType} from "../layout/tabUtil";
 /// #if !MOBILE
+import {getActiveTab, getDockByType} from "../layout/tabUtil";
 import {getAllModels, getAllTabs} from "../layout/getAll";
+import {exportLayout} from "../layout/util";
 /// #endif
 import {getAllEditor} from "../layout/getAll";
 import {openSetting} from "../config";
 import {openAttr, openFileAttr} from "../menus/commonMenuItem";
 import {globalCommand} from "../boot/globalEvent/command/global";
-import {exportLayout} from "../layout/util";
 import {saveScroll} from "../protyle/scroll/saveScroll";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
-import {Files} from "../layout/dock/Files";
+import type {MobileFiles} from "../mobile/dock/MobileFiles";
+import type {Files} from "../layout/dock/Files";
 import {ProtyleMethod} from "./ProtyleMethod";
 import {openEmojiPanel} from "../emoji";
 
@@ -292,14 +293,14 @@ export const expandDocTree = async (options: {
     });
     let liElement: HTMLElement;
     let notebookId = options.id;
-    const file = getModelByDockType("file") as Files;
+    const file = getModelByDockType("file") as MobileFiles | Files;
     if (typeof options.isSetCurrent === "undefined") {
         options.isSetCurrent = true;
     }
     if (isNotebook) {
         liElement = file.element.querySelector(`.b3-list[data-url="${options.id}"]`)?.firstElementChild as HTMLElement;
     } else {
-        const response = await fetchSyncPost("api/block/getBlockInfo", {id: options.id});
+        const response = await fetchSyncPost("/api/block/getBlockInfo", {id: options.id});
         if (response.code === -1) {
             return;
         }
@@ -361,6 +362,7 @@ export const API = {
     Menu,
     Setting,
     getAllEditor,
+    saveExportFile,
     /// #if !MOBILE
     getActiveTab,
     getAllModels,

@@ -43,11 +43,13 @@ import (
 	"github.com/olahol/melody"
 	"github.com/siyuan-community/siyuan/kernel/api"
 	"github.com/siyuan-community/siyuan/kernel/cmd"
+	"github.com/siyuan-community/siyuan/kernel/mcp"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/server/proxy"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 	"github.com/soheilhy/cmux"
+
 	"golang.org/x/net/webdav"
 )
 
@@ -133,7 +135,6 @@ var (
 func Serve(fastMode bool, cookieKey string) {
 	gin.SetMode(gin.ReleaseMode)
 	ginServer := gin.New()
-	ginServer.UseH2C = true
 	ginServer.MaxMultipartMemory = 1024 * 1024 * 32 // 插入较大的资源文件时内存占用较大 https://github.com/siyuan-note/siyuan/issues/5023
 	ginServer.Use(
 		model.ControlConcurrency, // 请求串行化 Concurrency control when requesting the kernel API https://github.com/siyuan-note/siyuan/issues/9939
@@ -157,6 +158,7 @@ func Serve(fastMode bool, cookieKey string) {
 	serveAssets(ginServer)
 	serveAppearance(ginServer)
 	serveWebSocket(ginServer)
+	serveMCP(ginServer)
 	serveWebDAV(ginServer)
 	serveCalDAV(ginServer)
 	serveCardDAV(ginServer)
@@ -202,7 +204,18 @@ func Serve(fastMode bool, cookieKey string) {
 	model.Conf.ServerAddrs = util.GetServerAddrs()
 	model.Conf.Save()
 
-	util.ServerURL, err = url.Parse(util.Protocol + "://" + util.Hostname + ":" + util.ServerPort)
+	// Generate TLS certificates for local HTTPS + HTTP/2 support
+	certPath, keyPath, certErr := util.GetOrCreateTLSCert()
+	if certErr != nil {
+		logging.LogWarnf("failed to get TLS certificates, local HTTPS/HTTP2 unavailable: %s", certErr)
+		certPath = ""
+	}
+
+	if "" != certPath {
+		util.ServerURL, err = url.Parse("https://127.0.0.1:" + port)
+	} else {
+		util.ServerURL, err = url.Parse("http://127.0.0.1:" + port)
+	}
 	if err != nil {
 		logging.LogErrorf("parse server url failed: %s", err)
 	}
@@ -212,21 +225,11 @@ func Serve(fastMode bool, cookieKey string) {
 		rewritePortJSON(pid, port)
 	}
 
-	// Prepare TLS if enabled
-	var certPath, keyPath string
 	useTLS := model.Conf.System.NetworkServeTLS && model.Conf.System.NetworkServe
 	if useTLS {
-		// Ensure TLS certificates exist (proxy will use them directly)
-		var tlsErr error
-		certPath, keyPath, tlsErr = util.GetOrCreateTLSCert()
-		if tlsErr != nil {
-			logging.LogErrorf("failed to get TLS certificates: %s", tlsErr)
-			if !fastMode {
-				os.Exit(logging.ExitCodeUnavailablePort)
-			}
-			return
-		}
 		logging.LogInfof("kernel [pid=%s] http server [%s] is booting (TLS will be enabled on fixed port proxy)", pid, host+":"+port)
+	} else if "" != certPath {
+		logging.LogInfof("kernel [pid=%s] http server [%s] is booting (local HTTPS + HTTP/2 enabled)", pid, host+":"+port)
 	} else {
 		logging.LogInfof("kernel [pid=%s] http server [%s] is booting", pid, host+":"+port)
 	}
@@ -236,7 +239,7 @@ func Serve(fastMode bool, cookieKey string) {
 
 	go func() {
 		time.Sleep(1 * time.Second)
-		go proxy.InitFixedPortService(host, useTLS, certPath, keyPath)
+		go proxy.InitFixedPortService(host, certPath, keyPath)
 		go proxy.InitPublishService()
 		// 反代服务器启动失败不影响核心服务器启动
 	}()
@@ -245,13 +248,13 @@ func Serve(fastMode bool, cookieKey string) {
 	util.HttpServer = &http.Server{
 		Handler: httpHandler,
 	}
-	
-	if useTLS && (util.FixedPort == util.ServerPort || util.IsPortOpen(util.FixedPort)) {
-		if err = util.ServeMultiplexed(ln, httpHandler, certPath, keyPath, util.HttpServer); err != nil {
+
+	if "" != certPath {
+		if _, _, err = util.ServeMultiplexed(ln, httpHandler, certPath, keyPath, util.HttpServer, nil); err != nil {
 			if errors.Is(err, http.ErrServerClosed) || errors.Is(err, cmux.ErrListenerClosed) {
 				return
 			}
-	
+
 			if !fastMode {
 				logging.LogErrorf("boot kernel failed: %s", err)
 				os.Exit(logging.ExitCodeUnavailablePort)
@@ -265,7 +268,7 @@ func Serve(fastMode bool, cookieKey string) {
 	} else {
 		err = util.HttpServer.Serve(ln)
 	}
-	
+
 	if err != nil {
 		if errors.Is(err, http.ErrServerClosed) {
 			return
@@ -310,10 +313,21 @@ func serveExport(ginServer *gin.Engine) {
 	exportGroup := ginServer.Group("/export/", model.CheckAuth)
 	exportBaseDir := filepath.Join(util.TempDir, "export")
 
-	// 应下载而不是查看导出的文件
 	exportGroup.GET("/*filepath", func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/export/temp/") {
-			c.File(filepath.Join(util.TempDir, c.Request.URL.Path))
+			tempBaseDir := filepath.Join(util.TempDir, "export", "temp")
+			relativePath := strings.TrimPrefix(c.Request.URL.Path, "/export/temp/")
+			relativePath = filepath.Clean(relativePath)
+			if strings.Contains(relativePath, "..") {
+				c.Status(http.StatusUnauthorized)
+				return
+			}
+			fullPath := filepath.Join(tempBaseDir, relativePath)
+			if !gulu.File.IsSubPath(tempBaseDir, fullPath) {
+				c.Status(http.StatusUnauthorized)
+				return
+			}
+			c.File(fullPath)
 			return
 		}
 
@@ -351,9 +365,7 @@ func serveExport(ginServer *gin.Engine) {
 			return
 		}
 
-		fileName := filepath.Base(decodedPath)
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
-
+		c.Header("Content-Disposition", formatContentDispositionAttachment(filepath.Base(decodedPath)))
 		c.File(fullPath)
 	})
 }
@@ -429,6 +441,23 @@ func serveAppearance(ginServer *gin.Engine) {
 		queryParams.Set("r", gulu.Rand.String(7))
 		location.RawQuery = queryParams.Encode()
 
+		siyuanDesktopMode, desktopCookieErr := c.Request.Cookie("siyuan-desktop-mode")
+		if nil == desktopCookieErr {
+			if "true" == siyuanDesktopMode.Value {
+				if strings.Contains(userAgentHeader, "Electron") {
+					location.Path = "/stage/build/app/"
+				} else {
+					location.Path = "/stage/build/desktop/"
+				}
+				c.Redirect(302, location.String())
+				return
+			} else if "false" == siyuanDesktopMode.Value {
+				location.Path = "/stage/build/mobile/"
+				c.Redirect(302, location.String())
+				return
+			}
+		}
+
 		if strings.Contains(userAgentHeader, "Electron") {
 			location.Path = "/stage/build/app/"
 		} else if strings.Contains(userAgentHeader, "Pad") ||
@@ -470,16 +499,17 @@ func serveAppearance(ginServer *gin.Engine) {
 		} else if strings.Contains(c.Request.URL.Path, "/langs/") && strings.HasSuffix(c.Request.URL.Path, ".json") {
 			lang := path.Base(c.Request.URL.Path)
 			lang = strings.TrimSuffix(lang, ".json")
-			if "zh_CN" != lang && "en_US" != lang {
+			if "zh-CN" != lang && "en" != lang {
 				// 多语言配置缺失项使用对应英文配置项补齐 https://github.com/siyuan-note/siyuan/issues/5322
 
-				enUSFilePath := filepath.Join(appearancePath, "langs", "en_US.json")
+				enUSFilePath := filepath.Join(appearancePath, "langs", "en.json")
 				enUSData, err := os.ReadFile(enUSFilePath)
 				if err != nil {
 					logging.LogErrorf("read en_US.json [%s] failed: %s", enUSFilePath, err)
 					util.ReportFileSysFatalError(err)
 					return
 				}
+				enUSData = bytes.TrimPrefix(enUSData, []byte("\xef\xbb\xbf"))
 				enUSMap := map[string]any{}
 				if err = gulu.JSON.UnmarshalJSON(enUSData, &enUSMap); err != nil {
 					logging.LogErrorf("unmarshal en_US.json [%s] failed: %s", enUSFilePath, err)
@@ -493,6 +523,7 @@ func serveAppearance(ginServer *gin.Engine) {
 						c.JSON(200, enUSMap)
 						return
 					}
+					data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 
 					langMap := map[string]any{}
 					if err = gulu.JSON.UnmarshalJSON(data, &langMap); err != nil {
@@ -572,10 +603,15 @@ func serveAuthPage(c *gin.Context) {
 		"appearanceMode":         model.Conf.Appearance.Mode,
 		"appearanceModeOS":       model.Conf.Appearance.ModeOS,
 		"workspace":              util.WorkspaceName,
-		"workspacePath":          util.WorkspaceDir,
 		"keymapGeneralToggleWin": keymapHideWindow,
 		"trayMenuLangs":          util.TrayMenuLangs[util.Lang],
-		"workspaceDir":           util.WorkspaceDir,
+		// 浏览器环境下不返回工作空间绝对路径，避免泄露用户名等敏感信息
+		// 原生客户端（桌面 Electron，授权页 siyuan-init IPC 仅在 Electron 内执行）照常返回真实路径
+		// REF: https://github.com/siyuan-note/siyuan/issues/17410
+		"workspaceDir": util.WorkspaceDir,
+	}
+	if util.IsBrowserRequest(c) {
+		model["workspaceDir"] = ""
 	}
 	buf := &bytes.Buffer{}
 	if err = tpl.Execute(buf, model); err != nil {
@@ -585,6 +621,22 @@ func serveAuthPage(c *gin.Context) {
 	}
 	data = buf.Bytes()
 	c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+}
+
+// formatContentDispositionAttachment 使用 mime.FormatMediaType 编码文件名，避免异常字符破坏响应头
+func formatContentDispositionAttachment(filename string) string {
+	if cd := mime.FormatMediaType("attachment", map[string]string{"filename": filename}); cd != "" {
+		return cd
+	}
+	return "attachment"
+}
+
+// 资源 GET 带 download=true 时以附件返回，便于浏览器 window.open 触发下载而非内联预览
+func setAssetsAttachmentDisposition(c *gin.Context, pathForBaseName string) {
+	if !strings.EqualFold(c.Query("download"), "true") {
+		return
+	}
+	c.Header("Content-Disposition", formatContentDispositionAttachment(filepath.Base(pathForBaseName)))
 }
 
 func serveAssets(ginServer *gin.Engine) {
@@ -601,18 +653,8 @@ func serveAssets(ginServer *gin.Engine) {
 		relativePath := path.Join("assets", requestPath)
 		p, err := model.GetAssetAbsPath(relativePath)
 		if err != nil {
-			if strings.Contains(strings.TrimPrefix(requestPath, "/"), "/") {
-				// 再使用编码过的路径解析一次 https://github.com/siyuan-note/siyuan/issues/11823
-				dest := url.PathEscape(strings.TrimPrefix(requestPath, "/"))
-				dest = strings.ReplaceAll(dest, ":", "%3A")
-				relativePath = path.Join("assets", dest)
-				p, err = model.GetAssetAbsPath(relativePath)
-			}
-
-			if err != nil {
-				context.Status(http.StatusNotFound)
-				return
-			}
+			context.Status(http.StatusNotFound)
+			return
 		}
 
 		if !model.IsAdminRoleContext(context) {
@@ -623,11 +665,18 @@ func serveAssets(ginServer *gin.Engine) {
 			}
 		}
 
+		if util.IsSensitivePath(p) {
+			logging.LogErrorf("refuse to serve sensitive file [%s]", context.Request.URL.Path)
+			context.Status(http.StatusForbidden)
+			return
+		}
+
 		if serveThumbnail(context, p, requestPath) || serveSVG(context, p) {
 			return
 		}
 
 		// 返回原始文件
+		setAssetsAttachmentDisposition(context, p)
 		http.ServeFile(context.Writer, context.Request, p)
 	})
 
@@ -649,6 +698,7 @@ func serveSVG(context *gin.Context, assetAbsPath string) bool {
 			data = []byte(util.SanitizeSVG(string(data)))
 		}
 
+		setAssetsAttachmentDisposition(context, assetAbsPath)
 		context.Data(200, "image/svg+xml", data)
 		return true
 	}
@@ -667,6 +717,7 @@ func serveThumbnail(context *gin.Context, assetAbsPath, requestPath string) bool
 			}
 		}
 
+		setAssetsAttachmentDisposition(context, assetAbsPath)
 		http.ServeFile(context.Writer, context.Request, thumbnailPath)
 		return true
 	}
@@ -674,9 +725,18 @@ func serveThumbnail(context *gin.Context, assetAbsPath, requestPath string) bool
 }
 
 func serveRepoDiff(ginServer *gin.Engine) {
+	repoDiffBaseDir := filepath.Join(util.TempDir, "repo", "diff")
 	ginServer.GET("/repo/diff/*path", model.CheckAuth, model.CheckAdminRole, func(context *gin.Context) {
-		requestPath := context.Param("path")
-		p := filepath.Join(util.TempDir, "repo", "diff", requestPath)
+		requestPath := filepath.Clean(context.Param("path"))
+		if strings.Contains(requestPath, "..") {
+			context.Status(http.StatusUnauthorized)
+			return
+		}
+		p := filepath.Join(repoDiffBaseDir, requestPath)
+		if !gulu.File.IsSubPath(repoDiffBaseDir, p) {
+			context.Status(http.StatusUnauthorized)
+			return
+		}
 		http.ServeFile(context.Writer, context.Request, p)
 	})
 }
@@ -1035,6 +1095,10 @@ func jwtMiddleware(c *gin.Context) {
 	}
 	c.Set(model.RoleContextKey, model.RoleVisitor)
 	c.Next()
+}
+
+func serveMCP(ginServer *gin.Engine) {
+	mcp.Serve(ginServer)
 }
 
 func serveFixedStaticFiles(ginServer *gin.Engine) {

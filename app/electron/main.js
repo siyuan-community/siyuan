@@ -20,6 +20,7 @@ const {
     BrowserWindow,
     Notification,
     shell,
+    session,
     Menu,
     MenuItem,
     screen,
@@ -42,23 +43,11 @@ const isDevEnv = process.env.NODE_ENV === "development";
 const appVer = app.getVersion();
 const confDir = path.join(app.getPath("home"), ".config", "siyuan");
 const windowStatePath = path.join(confDir, "windowState.json");
-const args = new Map(process.argv.map(arg => {
-    const fragments = arg.split("=");
-    return fragments.length === 1
-        ? [fragments[0], true]
-        : [fragments[0], fragments.slice(1).join("=")];
-}));
-const LOOPBACK_ADDRESS = "127.0.0.1";
-
-let baseURL;
+const appCrashLogPath = path.join(confDir, "app.crash.log");
 let bootWindow;
-let proxyURL;
 let latestActiveWindow;
-let localhost = true;
 let firstOpen = false;
 let workspaces = []; // workspaceDir, id, browserWindow, tray, hideShortcut
-let kernelProtocol = "http";
-let kernelHostname = LOOPBACK_ADDRESS;
 let kernelPort = 6806;
 let resetWindowStateOnRestart = false;
 let openAsHidden = false;
@@ -99,19 +88,7 @@ if (!app.isPackaged) {
 
 for (let i = argStart; i < process.argv.length; i++) {
     let arg = process.argv[i];
-    if (arg.startsWith("siyuan://")
-        || arg.startsWith("--openAsHidden")
-        || arg.startsWith("--workspace=")
-        || arg.startsWith("--port=")
-
-        || arg.startsWith("--proxy=")
-        || arg.startsWith("--remote=")
-        || arg.startsWith("--hostname=")
-
-        || arg.startsWith("--tls-kernel")
-        || arg.startsWith("--tls-key-file")
-        || arg.startsWith("--tls-cert-file")
-    ) {
+    if (arg.startsWith("--workspace=") || arg.startsWith("--openAsHidden") || arg.startsWith("--port=") || arg.startsWith("--safe-mode=") || arg.startsWith("siyuan://")) {
         // 跳过内置参数
         if (arg.startsWith("--openAsHidden")) {
             openAsHidden = true;
@@ -127,7 +104,7 @@ for (let i = argStart; i < process.argv.length; i++) {
 try {
     firstOpen = !fs.existsSync(path.join(confDir, "workspace.json"));
     if (!fs.existsSync(confDir)) {
-        fs.mkdirSync(confDir, { mode: 0o755, recursive: true });
+        fs.mkdirSync(confDir, {mode: 0o755, recursive: true});
     }
 } catch (e) {
     console.error(e);
@@ -135,21 +112,60 @@ try {
     app.exit();
 }
 
-const getServer = (port = kernelPort) => {
-    return localhost
-        ? `${kernelProtocol}://${kernelHostname}:${port}`
-        : baseURL;
+// 解析命令行参数，参数需以 `name=value` 形式传入 https://github.com/siyuan-note/siyuan/issues/14748
+const getArg = (name) => {
+    for (let i = 0; i < process.argv.length; i++) {
+        if (process.argv[i].startsWith(name)) {
+            return process.argv[i].split("=")[1];
+        }
+    }
 };
 
-const kernelExit = (origin = getServer()) => {
-    return net.fetch(`${origin}/api/system/exit`, { method: "POST" });
-};
+// 检测上次打开的工作空间是否丢失 https://github.com/siyuan-note/siyuan/issues/14748
+let lastWorkspaceMissing = false;
+let missingWorkspacePath = "";
+let availableWorkspaces = [];
+if (!firstOpen && !getArg("--workspace")) {
+    // 显式通过命令行指定工作空间时尊重用户参数，跳过检测
+    try {
+        const wsFile = path.join(confDir, "workspace.json");
+        if (fs.existsSync(wsFile)) {
+            const wsList = JSON.parse(fs.readFileSync(wsFile, "utf8"));
+            if (Array.isArray(wsList) && 0 < wsList.length) {
+                const last = wsList[wsList.length - 1];
+                if (!fs.existsSync(last) || !fs.statSync(last).isDirectory()) {
+                    lastWorkspaceMissing = true;
+                    missingWorkspacePath = last;
+                    availableWorkspaces = wsList.slice(0, -1).filter(p =>
+                        fs.existsSync(p) && fs.statSync(p).isDirectory());
+                }
+            }
+        }
+    } catch (e) {
+        writeLog("check missing workspace failed: " + e);
+    }
+}
 
+// 读取上次打开的工作空间路径，用于崩溃恢复时默认选中该工作空间
+let lastWorkspacePath = "";
+if (!firstOpen && !getArg("--workspace")) {
+    try {
+        const wsFile = path.join(confDir, "workspace.json");
+        if (fs.existsSync(wsFile)) {
+            const wsList = JSON.parse(fs.readFileSync(wsFile, "utf8"));
+            if (Array.isArray(wsList) && 0 < wsList.length) {
+                lastWorkspacePath = wsList[wsList.length - 1];
+            }
+        }
+    } catch (e) {
+        writeLog("read last workspace path failed: " + e);
+    }
+}
 
 const windowNavigate = (currentWindow, windowType) => {
     currentWindow.webContents.on("will-navigate", (event) => {
         const url = event.url;
-        if (url.startsWith(getServer())) {
+        if (url.startsWith(localServer)) {
             try {
                 const pathname = new URL(url).pathname;
                 if (windowType === "app" && ["/", "/stage/build/app/", "/check-auth"].includes(pathname) ||
@@ -168,14 +184,12 @@ const windowNavigate = (currentWindow, windowType) => {
 };
 
 const setProxy = (proxyURL, webContents) => {
-    try {
-        const url = new URL(proxyURL);
-        console.log("network proxy [" + url.href + "]");
-        return webContents.session.setProxy({ proxyRules: url.href });
-    } catch (e) {
+    if (proxyURL.startsWith("://")) {
         console.log("network proxy [system]");
-        return webContents.session.setProxy({ mode: "system" });
+        return webContents.session.setProxy({mode: "system"});
     }
+    console.log("network proxy [" + proxyURL + "]");
+    return webContents.session.setProxy({proxyRules: proxyURL});
 };
 
 const hotKey2Electron = (key) => {
@@ -208,7 +222,7 @@ const hotKey2Electron = (key) => {
  */
 const resolveAppLanguage = (languageTags) => {
     if (!languageTags || languageTags.length === 0) {
-        return "en_US";
+        return "en";
     }
 
     const tag = languageTags[0].toLowerCase();
@@ -217,35 +231,40 @@ const resolveAppLanguage = (languageTags) => {
 
     if (language === "zh") {
         if (tag.includes("hant")) {
-            return "zh_CHT";
+            return "zh-TW";
         }
         if (tag.includes("hans") || tag.includes("cn") || tag.includes("sg")) {
-            return "zh_CN";
+            return "zh-CN";
         }
         if (tag.includes("tw") || tag.includes("hk") || tag.includes("mo")) {
-            return "zh_CHT";
+            return "zh-TW";
         }
-        return "zh_CN";
+        return "zh-CN";
     }
 
     const languageMapping = {
-        "en": "en_US",
-        "ar": "ar_SA",
-        "de": "de_DE",
-        "es": "es_ES",
-        "fr": "fr_FR",
-        "he": "he_IL",
-        "it": "it_IT",
-        "ja": "ja_JP",
-        "ko": "ko_KR",
-        "pl": "pl_PL",
-        "pt": "pt_BR",
-        "ru": "ru_RU",
-        "sk": "sk_SK",
-        "tr": "tr_TR"
+        "en": "en",
+        "ar": "ar",
+        "de": "de",
+        "es": "es",
+        "fr": "fr",
+        "he": "he",
+        "hi": "hi",
+        "id": "id",
+        "it": "it",
+        "ja": "ja",
+        "ko": "ko",
+        "nl": "nl",
+        "pl": "pl",
+        "pt": "pt-BR",
+        "ru": "ru",
+        "sk": "sk",
+        "th": "th",
+        "tr": "tr",
+        "uk": "uk",
     };
 
-    return languageMapping[language] || "en_US";
+    return languageMapping[language] || "en";
 };
 
 const exitApp = (port, errorWindowId) => {
@@ -318,6 +337,12 @@ const exitApp = (port, errorWindowId) => {
     }
 };
 
+const localServer = "https://127.0.0.1";
+
+const getServer = (port = kernelPort) => {
+    return localServer + ":" + port;
+};
+
 const sleep = (ms) => {
     return new Promise(resolve => setTimeout(resolve, ms));
 };
@@ -354,6 +379,11 @@ const showErrorWindow = (titleZh, titleEn, content, emoji = "⚠️") => {
 };
 
 const initMainWindow = () => {
+    if (!app.isReady()) {
+        writeLog("initMainWindow: app not ready, skipping");
+        return;
+    }
+
     // 恢复主窗体状态
     let oldWindowState = {};
     try {
@@ -427,6 +457,7 @@ const initMainWindow = () => {
 
     // 创建主窗体
     const currentWindow = new BrowserWindow({
+        title: "SiYuan",
         show: false,
         width: windowState.width,
         height: windowState.height,
@@ -434,8 +465,7 @@ const initMainWindow = () => {
         minHeight: 376,
         fullscreenable: true,
         fullscreen: windowState.fullscreen,
-        trafficLightPosition: { x: 8, y: 8 },
-        transparent: "darwin" === process.platform, // 避免缩放窗口时出现边框
+        trafficLightPosition: {x: 8, y: 8},
         webPreferences: {
             nodeIntegration: true,
             webviewTag: true,
@@ -457,35 +487,28 @@ const initMainWindow = () => {
     }
     currentWindow.webContents.userAgent = "SiYuan/" + appVer + " https://b3log.org/siyuan Electron " + currentWindow.webContents.userAgent;
 
-    if (localhost && !proxyURL) {
-        // set proxy
-        net.fetch(getServer() + "/api/system/getNetwork", { method: "POST" }).then((response) => {
-            return response.json();
-        }).then((response) => {
-            setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents).then(() => {
-                // 加载主界面
-                currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + new Date().getTime());
-            });
-        });
-    } else {
-        setProxy(proxyURL, currentWindow.webContents).then(() => {
+    // set proxy
+    net.fetch(getServer() + "/api/system/getNetwork", {method: "POST"}).then((response) => {
+        return response.json();
+    }).then((response) => {
+        setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents).then(() => {
             // 加载主界面
-            currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + new Date().getTime());
+            currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + Date.now());
         });
-    }
+    });
 
     // 发起互联网服务请求时绕过安全策略 https://github.com/siyuan-note/siyuan/issues/5516
     currentWindow.webContents.session.webRequest.onBeforeSendHeaders((details, cb) => {
         if (-1 < details.url.toLowerCase().indexOf("bili")) {
             // B 站不移除 Referer https://github.com/siyuan-note/siyuan/issues/94
-            cb({ requestHeaders: details.requestHeaders });
+            cb({requestHeaders: details.requestHeaders});
             return;
         }
 
         if (-1 < details.url.toLowerCase().indexOf("youtube")) {
             // YouTube 设置 Referer https://github.com/siyuan-note/siyuan/issues/16319
             details.requestHeaders["Referer"] = "https://b3log.org/siyuan/";
-            cb({ requestHeaders: details.requestHeaders });
+            cb({requestHeaders: details.requestHeaders});
             return;
         }
 
@@ -494,7 +517,7 @@ const initMainWindow = () => {
                 delete details.requestHeaders[key];
             }
         }
-        cb({ requestHeaders: details.requestHeaders });
+        cb({requestHeaders: details.requestHeaders});
     });
     currentWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
         for (let key in details.responseHeaders) {
@@ -506,7 +529,7 @@ const initMainWindow = () => {
                 delete details.responseHeaders[key];
             }
         }
-        cb({ responseHeaders: details.responseHeaders });
+        cb({responseHeaders: details.responseHeaders});
     });
 
     currentWindow.webContents.on("did-finish-load", () => {
@@ -524,7 +547,7 @@ const initMainWindow = () => {
     });
 
     if (windowState.isDevToolsOpened) {
-        currentWindow.webContents.openDevTools({ mode: "bottom" });
+        currentWindow.webContents.openDevTools({mode: "bottom"});
     }
 
     // 菜单
@@ -532,18 +555,18 @@ const initMainWindow = () => {
     const template = [{
         label: productName, submenu: [{
             label: `About ${productName}`, role: "about",
-        }, { type: "separator" }, { role: "services" }, { type: "separator" }, {
+        }, {type: "separator"}, {role: "services"}, {type: "separator"}, {
             label: `Hide ${productName}`, role: "hide",
-        }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, {
+        }, {role: "hideOthers"}, {role: "unhide"}, {type: "separator"}, {
             label: `Quit ${productName}`, role: "quit",
         },],
     }, {
-        role: "editMenu", submenu: [{ role: "cut" }, { role: "copy" }, { role: "paste" }, {
+        role: "editMenu", submenu: [{role: "cut"}, {role: "copy"}, {role: "paste"}, {
             role: "pasteAndMatchStyle", accelerator: "CmdOrCtrl+Shift+C"
-        }, { role: "selectAll" },],
+        }, {role: "selectAll"},],
     }, {
         role: "windowMenu",
-        submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "togglefullscreen" }, { type: "separator" }, { role: "toggledevtools" }, { type: "separator" }, { role: "front" },],
+        submenu: [{role: "minimize"}, {role: "zoom"}, {role: "togglefullscreen"}, {type: "separator"}, {role: "toggledevtools"}, {type: "separator"}, {role: "front"},],
     },];
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
@@ -586,7 +609,7 @@ const showWindow = (wnd) => {
     wnd.show();
 };
 
-const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tlsKeyFile) => {
+const initKernel = (workspace, port, lang, safeMode) => {
     return new Promise(async (resolve) => {
         bootWindow = new BrowserWindow({
             show: false,
@@ -596,12 +619,15 @@ const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tls
             backgroundColor: "#1e1e1e",
             resizable: false,
             icon: path.join(appDir, "stage", "icon-large.png"),
+            webPreferences: {
+                webSecurity: false,
+            },
         });
         let bootIndex = path.join(appDir, "app", "electron", "boot.html");
         if (isDevEnv) {
             bootIndex = path.join(appDir, "electron", "boot.html");
         }
-        bootWindow.loadFile(bootIndex, { query: { v: appVer } });
+        bootWindow.loadFile(bootIndex, {query: {v: appVer, port: kernelPort}});
         if (openAsHidden) {
             bootWindow.minimize();
         } else {
@@ -645,30 +671,21 @@ const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tls
             resolve(false);
             return;
         }
-        const cmds = ["--port", kernelPort, "--wd", appDir];
+        const cmds = ["serve", "--port", kernelPort, "--wd", appDir, "--attach-ui"];
         if (isDevEnv && workspaces.length === 0) {
             cmds.push("--mode", "dev");
         }
-        if (workspace) {
+        if (workspace && "" !== workspace) {
             cmds.push("--workspace", workspace);
         }
-        if (port) {
+        if (port && "" !== port) {
             cmds.push("--port", port);
         }
-        if (lang) {
+        if (lang && "" !== lang) {
             cmds.push("--lang", lang);
         }
-        if (hostname) {
-            cmds.push("--hostname", hostname);
-        }
-        if (tlsKernel) {
-            cmds.push("--tls-kernel", true);
-        }
-        if (tlsCertFile) {
-            cmds.push("--tls-cert-file", tlsCertFile);
-        }
-        if (tlsKeyFile) {
-            cmds.push("--tls-key-file", tlsKeyFile);
+        if (safeMode) {
+            cmds.push("--safe-mode", "true");
         }
         let cmd = `ui version [${appVer}], booting kernel [${kernelPath} ${cmds.join(" ")}]`;
         writeLog(cmd);
@@ -726,7 +743,6 @@ const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tls
             try {
                 const apiResult = await net.fetch(getServer() + "/api/system/version");
                 apiData = await apiResult.json();
-                bootWindow.loadURL(getServer() + "/appearance/boot/index.html");
                 break;
             } catch (e) {
                 writeLog("get kernel version failed: " + e.message);
@@ -745,18 +761,22 @@ const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tls
             writeLog("got kernel version [" + apiData.data + "]");
             if (!isDevEnv && apiData.data !== appVer) {
                 writeLog(`kernel [${apiData.data}] is running, shutdown it now and then start kernel [${appVer}]`);
-                if (localhost) {
-                    kernelExit();
-                }
+                net.fetch(getServer() + "/api/system/exit", {method: "POST"});
                 bootWindow.destroy();
                 resolve(false);
             } else {
                 let progressing = false;
+                const bootShowStart = Date.now();
                 while (!progressing) {
                     try {
                         const progressResult = await net.fetch(getServer() + "/api/system/bootProgress");
                         const progressData = await progressResult.json();
                         if (progressData.data.progress >= 100) {
+                            // 保证启动动画的最小展示时长，启动过快时补足差值再进入主窗口
+                            const elapsed = Date.now() - bootShowStart;
+                            if (elapsed < 2500) {
+                                await sleep(2500 - elapsed);
+                            }
                             resolve(true);
                             progressing = true;
                         } else {
@@ -764,9 +784,7 @@ const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tls
                         }
                     } catch (e) {
                         writeLog("get boot progress failed: " + e.message);
-                        if (localhost) {
-                            kernelExit();
-                        }
+                        net.fetch(getServer() + "/api/system/exit", {method: "POST"});
                         bootWindow.destroy();
                         resolve(false);
                         progressing = true;
@@ -781,6 +799,22 @@ const initKernel = (workspace, port, lang, hostname, tlsKernel, tlsCertFile, tls
 };
 
 app.whenReady().then(() => {
+    // Trust self-signed TLS certificates for local HTTPS server
+    session.defaultSession.setCertificateVerifyProc((request, callback) => {
+        if (request.hostname === "127.0.0.1" || request.hostname === "localhost") {
+            callback(0); // VERIFY_OK
+        } else {
+            callback(-3); // default Chromium handling
+        }
+    });
+
+    // 渲染进程崩溃监听，应用级别监听比 webContents 级别更早注册、更可靠（可覆盖所有渲染进程）
+    app.on("render-process-gone", (event, webContents, details) => {
+        writeLog("Render process gone [reason=" + details.reason + ", exitCode=" + details.exitCode + "]");
+        writeAppCrashLog(details.reason, details.exitCode);
+        exitApp(kernelPort); // 退出当前工作空间的窗口和内核进程，下次启动时由用户选择是否以安全模式启动
+    });
+
     const resetTrayMenu = (tray, lang, mainWindow) => {
         if (!mainWindow || mainWindow.isDestroyed()) {
             return;
@@ -858,7 +892,7 @@ app.whenReady().then(() => {
             role: "undo", label: langs.undo
         }), new MenuItem({
             role: "redo", label: langs.redo
-        }), { type: "separator" }, new MenuItem({
+        }), {type: "separator"}, new MenuItem({
             role: "copy", label: langs.copy
         }), new MenuItem({
             role: "cut", label: langs.cut
@@ -872,7 +906,7 @@ app.whenReady().then(() => {
             role: "selectAll", label: langs.selectAll
         })];
         const menu = Menu.buildFromTemplate(template);
-        menu.popup({ window: BrowserWindow.fromWebContents(event.sender) });
+        menu.popup({window: BrowserWindow.fromWebContents(event.sender)});
     });
     ipcMain.on("siyuan-confirm-dialog", (event, options) => {
         event.returnValue = dialog.showMessageBoxSync(BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow(), options);
@@ -1005,13 +1039,19 @@ app.whenReady().then(() => {
             case "showItemInFolder":
                 shell.showItemInFolder(data.filePath);
                 break;
-            case "notification":
-                new Notification({
+            case "notification": {
+                const n = new Notification({
                     title: data.title,
                     body: data.body,
                     timeoutType: data.timeoutType,
-                }).show();
+                });
+                n.on("click", () => {
+                    currentWindow.focus();
+                    currentWindow.show();
+                });
+                n.show();
                 break;
+            }
             case "setSpellCheckerLanguages":
                 BrowserWindow.getAllWindows().forEach(item => {
                     item.webContents.session.setSpellCheckerLanguages(data.languages);
@@ -1021,11 +1061,23 @@ app.whenReady().then(() => {
                 shell.openPath(data.filePath);
                 break;
             case "openDevTools":
-                event.sender.openDevTools({ mode: "bottom" });
+                event.sender.openDevTools({mode: "bottom"});
                 break;
             case "unregisterGlobalShortcut":
                 if (data.accelerator) {
                     globalShortcut.unregister(hotKey2Electron(data.accelerator));
+                }
+                break;
+            case "registerGlobalShortcut":
+                if (data.accelerator) {
+                    globalShortcut.unregister(hotKey2Electron(data.accelerator));
+                    globalShortcut.register(hotKey2Electron(data.accelerator), () => {
+                        BrowserWindow.getAllWindows().forEach(itemB => {
+                            itemB.webContents.send("siyuan-hotkey", {
+                                hotkey: data.accelerator
+                            });
+                        });
+                    });
                 }
                 break;
             case "setTrafficLightPosition":
@@ -1149,8 +1201,9 @@ app.whenReady().then(() => {
     ipcMain.on("siyuan-export-newwindow", (event, data) => {
         // The PDF/Word export preview window automatically adjusts according to the size of the main window https://github.com/siyuan-note/siyuan/issues/10554
         const wndBounds = getWindowByContentId(event.sender.id).getBounds();
-        const wndScreen = screen.getDisplayNearestPoint({ x: wndBounds.x, y: wndBounds.y });
+        const wndScreen = screen.getDisplayNearestPoint({x: wndBounds.x, y: wndBounds.y});
         const printWin = new BrowserWindow({
+            title: "SiYuan",
             show: true,
             width: Math.floor(wndScreen.size.width * 0.8),
             height: Math.floor(wndScreen.size.height * 0.8),
@@ -1188,16 +1241,16 @@ app.whenReady().then(() => {
     ipcMain.on("siyuan-open-window", (event, data) => {
         const mainWindow = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
         const mainBounds = mainWindow.getBounds();
-        const mainScreen = screen.getDisplayNearestPoint({ x: mainBounds.x, y: mainBounds.y });
+        const mainScreen = screen.getDisplayNearestPoint({x: mainBounds.x, y: mainBounds.y});
         const win = new BrowserWindow({
+            title: "SiYuan",
             show: true,
-            trafficLightPosition: { x: 8, y: 13 },
+            trafficLightPosition: {x: 8, y: 13},
             width: Math.floor(data.width || mainScreen.size.width * 0.7),
             height: Math.floor(data.height || mainScreen.size.height * 0.9),
             minWidth: 493,
             minHeight: 376,
             fullscreenable: true,
-            transparent: "darwin" === process.platform, // 避免缩放窗口时出现边框
             frame: "darwin" === process.platform,
             icon: path.join(appDir, "stage", "icon-large.png"),
             titleBarStyle: "hidden",
@@ -1282,7 +1335,7 @@ app.whenReady().then(() => {
                 return true;
             }
         });
-        await net.fetch(getServer(data.port) + "/api/system/uiproc?pid=" + process.pid, { method: "POST" });
+        await net.fetch(getServer(data.port) + "/api/system/uiproc?pid=" + process.pid, {method: "POST"});
     });
     ipcMain.on("siyuan-hotkey", (event, data) => {
         if (!data.hotkeys || data.hotkeys.length === 0) {
@@ -1403,56 +1456,112 @@ app.whenReady().then(() => {
             });
             firstOpenWindow.destroy();
         });
+    } else if (hasAppCrashLog()) {
+        // 上次渲染进程崩溃，弹出安全模式选择窗口
+        const safeModeWindow = new BrowserWindow({
+            width: Math.floor(screen.getPrimaryDisplay().size.width * 0.55),
+            height: Math.floor(screen.getPrimaryDisplay().workAreaSize.height * 0.65),
+            frame: "darwin" === process.platform,
+            titleBarStyle: "hidden",
+            fullscreenable: false,
+            icon: path.join(appDir, "stage", "icon-large.png"),
+            transparent: "darwin" === process.platform,
+            webPreferences: {
+                nodeIntegration: true, webviewTag: true, webSecurity: false, contextIsolation: false,
+            },
+        });
+        let safeModeHTMLPath = path.join(appDir, "app", "electron", "workspace.html");
+        if (isDevEnv) {
+            safeModeHTMLPath = path.join(appDir, "electron", "workspace.html");
+        }
+
+        // 改进桌面端初始化时使用的外观语言 https://github.com/siyuan-note/siyuan/issues/6803
+        const languages = app.getPreferredSystemLanguages();
+        const language = resolveAppLanguage(languages);
+        let crashInfo = "";
+        try {
+            crashInfo = fs.readFileSync(appCrashLogPath, "utf8");
+        } catch (e) {
+            writeLog("read crash log failed: " + e);
+        }
+        safeModeWindow.loadFile(safeModeHTMLPath, {
+            query: {
+                lang: language,
+                home: app.getPath("home"),
+                v: appVer,
+                icon: path.join(appDir, "stage", "icon-large.png"),
+                crash: "1",
+                workspace: lastWorkspacePath,
+                crashInfo: crashInfo,
+            },
+        });
+        safeModeWindow.show();
+        // 用户选择启动方式后启动内核，仅在崩溃恢复路径下、内核启动成功后删除崩溃日志
+        ipcMain.on("siyuan-select-workspace", (event, data) => {
+            initKernel(data.workspace, "", data.lang, data.safeMode).then((isSucc) => {
+                if (isSucc) {
+                    clearAppCrashLog();
+                    initMainWindow();
+                }
+            });
+            safeModeWindow.destroy();
+        });
+    } else if (lastWorkspaceMissing) {
+        // 上次使用的工作空间丢失，弹出选择工作空间窗口 https://github.com/siyuan-note/siyuan/issues/14748
+        const missingWorkspaceWindow = new BrowserWindow({
+            width: Math.floor(screen.getPrimaryDisplay().size.width * 0.55),
+            height: Math.floor(screen.getPrimaryDisplay().workAreaSize.height * 0.65),
+            frame: "darwin" === process.platform,
+            titleBarStyle: "hidden",
+            fullscreenable: false,
+            icon: path.join(appDir, "stage", "icon-large.png"),
+            transparent: "darwin" === process.platform,
+            webPreferences: {
+                nodeIntegration: true, webviewTag: true, webSecurity: false, contextIsolation: false,
+            },
+        });
+        let missingWorkspaceHTMLPath = path.join(appDir, "app", "electron", "workspace.html");
+        if (isDevEnv) {
+            missingWorkspaceHTMLPath = path.join(appDir, "electron", "workspace.html");
+        }
+
+        // 改进桌面端初始化时使用的外观语言 https://github.com/siyuan-note/siyuan/issues/6803
+        const languages = app.getPreferredSystemLanguages();
+        const language = resolveAppLanguage(languages);
+        missingWorkspaceWindow.loadFile(missingWorkspaceHTMLPath, {
+            query: {
+                lang: language,
+                home: app.getPath("home"),
+                v: appVer,
+                icon: path.join(appDir, "stage", "icon-large.png"),
+                missing: missingWorkspacePath,
+                workspaces: availableWorkspaces.join("\n"),
+            },
+        });
+        missingWorkspaceWindow.show();
+        // 选择工作空间后启动内核
+        ipcMain.on("siyuan-select-workspace", (event, data) => {
+            initKernel(data.workspace, "", data.lang).then((isSucc) => {
+                if (isSucc) {
+                    initMainWindow();
+                }
+            });
+            missingWorkspaceWindow.destroy();
+        });
     } else {
-        const proxy = args.get("--proxy");
-        if (proxy) {
-            writeLog(`got arg [--proxy="${proxy}"]`);
-            proxyURL = proxy;
-        }
-
-        const remote = args.get("--remote");
-        if (remote) {
-            writeLog(`got arg [--remote="${remote}"]`);
-            try {
-                new URL(remote);
-                localhost = false;
-                baseURL = remote;
-                initMainWindow();
-            } catch (e) {
-                writeLog(`remote URL ["${remote}"] is invalid`);
-                const errorWindowId = showErrorWindow("⚠️ 远程服务 URL 无效 The remote service URL is invalid", `<div>所设置的远程内核服务 URL [${remote}] 不是有效的 URL！</div><div>The remote kernel service URL [${remote}] that you set is not a valid URL!</div>`);
-                exitApp(undefined, errorWindowId);
-            }
-            return;
-        }
-
-        const workspace = args.get("--workspace");
+        const workspace = getArg("--workspace");
         if (workspace) {
-            writeLog(`got arg [--workspace="${workspace}"]`);
+            writeLog("got arg [--workspace=" + workspace + "]");
         }
-        const hostname = args.get("--hostname");
-        if (hostname) {
-            writeLog(`got arg [--hostname="${hostname}"]`);
-            kernelHostname = hostname;
-        }
-        const port = args.get("--port");
+        const port = getArg("--port");
         if (port) {
-            writeLog(`got arg [--port="${port}"]`);
+            writeLog("got arg [--port=" + port + "]");
         }
-        const tlsKernel = args.get("--tls-kernel");
-        if (tlsKernel) {
-            writeLog("got arg [--tls-kernel]");
-            kernelProtocol = "https";
+        const safeMode = getArg("--safe-mode") === "true";
+        if (safeMode) {
+            writeLog("got arg [--safe-mode=true]");
         }
-        const tlsCertFile = args.get("--tls-cert-file");
-        if (tlsCertFile) {
-            writeLog(`got arg [--tls-cert-file="${tlsCertFile}"]`);
-        }
-        const tlsKeyFile = args.get("--tls-key-file");
-        if (tlsKeyFile) {
-            writeLog(`got arg [--tls-key-file="${tlsKeyFile}"]`);
-        }
-        initKernel(workspace, port, "", hostname, tlsKernel, tlsCertFile, tlsKeyFile).then((isSucc) => {
+        initKernel(workspace, port, "", safeMode).then((isSucc) => {
             if (isSucc) {
                 initMainWindow();
             }
@@ -1490,22 +1599,20 @@ app.whenReady().then(() => {
             const currentURL = new URL(item.browserWindow.getURL());
             const server = getServer(currentURL.port);
             writeLog("sync after system resume [" + server + "/api/sync/performSync" + "]");
-            net.fetch(server + "/api/sync/performSync", { method: "POST" });
+            net.fetch(server + "/api/sync/performSync", {method: "POST"});
         });
     });
     powerMonitor.on("shutdown", () => {
         writeLog("system shutdown");
         workspaces.forEach(item => {
             const currentURL = new URL(item.browserWindow.getURL());
-            if (currentURL.hostname === LOOPBACK_ADDRESS) {
-                kernelExit(currentURL.origin);
-            }
+            net.fetch(getServer(currentURL.port) + "/api/system/exit", {method: "POST"});
         });
     });
     powerMonitor.on("lock-screen", () => {
         writeLog("system lock-screen");
         BrowserWindow.getAllWindows().forEach(item => {
-            item.webContents.send("siyuan-send-windows", { cmd: "lockscreenByMode" });
+            item.webContents.send("siyuan-send-windows", {cmd: "lockscreenByMode"});
         });
     });
 });
@@ -1601,7 +1708,7 @@ app.on("web-contents-created", (webContentsCreatedEvent, contents) => {
         }
         // 在编辑器内打开链接的处理，比如 iframe 上的打开链接。
         shell.openExternal(details.url);
-        return { action: "deny" };
+        return {action: "deny"};
     });
 });
 
@@ -1635,3 +1742,34 @@ function writeLog(out) {
         console.error(e);
     }
 }
+
+// 记录渲染进程崩溃信息，多次崩溃追加记录，供下次启动时判断是否进入安全模式
+const writeAppCrashLog = (reason, exitCode) => {
+    try {
+        const line = new Date().toISOString().replace(/T/, " ").replace(/\..+/, "") +
+            " Render process gone [reason=" + reason + ", exitCode=" + exitCode + "]\n";
+        // 与 writeLog 一致，用 readFileSync + writeFileSync 实现，确保同步落盘
+        let log = "";
+        if (fs.existsSync(appCrashLogPath)) {
+            log = fs.readFileSync(appCrashLogPath).toString();
+        }
+        log += line;
+        fs.writeFileSync(appCrashLogPath, log);
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+// 删除崩溃日志，在内核启动成功后调用
+const clearAppCrashLog = () => {
+    try {
+        fs.unlinkSync(appCrashLogPath);
+    } catch (e) {
+        // 文件不存在等异常忽略
+    }
+};
+
+// 是否存在崩溃日志（上次渲染进程崩溃）
+const hasAppCrashLog = () => {
+    return fs.existsSync(appCrashLogPath);
+};

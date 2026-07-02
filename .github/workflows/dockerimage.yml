@@ -34,10 +34,9 @@ jobs:
           submodules: recursive
 
       - name: Extract version from package.json
-        uses: sergeysova/jq-action@v2
         id: version
-        with:
-          cmd: "jq .version ${{ env.package_json }} -r"
+        run: |
+          echo "value=$(jq .version ${{ env.package_json }} -r)" >> $GITHUB_OUTPUT
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
@@ -67,11 +66,10 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_PWD }}
 
-      - name: Build the Docker image use Workflow Dispatch inputs' version
-        if: ${{ github.event_name == 'workflow_dispatch' && !github.event.inputs.image_tag == '' }}
+      - name: Build and push Docker image
         run: |
-          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:latest -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:v${{ github.event.inputs.image_tag }} .
-      - name: Build the Docker image use package_json version
-        if: ${{ github.event_name == 'push' || github.event.inputs.image_tag == '' }}
-        run: |
-          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:latest -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:v${{ steps.version.outputs.value }} .
+          LATEST_FLAG=""
+          if [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            LATEST_FLAG="-t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:latest"
+          fi
+          docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 $LATEST_FLAG -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:v${{ steps.version.outputs.value }} .

@@ -17,9 +17,11 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/88250/gulu"
@@ -230,6 +232,19 @@ func checkoutRepo(c *gin.Context) {
 	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("id", &id, true, true)) {
 		return
 	}
+
+	var sessionID string
+	util.ParseJsonArgs(arg, ret, util.BindJsonArg("sessionID", &sessionID, true, false))
+	if sessionID != "" {
+		markerDir := filepath.Join(util.TempDir, "ai", "agent")
+		os.MkdirAll(markerDir, 0755)
+		markerPath := filepath.Join(markerDir, "agentRollback_"+sessionID+".json")
+		marker := map[string]string{"sessionID": sessionID, "snapshotID": id}
+		if data, err := json.Marshal(marker); err == nil {
+			os.WriteFile(markerPath, data, 0644)
+		}
+	}
+
 	model.CheckoutRepo(id)
 }
 
@@ -302,6 +317,71 @@ func getRepoSnapshots(c *gin.Context) {
 		"snapshots":  snapshots,
 		"pageCount":  pageCount,
 		"totalCount": totalCount,
+	}
+}
+
+func searchRepoFile(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var keyword string
+	var page float64
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("keyword", &keyword, true, true),
+		util.BindJsonArg("page", &page, true, false),
+	) {
+		return
+	}
+	if 1 > len(keyword) {
+		ret.Code = -1
+		ret.Msg = "keyword is empty"
+		return
+	}
+
+	files, pageCount, totalCount, err := model.SearchRepoFile(keyword, int(page))
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	ret.Data = map[string]any{
+		"files":      files,
+		"pageCount":  pageCount,
+		"totalCount": totalCount,
+	}
+}
+
+func exportRepoFile(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var id string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("id", &id, true, true),
+	) {
+		return
+	}
+
+	exportPath, err := model.ExportRepoFile(id)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	ret.Data = map[string]any{
+		"path": exportPath,
 	}
 }
 
@@ -420,7 +500,7 @@ func createSnapshot(c *gin.Context) {
 	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("memo", &memo, true, false)) {
 		return
 	}
-	if err := model.IndexRepo(memo); err != nil {
+	if _, err := model.IndexRepo(memo); err != nil {
 		ret.Code = -1
 		ret.Msg = fmt.Sprintf(model.Conf.Language(140), err)
 		ret.Data = map[string]any{"closeTimeout": 5000}

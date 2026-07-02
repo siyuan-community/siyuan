@@ -6,22 +6,12 @@ import {globalClick} from "./click";
 import {goBack, goForward} from "../../util/backForward";
 import {Constants} from "../../constants";
 import {isIPad} from "../../protyle/util/compatibility";
-import {globalTouchEnd, globalTouchStart} from "./touch";
-import {initDockMenu} from "../../menus/dock";
-import {
-    hasClosestByAttribute,
-    hasClosestByClassName,
-    isInEmbedBlock
-} from "../../protyle/util/hasClosest";
-import {initTabMenu} from "../../menus/tab";
-import {getInstanceById} from "../../layout/util";
-import {Tab} from "../../layout/Tab";
+import {hasClosestByClassName, isInEmbedBlock} from "../../protyle/util/hasClosest";
 import {hideTooltip} from "../../dialog/tooltip";
-import {openFileById} from "../../editor/util";
-import {checkFold} from "../../util/noRelyPCFunction";
 import {hideAllElements} from "../../protyle/ui/hideElements";
 import {dragOverScroll, stopScrollAnimation} from "./dragover";
 import {setWebViewFocusable} from "../../mobile/util/mobileAppUtil";
+import {initTouchDragBridge} from "../../util/touchDragBridge";
 
 export const initWindowEvent = (app: App) => {
     document.body.addEventListener("mouseleave", () => {
@@ -50,6 +40,26 @@ export const initWindowEvent = (app: App) => {
         windowMouseMove(event, mouseIsEnter);
     });
 
+    // 横向滚动表格时重新定位表格列宽调整手柄 https://github.com/siyuan-note/siyuan/issues/13828
+    window.addEventListener("scroll", (event: Event) => {
+        const scrollElement = event.target as HTMLElement;
+        // 仅处理表格内容容器（.table 块的 firstElementChild）的滚动
+        if (!scrollElement.parentElement || !scrollElement.parentElement.classList.contains("table")) {
+            return;
+        }
+        const resizeElement = scrollElement.parentElement.querySelector(".table__resize") as HTMLElement;
+        if (!resizeElement) {
+            return;
+        }
+        const baseLeft = resizeElement.getAttribute("data-left");
+        const style = resizeElement.getAttribute("style");
+        if (baseLeft === null || !style || style.indexOf("display:block") === -1) {
+            return;
+        }
+        const left = parseInt(baseLeft) - scrollElement.scrollLeft;
+        resizeElement.setAttribute("style", style.replace(/left: ?-?\d+px;/, `left: ${Math.round(left)}px;`));
+    }, true);
+
     let scrollTarget: HTMLElement | false;
     window.addEventListener("dragover", (event: DragEvent & { target: HTMLElement }) => {
         if (event.dataTransfer.types.includes("text/plain")) {
@@ -57,6 +67,12 @@ export const initWindowEvent = (app: App) => {
         }
         const fileElement = hasClosestByClassName(event.target, "sy__file");
         const protyleElement = hasClosestByClassName(event.target, "protyle", true);
+        // 光标不在编辑器也不在文档树内时，隐藏拖拽提示（避免卡在无效区域）
+        if (!fileElement && !protyleElement) {
+            document.querySelector(".drag-tip")?.remove();
+            stopScrollAnimation();
+            return;
+        }
         if (!scrollTarget) {
             scrollTarget = fileElement || protyleElement;
         }
@@ -92,6 +108,8 @@ export const initWindowEvent = (app: App) => {
     });
     window.addEventListener("dragend", () => {
         stopScrollAnimation();
+        document.querySelector(".drag-tip")?.remove();
+        window.siyuan.dragTitle = "";
     });
     window.addEventListener("dragleave", () => {
         stopScrollAnimation();
@@ -126,6 +144,7 @@ export const initWindowEvent = (app: App) => {
         window.siyuan.ctrlIsPressed = false;
         window.siyuan.shiftIsPressed = false;
         window.siyuan.altIsPressed = false;
+        document.body.classList.remove("body--shift-pressed");
         /// #if BROWSER
         setWebViewFocusable();
         /// #endif
@@ -137,7 +156,7 @@ export const initWindowEvent = (app: App) => {
 
     let time = 0;
     document.addEventListener("touchstart", (event) => {
-        time = new Date().getTime();
+        time = Date.now();
         // https://github.com/siyuan-note/siyuan/issues/6328
         const target = event.target as HTMLElement;
         if (hasClosestByClassName(target, "protyle-icons") ||
@@ -150,63 +169,24 @@ export const initWindowEvent = (app: App) => {
             embedBlockElement.firstElementChild.classList.toggle("protyle-icons--show");
             return;
         }
-        // 触摸屏背景和嵌入块按钮显示
-        globalTouchStart(event);
     }, false);
+
     document.addEventListener("touchend", (event) => {
-        if (isIPad()) {
-            // https://github.com/siyuan-note/siyuan/issues/9113
-            if (globalTouchEnd(event, undefined, time, app)) {
-                event.stopImmediatePropagation();
-                event.preventDefault();
-                return;
-            }
-            if (new Date().getTime() - time <= 900) {
-                return;
-            }
-            const target = event.target as HTMLElement;
-            // dock right menu
-            const dockElement = hasClosestByClassName(target, "dock__item");
-            if (dockElement && dockElement.getAttribute("data-type")) {
-                const dockRect = dockElement.getBoundingClientRect();
-                initDockMenu(dockElement).popup({x: dockRect.right, y: dockRect.top});
-                event.stopImmediatePropagation();
-                event.preventDefault();
-                return;
-            }
-
-            // tab right menu
-            const tabElement = hasClosestByAttribute(target, "data-type", "tab-header");
-            if (tabElement) {
-                const tabRect = tabElement.getBoundingClientRect();
-                initTabMenu(app, (getInstanceById(tabElement.getAttribute("data-id")) as Tab)).popup({
-                    x: tabRect.left,
-                    y: tabRect.bottom
-                });
-                hideTooltip();
-                event.stopImmediatePropagation();
-                event.preventDefault();
-                return;
-            }
-
-            const backlinkBreadcrumbItemElement = hasClosestByClassName(target, "protyle-breadcrumb__item");
-            if (backlinkBreadcrumbItemElement) {
-                const breadcrumbId = backlinkBreadcrumbItemElement.getAttribute("data-id") || backlinkBreadcrumbItemElement.getAttribute("data-node-id");
-                if (breadcrumbId) {
-                    checkFold(breadcrumbId, (zoomIn) => {
-                        openFileById({
-                            app,
-                            id: breadcrumbId,
-                            action: zoomIn ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT],
-                            zoomIn,
-                        });
-                        window.siyuan.menus.menu.remove();
-                    });
-                }
-                event.stopImmediatePropagation();
-                event.preventDefault();
-                return;
-            }
+        if (window.siyuan.touchDragActive) {
+            return;
         }
-    }, false);
+        // pad 端长按事件
+        const currentTime = Date.now();
+        if (isIPad() && currentTime - time > 900 && currentTime - time < 2000) {
+            event.target.dispatchEvent(new MouseEvent("contextmenu", {
+                bubbles: true,
+                cancelable: true,
+                clientX: event.changedTouches[0].clientX,
+                clientY: event.changedTouches[0].clientY,
+            }));
+            event.stopImmediatePropagation();
+            event.preventDefault();
+        }
+    });
+    initTouchDragBridge();
 };

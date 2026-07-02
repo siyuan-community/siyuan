@@ -247,7 +247,7 @@ type Tag struct {
 
 type Tags []*Tag
 
-func BuildTags(ignoreMaxListHintArg bool, appID string) (ret *Tags) {
+func BuildTags(ignoreMaxListHintArg bool, appID string, sortVal int) (ret *Tags) {
 	FlushTxQueue()
 	sql.FlushQueue()
 
@@ -257,8 +257,8 @@ func BuildTags(ignoreMaxListHintArg bool, appID string) (ret *Tags) {
 	for label := range labels {
 		tags = buildTags(tags, strings.Split(label, "/"), 0)
 	}
-	appendTagChildren(&tags, labels)
-	sortTags(tags)
+	appendTagChildren(&tags, labels, sortVal)
+	sortTags(tags, sortVal)
 
 	var total int
 	tmp := &Tags{}
@@ -282,8 +282,8 @@ func countTag(tag *Tag, total *int) {
 	}
 }
 
-func sortTags(tags Tags) {
-	switch Conf.Tag.Sort {
+func sortTags(tags Tags, sortVal int) {
+	switch sortVal {
 	case util.SortModeNameASC:
 		sort.Slice(tags, func(i, j int) bool {
 			return util.PinYinCompare(tags[i].Name, tags[j].Name)
@@ -387,28 +387,30 @@ func labelTags() (ret map[string]Tags) {
 	return
 }
 
-func appendTagChildren(tags *Tags, labels map[string]Tags) {
+func appendTagChildren(tags *Tags, labels map[string]Tags, sortVal int) {
 	for _, tag := range *tags {
 		tag.Label = tag.Name
-		if _, ok := labels[tag.Label]; ok {
-			tag.Count = len(labels[tag.Label]) + 1
+		unescapedLabel := util.UnescapeHTML(tag.Label)
+		if _, ok := labels[unescapedLabel]; ok {
+			tag.Count = len(labels[unescapedLabel]) + 1
 		}
-		appendChildren0(tag, labels)
-		sortTags(tag.Children)
+		appendChildren0(tag, labels, sortVal)
+		sortTags(tag.Children, sortVal)
 	}
 }
 
-func appendChildren0(tag *Tag, labels map[string]Tags) {
-	sortTags(tag.tags)
+func appendChildren0(tag *Tag, labels map[string]Tags, sortVal int) {
+	sortTags(tag.tags, sortVal)
 	for _, t := range tag.tags {
 		t.Label = tag.Label + "/" + t.Name
-		if _, ok := labels[t.Label]; ok {
-			t.Count = len(labels[t.Label]) + 1
+		unescapedLabel := util.UnescapeHTML(t.Label)
+		if _, ok := labels[unescapedLabel]; ok {
+			t.Count = len(labels[unescapedLabel]) + 1
 		}
 		tag.Children = append(tag.Children, t)
 	}
 	for _, child := range tag.tags {
-		appendChildren0(child, labels)
+		appendChildren0(child, labels, sortVal)
 	}
 }
 
@@ -419,7 +421,7 @@ func buildTags(root Tags, labels []string, depth int) Tags {
 
 	i := 0
 	for ; i < len(root); i++ {
-		if (root)[i].Name == labels[0] {
+		if (root)[i].Name == util.EscapeHTML(labels[0]) {
 			break
 		}
 	}

@@ -11,6 +11,7 @@ import {Protyle} from "../../protyle";
 import {MenuItem} from "../../menus/Menu";
 import {App} from "../../index";
 import {isSupportCSSHL, searchMarkRender} from "../../protyle/render/searchMarkRender";
+import {getDocDisplayName} from "../../util/pathName";
 
 export class Backlink extends Model {
     public element: HTMLElement;
@@ -41,42 +42,15 @@ export class Backlink extends Model {
         rootId?: string,
         type: "pin" | "local"
     }) {
-        super({
-            app: options.app,
+        super({app: options.app});
+
+        this.connect({
             id: options.tab.id,
             type: "backlink",
-            callback() {
-                if (this.type === "local") {
-                    fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
-                        if (!existResponse.data) {
-                            this.parent.parent.removeTab(this.parent.id);
-                        }
-                    });
-                }
-            },
-            msgCallback(data) {
-                if (data && this.type === "local") {
-                    switch (data.cmd) {
-                        case "rename":
-                            if (this.rootId === data.data.id) {
-                                this.parent.updateTitle(data.data.title);
-                            }
-                            break;
-                        case "closeBox":
-                        case "removeBox":
-                            if (this.notebookId === data.data.box && this.type === "local") {
-                                this.parent.parent.removeTab(this.parent.id);
-                            }
-                            break;
-                        case "removeDoc":
-                            if (data.data.ids.includes(this.rootId) && this.type === "local") {
-                                this.parent.parent.removeTab(this.parent.id);
-                            }
-                            break;
-                    }
-                }
-            }
+            callback: this.handelCallback.bind(this),
+            msgCallback: this.handleMsgCallback.bind(this),
         });
+
         this.blockId = options.blockId;
         this.rootId = options.rootId;
         this.type = options.type;
@@ -85,9 +59,7 @@ export class Backlink extends Model {
         const backlinkSort = window.siyuan.config.editor.backlinkSort;
         const backmentionSort = window.siyuan.config.editor.backmentionSort;
         this.element.innerHTML = `<div class="block__icons">
-    <div class="block__logo fn__flex-1">
-        <svg class="block__logoicon"><use xlink:href="#iconLink"></use></svg>${window.siyuan.languages.backlinks}
-    </div>
+    <div class="block__logo fn__flex-1">${window.siyuan.languages.backlinks}</div>
     <span class="counter listCount" style="margin-left: 0"></span>
     <span class="fn__space"></span>
     <input class="b3-text-field search__label fn__none fn__size200" placeholder="${window.siyuan.languages.filterKeywordEnter}" />
@@ -109,9 +81,7 @@ export class Backlink extends Model {
 </div>
 <div class="backlinkList fn__flex-1"></div>
 <div class="block__icons">
-    <div class="block__logo fn__flex-1 fn__pointer" data-type="mention">
-        <svg class="block__logoicon"><use xlink:href="#iconLink"></use></svg>${window.siyuan.languages.mentions}
-    </div>
+    <div class="block__logo fn__flex-1 fn__pointer" data-type="mention">${window.siyuan.languages.mentions}</div>
     <span class="counter listMCount" style="margin-left: 0;"></span>
     <span class="fn__space"></span>
     <input class="b3-text-field search__label fn__none fn__size200" placeholder="${window.siyuan.languages.filterKeywordEnter}" />
@@ -329,6 +299,39 @@ export class Backlink extends Model {
         this.searchBacklinks(true);
     }
 
+    private handelCallback() {
+        if (this.type === "local") {
+            fetchPost("/api/block/checkBlockExist", {id: this.blockId}, existResponse => {
+                if (!existResponse.data) {
+                    this.parent.parent.removeTab(this.parent.id);
+                }
+            });
+        }
+    }
+
+    private handleMsgCallback(data: IWebSocketData) {
+        if (data && this.type === "local") {
+            switch (data.cmd) {
+                case "rename":
+                    if (this.rootId === data.data.id) {
+                        this.parent.updateTitle(getDocDisplayName(data.data.title, data.data.empty));
+                    }
+                    break;
+                case "closeBox":
+                case "removeBox":
+                    if (this.notebookId === data.data.box && this.type === "local") {
+                        this.parent.parent.removeTab(this.parent.id);
+                    }
+                    break;
+                case "removeDoc":
+                    if (data.data.ids.includes(this.rootId) && this.type === "local") {
+                        this.parent.parent.removeTab(this.parent.id);
+                    }
+                    break;
+            }
+        }
+    }
+
     private setLayout(element: HTMLElement) {
         if (this.mTree.element.style.flex) {
             if (this.mTree.element.style.height === "0px") {
@@ -377,7 +380,9 @@ export class Backlink extends Model {
             } else {
                 window.siyuan.config.editor.backmentionSort = sortValue;
             }
-            fetchPost("/api/setting/setEditor", window.siyuan.config.editor);
+            fetchPost("/api/setting/setEditor", window.siyuan.config.editor, (response) => {
+                window.siyuan.config.editor = response.data;
+            });
             this.searchBacklinks();
         };
         window.siyuan.menus.menu.remove();

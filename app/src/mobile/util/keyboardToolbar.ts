@@ -16,6 +16,7 @@ import {isInAndroid, isInEdge, isInHarmony} from "../../protyle/util/compatibili
 import {tabCodeBlock} from "../../protyle/wysiwyg/codeBlock";
 import {callMobileAppShowKeyboard, canInput, keyboardLockUntil} from "./mobileAppUtil";
 import {isNotEditBlock} from "../../protyle/wysiwyg/getBlock";
+import {getMirror} from "../../protyle/undo/globalUndo";
 
 let renderKeyboardToolbarTimeout: number;
 let showUtil = false;
@@ -235,7 +236,7 @@ const renderSlashMenu = (protyle: IProtyle, toolbarElement: Element) => {
 <div class="keyboard__slash-block">
     ${getSlashItem(Constants.ZWSP + 3, "iconDownload", window.siyuan.languages.insertAsset + '<input class="b3-form__upload" type="file"' + (protyle.options.upload.accept ? (' multiple="' + protyle.options.upload.accept + '"') : "") + "/>", "true")}
     ${isInAndroid() ? getSlashItem(Constants.ZWSP + 3, "iconCamera", window.siyuan.languages.insertPhoto + '<input class="b3-form__upload" capture="user" type="file"' + (protyle.options.upload.accept ? (' multiple="' + protyle.options.upload.accept + '"') : "") + "/>", "true") : ""}
-    ${getSlashItem('<iframe sandbox="allow-forms allow-presentation allow-same-origin allow-scripts allow-modals allow-popups" src="" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>', "iconLanguage", window.siyuan.languages.insertIframeURL, "true")}
+    ${getSlashItem('<iframe sandbox="allow-forms allow-presentation allow-same-origin allow-scripts allow-modals allow-popups allow-storage-access-by-user-activation" src="" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>', "iconGlobe", window.siyuan.languages.insertIframeURL, "true")}
     ${getSlashItem("![]()", "iconImage", window.siyuan.languages.insertImgURL, "true")}
     ${getSlashItem('<video controls="controls" src=""></video>', "iconVideo", window.siyuan.languages.insertVideoURL, "true")}
     ${getSlashItem('<audio controls="controls" src=""></audio>', "iconRecord", window.siyuan.languages.insertAudioURL, "true")}
@@ -361,12 +362,14 @@ const renderKeyboardToolbar = () => {
         const protyle = getCurrentEditor().protyle;
         protyle.toolbar.range = range;
         if (!dynamicElements[0].classList.contains("fn__none")) {
-            if (protyle.undo.undoStack.length === 0) {
+            // 撤销权威栈在 kernel，本地按 rootID 读镜像设按钮态（零 fetch）
+            const undoState = protyle.block?.rootID ? getMirror(protyle.block.rootID) : {canUndo: false, canRedo: false};
+            if (!undoState.canUndo) {
                 dynamicElements[0].querySelector('[data-type="undo"]').setAttribute("disabled", "disabled");
             } else {
                 dynamicElements[0].querySelector('[data-type="undo"]').removeAttribute("disabled");
             }
-            if (protyle.undo.redoStack.length === 0) {
+            if (!undoState.canRedo) {
                 dynamicElements[0].querySelector('[data-type="redo"]').setAttribute("disabled", "disabled");
             } else {
                 dynamicElements[0].querySelector('[data-type="redo"]').removeAttribute("disabled");
@@ -508,9 +511,10 @@ export const activeBlur = () => {
 export const initKeyboardToolbar = () => {
     let preventRender = false;
     document.addEventListener("selectionchange", () => {
-        if (!preventRender) {
-            renderKeyboardToolbar();
+        if (preventRender || (getCurrentEditor()?.protyle?.toolbar.isMultiSelectMode())) {
+            return;
         }
+        renderKeyboardToolbar();
     }, false);
     window.siyuan.mobile.size.isLandscape = window.matchMedia && window.matchMedia("(orientation: landscape)").matches;
     if (window.siyuan.mobile.size.isLandscape) {
@@ -542,7 +546,12 @@ export const initKeyboardToolbar = () => {
                     window.siyuan.mobile.size.landscape.height1 = window.innerHeight;
                 }
                 if (window.siyuan.mobile.size.landscape.height2 < window.innerHeight) {
-                    activeBlur();
+                    const isInputFocused = document.activeElement && (
+                        ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) ||
+                        (document.activeElement as HTMLElement).isContentEditable);
+                    if (!isInputFocused) {
+                        activeBlur();
+                    }
                 } else if (!preventRender) {
                     renderKeyboardToolbar();
                 }
@@ -560,7 +569,12 @@ export const initKeyboardToolbar = () => {
                     window.siyuan.mobile.size.portrait.height1 = window.innerHeight;
                 }
                 if (window.siyuan.mobile.size.portrait.height2 < window.innerHeight) {
-                    activeBlur();
+                    const isInputFocused = document.activeElement && (
+                        ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) ||
+                        (document.activeElement as HTMLElement).isContentEditable);
+                    if (!isInputFocused) {
+                        activeBlur();
+                    }
                 } else if (!preventRender) {
                     renderKeyboardToolbar();
                 }
@@ -599,7 +613,7 @@ export const initKeyboardToolbar = () => {
             <button class="keyboard__action" data-type="clear"><svg><use xlink:href="#iconClear"></use></svg></button>
             <button class="keyboard__action" data-type="code"><svg><use xlink:href="#iconInlineCode"></use></svg></button>
             <button class="keyboard__action" data-type="kbd"<use xlink:href="#iconKeymap"></use></svg></button>
-            <button class="keyboard__action" data-type="tag"><svg><use xlink:href="#iconTags"></use></svg></button>
+            <button class="keyboard__action" data-type="tag"><svg><use xlink:href="#iconTag"></use></svg></button>
             <button class="keyboard__action" data-type="inline-math"><svg><use xlink:href="#iconMath"></use></svg></button>
             <button class="keyboard__action" data-type="inline-memo"><svg><use xlink:href="#iconM"></use></svg></button>
             <button class="keyboard__action" data-type="goback"><svg><use xlink:href="#iconCloseRound"></use></svg></button>
@@ -637,7 +651,13 @@ export const initKeyboardToolbar = () => {
             protyle.hint.fill(dataValue, protyle, false);   // 点击后 range 会改变
             event.preventDefault();
             event.stopPropagation();
-            if (slashBtnElement.getAttribute("data-focus") === "true") {
+            if (dataValue === "((" || dataValue === "{{") {
+                // (( / {{ 的候选列表无输入框，需保持键盘不收起，否则无法继续输入筛选 https://github.com/siyuan-note/siyuan/issues/17877
+                callMobileAppShowKeyboard();
+                if (isInHarmony() || isInAndroid()) {
+                    setTimeout(() => focusByRange(protyle.toolbar.range), Constants.TIMEOUT_TRANSITION);
+                }
+            } else if (slashBtnElement.getAttribute("data-focus") === "true") {
                 focusByRange(protyle.toolbar.range);
             }
             return;

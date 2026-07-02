@@ -1,14 +1,40 @@
 const fsPromises = require("fs").promises;
 const path = require("path");
+const { trimChangelogs } = require("./trimChangelogs");
 
 module.exports = async function afterPack(context) {
-  const { appOutDir, electronPlatformName, packager } = context;
+  const {appOutDir, electronPlatformName, packager} = context;
   await removeLanguagePacks(appOutDir, packager, electronPlatformName);
+  await trimPackagedChangelogs(appOutDir, packager, electronPlatformName);
 };
+
+// 打包时裁剪 changelog，只保留当前版本 changelogs/v{version}/，详见 trimChangelogs.js。
+async function trimPackagedChangelogs(appOutDir, packager, platform) {
+  let changelogsDir;
+  if (platform === "darwin") {
+    const appName = packager.appInfo.productFilename;
+    changelogsDir = path.join(appOutDir, `${appName}.app`, "Contents", "Resources", "changelogs");
+  } else {
+    changelogsDir = path.join(appOutDir, "resources", "changelogs");
+  }
+
+  try {
+    const result = await trimChangelogs(changelogsDir, packager.appInfo.version);
+    if (!result.ok) {
+      console.error(`trimChangelogs: ${result.reason}`);
+      return;
+    }
+    if (result.path) {
+      console.log(`trimChangelogs: ${result.path}`);
+    }
+  } catch (error) {
+    console.error("Failed to trim changelogs:", error.message);
+  }
+}
 
 async function removeLanguagePacks(appOutDir, packager, platform) {
   // 支持的语言都要保留，否则影响开发者工具字体显示
-  const wantedLanguages = ["ar_SA", "de_DE", "en_US", "es_ES", "fr_FR", "he_IL", "it_IT", "ja_JP", "ko_KR", "pl_PL", "pt_BR", "ru_RU", "sk_SK", "tr_TR", "zh_CHT", "zh_CN"];
+  const wantedLanguages = ["ar", "de", "en", "es", "fr", "he", "hi", "id", "it", "ja", "ko", "nl", "pl", "pt-BR", "ru", "sk", "th", "tr", "uk", "zh-TW", "zh-CN"];
   const keepPrefixes = new Set(wantedLanguages.map(lang => lang.substring(0, 2)));
 
   let resourcePath;

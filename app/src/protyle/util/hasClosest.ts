@@ -52,7 +52,9 @@ export const hasClosestByAttribute = (element: Node, attr: string, value: string
     }
     let e = element as HTMLElement;
     let isClosest = false;
-    while (e && !isClosest && (top ? e.tagName !== "BODY" : !e.classList.contains("protyle-wysiwyg"))) {
+    while (e && !isClosest && (top ? e.tagName !== "BODY" : (
+        !e.classList.contains("protyle-wysiwyg") &&!e.classList.contains("b3-typography")
+    ))) {
         if (typeof value === "string" && e.getAttribute(attr)?.split(" ").includes(value)) {
             isClosest = true;
         } else if (typeof value !== "string" && e.hasAttribute(attr)) {
@@ -104,10 +106,14 @@ export const hasClosestByClassName = (element: Node, className: string, top = fa
 
 export const hasClosestBlock = (element: Node) => {
     const nodeElement = hasClosestByAttribute(element, "data-node-id", null);
-    if (nodeElement && nodeElement.tagName !== "BUTTON" && nodeElement.getAttribute("data-type")?.startsWith("Node")) {
+    if (isBlockElement(nodeElement as Element)) {
         return nodeElement;
     }
     return false;
+};
+
+export const isBlockElement = (nodeElement: Element) => {
+    return nodeElement && nodeElement.tagName !== "BUTTON" && nodeElement.getAttribute("data-type")?.startsWith("Node");
 };
 
 export const isInEmbedBlock = (element: Element) => {

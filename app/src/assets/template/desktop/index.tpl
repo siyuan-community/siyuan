@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
           content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <title>SiYuan</title>
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
@@ -13,15 +14,26 @@
 <body class="fn__flex-column">
 <div id="loading" class="b3-dialog b3-dialog--open">
     <div class="b3-dialog__scrim" style="background-color: #1e1e1e"></div>
-    <img style="position: absolute;width: 36vh;" src="../../icon.png">
+    <img style="position: absolute;width: 24vh;" src="../../icon.svg">
 </div>
 <div id="toolbar" class="toolbar fn__flex"></div>
 <div class="fn__flex-1 fn__flex">
-    <div id="dockLeft" class="dock dock--vertical"></div>
+    <div id="dockLeft" class="dock fn__none">
+        <div class="dock__items"></div>
+        <div class="dock__split fn__none"></div>
+        <div class="dock__items"></div>
+        <div class="fn__flex-1 dock__item--space"></div>
+        <div class="dock__items"></div>
+    </div>
     <div id="layouts" class="layout fn__flex-1"></div>
-    <div id="dockRight" class="dock dock--vertical"></div>
+    <div id="dockRight" class="dock fn__none">
+        <div class="dock__items"></div>
+        <div class="dock__split fn__none"></div>
+        <div class="dock__items"></div>
+        <div class="fn__flex-1 dock__item--space"></div>
+        <div class="dock__items"></div>
+    </div>
 </div>
-<div id="dockBottom" class="dock fn__none"></div>
 <div id="status" class="fn__flex status"></div>
 <div id="commonMenu" class="b3-menu fn__none">
     <div class="b3-menu__title fn__none">

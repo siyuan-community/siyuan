@@ -1,4 +1,4 @@
-import {enableLuteMarkdownSyntax, getTextStar, paste, restoreLuteMarkdownSyntax} from "../util/paste";
+import {beforePaste, enableLuteMarkdownSyntax, getTextStar, paste, restoreLuteMarkdownSyntax} from "../util/paste";
 import {
     hasClosestBlock,
     hasClosestByAttribute,
@@ -21,6 +21,7 @@ import {
 import {Constants} from "../../constants";
 import {isMobile} from "../../util/functions";
 import {previewDocImage} from "../preview/image";
+import {getDiagramBlock, previewDiagram} from "../preview/diagram";
 import {
     contentMenu,
     enterBack,
@@ -29,7 +30,6 @@ import {
     inlineMathMenu,
     linkMenu,
     refMenu,
-    setFold,
     tagMenu,
     zoomOut
 } from "../../menus/protyle";
@@ -46,6 +46,7 @@ import {
     isNotEditBlock
 } from "./getBlock";
 import {transaction, updateTransaction} from "./transaction";
+import {toggleTaskListItem} from "./list";
 import {hideElements} from "../ui/hideElements";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
@@ -65,12 +66,11 @@ import {openGlobalSearch} from "../../search/util";
 /// #else
 import {popSearch} from "../../mobile/menu/search";
 /// #endif
-import {BlockPanel} from "../../block/Panel";
 import {copyPlainText, encodeBase64, isInIOS, isMac, isOnlyMeta, readClipboard} from "../util/compatibility";
 import {MenuItem} from "../../menus/Menu";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {onGet} from "../util/onGet";
-import {clearTableCell, isIncludeCell, setTableAlign, updateTableTitle} from "../util/table";
+import {clearTableCell, getTableRangeHTML, isIncludeCell, setTableAlign, updateTableTitle} from "../util/table";
 import {countBlockWord, countSelectWord} from "../../layout/status";
 import {showMessage} from "../../dialog/message";
 import {getBacklinkHeadingMore, loadBreadcrumb} from "./renderBacklink";
@@ -104,6 +104,8 @@ import {chartRender} from "../render/chartRender";
 import {reloadProtyle} from "../util/reload";
 import {updateCalloutType} from "./callout";
 import {nbsp2space, removeZWJ} from "../util/normalizeText";
+import {setFold} from "../util/blockFold";
+import {BlockPanel} from "../../block/Panel";
 
 export class WYSIWYG {
     public lastHTMLs: { [key: string]: string } = {};
@@ -277,6 +279,24 @@ export class WYSIWYG {
             const selectImgElement = nodeElement.querySelector(".img--select");
             const selectAVElement = nodeElement.querySelector(".av__row--select, .av__cell--select");
             const selectTableElement = nodeElement.querySelector(".table__select")?.clientWidth > 0;
+            // 表格内跨多单元格的文本选区：range.cloneContents() 会产出残缺的 td/tr 片段，需要重建合法 table
+            let selectTableRange = false;
+            let tableRangeElement: HTMLElement = null;
+            let tableRangeStartCell: HTMLElement = null;
+            let tableRangeEndCell: HTMLElement = null;
+            if (!selectTableElement) {
+                const startCell = hasClosestByTag(range.startContainer, "TD") || hasClosestByTag(range.startContainer, "TH");
+                const endCell = hasClosestByTag(range.endContainer, "TD") || hasClosestByTag(range.endContainer, "TH");
+                if (startCell && endCell && startCell !== endCell) {
+                    const startTable = (startCell as HTMLElement).closest("table");
+                    if (startTable && startTable === (endCell as HTMLElement).closest("table")) {
+                        selectTableRange = true;
+                        tableRangeElement = (startCell as HTMLElement).closest('[data-type="NodeTable"]') as HTMLElement;
+                        tableRangeStartCell = startCell as HTMLElement;
+                        tableRangeEndCell = endCell as HTMLElement;
+                    }
+                }
+            }
             let selectElements = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
             if (selectElements.length === 0 && range.toString() === "" && !range.cloneContents().querySelector("img") &&
                 !selectImgElement && !selectAVElement && !selectTableElement) {
@@ -385,28 +405,34 @@ export class WYSIWYG {
                 const scrollLeft = nodeElement.firstElementChild.scrollLeft;
                 const scrollTop = nodeElement.querySelector("table").scrollTop;
                 const tableSelectElement = nodeElement.querySelector(".table__select") as HTMLElement;
-                html = "<table>";
-                nodeElement.querySelectorAll("tr").forEach(rowElement => {
-                    const rowCells: HTMLTableCellElement[] = [];
-                    rowElement.querySelectorAll("th, td").forEach((item: HTMLTableCellElement) => {
-                        if (!item.classList.contains("fn__none") && isIncludeCell({
-                            tableSelectElement,
-                            scrollLeft,
-                            scrollTop,
-                            item,
-                        })) {
-                            rowCells.push(item);
+                const tableElement = nodeElement.querySelector("table");
+                // 通过框选几何范围确定 startCell/endCell，复用 getTableRangeHTML 的网格映射逻辑
+                //（它会正确保留 thead/tbody、补齐 fn__none 占位、重新计算 colspan/rowspan）
+                let startCell: HTMLElement = null;
+                let endCell: HTMLElement = null;
+                const allCells = Array.from(tableElement.querySelectorAll("th, td")) as HTMLElement[];
+                allCells.forEach((item: HTMLTableCellElement) => {
+                    if (item.classList.contains("fn__none")) {
+                        return;
+                    }
+                    if (isIncludeCell({tableSelectElement, scrollLeft, scrollTop, item})) {
+                        if (!startCell) {
+                            startCell = item;
                         }
-                    });
-                    if (rowCells.length > 0) {
-                        html += "<tr>";
-                        rowCells.forEach(cell => {
-                            html += cell.outerHTML;
-                        });
-                        html += "</tr>";
+                        endCell = item;
                     }
                 });
-                html += "</table>";
+                if (startCell && endCell) {
+                    html = getTableRangeHTML(tableElement, startCell, endCell);
+                } else {
+                    html = "<table></table>";
+                }
+                textPlain = protyle.lute.HTML2Md(html);
+            } else if (selectTableRange) {
+                // 表格内跨多单元格的文本选区：按网格映射重建合法 table，重新计算 colspan/rowspan。
+                // 后续统一构建 NodeTable BlockDOM，不经过 markdown 往返（GFM 表格只有单行表头）
+                const tableElement = tableRangeElement.querySelector("table");
+                html = getTableRangeHTML(tableElement, tableRangeStartCell, tableRangeEndCell);
                 textPlain = protyle.lute.HTML2Md(html);
             } else {
                 const tempElement = document.createElement("div");
@@ -435,7 +461,8 @@ export class WYSIWYG {
                     textPlain = range.toString();
                 } else if (selectImgElement) {
                     html = selectImgElement.outerHTML;
-                    textPlain = selectImgElement.querySelector("img").getAttribute("data-src");
+                    // 和图片菜单中的复制保持一致
+                    textPlain = protyle.lute.BlockDOM2StdMd(html).replace(/%20/g, " ");
                 } else if (selectTypes.length > 0 && range.startContainer.nodeType === 3 &&
                     range.startContainer.parentElement.tagName === "SPAN" &&
                     range.startContainer.parentElement === range.endContainer.parentElement) {
@@ -473,6 +500,21 @@ export class WYSIWYG {
                     } else if (hasClosestByTag(range.startContainer, "TD") || hasClosestByTag(range.startContainer, "TH")) {
                         tempElement.innerHTML = tempElement.innerHTML.replace(/<br>/g, "\n").replace(/<br\/>/g, "\n");
                         textPlain = tempElement.textContent.endsWith("\n") ? tempElement.textContent.replace(/\n$/, "") : tempElement.textContent;
+                    } else if (tempElement.querySelector('.img, [data-type~="inline-math"]')) {
+                        textPlain = "";
+                        tempElement.childNodes.forEach((item: Element) => {
+                            if (item.nodeType === 3) {
+                                textPlain += item.textContent;
+                            } else if (item.nodeType === 1 &&
+                                (item.classList.contains("img") || item.getAttribute("data-type").includes("inline-math"))) {
+                                if (!item.classList.contains("img")) {
+                                    item.setAttribute("data-type", "inline-math");
+                                }
+                                textPlain += protyle.lute.BlockDOM2StdMd(item.outerHTML).trimEnd();
+                            } else {
+                                textPlain += item.textContent;
+                            }
+                        });
                     } else if (!hasClosestByTag(range.startContainer, "CODE")) {
                         textPlain = range.toString();
                     }
@@ -489,11 +531,22 @@ export class WYSIWYG {
 
             if (!isInCodeBlock) {
                 enableLuteMarkdownSyntax(protyle);
-                const textSiyuan = selectTableElement ? protyle.lute.HTML2BlockDOM(html) : html;
+                // 表格选区（框选或跨多单元格文本选区）直接构建 BlockDOM，不走 HTML2BlockDOM 的 markdown 往返
+                //（GFM 表格只有单行表头，markdown 往返会丢失多行 thead 和单元格 th 属性）
+                let textSiyuan: string;
+                if (selectTableElement || selectTableRange) {
+                    // 表格选区：html 已是合法 <table>...</table>（含 thead/tbody/fn__none 占位），
+                    // 构建最小化 NodeTable BlockDOM，不经过 markdown 往返（GFM 表格只有单行表头，往返会丢失多行 thead）
+                    const newId = Lute.NewNodeID();
+                    textSiyuan = `<div data-node-id="${newId}" data-type="NodeTable" class="table"><div contenteditable="true" spellcheck="false">${html}<div class="protyle-action__table"><div class="table__resize"></div><div class="table__select"></div></div></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>`;
+                    html = textSiyuan;
+                } else {
+                    textSiyuan = html;
+                }
                 event.clipboardData.setData("text/siyuan", textSiyuan);
                 restoreLuteMarkdownSyntax(protyle);
                 // 在 text/html 中插入注释节点，用于右键菜单粘贴时获取 text/siyuan 数据
-                const textHTML = `<!--data-siyuan='${encodeBase64(textSiyuan)}'-->` + removeZWJ(selectTableElement ? html : protyle.lute.BlockDOM2HTML(selectAVElement ? textPlain : html));
+                const textHTML = `<!--data-siyuan='${encodeBase64(textSiyuan)}'-->` + removeZWJ((selectTableElement || selectTableRange) ? html : protyle.lute.BlockDOM2HTML(selectAVElement ? textPlain : html));
                 event.clipboardData.setData("text/html", textHTML);
                 if (needClipboardWrite) {
                     try {
@@ -586,6 +639,9 @@ export class WYSIWYG {
                     let currentElement: HTMLElement = startElement;
                     let hasJump = false;
                     while (currentElement) {
+                        if (currentElement.classList.contains("protyle-breadcrumb__bar")) {
+                            currentElement = currentElement.nextElementSibling as HTMLElement;
+                        }
                         if (currentElement && !currentElement.classList.contains("protyle-attr")) {
                             const currentRect = currentElement.getBoundingClientRect();
                             if (startRect.top === endRect.top ? (currentRect.left <= endTop) : (currentRect.top <= endTop)) {
@@ -610,7 +666,9 @@ export class WYSIWYG {
                                         hasJump = true;
                                     }
                                 } else {
-                                    selectElements.push(currentElement);
+                                    if (!currentElement.classList.contains("sb__resize")) {
+                                        selectElements.push(currentElement);
+                                    }
                                     currentElement = currentElement.nextElementSibling as HTMLElement;
                                 }
                             } else if (currentElement.parentElement.classList.contains("sb")) {
@@ -734,6 +792,159 @@ export class WYSIWYG {
             const mostBottom = protyleRect.bottom;
             const y = event.clientY;
             const contentRect = protyle.contentElement.getBoundingClientRect();
+            // 超级块横向布局下拖拽调整子块宽度
+            if (!protyle.disabled && target.classList.contains("sb__resize")) {
+                const sbElement = target.parentElement;
+                const previousElement = target.previousElementSibling as HTMLElement;
+                // 取手柄右侧的下一个块（跳过手柄等装饰元素）
+                let nextElement = target.nextElementSibling as HTMLElement;
+                while (nextElement && !nextElement.hasAttribute("data-node-id")) {
+                    nextElement = nextElement.nextElementSibling as HTMLElement;
+                }
+                if (!sbElement || !previousElement || !previousElement.hasAttribute("data-node-id") ||
+                    !nextElement || sbElement.getAttribute("data-sb-layout") !== "col") {
+                    return;
+                }
+                const oldHTMLs = {
+                    prev: previousElement.outerHTML,
+                    next: nextElement.outerHTML,
+                };
+                const x = event.clientX;
+                const sbWidth = sbElement.clientWidth;
+                // 使用 getBoundingClientRect 获取精确浮点宽度，避免 clientWidth（整数取整）作为
+                // 拖拽起始值带入累积误差
+                const oldLeftWidth = previousElement.getBoundingClientRect().width;
+                const oldRightWidth = nextElement.getBoundingClientRect().width;
+                // 读取手柄实际占用宽度（width + margin），这才是子块间的真实间距，用于 calc 补偿避免换行
+                const handleStyle = getComputedStyle(target);
+                const gapPx = target.offsetWidth + parseFloat(handleStyle.marginLeft) + parseFloat(handleStyle.marginRight);
+                const minWidth = 20;
+                // @ts-ignore
+                previousElement.style.webkitUserModify = "read-only";
+                // @ts-ignore
+                nextElement.style.webkitUserModify = "read-only";
+                // 为所有子块创建右上角百分比提示
+                const sbChildren = Array.from(sbElement.querySelectorAll(":scope > [data-node-id]")) as HTMLElement[];
+                const gapHalve = gapPx / 2 + 1;
+                const tips: { el: HTMLElement, child: HTMLElement }[] = [];
+                sbChildren.forEach(child => {
+                    child.style.position = "relative";
+                    const tip = document.createElement("span");
+                    tip.className = "sb__resize-tip protyle-icon protyle-icon--first protyle-icon--last";
+                    child.appendChild(tip);
+                    tips.push({el: tip, child});
+                });
+                // 份额池：每个子块占 100 的整数份额，总和恒为 100
+                // 从子块 style.width 的 calc 百分比恢复，无 width 的用实测宽度估算
+                // 最大余数法取整确保总和精确 = 100，跨拖拽起始显示一致
+                const rawPcts = sbChildren.map(child => {
+                    const m = child.style.width.match(/^calc\(([\d.]+)%/);
+                    return m ? parseFloat(m[1]) : child.getBoundingClientRect().width / sbWidth * 100;
+                });
+                const totalRaw = rawPcts.reduce((s, p) => s + p, 0) || 1;
+                const normalized = rawPcts.map(p => p / totalRaw * 100);
+                const shares = normalized.map(p => Math.floor(p));
+                const deficit = 100 - shares.reduce((s, p) => s + p, 0);
+                const remainders = normalized
+                    .map((p, i) => ({i, frac: p - Math.floor(p)}))
+                    .sort((a, b) => b.frac - a.frac);
+                for (let k = 0; k < deficit && k < remainders.length; k++) {
+                    shares[remainders[k].i]++;
+                }
+                const leftIdx = sbChildren.indexOf(previousElement);
+                const rightIdx = sbChildren.indexOf(nextElement);
+                const updateTips = () => {
+                    tips.forEach(({el}, i) => {
+                        el.textContent = `${shares[i]}%`;
+                    });
+                };
+                // 记录最终拖拽宽度，供 mouseup 精确计算百分比，避免从 clientWidth（整数取整）
+                // 反推导致每次拖拽累积误差
+                let finalLeft = oldLeftWidth;
+                let finalRight = oldRightWidth;
+                updateTips();
+                documentSelf.onmousemove = (moveEvent: MouseEvent) => {
+                    // 左右两块等量交换宽度，不影响其他子块
+                    const delta = moveEvent.clientX - x;
+                    let newLeftWidth = oldLeftWidth + delta;
+                    let newRightWidth = oldRightWidth - delta;
+                    // 限制最小宽度，避免塌陷
+                    if (newLeftWidth < minWidth) {
+                        newLeftWidth = minWidth;
+                        newRightWidth = oldLeftWidth + oldRightWidth - minWidth;
+                    }
+                    if (newRightWidth < minWidth) {
+                        newRightWidth = minWidth;
+                        newLeftWidth = oldLeftWidth + oldRightWidth - minWidth;
+                    }
+                    finalLeft = newLeftWidth;
+                    finalRight = newRightWidth;
+                    previousElement.style.width = newLeftWidth + "px";
+                    previousElement.style.flex = "none";
+                    nextElement.style.width = newRightWidth + "px";
+                    nextElement.style.flex = "none";
+                    // 更新份额池：左块份额 = 当前宽度占比 × 100（整数），右块 = 100 - 左块 - 其他块份额
+                    const newLeftShare = Math.max(1, Math.round(newLeftWidth / sbWidth * 100));
+                    const othersSum = shares.reduce((s, p, i) => i === leftIdx || i === rightIdx ? s : s + p, 0);
+                    shares[leftIdx] = newLeftShare;
+                    shares[rightIdx] = Math.max(1, 100 - othersSum - newLeftShare);
+                    updateTips();
+                };
+                documentSelf.onmouseup = (mouseupEvent) => {
+                    tips.forEach(({child, el}) => {
+                        el.remove();
+                        // 还原 position（若子块原本无 position 则清除）
+                        if (!child.getAttribute("style") || child.style.position === "relative") {
+                            child.style.position = "";
+                        }
+                    });
+                    // @ts-ignore
+                    previousElement.style.webkitUserModify = "";
+                    // @ts-ignore
+                    nextElement.style.webkitUserModify = "";
+                    documentSelf.onmousemove = null;
+                    documentSelf.onmouseup = null;
+                    documentSelf.ondragstart = null;
+                    documentSelf.onselectstart = null;
+                    documentSelf.onselect = null;
+                    // 仅点击未拖拽，不产生 transaction，避免无意义的更新
+                    if (Math.abs(x - mouseupEvent.clientX) <= 0) {
+                        return;
+                    }
+                    // 只调整左右两块（手柄两侧），其他子块不动，避免影响未拖拽的块
+                    // 使用 mousemove 记录的精确实时宽度（finalLeft/finalRight）反推百分比，
+                    // gapHalve 已含 +1px 余量防止亚像素换行，无需再用 *99 缩放（会造成累积收缩）
+                    let leftPct = Math.round((finalLeft + gapHalve) / sbWidth * 1000) / 10;
+                    let rightPct = Math.round((finalRight + gapHalve) / sbWidth * 1000) / 10;
+                    // 防溢出：两块百分比之和超过 99.5% 时等比压缩到 99%，留 1% 缓冲防换行
+                    const sumPct = leftPct + rightPct;
+                    if (sumPct > 99.5) {
+                        const scale = 99 / sumPct;
+                        leftPct = Math.round(leftPct * scale * 10) / 10;
+                        rightPct = Math.round(rightPct * scale * 10) / 10;
+                    }
+                    const updated = dayjs().format("YYYYMMDDHHmmss");
+                    previousElement.style.width = `calc(${leftPct}% - ${gapHalve}px)`;
+                    nextElement.style.width = `calc(${rightPct}% - ${gapHalve}px)`;
+                    previousElement.setAttribute("updated", updated);
+                    nextElement.setAttribute("updated", updated);
+                    // 合并为单个 transaction，确保撤销时两侧宽度同时恢复
+                    transaction(protyle, [
+                        {
+                            action: "update",
+                            id: previousElement.getAttribute("data-node-id"),
+                            data: previousElement.outerHTML
+                        },
+                        {action: "update", id: nextElement.getAttribute("data-node-id"), data: nextElement.outerHTML},
+                    ], [
+                        {action: "update", id: previousElement.getAttribute("data-node-id"), data: oldHTMLs.prev},
+                        {action: "update", id: nextElement.getAttribute("data-node-id"), data: oldHTMLs.next},
+                    ]);
+                };
+                this.preventClick = true;
+                event.preventDefault();
+                return;
+            }
             // av col resize
             if (!protyle.disabled && target.classList.contains("av__widthdrag")) {
                 if (!nodeElement) {
@@ -751,7 +962,7 @@ export class WYSIWYG {
                     scrollElement.querySelectorAll(".av__row, .av__row--footer").forEach(item => {
                         (item.querySelector(`[data-col-id="${dragColId}"]`) as HTMLElement).style.width = newWidth + "px";
                     });
-                    stickyRow(nodeElement, contentRect, "bottom");
+                    stickyRow(nodeElement, protyle.contentElement, "bottom");
                 };
 
                 documentSelf.onmouseup = () => {
@@ -950,7 +1161,6 @@ export class WYSIWYG {
                     target.parentElement.parentElement.classList.add("img--drag");
                 }
 
-                const id = nodeElement.getAttribute("data-node-id");
                 const html = nodeElement.outerHTML;
                 const x = event.clientX;
                 const dragElement = target.previousElementSibling as HTMLElement;
@@ -998,7 +1208,7 @@ export class WYSIWYG {
                     documentSelf.onselectstart = null;
                     documentSelf.onselect = null;
                     if (target.classList.contains("protyle-action__drag") && nodeElement) {
-                        updateTransaction(protyle, id, nodeElement.outerHTML, html);
+                        updateTransaction(protyle, nodeElement, html);
                     }
                     nodeElement.classList.remove("iframe--drag");
                     target.parentElement.parentElement.classList.remove("img--drag");
@@ -1040,7 +1250,6 @@ export class WYSIWYG {
                 nodeElement.firstElementChild.style.webkitUserModify = "read-only";
                 nodeElement.style.cursor = "col-resize";
                 target.removeAttribute("style");
-                const id = nodeElement.getAttribute("data-node-id");
                 const x = event.clientX;
                 const colIndex = parseInt(target.getAttribute("data-col-index"));
                 const colElement = nodeElement.querySelectorAll("table col")[colIndex] as HTMLElement;
@@ -1073,29 +1282,56 @@ export class WYSIWYG {
                     documentSelf.onselectstart = null;
                     documentSelf.onselect = null;
                     if (nodeElement) {
-                        updateTransaction(protyle, id, nodeElement.outerHTML, html);
+                        updateTransaction(protyle, nodeElement, html);
                     }
                 };
                 return;
             }
 
             // 多选节点
-            let clentX = event.clientX;
+            // 起点落在内容区域外的 padding 上时，需用内容区内的坐标定位起始块
+            let fromOutsideX: number;
             if (event.clientX > mostRight) {
-                clentX = mostRight;
+                fromOutsideX = mostRight - 10;
             } else if (event.clientX < mostLeft) {
-                clentX = mostLeft;
+                fromOutsideX = mostLeft + 10;
+            }
+            // 起点落在 padding 外或块间空白（target 为 wysiwyg 容器本身）时，需用 elementFromPoint 定位起始块
+            if (fromOutsideX !== undefined || target.classList.contains("protyle-wysiwyg")) {
+                const startX = fromOutsideX !== undefined ? fromOutsideX : event.clientX;
+                // 块间缝隙可能大于固定偏移量，需沿 y 轴循环探测直到命中块
+                nodeElement = hasClosestBlock(document.elementFromPoint(startX, event.clientY)) as HTMLElement;
+                if (!nodeElement) {
+                    let probeY = event.clientY;
+                    // 步长 8px，上限 96px（约 6 个普通行高），避免在超大空白块上无限循环
+                    while (!nodeElement && probeY < event.clientY + 96) {
+                        probeY += 8;
+                        const probeElement = document.elementFromPoint(startX, probeY);
+                        if (probeElement && !probeElement.classList.contains("protyle-wysiwyg")) {
+                            nodeElement = hasClosestBlock(probeElement) as HTMLElement;
+                        }
+                    }
+                }
+            }
+            // 落点是否在缝隙/padding（nodeElement 为落点下方的块），滚动后该相对关系不变，于 mousedown 时记录一次
+            const startBelowPoint = !!nodeElement && nodeElement.getBoundingClientRect().top > y;
+            if (!nodeElement) {
+                const breadElement = hasClosestByClassName(target, "protyle-breadcrumb__item");
+                if (breadElement) {
+                    nodeElement = breadElement.nextElementSibling as HTMLElement;
+                }
             }
             const mostTop = protyleRect.top + (protyle.options.render.breadcrumb ? protyle.breadcrumb.element.parentElement.clientHeight : 0);
-
             let mouseElement: Element;
             let moveCellElement: HTMLElement;
-            let startFirstElement: Element;
-            let endLastElement: Element;
             this.element.querySelectorAll("iframe").forEach(item => {
                 item.style.pointerEvents = "none";
             });
             const needScroll = ["IMG", "VIDEO", "AUDIO"].includes(target.tagName) || target.classList.contains("img");
+            // 容器类元素判断（划选时 elementFromPoint 命中它们的边缘/空白需继续探测子块）
+            const isContainer = (el: Element) => el.classList.contains("protyle-wysiwyg") || el.classList.contains("list") ||
+                el.classList.contains("li") || el.classList.contains("sb") ||
+                el.classList.contains("callout") || el.classList.contains("bq");
             documentSelf.onmousemove = (moveEvent: MouseEvent) => {
                 let moveTarget: boolean | HTMLElement = moveEvent.target as HTMLElement;
                 // table cell select
@@ -1188,32 +1424,25 @@ export class WYSIWYG {
                         });
                     }
                 }
+                if (!nodeElement) {
+                    return;
+                }
                 protyle.selectElement.classList.remove("fn__none");
                 // 向左选择，遇到 gutter 就不会弹出 toolbar
                 hideElements(["gutter"], protyle);
+                const selectStartY = nodeElement.getBoundingClientRect().top;
                 let newTop = 0;
                 let newLeft = 0;
                 let newWidth = 0;
                 let newHeight = 0;
-                if (moveEvent.clientX < clentX) {
-                    if (moveEvent.clientX < mostLeft) {
-                        // 向左越界
-                        newLeft = mostLeft;
-                    } else {
-                        // 向左
-                        newLeft = moveEvent.clientX;
-                    }
-                    newWidth = clentX - newLeft;
+                if (moveEvent.clientX < event.clientX) {
+                    // 向左：左边缘跟随鼠标，右边缘固定为起点
+                    newLeft = Math.max(moveEvent.clientX, wysiwygRect.left);
+                    newWidth = Math.min(event.clientX, wysiwygRect.right) - newLeft;
                 } else {
-                    if (moveEvent.clientX > mostRight) {
-                        // 向右越界
-                        newLeft = clentX;
-                        newWidth = mostRight - newLeft;
-                    } else {
-                        // 向右
-                        newLeft = clentX;
-                        newWidth = moveEvent.clientX - clentX;
-                    }
+                    // 向右：左边缘固定为起点，右边缘跟随鼠标
+                    newLeft = Math.max(event.clientX, wysiwygRect.left);
+                    newWidth = Math.min(moveEvent.clientX, wysiwygRect.right) - newLeft;
                 }
 
                 if (moveEvent.clientY > y) {
@@ -1239,7 +1468,7 @@ export class WYSIWYG {
                 if (newHeight < 4) {
                     return;
                 }
-                protyle.selectElement.setAttribute("style", `background-color: ${protyle.selectElement.style.backgroundColor};top:${newTop}px;height:${newHeight}px;left:${newLeft + 2}px;width:${newWidth - 2}px;`);
+                protyle.selectElement.setAttribute("style", `top:${newTop}px;height:${newHeight}px;left:${newLeft + 2}px;width:${newWidth - 2}px;`);
                 const newMouseElement = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
                 if (mouseElement && mouseElement === newMouseElement && !mouseElement.classList.contains("protyle-wysiwyg") &&
                     !mouseElement.classList.contains("list") && !mouseElement.classList.contains("bq") &&
@@ -1250,21 +1479,37 @@ export class WYSIWYG {
                     mouseElement = newMouseElement;
                 }
                 hideElements(["select"], protyle);
+                // 块选择判定用的右边界需落在内容区，避免矩形右边缘在 padding 内时选不中块
+                const selectRight = Math.max(newLeft + newWidth, mostLeft);
+                // 向上划选时以 nodeElement 的实时边作为遍历终点（兼容滚动 https://github.com/siyuan-note/siyuan/issues/14664）；
+                // 落点在缝隙时 nodeElement 为下方块，需用其 top（不含自身）避免误选下方块
+                const startBlockRect = nodeElement.getBoundingClientRect();
+                const selectBottom = moveEvent.clientY <= selectStartY
+                    ? (startBelowPoint ? startBlockRect.top : startBlockRect.bottom)
+                    : (newTop + newHeight);
+                // newLeft 落在 padding 内时 elementFromPoint 会命中 wysiwyg 容器，需钳制到内容区
+                const detectX = Math.max(mostLeft, Math.min(newLeft, mostRight));
                 let firstElement;
-                if (moveEvent.clientY > y) {
-                    firstElement = startFirstElement || document.elementFromPoint(newLeft, newTop);
-                    endLastElement = undefined;
+                if (moveEvent.clientY > selectStartY) {
+                    firstElement = nodeElement;
                 } else {
-                    firstElement = document.elementFromPoint(newLeft, newTop);
-                    startFirstElement = undefined;
+                    firstElement = document.elementFromPoint(detectX, newTop);
                 }
                 if (!firstElement) {
                     return;
                 }
-                if (firstElement.classList.contains("protyle-wysiwyg") || firstElement.classList.contains("list") ||
-                    firstElement.classList.contains("li") || firstElement.classList.contains("sb") ||
-                    firstElement.classList.contains("callout") || firstElement.classList.contains("bq")) {
-                    firstElement = document.elementFromPoint(newLeft, newTop + 16);
+                // 向上划选且落点在 padding/缝隙时，elementFromPoint 易命中 wysiwyg 容器或容器类元素，
+                // 需沿 y 轴循环向下探测以定位到实际块，避免回退到文档首块导致误选上部所有块
+                if (moveEvent.clientY <= selectStartY && isContainer(firstElement)) {
+                    let probeY = newTop;
+                    while (probeY < selectBottom) {
+                        probeY += 8;
+                        const probeElement = document.elementFromPoint(detectX, probeY);
+                        if (probeElement && !isContainer(probeElement)) {
+                            firstElement = probeElement;
+                            break;
+                        }
+                    }
                 }
                 if (!firstElement) {
                     return;
@@ -1273,18 +1518,7 @@ export class WYSIWYG {
                 if (!firstBlockElement && firstElement.classList.contains("protyle-breadcrumb__bar")) {
                     firstBlockElement = firstElement.nextElementSibling as HTMLElement;
                 }
-                if (moveEvent.clientY > y) {
-                    if (!startFirstElement) {
-                        // 向上选择导致滚动条滚动到顶部再向下选择至 > y 时，firstBlockElement 为 undefined https://ld246.com/article/1705233964097
-                        if (!firstBlockElement) {
-                            firstBlockElement = protyle.wysiwyg.element.firstElementChild as HTMLElement;
-                            if (firstBlockElement.classList.contains("protyle-breadcrumb__bar")) {
-                                firstBlockElement = firstBlockElement.nextElementSibling as HTMLElement;
-                            }
-                        }
-                        startFirstElement = firstBlockElement;
-                    }
-                } else if (!firstBlockElement &&
+                if (moveEvent.clientY <= selectStartY && !firstBlockElement &&
                     // https://github.com/siyuan-note/siyuan/issues/7580
                     moveEvent.clientY < protyle.wysiwyg.element.lastElementChild.getBoundingClientRect().bottom) {
                     firstBlockElement = protyle.wysiwyg.element.firstElementChild as HTMLElement;
@@ -1304,16 +1538,15 @@ export class WYSIWYG {
                 }
 
                 let hasJump = false;
-                const selectBottom = endLastElement ? endLastElement.getBoundingClientRect().bottom : (newTop + newHeight);
                 while (currentElement) {
                     if (currentElement && !currentElement.classList.contains("protyle-attr")) {
                         const currentRect = currentElement.getBoundingClientRect();
-                        if (currentRect.height > 0 && currentRect.top < selectBottom && currentRect.left < newLeft + newWidth) {
+                        if (currentRect.height > 0 && currentRect.top < selectBottom && currentRect.left < selectRight) {
                             if (hasJump) {
                                 // 父节点的下个节点在选中范围内才可使用父节点作为选中节点
                                 if (currentElement.nextElementSibling && !currentElement.nextElementSibling.classList.contains("protyle-attr")) {
                                     const nextRect = currentElement.nextElementSibling.getBoundingClientRect();
-                                    if (nextRect.top < selectBottom && nextRect.left < newLeft + newWidth) {
+                                    if (nextRect.top < selectBottom && nextRect.left < selectRight) {
                                         selectElements = [currentElement];
                                         currentElement = currentElement.nextElementSibling;
                                         hasJump = false;
@@ -1329,7 +1562,8 @@ export class WYSIWYG {
                                 }
                             } else {
                                 if (!currentElement.classList.contains("protyle-breadcrumb__bar") &&
-                                    !currentElement.classList.contains("protyle-breadcrumb__item")) {
+                                    !currentElement.classList.contains("protyle-breadcrumb__item") &&
+                                    !currentElement.classList.contains("sb__resize")) {
                                     selectElements.push(currentElement);
                                 }
                                 if (!currentElement.nextElementSibling && currentElement.parentElement.classList.contains("callout-content")) {
@@ -1353,14 +1587,11 @@ export class WYSIWYG {
                         hasJump = true;
                     }
                 }
-                if (moveEvent.clientY <= y && !endLastElement) {
-                    endLastElement = selectElements[selectElements.length - 1];
-                }
                 if (selectElements.length === 1 && !selectElements[0].classList.contains("list") &&
                     !selectElements[0].classList.contains("bq") && !selectElements[0].classList.contains("callout") &&
                     !selectElements[0].classList.contains("sb")) {
-                    // 只有一个 p 时不选中
-                    protyle.selectElement.style.backgroundColor = "transparent";
+                    // 只有一个 p 时不选中，用 data 属性标记未选中状态（矩形视觉保持可见）
+                    protyle.selectElement.setAttribute("data-empty", "true");
                     protyle.wysiwyg.element.classList.remove("protyle-wysiwyg--hiderange");
                 } else {
                     protyle.wysiwyg.element.classList.add("protyle-wysiwyg--hiderange");
@@ -1369,7 +1600,7 @@ export class WYSIWYG {
                             item.classList.add("protyle-wysiwyg--select");
                         }
                     });
-                    protyle.selectElement.style.backgroundColor = "";
+                    protyle.selectElement.removeAttribute("data-empty");
                 }
             };
 
@@ -1379,8 +1610,6 @@ export class WYSIWYG {
                 documentSelf.ondragstart = null;
                 documentSelf.onselectstart = null;
                 documentSelf.onselect = null;
-                startFirstElement = undefined;
-                endLastElement = undefined;
                 // 多选表格单元格后，选择菜单中的居左，然后 shift+左 选中的文字无法显示选中背景，因此需移除
                 // 多选块后 shift+左 选中的文字无法显示选中背景，因此需移除
                 protyle.wysiwyg.element.classList.remove("protyle-wysiwyg--hiderange");
@@ -1389,6 +1618,7 @@ export class WYSIWYG {
                 });
                 protyle.selectElement.classList.add("fn__none");
                 protyle.selectElement.removeAttribute("style");
+                protyle.selectElement.removeAttribute("data-empty");
                 if (tableBlockElement) {
                     // @ts-ignore
                     tableBlockElement.firstElementChild.style.webkitUserModify = "";
@@ -1516,7 +1746,7 @@ export class WYSIWYG {
                                                 selectCellElements[0].rowSpan = rowSpan;
                                                 focusByWbr(selectCellElements[0], document.createRange());
                                                 document.execCommand("insertHTML", false, "");
-                                                updateTransaction(protyle, tableBlockElement.getAttribute("data-node-id"), tableBlockElement.outerHTML, oldHTML);
+                                                updateTransaction(protyle, tableBlockElement, oldHTML);
                                             }
                                         });
                                     }
@@ -1795,10 +2025,9 @@ export class WYSIWYG {
     private bindEvent(protyle: IProtyle) {
         // 删除块时，av 头尾需重新计算位置
         protyle.observer = new ResizeObserver(() => {
-            const contentRect = protyle.contentElement.getBoundingClientRect();
             protyle.wysiwyg.element.querySelectorAll(".av").forEach((item: HTMLElement) => {
                 if (item.querySelector(".av__scroll")) {
-                    stickyRow(item, contentRect, "all");
+                    stickyRow(item, protyle.contentElement, "all");
                 }
             });
         });
@@ -1833,18 +2062,39 @@ export class WYSIWYG {
                 event.preventDefault();
                 return;
             }
-            // https://github.com/siyuan-note/siyuan/issues/11793
+            // https://github.com/siyuan-note/siyuan/issues/17800 不能删除
             const embedElement = isInEmbedBlock(nodeElement);
             if (embedElement) {
-                nodeElement = embedElement;
+                event.stopPropagation();
+                event.preventDefault();
+                return;
             }
             event.stopPropagation();
             event.preventDefault();
             const selectImgElement = nodeElement.querySelector(".img--select");
             const selectAVElement = nodeElement.querySelector(".av__row--select, .av__cell--select");
             const selectTableElement = nodeElement.querySelector(".table__select")?.clientWidth > 0;
+            // 表格内跨多单元格的文本选区：range.cloneContents() 会产出残缺的 td/tr 片段，需要重建合法 table
+            let selectTableRange = false;
+            let tableRangeElement: HTMLElement = null;
+            let tableRangeStartCell: HTMLElement = null;
+            let tableRangeEndCell: HTMLElement = null;
+            if (!selectTableElement) {
+                const startCell = hasClosestByTag(range.startContainer, "TD") || hasClosestByTag(range.startContainer, "TH");
+                const endCell = hasClosestByTag(range.endContainer, "TD") || hasClosestByTag(range.endContainer, "TH");
+                if (startCell && endCell && startCell !== endCell) {
+                    const startTable = (startCell as HTMLElement).closest("table");
+                    if (startTable && startTable === (endCell as HTMLElement).closest("table")) {
+                        selectTableRange = true;
+                        tableRangeElement = (startCell as HTMLElement).closest('[data-type="NodeTable"]') as HTMLElement;
+                        tableRangeStartCell = startCell as HTMLElement;
+                        tableRangeEndCell = endCell as HTMLElement;
+                    }
+                }
+            }
             let selectElements = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
-            if (selectElements.length === 0 && range.toString() === "" && !range.cloneContents().querySelector("img") &&
+            const cloneElement = range.cloneContents();
+            if (selectElements.length === 0 && range.toString() === "" && !cloneElement.querySelector("img") &&
                 !selectImgElement && !selectAVElement && !selectTableElement) {
                 nodeElement.classList.add("protyle-wysiwyg--select");
                 selectElements = [nodeElement];
@@ -1918,7 +2168,7 @@ export class WYSIWYG {
                 const scrollLeft = nodeElement.firstElementChild.scrollLeft;
                 const scrollTop = nodeElement.querySelector("table").scrollTop;
                 const tableSelectElement = nodeElement.querySelector(".table__select") as HTMLElement;
-                html = "<table>";
+                const tableElement = nodeElement.querySelector("table");
                 nodeElement.querySelectorAll("th, td").forEach((item: HTMLTableCellElement) => {
                     if (!item.classList.contains("fn__none") && isIncludeCell({
                         tableSelectElement,
@@ -1939,21 +2189,17 @@ export class WYSIWYG {
                 const oldHTML = nodeElement.outerHTML;
                 nodeElement.querySelector("wbr")?.remove();
                 nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-                selectCellElements.forEach((item, index) => {
-                    if (index === 0 || !item.previousElementSibling ||
-                        item.previousElementSibling !== selectCellElements[index - 1]) {
-                        html += "<tr>";
-                    }
-                    html += item.outerHTML;
-                    if (!item.nextElementSibling || !selectCellElements[index + 1] ||
-                        item.nextElementSibling !== selectCellElements[index + 1]) {
-                        html += "</tr>";
-                    }
+                // 用 getTableRangeHTML 重建合法表格（与 copy 一致），同时清空选区内单元格内容
+                if (selectCellElements.length > 0) {
+                    html = getTableRangeHTML(tableElement, selectCellElements[0], selectCellElements[selectCellElements.length - 1]);
+                } else {
+                    html = "<table></table>";
+                }
+                selectCellElements.forEach((item) => {
                     item.innerHTML = "";
                 });
-                html += "</table>";
                 textPlain = protyle.lute.HTML2Md(html);
-                updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+                updateTransaction(protyle, nodeElement, oldHTML);
             } else {
                 const id = nodeElement.getAttribute("data-node-id");
                 setInsertWbrHTML(nodeElement, range, protyle);
@@ -1979,6 +2225,7 @@ export class WYSIWYG {
                     !["DIV", "TD", "TH", "TR"].includes(range.startContainer.parentElement.tagName)) {
                     // 选中整个内联元素
                     tempElement.append(range.startContainer.parentElement);
+                    textPlain = tempElement.textContent;
                 } else if (selectImgElement) {
                     tempElement.append(selectImgElement);
                 } else if (range.startContainer.nodeType === 3 && range.startContainer.parentElement.tagName === "SPAN" &&
@@ -1998,11 +2245,29 @@ export class WYSIWYG {
                         spanElement.setAttribute("data-subtype", "s");
                     }
                     newSpanElement.textContent = range.toString();
+                    textPlain = range.toString();
                     range.deleteContents();
                     tempElement.append(newSpanElement);
                 } else {
-                    if (range.cloneContents().querySelectorAll("td, th").length > 0) {
-                        // 表格内多格子 cut https://github.com/siyuan-note/insider/issues/564
+                    if (selectTableRange) {
+                        // 表格内跨多单元格的文本选区：按网格映射重建合法 table，重新计算 colspan/rowspan。
+                        // 必须在 extractContents 删除原内容前计算，否则 getBoundingClientRect 拿不到原始位置
+                        const tableElement = tableRangeElement.querySelector("table");
+                        const newTableHTML = getTableRangeHTML(tableElement, tableRangeStartCell, tableRangeEndCell);
+                        // 放入 tempElement 以便后续 html = tempElement.innerHTML 取用（裸 table，后续统一包 BlockDOM）
+                        tempElement.innerHTML = newTableHTML;
+                        textPlain = protyle.lute.HTML2Md(newTableHTML);
+                        // 删除选区内容并修复表格 DOM
+                        const wbrElement = document.createElement("wbr");
+                        range.insertNode(wbrElement);
+                        range.setStartAfter(wbrElement);
+                        range.extractContents();
+                        nodeElement.outerHTML = protyle.lute.SpinBlockDOM(nodeElement.outerHTML);
+                        nodeElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`) as HTMLElement;
+                        mathRender(nodeElement);
+                        focusByWbr(nodeElement, range);
+                    } else if (cloneElement.querySelectorAll("td, th").length > 0) {
+                        // 表格内多格子 cut https://github.com/siyuan-note/siyuan/issues/564
                         const wbrElement = document.createElement("wbr");
                         range.insertNode(wbrElement);
                         range.setStartAfter(wbrElement);
@@ -2017,16 +2282,29 @@ export class WYSIWYG {
                             // 表格内剪切数学公式 https://ld246.com/article/1631708573504
                             tempElement.append(inlineMathElement);
                         } else {
-                            tempElement.append(range.extractContents());
-                            let parentElement: Element | false;
+                            tempElement.append(range.cloneContents());
+                            let parentElement: false | Element = getContenteditableElement(nodeElement);
                             // https://ld246.com/article/1647689760545
                             if (nodeElement.classList.contains("av")) {
                                 updateAVName(protyle, nodeElement);
                             } else if (nodeElement.classList.contains("table")) {
                                 parentElement = hasClosestByTag(range.startContainer, "TD") || hasClosestByTag(range.startContainer, "TH");
-                            } else {
-                                parentElement = getContenteditableElement(nodeElement);
+                            } else if (cloneElement.querySelector('.img, [data-type="inline-math"]')) {
+                                textPlain = "";
+                                cloneElement.childNodes.forEach((item: Element) => {
+                                    if (item.nodeType === 3) {
+                                        textPlain += item.textContent;
+                                    } else if (item.nodeType === 1 &&
+                                        (item.classList.contains("img") || item.getAttribute("data-type") === "inline-math")) {
+                                        textPlain += protyle.lute.BlockDOM2StdMd(item.outerHTML).trimEnd();
+                                    } else {
+                                        textPlain += item.textContent;
+                                    }
+                                });
+                            } else if (!hasClosestByTag(range.startContainer, "CODE")) {
+                                textPlain = range.toString();
                             }
+                            range.deleteContents();
                             if (parentElement) {
                                 // 引用文本剪切 https://ld246.com/article/1647689760545
                                 // 表格多行剪切 https://ld246.com/article/1652603836350
@@ -2064,7 +2342,7 @@ export class WYSIWYG {
                 if (nodeElement.parentElement.parentElement && !nodeElement.classList.contains("av")) {
                     // 选中 heading 时，使用删除的 transaction
                     setInsertWbrHTML(nodeElement, range, protyle);
-                    updateTransaction(protyle, id, protyle.wysiwyg.lastHTMLs[id] || nodeElement.outerHTML, oldHTML);
+                    updateTransaction(protyle, nodeElement, oldHTML);
                 }
             }
             protyle.hint.render(protyle);
@@ -2080,11 +2358,20 @@ export class WYSIWYG {
 
             if (!isInCodeBlock) {
                 enableLuteMarkdownSyntax(protyle);
-                const textSiyuan = selectTableElement ? protyle.lute.HTML2BlockDOM(html) : html;
+                // 表格选区（框选或跨多单元格文本选区）直接构建 BlockDOM，不走 HTML2BlockDOM 的 markdown 往返
+                let textSiyuan: string;
+                if (selectTableElement || selectTableRange) {
+                    // 表格选区：html 已是合法 <table>...</table>，构建最小化 NodeTable BlockDOM，不走 markdown 往返
+                    const newId = Lute.NewNodeID();
+                    textSiyuan = `<div data-node-id="${newId}" data-type="NodeTable" class="table"><div contenteditable="true" spellcheck="false">${html}<div class="protyle-action__table"><div class="table__resize"></div><div class="table__select"></div></div></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>`;
+                    html = textSiyuan;
+                } else {
+                    textSiyuan = html;
+                }
                 restoreLuteMarkdownSyntax(protyle);
                 event.clipboardData.setData("text/siyuan", textSiyuan);
                 // 在 text/html 中插入注释节点，用于右键菜单粘贴时获取 text/siyuan 数据
-                const textHTML = `<!--data-siyuan='${encodeBase64(textSiyuan)}'-->` + removeZWJ(selectTableElement ? html : protyle.lute.BlockDOM2HTML(selectAVElement ? textPlain : html));
+                const textHTML = `<!--data-siyuan='${encodeBase64(textSiyuan)}'-->` + removeZWJ((selectTableElement || selectTableRange) ? html : protyle.lute.BlockDOM2HTML(selectAVElement ? textPlain : html));
                 event.clipboardData.setData("text/html", textHTML);
                 if (needClipboardWrite) {
                     try {
@@ -2101,7 +2388,7 @@ export class WYSIWYG {
 
         let beforeContextmenuRange: Range;
         this.element.addEventListener("contextmenu", (event: MouseEvent & { detail: any }) => {
-            if (event.shiftKey) {
+            if (event.shiftKey || protyle.toolbar.isMultiSelectMode()) {
                 return;
             }
             event.stopPropagation();
@@ -2417,25 +2704,7 @@ export class WYSIWYG {
             if (!blockElement) {
                 return;
             }
-            // 链接，备注，样式，引用，pdf标注粘贴 https://github.com/siyuan-note/siyuan/issues/11572
-            const range = getSelection().getRangeAt(0);
-            protyle.toolbar.range = range;
-            const inlineElement = range.startContainer.parentElement;
-            if (range.toString() === "" && inlineElement.tagName === "SPAN") {
-                const currentTypes = (inlineElement.getAttribute("data-type") || "").split(" ");
-                if (currentTypes.includes("inline-memo") || currentTypes.includes("text") ||
-                    currentTypes.includes("block-ref") || currentTypes.includes("file-annotation-ref") ||
-                    currentTypes.includes("a")) {
-                    const offset = getSelectionOffset(inlineElement, blockElement, range);
-                    if (offset.start === 0) {
-                        range.setStartBefore(inlineElement);
-                        range.collapse(true);
-                    } else if (offset.start === inlineElement.textContent.length) {
-                        range.setEndAfter(inlineElement);
-                        range.collapse(false);
-                    }
-                }
-            }
+            beforePaste(protyle, blockElement);
             paste(protyle, event);
         });
 
@@ -2470,7 +2739,7 @@ export class WYSIWYG {
             } else {
                 const id = blockElement.getAttribute("data-node-id");
                 if (protyle.wysiwyg.lastHTMLs[id]) {
-                    updateTransaction(protyle, id, blockElement.outerHTML, protyle.wysiwyg.lastHTMLs[id]);
+                    updateTransaction(protyle, blockElement, protyle.wysiwyg.lastHTMLs[id]);
                 }
             }
         });
@@ -2560,7 +2829,8 @@ export class WYSIWYG {
             }
 
             if (event.eventPhase !== 3 && !event.shiftKey && (event.key.indexOf("Arrow") > -1 || event.key === "Home" || event.key === "End" || event.key === "PageUp" || event.key === "PageDown") && !event.isComposing) {
-                if (nodeElement) {
+                if (nodeElement && protyle.hint.element.classList.contains("fn__none") &&
+                    window.siyuan.menus.menu.element.classList.contains("fn__none")) {
                     clearSelect(["img", "av"], protyle.wysiwyg.element);
                     this.setEmptyOutline(protyle, nodeElement);
                     if (range.toString() === "" && !nodeElement.classList.contains("protyle-wysiwyg--select")) {
@@ -2603,10 +2873,45 @@ export class WYSIWYG {
             }
         });
 
-        this.element.addEventListener("dblclick", (event: MouseEvent & { target: HTMLElement }) => {
-            if (event.target.tagName === "IMG" && !event.target.classList.contains("emoji")) {
+        this.element.addEventListener("dblclick", (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            // 双击超级块拖拽手柄，均分所有列宽
+            if (target.classList.contains("sb__resize")) {
+                const doOperations: IOperation[] = [];
+                const undoOperations: IOperation[] = [];
+                Array.from(target.parentElement.children).forEach((item: HTMLElement) => {
+                    // 没有任何子块设过 width，无需重置
+                    if (!item.style.width && !item.style.flex) {
+                        return;
+                    }
+                    if (!item.style.width && !item.style.flex) {
+                        return;
+                    }
+                    const oldHTML = item.outerHTML;
+                    item.style.width = "";
+                    item.style.flex = "";
+                    const id = item.getAttribute("data-node-id");
+                    doOperations.push({action: "update", id, data: item.outerHTML});
+                    undoOperations.push({action: "update", id, data: oldHTML});
+                });
+
+                if (doOperations.length > 0) {
+                    transaction(protyle, doOperations, undoOperations);
+                }
+                event.stopPropagation();
+                event.preventDefault();
+                return;
+            }
+            if (target.tagName === "IMG" && !target.classList.contains("emoji")) {
                 previewDocImage((event.target as HTMLElement).getAttribute("src"), protyle.block.rootID);
                 return;
+            }
+            // https://github.com/siyuan-note/siyuan/issues/12691
+            const diagramElement = getDiagramBlock(hasClosestBlock(target) as HTMLElement);
+            if (diagramElement) {
+                previewDiagram(diagramElement);
+                event.stopPropagation();
+                event.preventDefault();
             }
         });
         let mobileBlur = false;
@@ -2672,11 +2977,11 @@ export class WYSIWYG {
                     return;
                 }
             }
+            const range = getEditorRange(this.element);
             // 面包屑定位，需至于前，否则 return 的元素就无法进行面包屑定位
             if (protyle.options.render.breadcrumb) {
-                protyle.breadcrumb.render(protyle, false, hasClosestBlock(event.target));
+                protyle.breadcrumb.render(protyle, false, hasClosestBlock(range.startContainer));
             }
-            const range = getEditorRange(this.element);
             // https://github.com/siyuan-note/siyuan/issues/12317
             if (range.startContainer.nodeType !== 3 &&
                 (range.startContainer as Element).classList.contains("protyle-action") &&
@@ -2890,51 +3195,46 @@ export class WYSIWYG {
 
             const embedItemElement = hasClosestByClassName(event.target, "protyle-wysiwyg__embed");
             if (embedItemElement) {
-                const embedId = embedItemElement.getAttribute("data-id");
-                checkFold(embedId, (zoomIn, action) => {
-                    /// #if MOBILE
-                    mobileBlur = true;
-                    activeBlur();
-                    openMobileFileById(protyle.app, embedId, zoomIn ? [Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
-                    /// #else
-                    if (event.shiftKey) {
-                        openFileById({
-                            app: protyle.app,
-                            id: embedId,
-                            position: "bottom",
-                            action,
-                            zoomIn
-                        });
-                    } else if (event.altKey) {
-                        openFileById({
-                            app: protyle.app,
-                            id: embedId,
-                            position: "right",
-                            action,
-                            zoomIn
-                        });
-                    } else if (ctrlIsPressed) {
-                        openFileById({
-                            app: protyle.app,
-                            id: embedId,
-                            action: zoomIn ? [Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT],
-                            zoomIn,
-                            keepCursor: true,
-                        });
-                    } else if (!protyle.disabled) {
-                        window.siyuan.blockPanels.push(new BlockPanel({
-                            app: protyle.app,
-                            targetElement: embedItemElement,
-                            isBacklink: false,
-                            refDefs: [{refID: embedId}]
-                        }));
+                if (event.shiftKey || event.altKey || ctrlIsPressed) {
+                    const embedId = embedItemElement.getAttribute("data-id");
+                    checkFold(embedId, (zoomIn, action) => {
+                        /// #if MOBILE
+                        mobileBlur = true;
+                        activeBlur();
+                        openMobileFileById(protyle.app, embedId, zoomIn ? [Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
+                        /// #else
+                        if (event.shiftKey) {
+                            openFileById({
+                                app: protyle.app,
+                                id: embedId,
+                                position: "bottom",
+                                action,
+                                zoomIn
+                            });
+                        } else if (event.altKey) {
+                            openFileById({
+                                app: protyle.app,
+                                id: embedId,
+                                position: "right",
+                                action,
+                                zoomIn
+                            });
+                        } else if (ctrlIsPressed) {
+                            openFileById({
+                                app: protyle.app,
+                                id: embedId,
+                                action: zoomIn ? [Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT],
+                                zoomIn,
+                                keepCursor: true,
+                            });
+                        }
+                        /// #endif
+                    });
+                    // https://github.com/siyuan-note/siyuan/issues/12585
+                    if (!ctrlIsPressed) {
+                        event.stopPropagation();
+                        return;
                     }
-                    /// #endif
-                });
-                // https://github.com/siyuan-note/siyuan/issues/12585
-                if (!ctrlIsPressed) {
-                    event.stopPropagation();
-                    return;
                 }
             }
 
@@ -2949,6 +3249,24 @@ export class WYSIWYG {
             const editElement = hasClosestByClassName(event.target, "protyle-action__edit");
             if (editElement && !protyle.disabled) {
                 protyle.toolbar.showRender(protyle, editElement.parentElement.parentElement);
+                event.stopPropagation();
+                event.preventDefault();
+                return;
+            }
+
+            const openFloatElement = hasClosestByAttribute(event.target, "data-action", "openFloat");
+            if (openFloatElement) {
+                const id = openFloatElement.getAttribute("data-id");
+                /// #if MOBILE
+                openMobileFileById(protyle.app, id, [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
+                /// #else
+                window.siyuan.blockPanels.push(new BlockPanel({
+                    app: protyle.app,
+                    isBacklink: false,
+                    targetElement: openFloatElement,
+                    refDefs: [{refID: id}]
+                }));
+                /// #endif
                 event.stopPropagation();
                 event.preventDefault();
                 return;
@@ -3043,7 +3361,7 @@ export class WYSIWYG {
                                     }
                                 }
                             });
-                            updateTransaction(protyle, actionElement.parentElement.parentElement.getAttribute("data-node-id"), actionElement.parentElement.parentElement.outerHTML, oldHTML);
+                            updateTransaction(protyle, actionElement.parentElement.parentElement, oldHTML);
                         }
                         hideElements(["gutter"], protyle);
                     } else if (event.shiftKey && !protyle.disabled) {
@@ -3053,18 +3371,7 @@ export class WYSIWYG {
                     } else {
                         if (actionElement.classList.contains("protyle-action--task")) {
                             if (!protyle.disabled) {
-                                const html = actionElement.parentElement.outerHTML;
-                                if (actionElement.parentElement.classList.contains("protyle-task--done")) {
-                                    actionElement.querySelector("use").setAttribute("xlink:href", "#iconUncheck");
-                                    actionElement.parentElement.classList.remove("protyle-task--done");
-                                    actionElement.parentElement.setAttribute("data-task", " ");
-                                } else {
-                                    actionElement.querySelector("use").setAttribute("xlink:href", "#iconCheck");
-                                    actionElement.parentElement.classList.add("protyle-task--done");
-                                    actionElement.parentElement.setAttribute("data-task", "X");
-                                }
-                                actionElement.parentElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-                                updateTransaction(protyle, actionId, actionElement.parentElement.outerHTML, html);
+                                toggleTaskListItem(protyle, actionElement.parentElement);
                             }
                         } else if (window.siyuan.config.editor.listItemDotNumberClickFocus) {
                             if (protyle.block.showAll && protyle.block.id === actionId) {
@@ -3150,7 +3457,7 @@ export class WYSIWYG {
                             }
                         }
                         calloutIconElement.innerHTML = emojiHTML;
-                        updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+                        updateTransaction(protyle, nodeElement, oldHTML);
                         focusBlock(nodeElement);
                     }, calloutIconElement.querySelector("img"));
                 }
@@ -3183,7 +3490,7 @@ export class WYSIWYG {
                         }
                         emojiElement.outerHTML = emojiHTML;
                         hideElements(["dialog"]);
-                        updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+                        updateTransaction(protyle, nodeElement, oldHTML);
                         focusByWbr(nodeElement, range);
                     }, emojiElement);
                 }
@@ -3197,16 +3504,15 @@ export class WYSIWYG {
             setTimeout(() => {
                 // 选中后，在选中的文字上点击需等待 range 更新
                 let newRange = getEditorRange(this.element);
-                // 点击两侧或间隙导致光标跳转到开头 https://github.com/siyuan-note/siyuan/issues/16179
-                if (hasClosestBlock(event.target) !== hasClosestBlock(newRange.startContainer) &&
-                    this.element.querySelector("[data-node-id]")?.contains(newRange.startContainer)) {
+                // 表格中点击两侧或间隙导致光标跳转到开头 https://github.com/siyuan-note/siyuan/issues/16179
+                if (event.target.classList.contains("protyle-wysiwyg") || event.target.parentElement.classList.contains("table")) {
                     const rect = this.element.getBoundingClientRect();
                     let rangeElement = document.elementFromPoint(rect.left + rect.width / 2, event.clientY);
                     if (rangeElement === this.element) {
                         rangeElement = document.elementFromPoint(rect.left + rect.width / 2, event.clientY + 8);
                     }
                     let blockElement = hasClosestBlock(rangeElement);
-                    if (blockElement) {
+                    if (blockElement && blockElement.classList.contains("table")) {
                         const embedElement = isInEmbedBlock(blockElement);
                         if (embedElement) {
                             blockElement = embedElement;

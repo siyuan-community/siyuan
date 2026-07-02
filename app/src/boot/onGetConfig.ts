@@ -1,26 +1,24 @@
 import {adjustLayout, exportLayout, JSONToLayout, resetLayout, resizeTopBar} from "../layout/util";
-import {resizeTabs} from "../layout/tabUtil";
-import {setStorageVal} from "../protyle/util/compatibility";
+import {resizeTabs, setTabPosition} from "../layout/tabUtil";
+import {initNativeDialogOverride, isWindows, setStorageVal} from "../protyle/util/compatibility";
 /// #if !BROWSER
 import {ipcRenderer, webFrame} from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import {afterExport} from "../protyle/export/util";
 import {onWindowsMsg} from "../window/onWindowsMsg";
-import {initNativeDialogOverride} from "../protyle/util/compatibility";
 /// #endif
 import {Constants} from "../constants";
-import {appearance} from "../config/appearance";
+import {appearanceConfigApi} from "../config/tabs/appearanceRuntime";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {initAssets, setInlineStyle} from "../util/assets";
 import {renderSnippet} from "../config/util/snippets";
 import {openFile} from "../editor/util";
 import {exitSiYuan} from "../dialog/processSystem";
-import {isWindow} from "../util/functions";
+import {isWindow, setToolbarLeftMac} from "../util/functions";
 import {initStatus} from "../layout/status";
 import {showMessage} from "../dialog/message";
 import {replaceLocalPath} from "../editor/rename";
-import {setTabPosition} from "../window/setHeader";
 import {initBar} from "../layout/topBar";
 import {openChangelog} from "./openChangelog";
 import {App} from "../index";
@@ -29,7 +27,7 @@ import {sendGlobalShortcut} from "./globalEvent/keydown";
 import {closeWindow} from "../window/closeWin";
 import {correctHotkey} from "./globalEvent/commonHotkey";
 import {recordBeforeResizeTop} from "../protyle/util/resize";
-import {processSYLink} from "../editor/openLink";
+import {processSiYuanUri} from "../editor/openLink";
 import {getAllEditor} from "../layout/getAll";
 
 export const onGetConfig = (isStart: boolean, app: App) => {
@@ -41,10 +39,14 @@ export const onGetConfig = (isStart: boolean, app: App) => {
         port: location.port
     });
     webFrame.setZoomFactor(window.siyuan.storage[Constants.LOCAL_ZOOM]);
+    const position = Constants.SIZE_ZOOM.find((item) => item.zoom === window.siyuan.storage[Constants.LOCAL_ZOOM]).position;
     ipcRenderer.send(Constants.SIYUAN_CMD, {
         cmd: "setTrafficLightPosition",
         zoom: window.siyuan.storage[Constants.LOCAL_ZOOM],
-        position: Constants.SIZE_ZOOM.find((item) => item.zoom === window.siyuan.storage[Constants.LOCAL_ZOOM]).position
+        position: {
+            x: position.x,
+            y: (window.siyuan.config.appearance.hideToolbar ? 5 * window.siyuan.storage[Constants.LOCAL_ZOOM] : 0) + position.y
+        },
     });
     /// #endif
     if (!window.siyuan.config.uiLayout || (window.siyuan.config.uiLayout && !window.siyuan.config.uiLayout.left)) {
@@ -72,10 +74,14 @@ export const onGetConfig = (isStart: boolean, app: App) => {
     /// #if !BROWSER
     initNativeDialogOverride();
     /// #endif
-    appearance.onSetAppearance(window.siyuan.config.appearance);
+    appearanceConfigApi.apply(window.siyuan.config.appearance);
     initAssets();
     setInlineStyle();
     renderSnippet();
+    if (window.siyuan.config.system.safeMode) {
+        // 安全模式已禁用代码片段、插件、自定义主题和图标
+        showMessage(window.siyuan.languages.safeModeTip);
+    }
     let resizeTimeout = 0;
     let firstResize = true;
     window.addEventListener("resize", () => {
@@ -88,6 +94,7 @@ export const onGetConfig = (isStart: boolean, app: App) => {
             adjustLayout();
             resizeTabs();
             resizeTopBar();
+            setTabPosition(true);
             window.siyuan.menus.menu.resetPosition();
             firstResize = true;
             if (getSelection().rangeCount > 0) {
@@ -143,18 +150,14 @@ export const initWindow = async (app: App) => {
             document.body.classList.add("body--blur");
         } else if (cmd === "enter-full-screen") {
             document.body.classList.add("body--fullscreen");
-            if ("darwin" === window.siyuan.config.system.os) {
-                if (isWindow()) {
-                    setTabPosition();
-                }
-            }
+            // 全屏下红绿灯隐藏，清除缩放补偿让 body--fullscreen 的 5px 生效
+            setToolbarLeftMac(window.siyuan.storage[Constants.LOCAL_ZOOM]);
+            setTabPosition();
         } else if (cmd === "leave-full-screen") {
             document.body.classList.remove("body--fullscreen");
-            if ("darwin" === window.siyuan.config.system.os) {
-                if (isWindow()) {
-                    setTabPosition();
-                }
-            }
+            // 退出全屏后按当前缩放重新补偿
+            setToolbarLeftMac(window.siyuan.storage[Constants.LOCAL_ZOOM]);
+            setTabPosition();
         } else if (cmd === "maximize") {
             document.body.classList.add("body--maximize");
         } else if (cmd === "unmaximize") {
@@ -163,7 +166,7 @@ export const initWindow = async (app: App) => {
     });
     if (!isWindow()) {
         ipcRenderer.on(Constants.SIYUAN_OPEN_URL, (event, url) => {
-            processSYLink(app, url);
+            processSiYuanUri(app, url);
         });
     }
     ipcRenderer.on(Constants.SIYUAN_OPEN_FILE, (event, data) => {
@@ -318,6 +321,8 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
     if (isFullScreen) {
         document.body.classList.add("body--fullscreen");
     }
+    // 全屏状态恢复后再同步一次，避免启动时按缩放设置的补偿覆盖 body--fullscreen 的 5px
+    setToolbarLeftMac(window.siyuan.storage[Constants.LOCAL_ZOOM]);
     const isMaximized = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
         cmd: "isMaximized",
     });
@@ -383,6 +388,9 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
     /// #else
     if (!isWindow()) {
         document.querySelector(".toolbar").classList.add("toolbar--browser");
+    }
+    if (isWindows()) {
+        document.body.classList.add("body--win32-browser");
     }
     /// #endif
 };

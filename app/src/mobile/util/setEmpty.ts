@@ -5,8 +5,7 @@ import {popSearch} from "../menu/search";
 import {getRecentDocs} from "../menu/getRecentDocs";
 import {openHistory} from "../../history/history";
 import {App} from "../../index";
-import {setTitle} from "../../dialog/processSystem";
-import {isIPhone} from "../../protyle/util/compatibility";
+import {setTitle} from "../../util/processTitle";
 
 export const setEmpty = (app: App) => {
     setTitle("", true);
@@ -21,18 +20,18 @@ export const setEmpty = (app: App) => {
     <svg class="b3-list-item__graphic"><use xlink:href="#iconSearch"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.search}</span>
 </div>
 <div id="emptyRecent" class="b3-list-item">
-    <svg class="b3-list-item__graphic"><use xlink:href="#iconList"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.recentDocs}</span>
+    <svg class="b3-list-item__graphic"><use xlink:href="#iconRecentDocs"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.recentDocs}</span>
 </div>
 <div id="emptyHistory" class="b3-list-item${window.siyuan.config.readonly ? " fn__none" : ""}">
     <svg class="b3-list-item__graphic"><use xlink:href="#iconHistory"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.dataHistory}</span>
 </div>
 <div id="emptyNewFile" class="b3-list-item${(getOpenNotebookCount() > 0 || !window.siyuan.config.readonly) ? "" : " fn__none"}">
-    <svg class="b3-list-item__graphic"><use xlink:href="#iconFile"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.newFile}</span>
+    <svg class="b3-list-item__graphic"><use xlink:href="#iconAddDoc"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.newFile}</span>
 </div>
 <div class="b3-list-item" id="emptyNewNotebook${window.siyuan.config.readonly ? " fn__none" : ""}">
-    <svg class="b3-list-item__graphic"><use xlink:href="#iconFilesRoot"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.newNotebook}</span>
+    <svg class="b3-list-item__graphic"><use xlink:href="#iconNewNoteBook"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.newNotebook}</span>
 </div>
-<div class="b3-list-item${(isIPhone() || window.siyuan.config.readonly) ? " fn__none" : ""}" id="emptyHelp">
+<div class="b3-list-item${window.siyuan.config.readonly ? " fn__none" : ""}" id="emptyHelp">
     <svg class="b3-list-item__graphic"><use xlink:href="#iconHelp"></use></svg><span class="fn__space"></span><span class="b3-list-item__text">${window.siyuan.languages.userGuide}</span>
 </div>`;
     emptyElement.addEventListener("click", (event) => {
@@ -54,10 +53,7 @@ export const setEmpty = (app: App) => {
                 event.preventDefault();
                 break;
             } else if (target.id === "emptyNewFile") {
-                newFile({
-                    app,
-                    useSavePath: true
-                });
+                newFile(app);
                 event.stopPropagation();
                 event.preventDefault();
                 break;

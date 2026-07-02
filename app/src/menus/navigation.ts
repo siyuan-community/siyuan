@@ -5,7 +5,7 @@ import * as path from "path";
 /// #endif
 import {MenuItem} from "./Menu";
 import {getDisplayName, getNotebookName, getTopPaths, pathPosix, useShell} from "../util/pathName";
-import {hideMessage, showMessage} from "../dialog/message";
+import {showMessage} from "../dialog/message";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {onGetnotebookconf} from "./onGetnotebookconf";
 /// #if !MOBILE
@@ -15,7 +15,7 @@ import {closePanel} from "../mobile/util/closePanel";
 import {popSearch} from "../mobile/menu/search";
 /// #endif
 import {Constants} from "../constants";
-import {newFile} from "../util/newFile";
+import {newFileInTree} from "../util/newFile";
 import {hasClosestByTag, hasTopClosestByTag} from "../protyle/util/hasClosest";
 import {deleteFiles} from "../editor/deleteFile";
 import {getDockByType} from "../layout/tabUtil";
@@ -28,7 +28,8 @@ import {openEditorTab} from "./util";
 import {makeCard} from "../card/makeCard";
 import {transaction} from "../protyle/wysiwyg/transaction";
 import {emitOpenMenu} from "../plugin/EventBus";
-import {openByMobile} from "../protyle/util/compatibility";
+import {saveExportFile} from "../protyle/util/compatibility";
+import {exportMarkdownZip} from "../protyle/export/exportMd";
 import {addFilesToDatabase} from "../protyle/render/av/addToDatabase";
 
 const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
@@ -158,8 +159,7 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
                 fetchPost("/api/export/exportSYs", {
                     ids: blockIDs,
                 }, response => {
-                    hideMessage(msgId);
-                    openByMobile(response.data.zip);
+                    saveExportFile(response.data.zip, msgId);
                 });
             }
         }, {
@@ -167,13 +167,7 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
             label: "Markdown .zip",
             icon: "iconMarkdown",
             click: () => {
-                const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost(" /api/export/exportMds", {
-                    ids: blockIDs,
-                }, response => {
-                    hideMessage(msgId);
-                    openByMobile(response.data.zip);
-                });
+                exportMarkdownZip({ids: blockIDs});
             }
         }]
     }).element);
@@ -392,8 +386,7 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
                 fetchPost("/api/export/exportNotebookSY", {
                     id: notebookId,
                 }, response => {
-                    hideMessage(msgId);
-                    openByMobile(response.data.zip);
+                    saveExportFile(response.data.zip, msgId);
                 });
             }
         }, {
@@ -401,13 +394,7 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
             label: "Markdown .zip",
             icon: "iconMarkdown",
             click: () => {
-                const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost("/api/export/exportNotebookMd", {
-                    notebook: notebookId
-                }, response => {
-                    hideMessage(msgId);
-                    openByMobile(response.data.zip);
-                });
+                exportMarkdownZip({notebook: notebookId});
             }
         }]
     }).element);
@@ -464,14 +451,7 @@ export const initFileMenu = (app: App, notebookId: string, pathString: string, l
                             paths.push(item.getAttribute("data-path"));
                         }
                     });
-                    newFile({
-                        app,
-                        notebookId,
-                        currentPath: pathPosix().dirname(pathString),
-                        paths,
-                        useSavePath: false,
-                        listDocTree: true,
-                    });
+                    newFileInTree(app, notebookId, pathPosix().dirname(pathString), paths);
                 }
             }).element);
             window.siyuan.menus.menu.append(new MenuItem({
@@ -488,14 +468,7 @@ export const initFileMenu = (app: App, notebookId: string, pathString: string, l
                             }
                         }
                     });
-                    newFile({
-                        app,
-                        notebookId,
-                        currentPath: pathPosix().dirname(pathString),
-                        paths,
-                        useSavePath: false,
-                        listDocTree: true,
-                    });
+                    newFileInTree(app, notebookId, pathPosix().dirname(pathString), paths);
                 }
             }).element);
             window.siyuan.menus.menu.append(new MenuItem({id: "separator_1", type: "separator"}).element);
@@ -813,105 +786,120 @@ export const genImportMenu = (notebookId: string, pathString: string) => {
 export const sortMenu = (type: "notebooks" | "notebook", sortMode: number, clickEvent: (sort: number) => void) => {
     const sortMenu: IMenu[] = [{
         id: "fileNameASC",
-        icon: sortMode === 0 ? "iconSelect" : undefined,
+        checked: sortMode === 0,
+        iconHTML: "",
         label: window.siyuan.languages.fileNameASC,
         click: () => {
             clickEvent(0);
         }
     }, {
         id: "fileNameDESC",
-        icon: sortMode === 1 ? "iconSelect" : undefined,
+        checked: sortMode === 1,
+        iconHTML: "",
         label: window.siyuan.languages.fileNameDESC,
         click: () => {
             clickEvent(1);
         }
     }, {
         id: "fileNameNatASC",
-        icon: sortMode === 4 ? "iconSelect" : undefined,
+        checked: sortMode === 4,
+        iconHTML: "",
         label: window.siyuan.languages.fileNameNatASC,
         click: () => {
             clickEvent(4);
         }
     }, {
         id: "fileNameNatDESC",
-        icon: sortMode === 5 ? "iconSelect" : undefined,
+        checked: sortMode === 5,
+        iconHTML: "",
         label: window.siyuan.languages.fileNameNatDESC,
         click: () => {
             clickEvent(5);
         }
     }, {id: "separator_1", type: "separator"}, {
         id: "createdASC",
-        icon: sortMode === 9 ? "iconSelect" : undefined,
+        checked: sortMode === 9,
+        iconHTML: "",
         label: window.siyuan.languages.createdASC,
         click: () => {
             clickEvent(9);
         }
     }, {
         id: "createdDESC",
-        icon: sortMode === 10 ? "iconSelect" : undefined,
+        checked: sortMode === 10,
+        iconHTML: "",
         label: window.siyuan.languages.createdDESC,
         click: () => {
             clickEvent(10);
         }
     }, {
         id: "modifiedASC",
-        icon: sortMode === 2 ? "iconSelect" : undefined,
+        checked: sortMode === 2,
+        iconHTML: "",
         label: window.siyuan.languages.modifiedASC,
         click: () => {
             clickEvent(2);
         }
     }, {
         id: "modifiedDESC",
-        icon: sortMode === 3 ? "iconSelect" : undefined,
+        checked: sortMode === 3,
+        iconHTML: "",
         label: window.siyuan.languages.modifiedDESC,
         click: () => {
             clickEvent(3);
         }
     }, {id: "separator_2", type: "separator"}, {
         id: "refCountASC",
-        icon: sortMode === 7 ? "iconSelect" : undefined,
+        checked: sortMode === 7,
+        iconHTML: "",
         label: window.siyuan.languages.refCountASC,
         click: () => {
             clickEvent(7);
         }
     }, {
         id: "refCountDESC",
-        icon: sortMode === 8 ? "iconSelect" : undefined,
+        checked: sortMode === 8,
+        iconHTML: "",
         label: window.siyuan.languages.refCountDESC,
         click: () => {
             clickEvent(8);
         }
     }, {id: "separator_3", type: "separator"}, {
         id: "docSizeASC",
-        icon: sortMode === 11 ? "iconSelect" : undefined,
+        checked: sortMode === 11,
+        iconHTML: "",
         label: window.siyuan.languages.docSizeASC,
         click: () => {
             clickEvent(11);
         }
     }, {
         id: "docSizeDESC",
-        icon: sortMode === 12 ? "iconSelect" : undefined,
+        checked: sortMode === 12,
+        iconHTML: "",
         label: window.siyuan.languages.docSizeDESC,
         click: () => {
             clickEvent(12);
         }
     }, {id: "separator_4", type: "separator"}, {
         id: "subDocCountASC",
-        icon: sortMode === 13 ? "iconSelect" : undefined,
+        checked: sortMode === 13,
+        iconHTML: "",
         label: window.siyuan.languages.subDocCountASC,
         click: () => {
             clickEvent(13);
         }
     }, {
         id: "subDocCountDESC",
-        icon: sortMode === 14 ? "iconSelect" : undefined,
+        checked: sortMode === 14,
+        iconHTML: "",
         label: window.siyuan.languages.subDocCountDESC,
         click: () => {
             clickEvent(14);
         }
     }, {id: "separator_5", type: "separator"}, {
         id: "customSort",
-        icon: sortMode === 6 ? "iconSelect" : undefined,
+        checked: sortMode === 6,
+        iconHTML: "",
         label: window.siyuan.languages.customSort,
         click: () => {
             clickEvent(6);
@@ -920,7 +908,8 @@ export const sortMenu = (type: "notebooks" | "notebook", sortMode: number, click
     if (type === "notebook") {
         sortMenu.push({
             id: "sortByFiletree",
-            icon: sortMode === 15 ? "iconSelect" : undefined,
+            checked: sortMode === 15,
+            iconHTML: "",
             label: window.siyuan.languages.sortByFiletree,
             click: () => {
                 clickEvent(15);

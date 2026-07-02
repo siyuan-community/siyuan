@@ -1,19 +1,17 @@
 import {Wnd} from "./Wnd";
 import {genUUID} from "../util/genID";
-import {Model} from "./Model";
-import {Editor} from "../editor";
+import type {Model} from "./Model";
 import {hasClosestByTag} from "../protyle/util/hasClosest";
 import {Constants} from "../constants";
-import {escapeGreat, escapeHtml} from "../util/escape";
+import {escapeHtml} from "../util/escape";
 import {unicode2Emoji} from "../emoji";
-import {fetchPost} from "../util/fetch";
-import {hideTooltip, showTooltip} from "../dialog/tooltip";
-import {isTouchDevice} from "../util/functions";
+import {hideTooltip} from "../dialog/tooltip";
 /// #if !BROWSER
 import {openNewWindow} from "../window/openNewWindow";
 import {ipcRenderer} from "electron";
 /// #endif
 import {layoutToJSON, saveLayout} from "./util";
+import {setTitle} from "../util/processTitle";
 
 export class Tab {
     public parent: Wnd;
@@ -46,47 +44,7 @@ export class Tab {
             }
             this.headElement.innerHTML = `${iconHTML}<span class="item__text">${escapeHtml(options.title)}</span>
 <span class="item__close"><svg><use xlink:href="#iconClose"></use></svg></span>`;
-            this.headElement.addEventListener("mouseenter", (event) => {
-                event.stopPropagation();
-                event.preventDefault();
-                const dragElement = Array.from(this.headElement.parentElement.childNodes).find((item: HTMLElement) => {
-                    if (item.style?.opacity === "0.38") {
-                        return true;
-                    }
-                });
-                if (dragElement) {
-                    hideTooltip();
-                    return;
-                }
-
-                let id = "";
-                if (this.model instanceof Editor && this.model.editor?.protyle?.block?.rootID) {
-                    id = (this.model as Editor).editor.protyle.block.rootID;
-                } else if (!this.model) {
-                    const initData = JSON.parse(this.headElement.getAttribute("data-initdata") || "{}");
-                    if (initData && initData.instance === "Editor") {
-                        id = initData.blockId;
-                    }
-                }
-                if (id) {
-                    fetchPost("/api/filetree/getFullHPathByID", {
-                        id
-                    }, (response) => {
-                        if (!this.headElement.getAttribute("aria-label")) {
-                            showTooltip(escapeGreat(response.data), this.headElement);
-                        }
-                        this.headElement.setAttribute("aria-label", escapeGreat(response.data));
-                    });
-                } else {
-                    this.headElement.setAttribute("aria-label", escapeGreat(this.title));
-                }
-            });
             this.headElement.addEventListener("dragstart", (event: DragEvent & { target: HTMLElement }) => {
-                if (isTouchDevice()) {
-                    event.stopPropagation();
-                    event.preventDefault();
-                    return;
-                }
                 window.getSelection().removeAllRanges();
                 hideTooltip();
                 const tabElement = hasClosestByTag(event.target, "LI");
@@ -139,7 +97,9 @@ export class Tab {
                         }
                     });
                 }
+                /// #if !BROWSER
                 ipcRenderer.send(Constants.SIYUAN_SEND_WINDOWS, {cmd: "resetTabsStyle", data: "addRegionStyle"});
+                /// #endif
             });
         }
 
@@ -152,6 +112,14 @@ export class Tab {
     public updateTitle(title: string) {
         this.title = title;
         this.headElement.querySelector(".item__text").innerHTML = escapeHtml(title);
+
+        if (document.querySelector(".layout__wnd--active .layout-tab-bar .item--focus")) {
+            if (this.headElement.closest(".layout__wnd--active")) {
+                setTitle(title);
+            }
+        } else if (this.headElement.classList.contains("item--focus")) {
+            setTitle(title);
+        }
     }
 
     public addModel(model: Model) {

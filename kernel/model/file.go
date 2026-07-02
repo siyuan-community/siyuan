@@ -54,6 +54,7 @@ import (
 type File struct {
 	Path         string `json:"path"`
 	Name         string `json:"name"` // 标题，即 ial["title"]
+	TitleEmpty   bool   `json:"titleEmpty,omitempty"`
 	Icon         string `json:"icon"`
 	Name1        string `json:"name1"` // 命名，即 ial["name"]
 	Alias        string `json:"alias"`
@@ -69,7 +70,6 @@ type File struct {
 	HCtime       string `json:"hCtime"`
 	Sort         int    `json:"sort"`
 	SubFileCount int    `json:"subFileCount"`
-	Hidden       bool   `json:"hidden"`
 
 	NewFlashcardCount int `json:"newFlashcardCount"`
 	DueFlashcardCount int `json:"dueFlashcardCount"`
@@ -81,6 +81,7 @@ func (box *Box) docFromFileInfo(fileInfo *FileInfo, ial map[string]string) (ret 
 	ret.Path = fileInfo.path
 	ret.Size = uint64(fileInfo.size)
 	ret.Name = ial["title"]
+	ret.TitleEmpty = ial[NodeAttrTitleEmpty] == "true"
 	ret.Icon = ial["icon"]
 	ret.ID = ial["id"]
 	ret.Name1 = ial["name"]
@@ -169,7 +170,7 @@ func SearchDocs(keyword string, flashcard bool, excludeIDs []string) (ret []map[
 		keywords := strings.Fields(keyword)
 		if 0 < len(keywords) {
 			for _, box := range boxes {
-				if gulu.Str.Contains(box.Name, keywords) {
+				if util.ContainsSubStr(box.Name, keywords) {
 					if flashcard {
 						newFlashcardCount, dueFlashcardCount, flashcardCount := countBoxFlashcard(box.ID, deck, deckBlockIDs)
 						if 0 < flashcardCount {
@@ -387,24 +388,56 @@ func ListDocTree(boxID, listPath string, sortMode int, flashcard, showHidden boo
 	start = time.Now()
 	switch sortMode {
 	case util.SortModeNameASC:
+		emptyKey := Conf.Language(16)
 		sort.Slice(docs, func(i, j int) bool {
-			return util.PinYinCompare4FileTree(docs[i].Name, docs[j].Name)
+			ni, nj := docs[i].Name, docs[j].Name
+			if docs[i].TitleEmpty {
+				ni = emptyKey
+			}
+			if docs[j].TitleEmpty {
+				nj = emptyKey
+			}
+			return util.PinYinCompare4FileTree(ni, nj)
 		})
 	case util.SortModeNameDESC:
+		emptyKey := Conf.Language(16)
 		sort.Slice(docs, func(i, j int) bool {
-			return util.PinYinCompare4FileTree(docs[j].Name, docs[i].Name)
+			ni, nj := docs[i].Name, docs[j].Name
+			if docs[i].TitleEmpty {
+				ni = emptyKey
+			}
+			if docs[j].TitleEmpty {
+				nj = emptyKey
+			}
+			return util.PinYinCompare4FileTree(nj, ni)
 		})
 	case util.SortModeUpdatedASC:
 		sort.Slice(docs, func(i, j int) bool { return docs[i].Mtime < docs[j].Mtime })
 	case util.SortModeUpdatedDESC:
 		sort.Slice(docs, func(i, j int) bool { return docs[i].Mtime > docs[j].Mtime })
 	case util.SortModeAlphanumASC:
+		emptyKey := Conf.Language(16)
 		sort.Slice(docs, func(i, j int) bool {
-			return util.NaturalCompare(docs[i].Name, docs[j].Name)
+			ni, nj := docs[i].Name, docs[j].Name
+			if docs[i].TitleEmpty {
+				ni = emptyKey
+			}
+			if docs[j].TitleEmpty {
+				nj = emptyKey
+			}
+			return util.NaturalCompare(ni, nj)
 		})
 	case util.SortModeAlphanumDESC:
+		emptyKey := Conf.Language(16)
 		sort.Slice(docs, func(i, j int) bool {
-			return util.NaturalCompare(docs[j].Name, docs[i].Name)
+			ni, nj := docs[i].Name, docs[j].Name
+			if docs[i].TitleEmpty {
+				ni = emptyKey
+			}
+			if docs[j].TitleEmpty {
+				nj = emptyKey
+			}
+			return util.NaturalCompare(nj, ni)
 		})
 	case util.SortModeCustom:
 		fileTreeFiles := docs
@@ -457,7 +490,7 @@ func ListDocTree(boxID, listPath string, sortMode int, flashcard, showHidden boo
 	return
 }
 
-func GetDoc(startID, endID, id string, index int, query string, queryTypes map[string]bool, queryMethod, mode int, size int, isBacklink bool, originalRefBlockIDs map[string]string, highlight bool) (
+func GetDoc(startID, endID, id string, index int, query string, queryTypes, querySubTypes map[string]bool, queryMethod, mode int, size int, isBacklink bool, originalRefBlockIDs map[string]string, highlight bool) (
 	blockCount int, dom, parentID, parent2ID, rootID, typ string, eof, scroll bool, boxID, docPath string, isBacklinkExpand bool, keywords []string, err error) {
 	//os.MkdirAll("pprof", 0755)
 	//cpuProfile, _ := os.Create("pprof/GetDoc")
@@ -653,7 +686,7 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes map[s
 
 	query = filterQueryInvisibleChars(query)
 	if "" != query && (0 == queryMethod || 1 == queryMethod || 3 == queryMethod) { // 只有关键字、查询语法和正则表达式搜索支持高亮
-		typeFilter := buildTypeFilter(queryTypes)
+		typeFilter := buildTypeFilter(queryTypes, querySubTypes)
 		switch queryMethod {
 		case 0:
 			query = stringQuery(query)
@@ -1005,7 +1038,11 @@ func DuplicateDoc(tree *parse.Tree) {
 	if nil != box {
 		box.addSort(previousPath, tree.ID)
 	}
+
 	FlushTxQueue()
+	arg := map[string]any{}
+	arg["listDocTree"] = true
+	PushCreate(box, tree.Path, arg)
 }
 
 func createTreeTx(tree *parse.Tree) {
@@ -1015,7 +1052,7 @@ func createTreeTx(tree *parse.Tree) {
 
 var createDocLock = sync.Mutex{}
 
-func CreateDocByMd(boxID, p, title, md string, sorts []string) (tree *parse.Tree, err error) {
+func CreateDocByMd(boxID, p, title, md string, sorts []string, arg map[string]any) (tree *parse.Tree, err error) {
 	createDocLock.Lock()
 	defer createDocLock.Unlock()
 
@@ -1027,7 +1064,7 @@ func CreateDocByMd(boxID, p, title, md string, sorts []string) (tree *parse.Tree
 
 	luteEngine := util.NewLute()
 	dom := luteEngine.Md2BlockDOM(md, false)
-	tree, err = createDoc(box.ID, p, title, dom)
+	tree, err = createDoc(box.ID, p, title, dom, false)
 	if err != nil {
 		return
 	}
@@ -1038,10 +1075,13 @@ func CreateDocByMd(boxID, p, title, md string, sorts []string) (tree *parse.Tree
 	} else {
 		box.setSortByConf(path.Dir(tree.Path), tree.ID)
 	}
+
+	FlushTxQueue()
+	PushCreate(box, p, arg)
 	return
 }
 
-func CreateWithMarkdown(tags, boxID, hPath, md, parentID, id string, withMath bool, clippingHref string) (retID string, err error) {
+func CreateWithMarkdown(tags, boxID, hPath, md, parentID, id string, withMath bool, clippingHref string, arg map[string]any) (retID string, err error) {
 	createDocLock.Lock()
 	defer createDocLock.Unlock()
 
@@ -1062,7 +1102,13 @@ func CreateWithMarkdown(tags, boxID, hPath, md, parentID, id string, withMath bo
 		enableLuteInlineSyntax(luteEngine)
 	}
 	dom := luteEngine.Md2BlockDOM(md, false)
-	retID, err = createDocsByHPath(box.ID, hPath, dom, parentID, id)
+	titleEmpty := false
+	if nil != arg {
+		if titleEmptyArg, ok := arg["titleEmpty"]; ok {
+			titleEmpty = titleEmptyArg.(bool)
+		}
+	}
+	retID, err = createDocsByHPath(box.ID, hPath, dom, parentID, id, titleEmpty)
 
 	nameValues := map[string]string{}
 	tags = strings.TrimSpace(tags)
@@ -1084,6 +1130,9 @@ func CreateWithMarkdown(tags, boxID, hPath, md, parentID, id string, withMath bo
 		return
 	}
 	box.setSortByConf(path.Dir(bt.Path), retID)
+
+	FlushTxQueue()
+	PushCreate(box, bt.Path, arg)
 	return
 }
 
@@ -1138,7 +1187,7 @@ func CreateDailyNote(boxID string) (p string, existed bool, err error) {
 		return
 	}
 
-	id, err := createDocsByHPath(box.ID, hPath, "", "", "")
+	id, err := createDocsByHPath(box.ID, hPath, "", "", "", false)
 	if err != nil {
 		return
 	}
@@ -1212,12 +1261,12 @@ func GetHPathByPath(boxID, p string) (hPath string, err error) {
 		return
 	}
 
-	luteEngine := util.NewLute()
-	tree, err := filesys.LoadTree(boxID, p, luteEngine)
-	if err != nil {
+	bt := treenode.GetBlockTreeByBoxPath(boxID, p)
+	if nil == bt {
+		err = ErrBlockNotFound
 		return
 	}
-	hPath = tree.HPath
+	hPath = bt.HPath
 	return
 }
 
@@ -1229,14 +1278,13 @@ func GetHPathsByPaths(paths []string) (hPaths []string, err error) {
 			continue
 		}
 
-		bt := treenode.GetBlockTreeByPath(p)
+		bt := treenode.GetBlockTreeByBoxPath(box.ID, p)
 		if nil == bt {
 			logging.LogWarnf("block tree not found by path [%s]", p)
 			continue
 		}
 
-		hpath := html.UnescapeString(bt.HPath)
-		hPaths = append(hPaths, box.Name+hpath)
+		hPaths = append(hPaths, box.Name+bt.HPath)
 	}
 	return
 }
@@ -1687,7 +1735,7 @@ func RenameDoc(boxID, p, title string) (err error) {
 	}
 
 	// 按需同步“无标题”标记（仅更新 IAL，不触发子树重命名等）
-	isTitleEmpty := "" != tree.Root.IALAttr(NodeAttrTitleEmpty)
+	isTitleEmpty := tree.Root.IALAttr(NodeAttrTitleEmpty) == "true"
 	if isTitleEmpty != isEmpty {
 		if isEmpty {
 			tree.Root.SetIALAttr(NodeAttrTitleEmpty, "true")
@@ -1741,7 +1789,7 @@ func RenameDoc(boxID, p, title string) (err error) {
 	return
 }
 
-func createDoc(boxID, p, title, dom string) (tree *parse.Tree, err error) {
+func createDoc(boxID, p, title, dom string, titleEmpty bool) (tree *parse.Tree, err error) {
 	title = normalizeDocTitle(title)
 	if 512 < utf8.RuneCountInString(title) {
 		// 限制笔记本名和文档名最大长度为 `512` https://github.com/siyuan-note/siyuan/issues/6299
@@ -1751,6 +1799,8 @@ func createDoc(boxID, p, title, dom string) (tree *parse.Tree, err error) {
 	var isEmpty bool
 	if "" == title {
 		title = Conf.Language(16)
+		isEmpty = true
+	} else if titleEmpty {
 		isEmpty = true
 	}
 

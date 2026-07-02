@@ -1,8 +1,10 @@
-import {isOnlyMeta, openByMobile, writeText} from "../util/compatibility";
+import {isOnlyMeta, writeText} from "../util/compatibility";
 import {focusByRange} from "../util/selection";
+import {openByMobile} from "../../editor/openLink";
 import {showMessage} from "../../dialog/message";
 import {isLocalPath, pathPosix} from "../../util/pathName";
 import {previewDocImage} from "./image";
+import {getDiagramBlock, previewDiagram} from "./diagram";
 import {needSubscribe} from "../../util/needSubscribe";
 import {Constants} from "../../constants";
 import {getSearch, isMobile} from "../../util/functions";
@@ -19,7 +21,7 @@ import {highlightRender} from "../render/highlightRender";
 import {speechRender} from "../render/speechRender";
 import {avRender} from "../render/av/render";
 import {getPadding} from "../ui/initUI";
-import {hasClosestByAttribute} from "../util/hasClosest";
+import {hasTopClosestByAttribute} from "../util/hasClosest";
 import {addScriptSync} from "../util/addScript";
 
 export class Preview {
@@ -124,7 +126,9 @@ export class Preview {
                     if (actionCustom) {
                         actionCustom.click(type);
                     } else if ((type === "mp-wechat" || type === "zhihu" || type === "yuque")) {
-                        this.copyToX(this.element.lastElementChild.cloneNode(true) as HTMLElement, protyle, type);
+                        const tempElement = document.createElement("div");
+                        tempElement.appendChild(this.element.lastElementChild.cloneNode(true));
+                        this.copyToX(tempElement, protyle, type);
                     } else if (type === "desktop") {
                         previewElement.style.width = "";
                         previewElement.style.padding = protyle.wysiwyg.element.style.padding;
@@ -144,7 +148,7 @@ export class Preview {
                 }
                 target = target.parentElement;
             }
-            const nodeElement = hasClosestByAttribute(event.target as HTMLElement, "id", undefined);
+            const nodeElement = hasTopClosestByAttribute(event.target as HTMLElement, "id", undefined);
             if (nodeElement) {
                 // 用于点击后大纲定位
                 this.element.querySelectorAll(".protyle-wysiwyg--select").forEach(item => {
@@ -162,6 +166,13 @@ export class Preview {
                 /// #else
                 window.siyuan.mobile.docks.outline?.setCurrentByPreview(nodeElement);
                 /// #endif
+                const diagramElement = getDiagramBlock(nodeElement);
+                if (diagramElement) {
+                    previewDiagram(diagramElement);
+                    event.stopPropagation();
+                    event.preventDefault();
+                    return;
+                }
             }
         });
 
@@ -228,7 +239,11 @@ export class Preview {
                 item.setAttribute("width", (parseInt(item.getAttribute("width")) * 8) + "px");
             });
             // 列表嵌套 https://github.com/siyuan-note/siyuan/issues/11276
-            copyElement.querySelectorAll("ul, ol").forEach(listItem => {
+            copyElement.querySelectorAll("ul, ol").forEach((listItem: HTMLOListElement) => {
+                if (typeof listItem.start === "number") {
+                    listItem.classList.add("list-paddingleft-" + Math.min(listItem.start.toString().length, 3));
+                    listItem.style.listStyleType = "decimal";
+                }
                 Array.from(listItem.children).forEach(liItem => {
                     const nestedList = liItem.querySelector("ul, ol");
                     if (nestedList) {
@@ -296,15 +311,31 @@ export class Preview {
         copyElement.querySelectorAll("code").forEach((item) => {
             item.style.backgroundImage = "none";
         });
+        const copyEditElement = copyElement.querySelector(".b3-typography") as HTMLElement;
+        if (copyEditElement.firstElementChild.tagName === "DIV") {
+            // 最后/第一个块是公式块时无法复制下来
+            copyElement.insertAdjacentHTML("afterbegin", "<p>&zwj;</p>");
+        }
+        if (copyEditElement.lastElementChild.tagName === "DIV") {
+            copyElement.insertAdjacentHTML("beforeend", "<p>&zwj;</p>");
+
+        }
         this.element.append(copyElement);
-        // 最后一个块是公式块时无法复制下来
-        copyElement.insertAdjacentHTML("beforeend", "<p>&zwj;</p>");
         let cloneRange;
         if (getSelection().rangeCount > 0) {
             cloneRange = getSelection().getRangeAt(0).cloneRange();
         }
         const range = copyElement.ownerDocument.createRange();
-        range.selectNodeContents(copyElement);
+        if (copyEditElement.firstElementChild.tagName === "DIV") {
+            range.setStart(copyElement.firstElementChild, 0);
+        } else {
+            range.setStartBefore(copyElement.firstElementChild);
+        }
+        if (copyEditElement.lastElementChild.tagName === "DIV") {
+            range.setEndBefore(copyElement.lastElementChild);
+        } else {
+            range.setEndAfter(copyElement.lastElementChild);
+        }
         focusByRange(range);
         document.execCommand("copy");
         this.element.lastElementChild.remove();

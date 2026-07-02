@@ -12,6 +12,7 @@ import * as dayjs from "dayjs";
 import {getFieldsByData} from "./view";
 import {getFieldIdByCellElement} from "./row";
 import {Constants} from "../../../constants";
+import {setPosition} from "../../../util/setPosition";
 
 let cellValues: IAVCellValue[];
 
@@ -138,7 +139,13 @@ export const removeCellOption = (protyle: IProtyle, cellElements: HTMLElement[],
             return true;
         }
     });
+    // chips 减少导致菜单高度变化后重新定位（锁底部，顶部自适应），需在移除 target 前获取 menuElement
+    const menuElement = hasClosestByClassName(target, "b3-menu");
     target.remove();
+    if (menuElement) {
+        const cellRect = cellElements[cellElements.length - 1].getBoundingClientRect();
+        setPosition(menuElement, cellRect.left, cellRect.bottom, cellRect.height, 0, true);
+    }
 };
 
 export const setColOption = (protyle: IProtyle, data: IAV, target: HTMLElement, blockElement: Element, isCustomAttr: boolean, cellElements?: HTMLElement[]) => {
@@ -236,6 +243,9 @@ export const setColOption = (protyle: IProtyle, data: IAV, target: HTMLElement, 
         }
         if (selectedElement) {
             menuElement.querySelector(".b3-menu__items").scrollTop = oldScroll + (menuElement.querySelector(".b3-chips").clientHeight - oldChipsHeight);
+            // chips 增减导致菜单高度变化后重新定位（锁底部，顶部自适应，避免底部溢出视口）
+            const cellRect = cellElements[cellElements.length - 1].getBoundingClientRect();
+            setPosition(menuElement, cellRect.left, cellRect.bottom, cellRect.height, 0, true);
         }
     });
     if (menu.isOpen) {
@@ -353,6 +363,9 @@ export const setColOption = (protyle: IProtyle, data: IAV, target: HTMLElement, 
                 }
                 if (selectedElement) {
                     menuElement.querySelector(".b3-menu__items").scrollTop = oldScroll + (menuElement.querySelector(".b3-chips").clientHeight - oldChipsHeight);
+                    // chips 增减导致菜单高度变化后重新定位（锁底部，顶部自适应，避免底部溢出视口）
+                    const cellRect = cellElements[cellElements.length - 1].getBoundingClientRect();
+                    setPosition(menuElement, cellRect.left, cellRect.bottom, cellRect.height, 0, true);
                 }
             }, undefined, true);
         }
@@ -443,6 +456,9 @@ export const setColOption = (protyle: IProtyle, data: IAV, target: HTMLElement, 
                         bindSelectEvent(protyle, data, menuElement, cellElements, blockElement);
                     }
                     menuElement.querySelector(".b3-menu__items").scrollTop = oldScroll;
+                    // chips 增减导致菜单高度变化后重新定位（锁底部，顶部自适应，避免底部溢出视口）
+                    const cellRect = cellElements[cellElements.length - 1].getBoundingClientRect();
+                    setPosition(menuElement, cellRect.left, cellRect.bottom, cellRect.height, 0, true);
                     name = inputElement.value;
                     desc = descElement.value;
                     color = newColor;
@@ -641,6 +657,9 @@ export const addColOptionOrCell = (protyle: IProtyle, data: IAV, cellElements: H
         bindSelectEvent(protyle, data, menuElement, cellElements, blockElement);
         menuElement.querySelector("input").focus();
         menuElement.querySelector(".b3-menu__items").scrollTop = oldScroll + (menuElement.querySelector(".b3-chips").clientHeight - oldChipsHeight);
+        // chips 增减导致菜单高度变化后重新定位（锁底部，顶部自适应，避免底部溢出视口）
+        const cellRect = cellElements[cellElements.length - 1].getBoundingClientRect();
+        setPosition(menuElement, cellRect.left, cellRect.bottom, cellRect.height, 0, true);
     }
 };
 
@@ -663,7 +682,7 @@ export const getSelectHTML = (fields: IAVColumn[], cellElements: HTMLElement[], 
     const selected: string[] = [];
     cellValues[0].mSelect?.forEach((item) => {
         selected.push(item.content);
-        selectedHTML += `<div class="b3-chip b3-chip--middle" data-content="${escapeAttr(item.content)}" style="white-space: nowrap;max-width:100%;background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})"><span class="fn__ellipsis">${escapeHtml(item.content)}</span><svg class="b3-chip__close" data-type="removeCellOption"><use xlink:href="#iconCloseRound"></use></svg></div>`;
+        selectedHTML += `<div class="b3-chip b3-chip--middle" data-content="${escapeAttr(item.content)}" style="white-space: nowrap;max-width:100%;background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})"><span class="fn__ellipsis">${escapeHtml(item.content)}</span><svg class="b3-chip__close" data-type="removeCellOption"><use xlink:href="#iconClose"></use></svg></div>`;
     });
 
     return `<div class="b3-menu__items" style="display: flex;flex-direction: column;flex: 1;">
