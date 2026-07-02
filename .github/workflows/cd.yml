@@ -3,9 +3,7 @@ name: CD For SiYuan
 on:
   push:
     tags:
-      - '*-alpha*'
-      - '*-beta*'
-      - '*-rc*'
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
 # ref https://docs.github.com/zh/actions/learn-github-actions/variables
@@ -74,7 +72,7 @@ jobs:
     strategy:
       matrix:
         config:
-          - os: ubuntu-24.04
+          - os: ubuntu-latest
             name: ubuntu build linux
             kernel_path: "../app/kernel-linux/SiYuan-Kernel"
             build_args_prefix: "-s -w -X"
@@ -312,7 +310,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: siyuan-note/siyuan-android
-          ref: main
+          ref: ${{ github.ref_name }}
           path: ${{ github.workspace }}/siyuan-android
 
       - name: Patch siyuan-android Repositories
@@ -401,11 +399,11 @@ jobs:
         run: |
           VERSION=${{ needs.prepare.outputs.version }}
           gh release upload ${{ github.ref_name }} \
-            "siyuan-linux/siyuan-${VERSION}-linux.AppImage#siyuan-${VERSION}-linux.AppImage" \
-            "siyuan-linux/siyuan-${VERSION}-linux.tar.gz#siyuan-${VERSION}-linux.tar.gz" \
-            "siyuan-linux/siyuan-${VERSION}-linux.deb#siyuan-${VERSION}-linux.deb" \
-            "siyuan-linux/siyuan-${VERSION}-linux.rpm#siyuan-${VERSION}-linux.rpm" \
-            "siyuan-mac.dmg/siyuan-${VERSION}-mac.dmg#siyuan-${VERSION}-mac.dmg" \
-            "siyuan-mac-arm64.dmg/siyuan-${VERSION}-mac-arm64.dmg#siyuan-${VERSION}-mac-arm64.dmg" \
-            "siyuan-win.exe/siyuan-${VERSION}-win.exe#siyuan-${VERSION}-win.exe" \
-            "siyuan-android/siyuan-${VERSION}.apk#siyuan-${VERSION}.apk"
+            "siyuan-linux/siyuan-${VERSION}-linux.AppImage#siyuan-CE-v${VERSION}-linux.AppImage" \
+            "siyuan-linux/siyuan-${VERSION}-linux.tar.gz#siyuan-CE-v${VERSION}-linux.tar.gz" \
+            "siyuan-linux/siyuan-${VERSION}-linux.deb#siyuan-CE-v${VERSION}-linux.deb" \
+            "siyuan-linux/siyuan-${VERSION}-linux.rpm#siyuan-CE-v${VERSION}-linux.rpm" \
+            "siyuan-mac.dmg/siyuan-${VERSION}-mac.dmg#siyuan-CE-v${VERSION}-mac.dmg" \
+            "siyuan-mac-arm64.dmg/siyuan-${VERSION}-mac-arm64.dmg#siyuan-CE-v${VERSION}-mac-arm64.dmg" \
+            "siyuan-win.exe/siyuan-${VERSION}-win.exe#siyuan-CE-v${VERSION}-win.exe" \
+            "siyuan-android/siyuan-${VERSION}.apk#siyuan-CE-v${VERSION}.apk"
