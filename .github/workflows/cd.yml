@@ -400,11 +400,18 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           VERSION=${{ needs.prepare.outputs.version }}
+          mv "siyuan-linux/siyuan-${VERSION}-linux.AppImage" "siyuan-linux/siyuan-CE-v${VERSION}-linux.AppImage"
+          mv "siyuan-linux/siyuan-${VERSION}-linux.tar.gz" "siyuan-linux/siyuan-CE-v${VERSION}-linux.tar.gz"
+          mv "siyuan-linux/siyuan-${VERSION}-linux.deb" "siyuan-linux/siyuan-CE-v${VERSION}-linux.deb"
+          mv "siyuan-linux/siyuan-${VERSION}-linux.rpm" "siyuan-linux/siyuan-CE-v${VERSION}-linux.rpm"
+          mv "siyuan-mac.dmg/siyuan-${VERSION}-mac.dmg" "siyuan-mac.dmg/siyuan-CE-v${VERSION}-mac.dmg"
+          mv "siyuan-mac-arm64.dmg/siyuan-${VERSION}-mac-arm64.dmg" "siyuan-mac-arm64.dmg/siyuan-CE-v${VERSION}-mac-arm64.dmg"
+          mv "siyuan-win.exe/siyuan-${VERSION}-win.exe" "siyuan-win.exe/siyuan-CE-v${VERSION}-win.exe"
           gh release upload ${{ github.ref_name }} \
-            "siyuan-linux/siyuan-${VERSION}-linux.AppImage#siyuan-CE-v${VERSION}-linux.AppImage" \
-            "siyuan-linux/siyuan-${VERSION}-linux.tar.gz#siyuan-CE-v${VERSION}-linux.tar.gz" \
-            "siyuan-linux/siyuan-${VERSION}-linux.deb#siyuan-CE-v${VERSION}-linux.deb" \
-            "siyuan-linux/siyuan-${VERSION}-linux.rpm#siyuan-CE-v${VERSION}-linux.rpm" \
-            "siyuan-mac.dmg/siyuan-${VERSION}-mac.dmg#siyuan-CE-v${VERSION}-mac.dmg" \
-            "siyuan-mac-arm64.dmg/siyuan-${VERSION}-mac-arm64.dmg#siyuan-CE-v${VERSION}-mac-arm64.dmg" \
-            "siyuan-win.exe/siyuan-${VERSION}-win.exe#siyuan-CE-v${VERSION}-win.exe"
+            "siyuan-linux/siyuan-CE-v${VERSION}-linux.AppImage" \
+            "siyuan-linux/siyuan-CE-v${VERSION}-linux.tar.gz" \
+            "siyuan-linux/siyuan-CE-v${VERSION}-linux.deb" \
+            "siyuan-linux/siyuan-CE-v${VERSION}-linux.rpm" \
+            "siyuan-mac.dmg/siyuan-CE-v${VERSION}-mac.dmg" \
+            "siyuan-mac-arm64.dmg/siyuan-CE-v${VERSION}-mac-arm64.dmg" \
+            "siyuan-win.exe/siyuan-CE-v${VERSION}-win.exe"
