@@ -217,6 +217,7 @@ jobs:
             ${{ github.workspace }}/go/src/github.com/${{ github.repository }}/app/build/siyuan-*-linux.rpm
 
   build_android:
+    if: ${{ github.repository_owner == 'siyuan-note' }}
     runs-on: ubuntu-latest
     name: ubuntu build android.apk
     # Android and desktop builds run in parallel, both depend on prepare.
@@ -377,7 +378,7 @@ jobs:
   create_release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [prepare, build, build_android]
+    needs: [prepare, build]
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v8
@@ -405,5 +406,4 @@ jobs:
             "siyuan-linux/siyuan-${VERSION}-linux.rpm#siyuan-CE-v${VERSION}-linux.rpm" \
             "siyuan-mac.dmg/siyuan-${VERSION}-mac.dmg#siyuan-CE-v${VERSION}-mac.dmg" \
             "siyuan-mac-arm64.dmg/siyuan-${VERSION}-mac-arm64.dmg#siyuan-CE-v${VERSION}-mac-arm64.dmg" \
-            "siyuan-win.exe/siyuan-${VERSION}-win.exe#siyuan-CE-v${VERSION}-win.exe" \
-            "siyuan-android/siyuan-${VERSION}.apk#siyuan-CE-v${VERSION}.apk"
+            "siyuan-win.exe/siyuan-${VERSION}-win.exe#siyuan-CE-v${VERSION}-win.exe"
