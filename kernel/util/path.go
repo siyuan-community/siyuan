@@ -34,11 +34,6 @@ import (
 )
 
 var (
-	TLSKernel   = false
-	TLSCertFile = ""
-	TLSKeyFile  = ""
-	Hostname    = "localhost"
-
 	SSL       = false
 	UserAgent = "SiYuan/" + Ver
 

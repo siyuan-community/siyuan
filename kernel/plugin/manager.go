@@ -28,6 +28,13 @@ import (
 	"github.com/siyuan-note/logging"
 )
 
+type PluginManagerState int64
+
+const (
+	PluginManagerStateStopped PluginManagerState = iota
+	PluginManagerStateRunning
+)
+
 // PluginManager discovers, loads, starts, and stops kernel plugins.
 type PluginManager struct {
 	state       PluginManagerState // protected by lifecycleMu

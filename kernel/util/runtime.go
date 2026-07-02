@@ -109,7 +109,6 @@ func logBootInfo() {
 		runtime.GOARCH,
 		plat,
 		os.Getpid(),
-		TLSKernel,
 		Mode,
 		WorkingDir,
 		ReadOnly,

@@ -263,13 +263,7 @@ func Serve(fastMode bool, cookieKey string) {
 		return
 	}
 
-	if util.TLSKernel {
-		err = util.HttpServer.ServeTLS(ln, util.TLSCertFile, util.TLSKeyFile)
-	} else {
-		err = util.HttpServer.Serve(ln)
-	}
-
-	if err != nil {
+	if err = util.HttpServer.Serve(ln); err != nil {
 		if errors.Is(err, http.ErrServerClosed) {
 			return
 		}
