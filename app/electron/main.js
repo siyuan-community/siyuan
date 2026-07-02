@@ -88,7 +88,16 @@ if (!app.isPackaged) {
 
 for (let i = argStart; i < process.argv.length; i++) {
     let arg = process.argv[i];
-    if (arg.startsWith("--workspace=") || arg.startsWith("--openAsHidden") || arg.startsWith("--port=") || arg.startsWith("--safe-mode=") || arg.startsWith("siyuan://")) {
+    // region 🛜 remote
+    if (arg.startsWith("siyuan://")
+        || arg.startsWith("--workspace=")
+        || arg.startsWith("--openAsHidden")
+        || arg.startsWith("--port=")
+        || arg.startsWith("--safe-mode=")
+
+        || arg.startsWith("--proxy=")
+        || arg.startsWith("--remote=")
+    ) {
         // 跳过内置参数
         if (arg.startsWith("--openAsHidden")) {
             openAsHidden = true;
@@ -96,6 +105,7 @@ for (let i = argStart; i < process.argv.length; i++) {
         }
         continue;
     }
+    // endregion 🛜 remote
 
     app.commandLine.appendSwitch(arg);
     writeLog("command line switch [" + arg + "]");
@@ -121,11 +131,34 @@ const getArg = (name) => {
     }
 };
 
+// region 🛜 remote
+let localhost = true;
+let remoteURL;
+let proxyURL;
+
+if (getArg("--remote")) {
+    try {
+        remoteURL = new URL(getArg("--remote"));
+        localhost = false;
+    } catch (e) {
+        writeLog("parse remote url failed: " + e);
+    }
+
+    if (!localhost && getArg("--proxy")) {
+        try {
+            proxyURL = new URL(getArg("--proxy"));
+        } catch (e) {
+            writeLog("parse proxy url failed: " + e);
+        }
+    }
+}
+// endregion 🛜 remote
+
 // 检测上次打开的工作空间是否丢失 https://github.com/siyuan-note/siyuan/issues/14748
 let lastWorkspaceMissing = false;
 let missingWorkspacePath = "";
 let availableWorkspaces = [];
-if (!firstOpen && !getArg("--workspace")) {
+if (!firstOpen && !getArg("--workspace") && !getArg("--remote")) { // 🛜 remote
     // 显式通过命令行指定工作空间时尊重用户参数，跳过检测
     try {
         const wsFile = path.join(confDir, "workspace.json");
@@ -339,9 +372,21 @@ const exitApp = (port, errorWindowId) => {
 
 const localServer = "https://127.0.0.1";
 
+// region 🛜 remote
 const getServer = (port = kernelPort) => {
-    return localServer + ":" + port;
+    return localhost ? `${localServer}:${port}` : remoteURL;
 };
+
+const initMainPage = (currentWindow) => {
+    currentWindow.loadURL(`${getServer()}/stage/build/app/?v=${Date.now()}`);
+};
+
+const exitKernel = (origin = getServer()) => {
+    return localhost
+        ? net.fetch(`${origin}/api/system/exit`, {method: "POST"})
+        : null;
+};
+// endregion 🛜 remote
 
 const sleep = (ms) => {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -487,15 +532,22 @@ const initMainWindow = () => {
     }
     currentWindow.webContents.userAgent = "SiYuan/" + appVer + " https://b3log.org/siyuan Electron " + currentWindow.webContents.userAgent;
 
-    // set proxy
-    net.fetch(getServer() + "/api/system/getNetwork", {method: "POST"}).then((response) => {
-        return response.json();
-    }).then((response) => {
-        setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents).then(() => {
-            // 加载主界面
-            currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + Date.now());
+    // region 🛜 remote
+    if (localhost) {
+        // set proxy
+        net.fetch(getServer() + "/api/system/getNetwork", {method: "POST"}).then((response) => {
+            return response.json();
+        }).then((response) => {
+            setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents).then(() => {
+                initMainPage(currentWindow);
+            });
         });
-    });
+    } else {
+        setProxy(proxyURL, currentWindow.webContents).then(() => {
+            initMainPage(currentWindow);
+        });
+    }
+    // endregion 🛜 remote
 
     // 发起互联网服务请求时绕过安全策略 https://github.com/siyuan-note/siyuan/issues/5516
     currentWindow.webContents.session.webRequest.onBeforeSendHeaders((details, cb) => {
@@ -611,6 +663,29 @@ const showWindow = (wnd) => {
 
 const initKernel = (workspace, port, lang, safeMode) => {
     return new Promise(async (resolve) => {
+        // region 🛜 remote
+        if (!localhost) {
+            while (true) {
+                try {
+                    const progressResult = await net.fetch(getServer() + "/api/system/bootProgress");
+                    const progressData = await progressResult.json();
+                    if (progressData.data.progress >= 100) {
+                        resolve(true);
+                        break;
+                    } else {
+                        await sleep(1000);
+                    }
+                } catch (e) {
+                    writeLog("get boot progress failed: " + e.message);
+                    showErrorWindow("连接远程服务失败", "Failed to connect to remote service", `<div>无法连接远程服务 <a href="${remoteURL}" target="_blank">${remoteURL}</a>，请检查网络连通性与服务状态。</div><div>Cannot access remote service <a href="${remoteURL}" target="_blank">${remoteURL}</a>, please check your network connection and the service status.</div>`);
+                    resolve(false);
+                    break;
+                }
+            }
+            return;
+        }
+        // endregion 🛜 remote
+
         bootWindow = new BrowserWindow({
             show: false,
             width: Math.floor(screen.getPrimaryDisplay().size.width / 2),
@@ -761,7 +836,7 @@ const initKernel = (workspace, port, lang, safeMode) => {
             writeLog("got kernel version [" + apiData.data + "]");
             if (!isDevEnv && apiData.data !== appVer) {
                 writeLog(`kernel [${apiData.data}] is running, shutdown it now and then start kernel [${appVer}]`);
-                net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                exitKernel(); // 🛜 remote
                 bootWindow.destroy();
                 resolve(false);
             } else {
@@ -784,7 +859,7 @@ const initKernel = (workspace, port, lang, safeMode) => {
                         }
                     } catch (e) {
                         writeLog("get boot progress failed: " + e.message);
-                        net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                        exitKernel(); // 🛜 remote
                         bootWindow.destroy();
                         resolve(false);
                         progressing = true;
@@ -1606,7 +1681,7 @@ app.whenReady().then(() => {
         writeLog("system shutdown");
         workspaces.forEach(item => {
             const currentURL = new URL(item.browserWindow.getURL());
-            net.fetch(getServer(currentURL.port) + "/api/system/exit", {method: "POST"});
+            exitKernel(); // 🛜 remote
         });
     });
     powerMonitor.on("lock-screen", () => {
