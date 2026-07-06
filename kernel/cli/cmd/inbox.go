@@ -23,9 +23,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/88250/lute/ast"
 	"github.com/spf13/cobra"

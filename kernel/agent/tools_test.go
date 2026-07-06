@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
 )
 
 func TestConvertSchemaZodOptionalFields(t *testing.T) {
