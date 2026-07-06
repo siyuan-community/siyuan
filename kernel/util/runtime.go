@@ -42,6 +42,10 @@ import (
 
 var DisabledFeatures []string
 
+// CLILogLevel 在 CLI 子命令通过 --log-level 显式指定日志级别时被设置，model.InitConf 末尾据此跳过对
+// logging.SetLogLevel 的覆盖，使命令行参数优先于 conf.json 的 system.logLevel。
+var CLILogLevel string
+
 func DisableFeature(feature string) {
 	DisabledFeatures = append(DisabledFeatures, feature)
 	DisabledFeatures = gulu.Str.RemoveDuplicatedElem(DisabledFeatures)
@@ -89,7 +93,7 @@ var MobileOSVer string
 // DatabaseVer 数据库版本。
 // 格式：yyyyMMddHHmm。修改表结构时需要更新此值，启动时会检测版本变化，
 // 若不一致则自动移除旧数据库文件并重建表结构，同时触发全量重建索引。
-const DatabaseVer = "202606122207"
+const DatabaseVer = "202607031200"
 
 func logBootInfo() {
 	plat := GetOSPlatform()
@@ -132,7 +136,9 @@ func logBootInfo() {
 				WaitForUILoaded()
 				time.Sleep(3 * time.Second)
 			}
-			PushErrMsg(Langs[Lang][278], 15000)
+			if nil == NotificationsCfg || NotificationsCfg.WorkspaceNotSSD {
+				PushErrMsg(Langs[Lang][278], 15000)
+			}
 		}
 	}()
 }

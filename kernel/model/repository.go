@@ -329,6 +329,12 @@ func RollbackRepoSnapshotFile(fileID string) (err error) {
 			return
 		}
 
+		if strings.HasPrefix(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
+			avID := strings.TrimSuffix(filepath.Base(file.Path), ".json")
+			cache.RemoveAVData(avID)
+			ReloadAttrView(avID)
+		}
+
 		msg := fmt.Sprintf(Conf.Language(286), to)
 		util.PushMsg(msg, 7000)
 	}

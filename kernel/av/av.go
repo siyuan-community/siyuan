@@ -651,10 +651,24 @@ func SaveAttributeView(av *AttributeView) (err error) {
 		return
 	}
 
+	// 缓存与待写入数据一致时跳过落盘；缓存未命中时再读盘比对，避免无变更的重复写入
 	avJSONPath := GetAttributeViewDataPath(av.ID)
-	if err = filelock.WriteFile(avJSONPath, data); err != nil {
-		logging.LogErrorf("save attribute view [%s] failed: %s", av.ID, err)
-		return
+	if cachedData, ok := cache.GetAVData(av.ID); ok {
+		if len(cachedData) == len(data) && bytes.Equal(cachedData, data) {
+			return
+		}
+	} else {
+		if diskData, readErr := filelock.ReadFile(avJSONPath); nil == readErr && len(diskData) == len(data) && bytes.Equal(diskData, data) {
+			cache.SetAVData(av.ID, data)
+			return
+		}
+	}
+
+	if err = util.WriteFileByMmap(avJSONPath, data); nil != err {
+		if err = filelock.WriteFile(avJSONPath, data); nil != err {
+			logging.LogErrorf("save attribute view [%s] failed: %s", av.ID, err)
+			return
+		}
 	}
 
 	cache.SetAVData(av.ID, data)

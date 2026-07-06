@@ -80,7 +80,7 @@ func initDatabase(forceRebuild bool) {
 	disableCache()
 	defer enableCache()
 
-	util.IncBootProgress(2, "Initializing database...")
+	util.IncBootProgress(2, util.BootL10n(301, "Initializing database..."))
 
 	if forceRebuild {
 		ClearQueue()
@@ -95,6 +95,8 @@ func initDatabase(forceRebuild bool) {
 	if !forceRebuild {
 		// 检查数据库结构版本，如果版本不一致的话说明改过表结构，需要重建
 		if util.DatabaseVer == getDatabaseVer() {
+			// 老库版本一致但缺少新加的列时，做幂等迁移（不升 DatabaseVer，避免全库重建丢失已嵌入向量）
+			migrateBlockEmbeddingsSchema()
 			recoverIndexQueue()
 			return
 		}
@@ -234,7 +236,7 @@ func initDBTables() {
 	if err != nil {
 		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "drop table [block_embeddings] failed: %s", err)
 	}
-	_, err = db.Exec("CREATE TABLE block_embeddings (id TEXT PRIMARY KEY, root_id TEXT, box TEXT, path TEXT, embedding BLOB, model TEXT, content_len INTEGER, updated TEXT)")
+	_, err = db.Exec("CREATE TABLE block_embeddings (id TEXT PRIMARY KEY, root_id TEXT, box TEXT, path TEXT, embedding BLOB, model TEXT, content_len INTEGER, updated TEXT, fail_count INTEGER NOT NULL DEFAULT 0, last_tried INTEGER NOT NULL DEFAULT 0, ignored_type INTEGER NOT NULL DEFAULT 0)")
 	if err != nil {
 		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create table [block_embeddings] failed: %s", err)
 	}
@@ -249,7 +251,10 @@ func initFTSBlocks() (err error) {
 	if err != nil {
 		return
 	}
-	_, err = db.Exec("CREATE VIRTUAL TABLE blocks_fts USING fts5(id UNINDEXED, parent_id UNINDEXED, root_id UNINDEXED, hash UNINDEXED, box UNINDEXED, path UNINDEXED, hpath UNINDEXED, name, alias, memo, tag, content, fcontent, markdown UNINDEXED, length UNINDEXED, type UNINDEXED, subtype UNINDEXED, ial, sort UNINDEXED, created UNINDEXED, updated UNINDEXED, tokenize=\"" + ftsTokenize() + "\")")
+	// 采用 external content 模式：blocks_fts 不再物理存储列值，仅维护倒排索引，
+	// 原文由 content 指向的 blocks 表提供，按 content_rowid（blocks 的隐式 rowid）回表取值。
+	// 因此 FTS 行的 rowid 必须与 blocks 行的 rowid 严格一致，所有写路径需显式传 rowid。
+	_, err = db.Exec("CREATE VIRTUAL TABLE blocks_fts USING fts5(id UNINDEXED, parent_id UNINDEXED, root_id UNINDEXED, hash UNINDEXED, box UNINDEXED, path UNINDEXED, hpath UNINDEXED, name, alias, memo, tag, content, fcontent, markdown UNINDEXED, length UNINDEXED, type UNINDEXED, subtype UNINDEXED, ial, sort UNINDEXED, created UNINDEXED, updated UNINDEXED, content='blocks', content_rowid='rowid', tokenize=\"" + ftsTokenize() + "\")")
 	return
 }
 
@@ -258,7 +263,10 @@ func RebuildFTSIndex() (err error) {
 		return
 	}
 
-	stmt := "INSERT INTO blocks_fts (id, parent_id, root_id, hash, box, path, hpath, name, alias, memo, tag, content, fcontent, markdown, length, type, subtype, ial, sort, created, updated) SELECT id, parent_id, root_id, hash, box, path, hpath, name, alias, memo, tag, content, fcontent, markdown, length, type, subtype, ial, sort, created, updated FROM blocks"
+	// external content 模式下使用 'rebuild' 命令重建索引：
+	// FTS5 会扫描 blocks 表，并用 blocks 的 rowid 作为 FTS rowid，保证两者对齐。
+	// 不能再用 INSERT...SELECT FROM blocks，否则 FTS 会自分配 rowid 导致与 blocks 脱钩。
+	stmt := "INSERT INTO blocks_fts(blocks_fts) VALUES('rebuild')"
 	_, err = db.Exec(stmt)
 	return
 }
@@ -1087,12 +1095,12 @@ func deleteBlocksByIDs(tx *sql.Tx, ids []string) (err error) {
 		return
 	}
 
-	stmt = "DELETE FROM blocks WHERE ROWID IN (" + strings.Join(rowIDs, ",") + ")"
+	stmt = "DELETE FROM blocks_fts WHERE ROWID IN (" + strings.Join(rowIDs, ",") + ")"
 	if err = execStmtTx(tx, stmt); err != nil {
 		return
 	}
 
-	stmt = "DELETE FROM blocks_fts WHERE ROWID IN (" + strings.Join(rowIDs, ",") + ")"
+	stmt = "DELETE FROM blocks WHERE ROWID IN (" + strings.Join(rowIDs, ",") + ")"
 	if err = execStmtTx(tx, stmt); err != nil {
 		return
 	}
@@ -1105,11 +1113,13 @@ func deleteBlocksByIDs(tx *sql.Tx, ids []string) (err error) {
 }
 
 func deleteBlocksByBoxTx(tx *sql.Tx, box string) (err error) {
-	stmt := "DELETE FROM blocks WHERE box = ?"
+	// external content 模式下 FTS 行需按 rowid 删除，rowid 来自 blocks 表，
+	// 因此必须先删 FTS（此时 blocks 尚在），再删 blocks，否则子查询查不到 rowid。
+	stmt := "DELETE FROM blocks_fts WHERE rowid IN (SELECT rowid FROM blocks WHERE box = ?)"
 	if err = execStmtTx(tx, stmt, box); err != nil {
 		return
 	}
-	stmt = "DELETE FROM blocks_fts WHERE box = ?"
+	stmt = "DELETE FROM blocks WHERE box = ?"
 	if err = execStmtTx(tx, stmt, box); err != nil {
 		return
 	}
@@ -1198,11 +1208,12 @@ func deleteFileAnnotationRefsByBoxTx(tx *sql.Tx, box string) (err error) {
 }
 
 func deleteByRootID(tx *sql.Tx, rootID string, context map[string]any) (err error) {
-	stmt := "DELETE FROM blocks WHERE root_id = ?"
+	// external content 模式下 FTS 行需按 rowid 删除，必须先删 FTS 再删 blocks。
+	stmt := "DELETE FROM blocks_fts WHERE rowid IN (SELECT rowid FROM blocks WHERE root_id = ?)"
 	if err = execStmtTx(tx, stmt, rootID); err != nil {
 		return
 	}
-	stmt = "DELETE FROM blocks_fts WHERE root_id = ?"
+	stmt = "DELETE FROM blocks WHERE root_id = ?"
 	if err = execStmtTx(tx, stmt, rootID); err != nil {
 		return
 	}
@@ -1238,11 +1249,12 @@ func batchDeleteByRootIDs(tx *sql.Tx, rootIDs []string, context map[string]any) 
 
 	ids := strings.Join(rootIDs, "','")
 	ids = "('" + ids + "')"
-	stmt := "DELETE FROM blocks WHERE root_id IN " + ids
+	// external content 模式下 FTS 行需按 rowid 删除，必须先删 FTS 再删 blocks。
+	stmt := "DELETE FROM blocks_fts WHERE rowid IN (SELECT rowid FROM blocks WHERE root_id IN " + ids + ")"
 	if err = execStmtTx(tx, stmt); err != nil {
 		return
 	}
-	stmt = "DELETE FROM blocks_fts WHERE root_id IN " + ids
+	stmt = "DELETE FROM blocks WHERE root_id IN " + ids
 	if err = execStmtTx(tx, stmt); err != nil {
 		return
 	}
@@ -1272,11 +1284,12 @@ func batchDeleteByRootIDs(tx *sql.Tx, rootIDs []string, context map[string]any) 
 }
 
 func batchDeleteByPathPrefix(tx *sql.Tx, boxID, pathPrefix string) (err error) {
-	stmt := "DELETE FROM blocks WHERE box = ? AND path LIKE ?"
+	// external content 模式下 FTS 行需按 rowid 删除，必须先删 FTS 再删 blocks。
+	stmt := "DELETE FROM blocks_fts WHERE rowid IN (SELECT rowid FROM blocks WHERE box = ? AND path LIKE ?)"
 	if err = execStmtTx(tx, stmt, boxID, pathPrefix+"%"); err != nil {
 		return
 	}
-	stmt = "DELETE FROM blocks_fts WHERE box = ? AND path LIKE ?"
+	stmt = "DELETE FROM blocks WHERE box = ? AND path LIKE ?"
 	if err = execStmtTx(tx, stmt, boxID, pathPrefix+"%"); err != nil {
 		return
 	}
@@ -1306,10 +1319,6 @@ func batchDeleteByPathPrefix(tx *sql.Tx, boxID, pathPrefix string) (err error) {
 
 func batchUpdatePath(tx *sql.Tx, tree *parse.Tree, context map[string]any) (err error) {
 	stmt := "UPDATE blocks SET box = ?, path = ?, hpath = ? WHERE root_id = ?"
-	if err = execStmtTx(tx, stmt, tree.Box, tree.Path, tree.HPath, tree.ID); err != nil {
-		return
-	}
-	stmt = "UPDATE blocks_fts SET box = ?, path = ?, hpath = ? WHERE root_id = ?"
 	if err = execStmtTx(tx, stmt, tree.Box, tree.Path, tree.HPath, tree.ID); err != nil {
 		return
 	}
@@ -1347,11 +1356,6 @@ func batchUpdatePath(tx *sql.Tx, tree *parse.Tree, context map[string]any) (err 
 
 func batchUpdateHPath(tx *sql.Tx, tree *parse.Tree, context map[string]any) (err error) {
 	stmt := "UPDATE blocks SET hpath = ? WHERE root_id = ?"
-	if err = execStmtTx(tx, stmt, tree.HPath, tree.ID); err != nil {
-		return
-	}
-
-	stmt = "UPDATE blocks_fts SET hpath = ? WHERE root_id = ?"
 	if err = execStmtTx(tx, stmt, tree.HPath, tree.ID); err != nil {
 		return
 	}
@@ -1425,6 +1429,58 @@ func Exec(stmt string, args ...any) error {
 	}
 	_, err := db.Exec(stmt, args...)
 	return err
+}
+
+// migrateBlockEmbeddingsSchema 为 block_embeddings 幂等补充失败重试与忽略类型相关的列。
+// 不升 DatabaseVer（避免全库重建丢失已嵌入向量）；列已存在时跳过，老行自动取默认值 0。
+func migrateBlockEmbeddingsSchema() {
+	if nil == db {
+		return
+	}
+
+	// PRAGMA table_info 返回每列的定义，name 字段即列名
+	rows, err := db.Query("PRAGMA table_info(block_embeddings)")
+	if err != nil {
+		logging.LogErrorf("check block_embeddings columns failed: %s", err)
+		return
+	}
+	defer rows.Close()
+
+	existing := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue any
+		if err = rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			logging.LogErrorf("scan block_embeddings column info failed: %s", err)
+			return
+		}
+		existing[name] = true
+	}
+
+	// 表不存在（首次启动还没建）时 existing 为空，跳过；待 initDBTables 建表
+	if 0 == len(existing) {
+		return
+	}
+
+	addColumns := []string{
+		"ALTER TABLE block_embeddings ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE block_embeddings ADD COLUMN last_tried INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE block_embeddings ADD COLUMN ignored_type INTEGER NOT NULL DEFAULT 0",
+	}
+	// SQLite 的 ALTER TABLE ADD COLUMN 无法在单条语句里加多列，逐条执行；列已存在会报错，忽略
+	addColumn := func(name, ddl string) {
+		if existing[name] {
+			return
+		}
+		if _, err = db.Exec(ddl); err != nil {
+			logging.LogErrorf("add column [%s] failed: %s", name, err)
+		}
+	}
+	addColumn("fail_count", addColumns[0])
+	addColumn("last_tried", addColumns[1])
+	addColumn("ignored_type", addColumns[2])
 }
 
 func beginTx() (tx *sql.Tx, err error) {

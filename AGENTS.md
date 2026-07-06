@@ -3,6 +3,7 @@
 SiYuan repository guide. Module path `github.com/siyuan-note/siyuan`, license AGPL-3.0.
 
 **Architecture:** Go kernel (`kernel/`) + TypeScript frontend (`app/`), plus a separate `export` bundle (global `Protyle`, entry `src/protyle/method.ts`) for rendering rich content in exported HTML / PDF preview. Read versions from `kernel/go.mod`, `app/package.json`, `kernel/util/working.go`.
+
 ---
 
 ## 1. Required toolchain
@@ -42,7 +43,7 @@ All Go libraries above are dependencies in `kernel/go.mod`. GitHub org: `siyuan-
 - **Editing any Go dependency (Lute / dejavu / gulu / eventbus / riff / filelock / httpclient / logging / go-sqlite3 / pdfcpu / epub / …):** these are imported by the kernel as Go modules (`kernel/go.mod`). To test a local change, add a temporary `replace` in `kernel/go.mod` pointing at your local checkout — but **never commit that `replace`**; it breaks builds for everyone else.
 - **Rebuilding `lute.min.js`:** it's the JS build of the Go `lute` project — generated upstream and checked into `app/stage/protyle/js/lute/`. Don't edit it here; change `lute`, rebuild, and copy the artifact in.
 - **Mobile apps (`siyuan-android` / `siyuan-ios` / `siyuan-harmony`):** each is a separate native app that wraps the kernel built from this repo. For how to build, vendor the kernel binding, and wire everything up, **read each project's own README** — the toolchains and steps differ per platform and aren't documented here.
-- **`siyuan-chrome`:** independent TypeScript project; it only interacts with a running SiYuan instance through the public HTTP API documented in `API.md`.
+- **`siyuan-chrome`:** independent TypeScript project; it only interacts with a running SiYuan instance through the public HTTP API documented in `docs/API.md`.
 
 ---
 
@@ -113,6 +114,7 @@ Four webpack configs each emit a separate bundle to `app/stage/build/{app,deskto
 
 1. **i18n:**
    - New keys go at the **top** of each `langs/*.json` object; add to every language file (reference `en.json`)
+   - Exception: inside the `_kernel` object, append new entries at the **end** using the next incremental numeric key
    - Each language must be properly translated — do NOT copy the same text across all language files
    - Domains: `ld246.com` only in `zh-CN.json`; use `liuyun.io` in all other languages
    - After modifying i18n files, run `python scripts/check-lang-keys.py` to verify key completeness across all language files
@@ -120,6 +122,7 @@ Four webpack configs each emit a separate bundle to `app/stage/build/{app,deskto
 3. **Frontend verification:** Do not use `npx webpack` or `pnpm dev` to verify changes; after changes, run `cd app && pnpm run lint` to check code style
 4. **Frontend build:** Do NOT run `pnpm build` — the developer runs `pnpm dev` manually, and `pnpm build` will conflict with it, producing broken bundles
 5. **Icons:** Do not hand-write SVG; use existing icons from `app/appearance/icons/litheness/icon.js` when possible
+6. **User guide:** When editing the user guide, follow `docs/SY-FORMAT.md`
 
 ---
 
@@ -128,9 +131,10 @@ Four webpack configs each emit a separate bundle to `app/stage/build/{app,deskto
 1. **Comments:** Wrap code comments at 120 characters
 2. **Comments:** Describe what the code does, not what it replaced — don't reference the old implementation in comments
 3. **Comments:** Write comments in Chinese
-4. **Markdown:** Do not hand-wrap; keep each line (paragraphs, table rows, list items, etc.) on a single line
-5. **TypeScript/JavaScript:** Semicolons required, use double quotes, indent with spaces
-6. **Go:** Format with `gofmt` after editing
+4. **Punctuation:** Use language-appropriate punctuation (e.g. Chinese punctuation ，。：；！？「」 for Chinese, not ASCII); do not hard-code it in code — put it in the i18n language files so each locale renders its own. Applies to comments, user guide, `.md` docs, etc.
+5. **Markdown:** Do not hand-wrap; keep each line (paragraphs, table rows, list items, etc.) on a single line
+6. **TypeScript/JavaScript:** Semicolons required, use double quotes, indent with spaces
+7. **Go:** Format with `gofmt` after editing
 
 ---
 

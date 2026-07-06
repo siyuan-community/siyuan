@@ -97,19 +97,19 @@ export const handleTouchEnd = (event: TouchEvent) => {
             return;
         }
     }
-    if (typeof yDiff === "undefined" && window.siyuan.mobile.editor?.protyle.options.render.gutter) {
+    if (typeof yDiff === "undefined" && editor?.protyle.options.render.gutter) {
         const nodeElement = hasClosestBlock(target);
         if (nodeElement) {
-            if (nodeElement && (nodeElement.classList.contains("list") || nodeElement.classList.contains("li"))) {
+            if (nodeElement.classList.contains("list") || nodeElement.classList.contains("li")) {
                 // 光标在列表下部应显示右侧的元素，而不是列表本身。放在 windowEvent 中的 mousemove 下处理
                 return;
             }
             const embedElement = isInEmbedBlock(nodeElement);
             if (embedElement) {
-                window.siyuan.mobile.editor.protyle.gutter.render(window.siyuan.mobile.editor.protyle, embedElement);
+                editor.protyle.gutter.render(editor.protyle, embedElement);
                 return;
             }
-            window.siyuan.mobile.editor.protyle.gutter.render(window.siyuan.mobile.editor.protyle, nodeElement, target);
+            editor.protyle.gutter.render(editor.protyle, nodeElement, target);
         }
     }
     isFirstMove = true;
@@ -146,7 +146,9 @@ export const handleTouchEnd = (event: TouchEvent) => {
     const isXScroll = Math.abs(xDiff) > Math.abs(yDiff);
     const modelElement = hasClosestByAttribute(target, "id", "model", true);
     if (modelElement) {
-        if (isXScroll && firstDirection === "toRight" && !lastClientX && !hasClosestByClassName(target, "protyle-wysiwyg", true)) {
+        if (isXScroll && firstDirection === "toRight" && !lastClientX && !hasClosestByClassName(target, "protyle-wysiwyg", true) &&
+            // 划选文字时不触发关闭面板
+            (getSelection().rangeCount === 0 || getSelection().toString() === "")) {
             closeModel();
         }
         return;
@@ -273,6 +275,11 @@ let previousClientX: number;
 const sideMaskElement = document.querySelector(".side-mask") as HTMLElement;
 export const handleTouchMove = (event: TouchEvent) => {
     const target = event.target as HTMLElement;
+    // 位移超过阈值说明是滑动而非长按，取消进入多选的定时器
+    if (clientX && clientY &&
+        (Math.abs(clientX - event.touches[0].clientX) >= 5 || Math.abs(clientY - event.touches[0].clientY) >= 5)) {
+        clearLongPress();
+    }
     if (!clientX || !clientY ||
         target.tagName === "AUDIO" ||
         document.getElementById("dragGhost") ||
@@ -293,17 +300,14 @@ export const handleTouchMove = (event: TouchEvent) => {
     if (getSelection().rangeCount > 0) {
         // 选中后扩选的情况
         const range = getSelection().getRangeAt(0);
-        if (range.toString() !== "" && window.siyuan.mobile.editor.protyle.wysiwyg.element.contains(range.startContainer)) {
+        const currentEditor = getCurrentEditor();
+        if (range.toString() !== "" && currentEditor?.protyle.wysiwyg.element.contains(range.startContainer)) {
             return;
         }
     }
 
     xDiff = Math.floor(clientX - event.touches[0].clientX);
     yDiff = Math.floor(clientY - event.touches[0].clientY);
-    // 位移超过阈值说明是滑动而非长按，取消进入多选的定时器
-    if (Math.abs(xDiff) >= 5 || Math.abs(yDiff) >= 5) {
-        clearLongPress();
-    }
     if (!firstDirection) {
         firstDirection = xDiff > 0 ? "toLeft" : "toRight";
     }

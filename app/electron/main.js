@@ -71,13 +71,26 @@ if (!app.requestSingleInstanceLock()) {
     return;
 }
 
-app.setAsDefaultProtocolClient("siyuan");
+// 开发环境下 Windows 需显式传入 Electron 可执行文件路径和 main.js 路径，否则 siyuan:// 会被当作相对路径
+if (isDevEnv && process.defaultApp && process.argv.length >= 2) {
+    const mainScript = path.resolve(process.argv[1]);
+    if (process.platform === "win32") {
+        app.removeAsDefaultProtocolClient("siyuan", process.execPath, [mainScript]);
+        app.setAsDefaultProtocolClient("siyuan", process.execPath, [mainScript]);
+    } else {
+        app.setAsDefaultProtocolClient("siyuan");
+    }
+} else {
+    app.setAsDefaultProtocolClient("siyuan");
+}
 
 app.commandLine.appendSwitch("disable-web-security");
 app.commandLine.appendSwitch("auto-detect", "false");
 app.commandLine.appendSwitch("no-proxy-server");
 app.commandLine.appendSwitch("enable-features", "PlatformHEVCDecoderSupport");
 app.commandLine.appendSwitch("xdg-portal-required-version", "4");
+// 本地 HTTPS 页面加载 HTTP 外链图时，禁止自动升级为 HTTPS
+app.commandLine.appendSwitch("disable-features", "AutoupgradeMixedContent");
 
 // Support set Chromium command line arguments on the desktop https://github.com/siyuan-note/siyuan/issues/9696
 writeLog("app is packaged [" + app.isPackaged + "], command line args [" + process.argv.join(", ") + "]");
@@ -377,10 +390,6 @@ const getServer = (port = kernelPort) => {
     return localhost ? `${localServer}:${port}` : remoteURL;
 };
 
-const initMainPage = (currentWindow) => {
-    currentWindow.loadURL(`${getServer()}/stage/build/app/?v=${Date.now()}`);
-};
-
 const exitKernel = (origin = getServer()) => {
     return localhost
         ? net.fetch(`${origin}/api/system/exit`, {method: "POST"})
@@ -532,20 +541,35 @@ const initMainWindow = () => {
     }
     currentWindow.webContents.userAgent = "SiYuan/" + appVer + " https://b3log.org/siyuan Electron " + currentWindow.webContents.userAgent;
 
+    // 加载主界面。setProxy 用超时兜底包装：Electron 在某些系统代理配置下 session.setProxy 可能永久
+    // pending（既不 resolve 也不 reject），会导致 loadURL 永不执行，主窗口卡在启动页无法显示。
+    // 这里无论 setProxy 是否完成，最多等待 5 秒后强制加载主界面。
+    const loadMainURL = () => {
+        currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + Date.now());
+    };
     // region 🛜 remote
+    const applyProxyAndLoad = (proxyPromise) => {
+        Promise.race([
+            proxyPromise,
+            new Promise((resolve) => setTimeout(resolve, 5000)), // setProxy 永久 pending 时的超时兜底
+        ]).then(loadMainURL).catch(() => {
+            writeLog("setProxy failed, load main UI without proxy");
+            loadMainURL();
+        });
+    };
+
     if (localhost) {
         // set proxy
         net.fetch(getServer() + "/api/system/getNetwork", {method: "POST"}).then((response) => {
             return response.json();
         }).then((response) => {
-            setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents).then(() => {
-                initMainPage(currentWindow);
-            });
+            applyProxyAndLoad(setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents));
+        }).catch((e) => {
+            writeLog("getNetwork failed, load main UI without proxy: " + e.message);
+            loadMainURL();
         });
     } else {
-        setProxy(proxyURL, currentWindow.webContents).then(() => {
-            initMainPage(currentWindow);
-        });
+        applyProxyAndLoad(setProxy(proxyURL, currentWindow.webContents));
     }
     // endregion 🛜 remote
 
@@ -553,6 +577,12 @@ const initMainWindow = () => {
     currentWindow.webContents.session.webRequest.onBeforeSendHeaders((details, cb) => {
         if (-1 < details.url.toLowerCase().indexOf("bili")) {
             // B 站不移除 Referer https://github.com/siyuan-note/siyuan/issues/94
+            cb({requestHeaders: details.requestHeaders});
+            return;
+        }
+
+        if (-1 < details.url.toLowerCase().indexOf("douyin")) {
+            // 抖音不移除 Referer，iframe 块内登录依赖 Referer 校验 https://github.com/siyuan-note/siyuan/issues/18070
             cb({requestHeaders: details.requestHeaders});
             return;
         }
@@ -633,7 +663,19 @@ const initMainWindow = () => {
     workspaces.push({
         browserWindow: currentWindow,
     });
+    // loadURL 后设置超时兜底：前端 app bundle 加载或初始化异常导致 siyuan-ready-to-show 迟迟不发时，
+    // 强制销毁 boot 窗口并显示主窗口，避免永久卡在启动页
+    const readyToShowTimeout = setTimeout(() => {
+        if (bootWindow && !bootWindow.isDestroyed()) {
+            if (!currentWindow.isDestroyed()) {
+                writeLog("siyuan-ready-to-show timeout, force showing main window");
+                currentWindow.show();
+            }
+            bootWindow.destroy();
+        }
+    }, 60000);
     ipcMain.once("siyuan-ready-to-show", () => {
+        clearTimeout(readyToShowTimeout); // 正常收到信号则取消超时兜底
         if (isOpenAsHidden()) {
             currentWindow.minimize();
         } else {
@@ -842,16 +884,27 @@ const initKernel = (workspace, port, lang, safeMode) => {
             } else {
                 let progressing = false;
                 const bootShowStart = Date.now();
+                // 启动超时兜底，防止内核异常时永久卡在 boot 轮询。数据同步、首次全量索引重建、
+                // 数据库版本变更触发的全表重建都发生在 SetBooted() 之前，会计入此循环，故给足余量
+                const bootTimeout = 300000;
                 while (!progressing) {
+                    if (Date.now() - bootShowStart > bootTimeout) {
+                        writeLog("boot progress timeout after " + bootTimeout + "ms, exiting boot");
+                        showErrorWindow("启动超时", "Boot timeout",
+                            "<div>内核启动超时，请查看 工作空间/temp/siyuan.log 获取详细报错信息，或尝试重启思源。</div>" +
+                            "<div>Kernel boot timed out. Please check workspace/temp/siyuan.log for details, or try restarting SiYuan.</div>");
+                        net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                        bootWindow.destroy();
+                        resolve(false);
+                        progressing = true;
+                        break;
+                    }
                     try {
                         const progressResult = await net.fetch(getServer() + "/api/system/bootProgress");
                         const progressData = await progressResult.json();
                         if (progressData.data.progress >= 100) {
-                            // 保证启动动画的最小展示时长，启动过快时补足差值再进入主窗口
-                            const elapsed = Date.now() - bootShowStart;
-                            if (elapsed < 2500) {
-                                await sleep(2500 - elapsed);
-                            }
+                            // 内核完成后等待动画快进收尾（200ms）再进入主窗口
+                            await sleep(200);
                             resolve(true);
                             progressing = true;
                         } else {

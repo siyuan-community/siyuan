@@ -32,7 +32,6 @@ import (
 	"github.com/88250/lute/html"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
-	mmap "github.com/edsrzf/mmap-go"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/panjf2000/ants/v2"
 	"github.com/siyuan-community/siyuan/kernel/cache"
@@ -247,7 +246,19 @@ func WriteTree(tree *parse.Tree) (size uint64, err error) {
 		return
 	}
 
-	if err = writeTreeByMmap(filePath, data); nil != err {
+	// 缓存与待写入数据一致时跳过落盘；缓存未命中时再读盘比对，避免无变更的重复写入
+	if cachedData, ok := cache.GetTreeData(tree.ID); ok {
+		if len(cachedData) == len(data) && bytes.Equal(cachedData, data) {
+			return
+		}
+	} else {
+		if diskData, readErr := filelock.ReadFile(filePath); nil == readErr && len(diskData) == len(data) && bytes.Equal(diskData, data) {
+			cache.SetTreeData(tree.ID, data)
+			return
+		}
+	}
+
+	if err = util.WriteFileByMmap(filePath, data); nil != err {
 		if err = writeTreeByWriteFile(filePath, data); nil != err {
 			return
 		}
@@ -267,39 +278,6 @@ func WriteTree(tree *parse.Tree) (size uint64, err error) {
 func writeTreeByWriteFile(filePath string, data []byte) (err error) {
 	if err = filelock.WriteFile(filePath, data); err != nil {
 		msg := fmt.Sprintf("write data [%s] failed: %s", filePath, err)
-		logging.LogErrorf(msg)
-		err = errors.New(msg)
-		return
-	}
-	return
-}
-
-func writeTreeByMmap(filePath string, data []byte) (err error) {
-	f, err := filelock.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		return
-	}
-	defer filelock.CloseFile(f)
-
-	if err = f.Truncate(int64(len(data))); err != nil {
-		msg := fmt.Sprintf("truncate file [%s] failed: %s", filePath, err)
-		logging.LogErrorf(msg)
-		err = errors.New(msg)
-		return
-	}
-
-	m, err := mmap.Map(f, mmap.RDWR, 0)
-	if err != nil {
-		msg := fmt.Sprintf("map file [%s] failed: %s", filePath, err)
-		logging.LogErrorf(msg)
-		err = errors.New(msg)
-		return
-	}
-	defer m.Unmap()
-
-	copy(m, data)
-	if err = m.Flush(); err != nil {
-		msg := fmt.Sprintf("flush data [%s] failed: %s", filePath, err)
 		logging.LogErrorf(msg)
 		err = errors.New(msg)
 		return

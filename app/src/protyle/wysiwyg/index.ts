@@ -9,6 +9,7 @@ import {
 } from "../util/hasClosest";
 import {
     focusBlock,
+    focusByOffset,
     focusByRange,
     focusByWbr,
     focusSideBlock,
@@ -1296,25 +1297,32 @@ export class WYSIWYG {
             } else if (event.clientX < mostLeft) {
                 fromOutsideX = mostLeft + 10;
             }
+            const lastRect = protyle.wysiwyg.element.lastElementChild.getBoundingClientRect();
             // 起点落在 padding 外或块间空白（target 为 wysiwyg 容器本身）时，需用 elementFromPoint 定位起始块
             if (fromOutsideX !== undefined || target.classList.contains("protyle-wysiwyg")) {
                 const startX = fromOutsideX !== undefined ? fromOutsideX : event.clientX;
-                // 块间缝隙可能大于固定偏移量，需沿 y 轴循环探测直到命中块
+                // 块间缝隙或 wysiwyg padding 较大（如打字机模式）时，需沿 y 轴循环探测直到命中块
                 nodeElement = hasClosestBlock(document.elementFromPoint(startX, event.clientY)) as HTMLElement;
                 if (!nodeElement) {
-                    let probeY = event.clientY;
-                    // 步长 8px，上限 96px（约 6 个普通行高），避免在超大空白块上无限循环
-                    while (!nodeElement && probeY < event.clientY + 96) {
-                        probeY += 8;
-                        const probeElement = document.elementFromPoint(startX, probeY);
-                        if (probeElement && !probeElement.classList.contains("protyle-wysiwyg")) {
-                            nodeElement = hasClosestBlock(probeElement) as HTMLElement;
+                    const probe = (step: number, limit: number) => {
+                        let probeY = event.clientY;
+                        while (!nodeElement && (step > 0 ? probeY < limit : probeY > limit)) {
+                            probeY += step;
+                            const probeElement = document.elementFromPoint(startX, probeY);
+                            if (probeElement && !probeElement.classList.contains("protyle-wysiwyg")) {
+                                nodeElement = hasClosestBlock(probeElement) as HTMLElement;
+                            }
                         }
+                    };
+                    if (event.clientY > lastRect.bottom) {
+                        probe(-8, wysiwygRect.top);
+                    } else {
+                        probe(8, lastRect.bottom);
                     }
                 }
             }
-            // 落点是否在缝隙/padding（nodeElement 为落点下方的块），滚动后该相对关系不变，于 mousedown 时记录一次
-            const startBelowPoint = !!nodeElement && nodeElement.getBoundingClientRect().top > y;
+            // 落点是否在块外（padding/缝隙），此时 nodeElement 为探测所得，向上划选的遍历终点应用落点 y 而非 nodeElement 边
+            const startOutsideBlock = fromOutsideX !== undefined || target.classList.contains("protyle-wysiwyg");
             if (!nodeElement) {
                 const breadElement = hasClosestByClassName(target, "protyle-breadcrumb__item");
                 if (breadElement) {
@@ -1482,10 +1490,10 @@ export class WYSIWYG {
                 // 块选择判定用的右边界需落在内容区，避免矩形右边缘在 padding 内时选不中块
                 const selectRight = Math.max(newLeft + newWidth, mostLeft);
                 // 向上划选时以 nodeElement 的实时边作为遍历终点（兼容滚动 https://github.com/siyuan-note/siyuan/issues/14664）；
-                // 落点在缝隙时 nodeElement 为下方块，需用其 top（不含自身）避免误选下方块
+                // 落点在缝隙/padding 时 nodeElement 为探测所得的块，其边会超出落点 y 导致误选，故以落点 y 为终点
                 const startBlockRect = nodeElement.getBoundingClientRect();
                 const selectBottom = moveEvent.clientY <= selectStartY
-                    ? (startBelowPoint ? startBlockRect.top : startBlockRect.bottom)
+                    ? (startOutsideBlock ? y : startBlockRect.bottom)
                     : (newTop + newHeight);
                 // newLeft 落在 padding 内时 elementFromPoint 会命中 wysiwyg 容器，需钳制到内容区
                 const detectX = Math.max(mostLeft, Math.min(newLeft, mostRight));
@@ -1505,7 +1513,8 @@ export class WYSIWYG {
                     while (probeY < selectBottom) {
                         probeY += 8;
                         const probeElement = document.elementFromPoint(detectX, probeY);
-                        if (probeElement && !isContainer(probeElement)) {
+                        // 命中非容器元素或容器块（list/sb 等 hasClosestBlock 可识别）即采用
+                        if (probeElement && (!isContainer(probeElement) || hasClosestBlock(probeElement))) {
                             firstElement = probeElement;
                             break;
                         }
@@ -1520,7 +1529,7 @@ export class WYSIWYG {
                 }
                 if (moveEvent.clientY <= selectStartY && !firstBlockElement &&
                     // https://github.com/siyuan-note/siyuan/issues/7580
-                    moveEvent.clientY < protyle.wysiwyg.element.lastElementChild.getBoundingClientRect().bottom) {
+                    moveEvent.clientY < lastRect.bottom) {
                     firstBlockElement = protyle.wysiwyg.element.firstElementChild as HTMLElement;
                     if (firstBlockElement.classList.contains("protyle-breadcrumb__bar")) {
                         firstBlockElement = firstBlockElement.nextElementSibling as HTMLElement;
@@ -2710,12 +2719,28 @@ export class WYSIWYG {
 
         // 输入法测试点 https://github.com/siyuan-note/siyuan/issues/3027
         let isComposition = false; // for iPhone
+        // 记录组合开始时的光标位置，用于取消组合后恢复光标（输入法删空候选词触发 compositionend 时浏览器会把光标移出可编辑单元格）
+        let compositionRange: { cell: HTMLElement; offset: number };
         this.element.addEventListener("compositionstart", (event) => {
             isComposition = true;
             // 微软双拼由于 focusByRange 导致无法输入文字，因此不再 keydown 中记录了，但 keyup 会记录拼音字符，因此使用 isComposition 阻止 keyup 记录。
             // 但搜狗输入法选中后继续输入不走 keydown，isComposition 阻止了 keyup 记录，因此需在此记录。
             const range = getEditorRange(protyle.wysiwyg.element);
             const nodeElement = hasClosestBlock(range.startContainer);
+            // 记录组合开始时光标所在的可编辑单元格与偏移，供取消组合时恢复光标
+            if (nodeElement) {
+                const startCell = hasClosestByTag(range.startContainer, "TD") || hasClosestByTag(range.startContainer, "TH");
+                if (startCell) {
+                    compositionRange = {
+                        cell: startCell,
+                        offset: getSelectionOffset(startCell as HTMLElement, nodeElement, range).start,
+                    };
+                } else {
+                    compositionRange = undefined;
+                }
+            } else {
+                compositionRange = undefined;
+            }
             if (!isMac() && nodeElement) {
                 setInsertWbrHTML(nodeElement, range, protyle);
             }
@@ -2739,8 +2764,23 @@ export class WYSIWYG {
             } else {
                 const id = blockElement.getAttribute("data-node-id");
                 if (protyle.wysiwyg.lastHTMLs[id]) {
+                    // https://github.com/siyuan-note/siyuan/issues/4604
                     updateTransaction(protyle, blockElement, protyle.wysiwyg.lastHTMLs[id]);
                 }
+                // https://github.com/siyuan-note/siyuan/issues/17584
+                if (compositionRange) {
+                    const selection = getSelection();
+                    if (selection.rangeCount > 0) {
+                        const afterRange = selection.getRangeAt(0);
+                        const currentCell = hasClosestByTag(afterRange.startContainer, "TD") || hasClosestByTag(afterRange.startContainer, "TH");
+                        if (!currentCell || currentCell !== compositionRange.cell) {
+                            focusByOffset(compositionRange.cell, compositionRange.offset, compositionRange.offset);
+                        }
+                    } else {
+                        focusByOffset(compositionRange.cell, compositionRange.offset, compositionRange.offset);
+                    }
+                }
+                compositionRange = undefined;
             }
         });
 

@@ -46,7 +46,7 @@
   - [Package Manager](#package-manager)
   - [Docker Hosting](#docker-hosting)
   - [Unraid Hosting](#unraid-hosting)
-  - [TrueNAS Hosting](#TrueNAS-hosting)
+  - [TrueNAS Hosting](#truenas-hosting)
   - [Insider Preview](#insider-preview)
 - [⌨️ Command-line Interface](#-command-line-interface)
 - [🏘️ Community](#️-community)
@@ -110,7 +110,7 @@ Most features are free, even for commercial use.
 - JavaScript/CSS snippet
 - Android/iOS/HarmonyOS App
 - Docker deployment
-- [API](https://github.com/siyuan-note/siyuan/blob/master/API.md)
+- [API](https://github.com/siyuan-note/siyuan/blob/master/docs/API.md)
 - Community marketplace
 
 Some features are only available to paid members, for more details please refer to [Pricing](https://b3log.org/siyuan/en/pricing.html).
@@ -320,7 +320,7 @@ Container Path: /home/siyuan
 Host path: /mnt/user/appdata/siyuan
 PUID: 1000
 PGID: 1000
-Publish parameters: --accessAuthCode=******(Lock screen password)
+Publish parameters: serve --accessAuthCode=******(Lock screen password)
 ```
 
 </details>
@@ -391,7 +391,7 @@ siyuan export md --id <block-id> -w ~/SiYuan
 | Metadata | `tag`, `bookmark`, `template` — tags, bookmarks, template snippets |
 | Queries | `search`, `sql` — full-text and SQL queries |
 | References | `ref` — backlinks and mentions |
-| Import/Export | `export`, `import` — Markdown, HTML, preview, Word, .sy.zip, Data |
+| Import/Export | `export`, `import`, `inbox` — Markdown, HTML, preview, Word, .sy.zip, Data, cloud inbox |
 | Data Management | `repo`, `history`, `sync` — snapshots, versions, cloud sync |
 | Utilities | `asset`, `file` — resources and file system |
 | Database | `database` — attribute view management |

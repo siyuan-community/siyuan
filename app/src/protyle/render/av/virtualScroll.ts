@@ -12,6 +12,9 @@ interface IBodyState {
     // 缓存的行高，避免每帧读 currentRows[0].offsetHeight（强制重排来源）。
     // 表格行高在渲染后基本稳定，用缓存值做外推/分页计算即可，少量偏差不影响正确性。
     rowHeight?: number;
+    // 选中行 ID 快照。trim 会移除/回填行 DOM，而选中高亮（av__row--select）是纯运行时状态、
+    // getRowHTML 不携带，故在每次 trim 处理前从现存 DOM 同步，回填后据此恢复。
+    selectedRowIds?: Set<string>;
 }
 
 const dataStore = new Map<string, {
@@ -61,6 +64,26 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         }
         try {
             const spacerElement = bodyEl.querySelector(".av__spacer") as HTMLElement;
+        // 选中高亮是纯 DOM 运行时状态、getRowHTML 不携带。selectedRowIds 由 selectRow 等变更点
+        // 维护（见 updateAVRowSelect），trim 回填行后据此恢复，避免虚拟滚动丢失选中态。
+        if (!state.selectedRowIds) {
+            state.selectedRowIds = new Set();
+        }
+        // 给回填的行恢复选中态：遍历 body 内现存数据行，命中 selectedRowIds 的补回高亮类与选中图标。
+        const restoreSelect = () => {
+            if (state.selectedRowIds.size === 0) {
+                return;
+            }
+            bodyEl.querySelectorAll(type === "table" ? ".av__row[data-id]" : ".av__gallery-item[data-id]").forEach((row: HTMLElement) => {
+                if (state.selectedRowIds.has(row.getAttribute("data-id"))) {
+                    row.classList.add(type === "table" ? "av__row--select" : "av__gallery-item--select");
+                    const use = row.querySelector(".av__firstcol use") as SVGUseElement;
+                    if (use) {
+                        use.setAttribute("xlink:href", "#iconCheck");
+                    }
+                }
+            });
+        };
         let firstVisibleIndex: number;
         let lastVisibleIndex: number;
         const toRemoveAbove: HTMLElement[] = [];
@@ -70,6 +93,40 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         const rowHeight = state.rowHeight || currentRows[0].offsetHeight;
         state.rowHeight = rowHeight;
         const firstTop = currentRows[0].getBoundingClientRect().top;
+        // 大跨度跳转（如 Ctrl+Home）后渲染窗口与视口脱钩：spacer 把现存行整体顶出视口，
+        // 渐进式 trim 无法回填（firstVisibleIndex 取不到、回填分支依赖连续滚动方向）。
+        // 此处用 spacer 下沿（即 renderedStart 行的实际位置）反推视口应显示的起始行，
+        // 与 renderedStart 偏差超过一屏时整体重置渲染窗口，不依赖滚动方向与连续性。
+        if (spacerElement && state.renderedStart > 0) {
+            const viewportStartTop = Math.max(elementRect.top, blockRect.top);
+            const renderedStartTop = spacerElement.getBoundingClientRect().bottom;
+            const rowsPerViewport = Math.ceil(viewportHeight / Math.max(rowHeight, 1));
+            // renderedStartTop 远在视口下方，说明视口正落在 spacer 空白区，顶部行未渲染
+            if (renderedStartTop - viewportStartTop > rowHeight * rowsPerViewport) {
+                currentRows.forEach(row => row.remove());
+                spacerElement.remove();
+                const newEnd = Math.min(rowsPerViewport - 1, dataRows.length - 1);
+                let rowsHTML = "";
+                const viewType = blockElement.getAttribute("data-av-type") as TAVView;
+                for (let i = 0; i <= newEnd; i++) {
+                    rowsHTML += getRowHTML({
+                        data: state.view,
+                        row: dataRows[i],
+                        rowIndex: i,
+                        pinIndex: state.pinIndex,
+                        type: viewType
+                    });
+                }
+                if (bottomElement && bottomElement.isConnected) {
+                    bottomElement.insertAdjacentHTML("beforebegin", rowsHTML);
+                }
+                restoreSelect();
+                state.renderedStart = 0;
+                state.renderedEnd = newEnd;
+                state.topSpacerHeight = 0;
+                return;
+            }
+        }
         let foundFirstVisible = false;
         for (let i = 0; i < currentRows.length; i++) {
             const rect = currentRows[i].getBoundingClientRect();
@@ -178,6 +235,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                 if (bottomElement && bottomElement.isConnected) {
                     bottomElement.insertAdjacentHTML("beforebegin", rowsHTML);
                 }
+                restoreSelect();
                 state.renderedEnd = lastVisibleIndex;
             }
         } else {
@@ -228,6 +286,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                     spacerElement.style.height = state.topSpacerHeight + "px";
                 }
                 state.renderedStart = firstVisibleIndex;
+                restoreSelect();
             }
         }
         } finally {
@@ -249,6 +308,48 @@ const getBodyData = (bodyEl: HTMLElement) => {
 // 对外暴露 body 数据源，供虚拟滚动状态下写入/粘贴未渲染行时生成占位行 HTML
 export const getAvBodyData = (bodyEl: HTMLElement): IAVView | null => {
     return getBodyData(bodyEl);
+};
+
+// 同步选中行 ID 到虚拟滚动状态。选中高亮是纯 DOM 运行时状态，trim 会移除/回填行 DOM，
+// 若不在变更点维护一份 ID 快照，被 trim 掉的选中行回填后将永久丢失选中态。
+// selectRow 等所有变更选中态的入口在改完 DOM 后需调用：selected=true 记入、false 移除。
+export const updateAVRowSelect = (bodyEl: HTMLElement, rowId: string, selected: boolean): void => {
+    const state = bodyStates.get(bodyEl);
+    if (!state) {
+        return;
+    }
+    if (!state.selectedRowIds) {
+        state.selectedRowIds = new Set();
+    }
+    if (selected) {
+        state.selectedRowIds.add(rowId);
+    } else {
+        state.selectedRowIds.delete(rowId);
+    }
+};
+
+// 全量重置某 body 的选中行 ID 快照（全选/全不选/avRender 重渲后调用）。
+export const resetAVRowSelect = (bodyEl: HTMLElement, rowIds: string[]): void => {
+    const state = bodyStates.get(bodyEl);
+    if (!state) {
+        return;
+    }
+    state.selectedRowIds = new Set(rowIds);
+};
+
+// 返回某 body 的选中统计，供虚拟滚动场景下 updateHeader 显示真实计数。
+// 虚拟滚动时 DOM 内只有渲染窗口的行，直接查 DOM 会低估选中数；此处改用 selectedRowIds 快照与
+// 已加载分页行总数（state.view.rows）计算。非虚拟滚动（无 state）时返回 null 表示回退到 DOM 计数。
+export const getAVSelectStat = (bodyEl: HTMLElement): { selectCount: number, loadedCount: number } | null => {
+    const state = bodyStates.get(bodyEl);
+    if (!state || !state.selectedRowIds) {
+        return null;
+    }
+    const dataRows = state.view ? ((state.view as IAVTable).rows || (state.view as IAVKanban).cards || []) : [];
+    return {
+        selectCount: state.selectedRowIds.size,
+        loadedCount: dataRows.length,
+    };
 };
 
 export const trimAVRows = (blockElement: HTMLElement, elementRect: DOMRect): void => {
@@ -286,6 +387,14 @@ export const initVirtualScroll = (options: {
     });
 
     options.blockElement.querySelectorAll(".av__body").forEach((item: HTMLElement) => {
+        // 从现存 DOM 初始化选中行 ID 快照，重渲后保留选中态
+        const selectedRowIds = new Set<string>();
+        item.querySelectorAll(options.data.viewType === "table" ? ".av__row--select" : ".av__gallery-item--select").forEach((row: HTMLElement) => {
+            const id = row.getAttribute("data-id");
+            if (id) {
+                selectedRowIds.add(id);
+            }
+        });
         if (options.data.viewType === "table") {
             bodyStates.set(item, {
                 renderedStart: parseInt(item.querySelectorAll(".av__row")[1].getAttribute("data-index")),
@@ -293,6 +402,7 @@ export const initVirtualScroll = (options: {
                 renderedEnd: parseInt(item.querySelector(".av__row--util").previousElementSibling.getAttribute("data-index")),
                 view: getBodyData(item),
                 topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
+                selectedRowIds,
             });
         } else {
             bodyStates.set(item, {
@@ -300,6 +410,7 @@ export const initVirtualScroll = (options: {
                 renderedEnd: parseInt(item.querySelector(".av__gallery-add").previousElementSibling.getAttribute("data-index")),
                 view: getBodyData(item),
                 topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
+                selectedRowIds,
             });
         }
     });

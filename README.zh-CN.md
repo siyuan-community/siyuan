@@ -46,7 +46,7 @@
   - [包管理器](#包管理器)
   - [Docker 部署](#docker-部署)
   - [Unraid 部署](#unraid-部署)
-  - [TrueNAS 部署](#trueNAS-部署)
+  - [TrueNAS 部署](#truenas-部署)
   - [宝塔面板部署](#宝塔面板部署)
   - [小皮面板部署](#小皮面板部署)
   - [1Panel 面板部署](#1Panel-面板部署)
@@ -113,7 +113,7 @@
 - JavaScript/CSS 代码片段
 - Android/iOS/鸿蒙 App
 - Docker 部署
-- [API](API.zh-CN.md)
+- [API](docs/API.zh-CN.md)
 - 社区集市
 
 部分功能需要付费会员才能使用，更多细节请参考[定价](https://b3log.org/siyuan/pricing.html)。
@@ -329,7 +329,7 @@ Host path: /mnt/user/appdata/siyuan
 PUID: 1000
 PGID: 1000
 SIYUAN_LANG: zh-CN
-Publish parameters: --accessAuthCode=******（锁屏密码）
+Publish parameters: serve --accessAuthCode=******（锁屏密码）
 ```
 
 </details>
@@ -492,7 +492,7 @@ siyuan export md --id <block-id> -w ~/SiYuan
 | 元数据 | `tag`、`bookmark`、`template` — 标签、书签、模板片段 |
 | 查询 | `search`、`sql` — 全文和 SQL 查询 |
 | 引用 | `ref` — 反向链接和提及 |
-| 导入导出 | `export`、`import` — Markdown、HTML、preview、Word、.sy.zip、Data |
+| 导入导出 | `export`、`import`、`inbox` — Markdown、HTML、preview、Word、.sy.zip、Data、云端收集箱 |
 | 数据管理 | `repo`、`history`、`sync` — 快照、历史、云端同步 |
 | 工具 | `asset`、`file` — 资源与文件系统 |
 | 数据库 | `database` — 属性视图管理 |

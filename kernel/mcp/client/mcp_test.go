@@ -14,14 +14,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package util
+package client
 
-// StatusBar 底部状态栏配置。https://github.com/siyuan-note/siyuan/issues/16236
-type StatusBar struct {
-	MsgTaskDatabaseIndexCommitDisabled        bool `json:"msgTaskDatabaseIndexCommitDisabled"`
-	MsgTaskHistoryDatabaseIndexCommitDisabled bool `json:"msgTaskHistoryDatabaseIndexCommitDisabled"`
-	MsgTaskAssetDatabaseIndexCommitDisabled   bool `json:"msgTaskAssetDatabaseIndexCommitDisabled"`
-	MsgTaskHistoryGenerateFileDisabled        bool `json:"msgTaskHistoryGenerateFileDisabled"`
+import (
+	"errors"
+	"testing"
+)
+
+func TestIsReconnectableError(t *testing.T) {
+	sseErr := errors.New(`connection closed: standalone SSE stream: exceeded 5 retries without progress`)
+	if !isReconnectableError(sseErr) {
+		t.Fatal("expected SSE disconnect to be reconnectable")
+	}
+
+	authErr := errors.New("401 Unauthorized: invalid_token")
+	if isReconnectableError(authErr) {
+		t.Fatal("expected auth error not to trigger reconnect")
+	}
 }
-
-var StatusBarCfg *StatusBar

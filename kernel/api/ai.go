@@ -22,6 +22,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/conf"
+	mcpclient "github.com/siyuan-community/siyuan/kernel/mcp/client"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
@@ -154,4 +155,32 @@ func listModels(c *gin.Context) {
 		result["msg"] = err.Error()
 	}
 	ret.Data = result
+}
+
+// embeddingStat 返回嵌入索引进度统计，供设置页展示进度条与各项计数。
+func embeddingStat(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	ret.Data = model.GetEmbeddingStat()
+}
+
+// mcpStatus 返回所有已配置 MCP server 的连接状态，供设置页轮询展示。
+func mcpStatus(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	ret.Data = mcpclient.MCPStatus()
+}
+
+// reindexEmbedding 清空嵌入向量表并触发后台索引器重新计算所有块，异步执行。
+func reindexEmbedding(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	model.ReindexEmbedding()
+}
+
+// retryFailedEmbedding 删除失败块的行，使其立即回到主循环重嵌，已成功向量不动，异步执行。
+func retryFailedEmbedding(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	model.RetryFailedEmbedding()
 }

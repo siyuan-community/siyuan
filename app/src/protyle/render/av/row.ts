@@ -20,6 +20,7 @@ import {getColIconByType, getColNameByType} from "./col";
 import {unicode2Emoji} from "../../../emoji";
 import {escapeAttr} from "../../../util/escape";
 import {getCompressURL} from "../../../util/image";
+import {getAVSelectStat, getAvBodyData, resetAVRowSelect, updateAVRowSelect} from "./virtualScroll";
 
 export const getRowHTML = (options: {
     data: IAVView
@@ -220,6 +221,7 @@ export const selectRow = (checkElement: Element, type: "toggle" | "select" | "un
         return;
     }
     const useElement = checkElement.querySelector("use");
+    const bodyElement = hasClosestByClassName(rowElement, "av__body") as HTMLElement;
     if (rowElement.classList.contains("av__row--header") || type === "unselectAll") {
         if ("#iconCheck" === useElement.getAttribute("xlink:href") || type === "unselectAll") {
             rowElement.parentElement.querySelectorAll(".av__firstcol").forEach(item => {
@@ -229,7 +231,13 @@ export const selectRow = (checkElement: Element, type: "toggle" | "select" | "un
                     rowItemElement.classList.remove("av__row--select");
                 }
             });
+            // 全不选：清空选中快照，避免被 trim 掉的行回填后仍带选中态
+            if (bodyElement) {
+                resetAVRowSelect(bodyElement, []);
+            }
         } else {
+            // 全选：范围以当前已加载的分页行（dataStore 的 view.rows）为准，而非仅 DOM 内已渲染的行。
+            // 虚拟滚动下被 trim 掉的行 ID 一并存入快照，回填时由 restoreSelect 恢复高亮。
             rowElement.parentElement.querySelectorAll(".av__firstcol").forEach(item => {
                 item.querySelector("use").setAttribute("xlink:href", "#iconCheck");
                 const rowItemElement = hasClosestByClassName(item, "av__row");
@@ -237,14 +245,33 @@ export const selectRow = (checkElement: Element, type: "toggle" | "select" | "un
                     rowItemElement.classList.add("av__row--select");
                 }
             });
+            const allRowIds: string[] = [];
+            if (bodyElement) {
+                const view = getAvBodyData(bodyElement) as IAVTable;
+                if (view?.rows) {
+                    view.rows.forEach((row: IAVRow) => {
+                        if (row.id) {
+                            allRowIds.push(row.id);
+                        }
+                    });
+                }
+                resetAVRowSelect(bodyElement, allRowIds);
+            }
         }
     } else {
+        const rowId = rowElement.getAttribute("data-id");
         if (type === "select" || (useElement.getAttribute("xlink:href") === "#iconUncheck" && type === "toggle")) {
             rowElement.classList.add("av__row--select");
             useElement.setAttribute("xlink:href", "#iconCheck");
+            if (bodyElement && rowId) {
+                updateAVRowSelect(bodyElement, rowId, true);
+            }
         } else if (type === "unselect" || (useElement.getAttribute("xlink:href") === "#iconCheck" && type === "toggle")) {
             rowElement.classList.remove("av__row--select");
             useElement.setAttribute("xlink:href", "#iconUncheck");
+            if (bodyElement && rowId) {
+                updateAVRowSelect(bodyElement, rowId, false);
+            }
         }
     }
     focusBlock(hasClosestBlock(rowElement) as HTMLElement);
@@ -256,10 +283,13 @@ export const updateHeader = (rowElement: HTMLElement) => {
     if (!blockElement) {
         return;
     }
-    const selectCount = rowElement.parentElement.querySelectorAll(".av__row--select:not(.av__row--header)").length;
-    const count = rowElement.parentElement.querySelectorAll(".av__row:not(.av__row--header)").length;
+    const bodyElement = rowElement.parentElement as HTMLElement;
+    // 虚拟滚动下 DOM 内只有渲染窗口的行，直接计数会低估；优先用选中快照与已加载行总数。
+    const stat = getAVSelectStat(bodyElement);
+    const selectCount = stat ? stat.selectCount : bodyElement.querySelectorAll(".av__row--select:not(.av__row--header)").length;
+    const count = stat ? stat.loadedCount : bodyElement.querySelectorAll(".av__row:not(.av__row--header)").length;
 
-    const headElement = rowElement.parentElement.firstElementChild;
+    const headElement = bodyElement.firstElementChild;
     const headUseElement = headElement.querySelector("use");
 
     if (count === selectCount && count !== 0) {
@@ -274,13 +304,12 @@ export const updateHeader = (rowElement: HTMLElement) => {
     }
 
     const counterElement = blockElement.querySelector(".av__counter");
-    const allCount = blockElement.querySelectorAll(".av__row--select:not(.av__row--header)").length;
-    if (allCount === 0) {
+    if (selectCount === 0) {
         counterElement.classList.add("fn__none");
         return;
     }
     counterElement.classList.remove("fn__none");
-    counterElement.innerHTML = `${allCount} ${window.siyuan.languages.selected}`;
+    counterElement.innerHTML = `${selectCount} ${window.siyuan.languages.selected}`;
 };
 
 export const setPage = (blockElement: Element) => {

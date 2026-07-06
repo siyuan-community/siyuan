@@ -29,7 +29,7 @@ import (
 )
 
 func BootMobile(container, appDir, workspaceBaseDir, lang string) {
-	IncBootProgress(3, "Booting kernel...")
+	IncBootProgress(3, BootL10n(299, "Booting kernel..."))
 	initMime()
 	initHttpClient()
 	ServerPort = FixedPort
@@ -148,6 +148,7 @@ func initWorkspaceDirMobile(workspaceBaseDir string) {
 	RepoDir = filepath.Join(WorkspaceDir, "repo")
 	HistoryDir = filepath.Join(WorkspaceDir, "history")
 	TempDir = filepath.Join(WorkspaceDir, "temp")
+	QueueDir = filepath.Join(TempDir, "queue")
 	osTmpDir := filepath.Join(TempDir, "os")
 	os.RemoveAll(osTmpDir)
 	if err := os.MkdirAll(osTmpDir, 0755); err != nil {

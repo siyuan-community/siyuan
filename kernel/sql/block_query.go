@@ -359,6 +359,12 @@ func QueryNoLimit(stmt string) (ret []map[string]any, err error) {
 	return queryRawStmt(stmt, math.MaxInt)
 }
 
+// QueryNoLimitArgs 与 QueryNoLimit 一致，但支持参数化查询（stmt 中用 ? 占位，args 顺序填入）。
+// 用于 embedding 索引器按 fail_count/last_tried 调度时的带参 SELECT。
+func QueryNoLimitArgs(stmt string, args ...any) (ret []map[string]any, err error) {
+	return queryRawStmtArgs(stmt, args, math.MaxInt)
+}
+
 func Query(stmt string, limit int) (ret []map[string]any, err error) {
 	originalStmt := stmt
 	// Kernel API `/api/query/sql` support `||` operator https://github.com/siyuan-note/siyuan/issues/9662
@@ -540,8 +546,80 @@ func queryRawStmt(stmt string, limit int) (ret []map[string]any, err error) {
 	return
 }
 
+// queryRawStmtArgs 与 queryRawStmt 一致，但走带参数的 query，避免 SQL 拼接注入与时间格式问题。
+func queryRawStmtArgs(stmt string, args []any, limit int) (ret []map[string]any, err error) {
+	rows, err := query(stmt, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil || nil == cols {
+		return
+	}
+
+	noLimit := !containsLimitClause(stmt)
+	var count int
+	for rows.Next() {
+		columns := make([]any, len(cols))
+		columnPointers := make([]any, len(cols))
+		for i := range columns {
+			columnPointers[i] = &columns[i]
+		}
+
+		if err = rows.Scan(columnPointers...); err != nil {
+			return
+		}
+
+		m := make(map[string]any)
+		for i, colName := range cols {
+			val := columnPointers[i].(*any)
+			m[colName] = *val
+		}
+
+		ret = append(ret, m)
+		count++
+		if noLimit && limit < count {
+			break
+		}
+	}
+	return
+}
+
 func SelectBlocksRawStmtNoParse(stmt string, limit int) (ret []*Block) {
 	return selectBlocksRawStmt(stmt, limit)
+}
+
+// SelectBlocksRawStmtArgs 与 selectBlocksRawStmt 行为一致，但通过绑定参数执行，
+// 绕开 sqlparser 解析（vitess 会把 "?" 改写为 ":vN" 导致占位失效），用于含用户可控参数的搜索语句。
+func SelectBlocksRawStmtArgs(stmt string, args []any, limit int) (ret []*Block) {
+	rows, err := query(stmt, args...)
+	if err != nil {
+		if strings.Contains(err.Error(), "syntax error") {
+			return
+		}
+		logging.LogWarnf("sql query [%s] failed: %s", stmt, err)
+		return
+	}
+	defer rows.Close()
+
+	noLimit := !containsLimitClause(stmt)
+	var count, errCount int
+	for rows.Next() {
+		count++
+		if block := scanBlockRows(rows); nil != block {
+			ret = append(ret, block)
+		} else {
+			logging.LogWarnf("raw sql query [%s] failed", stmt)
+			errCount++
+		}
+
+		if (noLimit && limit < count) || 0 < errCount {
+			break
+		}
+	}
+	return
 }
 
 func SelectBlocksRawStmt(stmt string, page, limit int) (ret []*Block) {
@@ -642,6 +720,59 @@ func SelectBlocksRawStmt(stmt string, page, limit int) (ret []*Block) {
 
 func SelectBlocksRegex(stmt string, exp *regexp.Regexp, name, alias, memo, ial bool, page, pageSize int) (ret []*Block) {
 	rows, err := query(stmt)
+	if err != nil {
+		logging.LogErrorf("sql query [%s] failed: %s", stmt, err)
+		return
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		count++
+		if count <= (page-1)*pageSize {
+			continue
+		}
+
+		var block Block
+		if err := rows.Scan(&block.ID, &block.ParentID, &block.RootID, &block.Hash, &block.Box, &block.Path, &block.HPath, &block.Name, &block.Alias, &block.Memo, &block.Tag, &block.Content, &block.FContent, &block.Markdown, &block.Length, &block.Type, &block.SubType, &block.IAL, &block.Sort, &block.Created, &block.Updated); err != nil {
+			logging.LogErrorf("query scan field failed: %s\n%s", err, logging.ShortStack())
+			return
+		}
+
+		hitContent := exp.MatchString(block.Content)
+		hitName := name && exp.MatchString(block.Name)
+		hitAlias := alias && exp.MatchString(block.Alias)
+		hitMemo := memo && exp.MatchString(block.Memo)
+		hitIAL := ial && exp.MatchString(block.IAL)
+		if hitContent || hitName || hitAlias || hitMemo || hitIAL {
+			if hitContent {
+				block.Content = exp.ReplaceAllString(block.Content, "__@mark__${0}__mark@__")
+			}
+			if hitName {
+				block.Name = exp.ReplaceAllString(block.Name, "__@mark__${0}__mark@__")
+			}
+			if hitAlias {
+				block.Alias = exp.ReplaceAllString(block.Alias, "__@mark__${0}__mark@__")
+			}
+			if hitMemo {
+				block.Memo = exp.ReplaceAllString(block.Memo, "__@mark__${0}__mark@__")
+			}
+			if hitIAL {
+				block.IAL = exp.ReplaceAllString(block.IAL, "__@mark__${0}__mark@__")
+			}
+
+			ret = append(ret, &block)
+			if len(ret) >= pageSize {
+				break
+			}
+		}
+	}
+	return
+}
+
+// SelectBlocksRegexArgs 与 SelectBlocksRegex 行为一致，但通过绑定参数执行，
+// 绕开 sqlparser 解析（vitess 会把 "?" 改写为 ":vN" 导致占位失效），用于含用户可控参数的正则搜索。
+func SelectBlocksRegexArgs(stmt string, exp *regexp.Regexp, name, alias, memo, ial bool, page, pageSize int, args ...any) (ret []*Block) {
+	rows, err := query(stmt, args...)
 	if err != nil {
 		logging.LogErrorf("sql query [%s] failed: %s", stmt, err)
 		return
