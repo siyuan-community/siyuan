@@ -16,7 +16,7 @@
 
 package conf
 
-import "github.com/siyuan-note/siyuan/kernel/util"
+import "github.com/siyuan-community/siyuan/kernel/util"
 
 // NotebookCrypto 维护加密笔记本的全局密钥管理参数，随 conf.json 持久化。
 // MasterSalt 与 KEKVerifier 设计为可明文存储：salt 不保密，verifier 本身是密文（用 KEK 加密的固定魔数）。

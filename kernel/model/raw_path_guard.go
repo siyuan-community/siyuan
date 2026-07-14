@@ -19,7 +19,7 @@ package model
 import (
 	"path/filepath"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // EncryptedRawPathBoxID 返回原始文件路径所属的加密笔记本 ID。

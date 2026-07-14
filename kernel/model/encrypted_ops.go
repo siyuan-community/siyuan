@@ -18,8 +18,8 @@ package model
 
 import (
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 )
 
 // 本文件提供加密笔记本的专用操作函数。每个函数接收 boxID，路由到加密 db。

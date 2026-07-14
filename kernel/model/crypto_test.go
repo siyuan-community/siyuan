@@ -27,8 +27,8 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // setDEKForTest 把指定 DEK 直接注入 boxID 的缓存，绕过 UnlockBox 的 Argon2id 派生，便于纯内存测试。

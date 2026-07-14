@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // DEKProvider 由 model 层在 init 时注入，用于查询 boxID 对应的 DEK。
