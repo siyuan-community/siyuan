@@ -11,12 +11,11 @@ import {AgentSession, SessionStore} from "./SessionStore";
 import {AgentSessionPanel} from "./AgentSessionPanel";
 import {getDockByType} from "../../tabUtil";
 import {updateHotkeyAfterTip} from "../../../protyle/util/compatibility";
-import {getLute} from "../../../protyle/render/setLute";
+import {getAgentLute} from "../../../protyle/render/setLute";
 import {setPanelFocus} from "../../util";
 import {escapeAriaLabel, escapeHtml} from "../../../util/escape";
 import {setPosition} from "../../../util/setPosition";
-import {fetchPost, fetchSyncPost} from "../../../util/fetch";
-import {Constants} from "../../../constants";
+import {fetchPost} from "../../../util/fetch";
 import {confirmDialog} from "../../../dialog/confirmDialog";
 import {showMessage} from "../../../dialog/message";
 import * as dayjs from "dayjs";
@@ -123,6 +122,13 @@ export class AgentChat extends Model {
     private userScrolledUp = false;
     private programmaticScroll = false;
     private stickResizeObserver: ResizeObserver | null = null;
+    // 按会话保存的距底部距离（scrollHeight - scrollTop），用于切换会话与开关 dock 面板后恢复滚动位置。
+    // 用距底距离而非绝对 scrollTop：dock 展开/折叠有宽高过渡，期间 scrollHeight 变化，
+    // 距底距离与之无关，恢复后能定位到同样的相对位置。
+    private scrollBottomBySession: Map<string, number> = new Map();
+    // 面板可见性：dock 关闭时容器尺寸归零、浏览器把 scrollTop 钳制到 0，折叠期间不记录滚动位置。
+    private layoutVisible = true;
+    private layoutResizeObserver: ResizeObserver | null = null;
     private settingDialogObserver: MutationObserver | null = null;
     private scrollBottomBtn: HTMLElement;
     private navRail: HTMLElement;
@@ -140,7 +146,7 @@ export class AgentChat extends Model {
     constructor(app: App, tab: Tab) {
         super({app: app});
         this.parent = tab;
-        this.lute = getLute({
+        this.lute = getAgentLute({
             emojiSite: "/emojis",
             emojis: {}
         });
@@ -238,9 +244,9 @@ export class AgentChat extends Model {
             "</svg>" +
             "</span>" +
             '<select class="b3-select b3-select--noborder" tabindex="0"></select>' +
-            '<span class="agent-chat__reasoning-effort b3-tooltips b3-tooltips__n" aria-label="' + (L.reasoningEffortTooltip || "Reasoning effort") + '"><select class="b3-select b3-select--noborder agent-chat__reasoning-effort-select" tabindex="0"></select><svg><use xlink:href="#iconBrain"></use></svg></span>' +
-            '<button class="agent-chat__send b3-button b3-button--icon b3-button--text b3-tooltips b3-tooltips__n" aria-label="' + (L.agentSend || "Send") + '"><svg><use xlink:href="#iconSend"></use></svg></button>' +
-            '<button class="agent-chat__stop b3-button b3-button--icon b3-button--cancel fn__none b3-tooltips b3-tooltips__n" aria-label="' + (L.agentStop || "Stop") + '"><svg><use xlink:href="#iconSquareStop"></use></svg></button>' +
+            '<div class="b3-form__icon ariaLabel" aria-label="' + (L.reasoningEffortTooltip || "Reasoning effort") + '"><svg class="b3-form__icon-icon"><use xlink:href="#iconBrain"></use></svg><select class="b3-select b3-select--noborder b3-form__icon-input" tabindex="0"></select></div>' +
+            '<button class="agent-chat__send b3-button b3-button--icon b3-button--text ariaLabel" aria-label="' + (L.agentSend || "Send") + '"><svg><use xlink:href="#iconSend"></use></svg></button>' +
+            '<button class="agent-chat__stop b3-button b3-button--icon b3-button--cancel fn__none ariaLabel" aria-label="' + (L.agentStop || "Stop") + '"><svg><use xlink:href="#iconSquareStop"></use></svg></button>' +
             "</div>" +
             "</div>" +
             '<div class="agent-chat__preview-notice">' + (L.featurePreview || "") + "</div>" +
@@ -255,14 +261,21 @@ export class AgentChat extends Model {
         this.titleElement = panel.querySelector(".agent-chat__title") as HTMLElement;
         this.tokenDisplayEl = panel.querySelector(".agent-chat__tokens") as HTMLElement;
         this.modelSelect = panel.querySelector(".b3-select") as HTMLSelectElement;
-        this.reasoningEffortSelect = panel.querySelector(".agent-chat__reasoning-effort-select") as HTMLSelectElement;
+        this.reasoningEffortSelect = panel.querySelector(".b3-form__icon-input") as HTMLSelectElement;
         this.initReasoningEffortSelect();
         this.scrollBottomBtn = panel.querySelector(".agent-chat__scroll-bottom") as HTMLElement;
         this.messagesContainer.addEventListener("scroll", () => {
+            const {scrollTop, scrollHeight, clientHeight} = this.messagesContainer;
+            // 仅在面板有效展开时记录滚动位置：dock 折叠过渡期间容器尺寸归零、浏览器把 scrollTop
+            // 钳制到 0，该过程会触发 scroll 事件；若不据尺寸排除，会污染保存的距底距离。
+            // 用 clientHeight 判定（折叠时为 0），比 layoutVisible 标志更可靠——后者由
+            // ResizeObserver 异步设置，可能与本事件交错。
+            if (this.layoutVisible && clientHeight > 0 && this.sessionId) {
+                this.scrollBottomBySession.set(this.sessionId, scrollHeight - scrollTop);
+            }
             if (this.programmaticScroll) {
                 return;
             }
-            const {scrollTop, scrollHeight, clientHeight} = this.messagesContainer;
             const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
             // Hysteresis: only mark as scrolled-up when clearly above bottom (>=60),
             // and only return to sticky when really at the bottom (<=10).
@@ -288,8 +301,7 @@ export class AgentChat extends Model {
             // 内容变化时刷新发送按钮可用性（含用户输入、IME、程序化 clear 等所有 doc 变更）。
             this.updateSendButtonState();
         });
-        // 支持从编辑器块标或文档面板拖拽块到输入框，效果等同于 @ 引用。
-        this.bindComposerDragDrop();
+        // 块拖拽由 protyle 统一处理（复制块/引用/嵌入块→引用），无需自定义 drop handler。
         this.sessionPanel = new AgentSessionPanel(
             this.sessionMenuBtn,
             this.parent.panelElement,
@@ -307,6 +319,25 @@ export class AgentChat extends Model {
                 },
             }
         );
+        // 监听滚动容器尺寸：dock 面板折叠时容器尺寸归零、浏览器把 scrollTop 钳制到 0；
+        // 这里在面板重新展开后恢复当前会话的滚动位置。dock 展开/折叠有 CSS 宽高过渡（约 0.2s），
+        // 过渡期间 scrollHeight 随尺寸变化，故在折叠→展开转换后用 rAF 循环持续校正约 320ms，
+        // 覆盖过渡动画直到布局稳定。
+        this.layoutResizeObserver = new ResizeObserver(() => {
+            const collapsed = this.messagesContainer.clientWidth === 0 || this.messagesContainer.clientHeight === 0;
+            if (collapsed) {
+                this.layoutVisible = false;
+                return;
+            }
+            // 仅在「刚从折叠恢复」时启动一次校正循环，避免干扰正常滚动 / 流式输出。
+            if (!this.layoutVisible) {
+                this.layoutVisible = true;
+                const saved = this.scrollBottomBySession.get(this.sessionId) ?? 0;
+                this.restoreScrollToBottom(saved);
+            }
+        });
+        this.layoutResizeObserver.observe(this.messagesContainer);
+
         this.initSessions();
     }
 
@@ -336,63 +367,11 @@ export class AgentChat extends Model {
         }
     }
 
-    // 绑定输入框的块拖拽：从编辑器块标或文档面板拖拽块到输入框，插入 @ 引用（mention chip）。
-    // 与 @ 搜索的 label 来源一致——用 getRefText API 按 block ID 查询引用文本。
-    private bindComposerDragDrop() {
-        this.composerHost.addEventListener("dragover", (e: DragEvent) => {
-            if (!e.dataTransfer) { return; }
-            // 仅接受块标拖拽（SIYUAN_DROP_GUTTER）和文档面板拖拽（SIYUAN_DROP_FILE）。
-            let canDrop = false;
-            for (const type of e.dataTransfer.types) {
-                if (type.startsWith(Constants.SIYUAN_DROP_GUTTER) || type === Constants.SIYUAN_DROP_FILE) {
-                    canDrop = true;
-                    break;
-                }
-            }
-            if (canDrop) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "copy";
-            }
-        });
-        this.composerHost.addEventListener("drop", async (e: DragEvent) => {
-            if (!e.dataTransfer || !this.composer) { return; }
-            const blockIds: string[] = [];
-            // 块标拖拽：从 MIME type key 提取所有 block ID（gutterTypes[2]）。
-            for (const type of e.dataTransfer.types) {
-                if (type.startsWith(Constants.SIYUAN_DROP_GUTTER)) {
-                    const gutterTypes = type.replace(Constants.SIYUAN_DROP_GUTTER, "").split(Constants.ZWSP);
-                    const ids = (gutterTypes[2] || "").split(",").filter(Boolean);
-                    blockIds.push(...ids);
-                    break;
-                }
-            }
-            // 文档面板拖拽：数据值是逗号分隔的 doc ID，全部收集。
-            if (blockIds.length === 0) {
-                const fileData = e.dataTransfer.getData(Constants.SIYUAN_DROP_FILE);
-                if (fileData) {
-                    blockIds.push(...fileData.split(",").filter(Boolean));
-                }
-            }
-            if (blockIds.length === 0) { return; }
-            e.preventDefault();
-            e.stopPropagation();
-            // 用 getRefText API 并行获取每个块的引用文本作为 label（与 @ 搜索一致），
-            // 失败时回退到 blockId。
-            const mentions: Array<{id: string; label: string}> = [];
-            await Promise.all(blockIds.map(async (id) => {
-                let label = id;
-                try {
-                    const resp = await fetchSyncPost("/api/block/getRefText", {id});
-                    if (resp && resp.data) {
-                        label = resp.data;
-                    }
-                } catch {
-                    label = id;
-                }
-                mentions.push({id, label});
-            }));
+    // 将外部块引用以 mention chip 形式追加到发送框末尾，等价于拖拽块到发送框或在框内 @ 搜索选块。
+    public insertBlockMentions(mentions: Array<{ id: string; label: string }>) {
+        if (this.composer && mentions.length > 0) {
             this.composer.insertMentions(mentions);
-        });
+        }
     }
 
     // 从 window.siyuan.config.ai 重新计算可用模型列表，幂等可重复调用。
@@ -947,7 +926,12 @@ export class AgentChat extends Model {
             this.titleElement.textContent = session.title;
             this.renderLoadedSession(session);
             this.rebuildNavMarkers();
-            this.scrollToBottom(true);
+            // 恢复该会话上次的滚动位置；新会话（无记录）默认贴底。
+            if (this.scrollBottomBySession.has(session.id)) {
+                this.restoreScrollToBottom(this.scrollBottomBySession.get(session.id) ?? 0);
+            } else {
+                this.scrollToBottom(true);
+            }
             this.messagesContainer.classList.remove("agent-chat__messages--switching");
         }, {once: true});
     }
@@ -1262,6 +1246,7 @@ export class AgentChat extends Model {
     }
 
     private async deleteSession(id: string) {
+        this.scrollBottomBySession.delete(id);
         const wasCurrent = id === this.sessionId;
         if (wasCurrent) {
             const result = await SessionStore.list({page: 1, pageSize: 2});
@@ -2324,7 +2309,7 @@ export class AgentChat extends Model {
         el.innerHTML = '<div class="agent-chat__snapshot-body">' +
             '<span class="agent-chat__snapshot-icon"><svg><use xlink:href="#iconHistory"></use></svg></span>' +
             '<span class="agent-chat__snapshot-text">' + escapeHtml((L.snapshotAutoCreated || "Auto snapshot created") + " " + shortID) + "</span>" +
-            '<button class="b3-button b3-button--text agent-chat__snapshot-rollback b3-tooltips b3-tooltips__n" aria-label="' + (L.rollback || "Rollback") + '"><svg><use xlink:href="#iconUndo"></use></svg></button>' +
+            '<button class="b3-button b3-button--text agent-chat__snapshot-rollback ariaLabel" aria-label="' + (L.rollback || "Rollback") + '"><svg><use xlink:href="#iconUndo"></use></svg></button>' +
             "</div>";
         const rollbackBtn = el.querySelector(".agent-chat__snapshot-rollback") as HTMLButtonElement;
         rollbackBtn.addEventListener("click", () => {
@@ -3039,6 +3024,37 @@ export class AgentChat extends Model {
             return false;
         }
         return this.composer.getSendData().text.length > 0;
+    }
+
+    // 持续校正滚动位置约 duration ms（覆盖 dock 宽高过渡 / 异步富渲染期间 scrollHeight 变化），
+    // 使 scrollTop 落到距底部 scrollBottom 的位置。scrollBottom 为 0 即贴底。
+    // 供开关面板（layoutVisible 恢复）与切换会话（renderLoadedSession 后）共用。
+    private restoreScrollToBottom(scrollBottom: number, duration = 320) {
+        if (scrollBottom < 0) {
+            return;
+        }
+        const startedAt = Date.now();
+        // 标记为程序化滚动，避免恢复期间触发 scroll 事件里的 userScrolledUp 翻转。
+        this.programmaticScroll = true;
+        const tick = () => {
+            if (!this.layoutVisible) {
+                this.programmaticScroll = false;
+                return;
+            }
+            const {scrollHeight} = this.messagesContainer;
+            // 距底部同样的距离；距底为 0（贴底）时 target = scrollHeight。
+            const target = Math.max(0, scrollHeight - scrollBottom);
+            this.messagesContainer.scrollTop = target;
+            if (Date.now() - startedAt < duration) {
+                requestAnimationFrame(tick);
+            } else {
+                // 多留一帧再清标志，确保最后一次 scroll 事件已被吞掉。
+                requestAnimationFrame(() => {
+                    this.programmaticScroll = false;
+                });
+            }
+        };
+        requestAnimationFrame(tick);
     }
 
     // 思考结束后定位到思考卡片下方：让折叠后的思考卡片底部贴近容器视口顶部，

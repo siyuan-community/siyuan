@@ -111,7 +111,11 @@ func (box *Box) docIAL(p string) (ret map[string]string) {
 		return nil
 	}
 
-	ret = cache.GetDocIAL(p)
+	if _, err := box.validateBoxPath(p); err != nil {
+		return nil
+	}
+
+	ret = cache.GetDocIALInBox(p, box.ID)
 	if nil != ret {
 		return ret
 	}
@@ -119,11 +123,19 @@ func (box *Box) docIAL(p string) (ret map[string]string) {
 	filePath := filepath.Join(util.DataDir, box.ID, p)
 	ret = filesys.DocIAL(filePath)
 	if 1 > len(ret) {
+		// 加密笔记本的 .sy 解密失败（DEK 未缓存或 box 未解锁）时不应视为损坏，
+		// 否则文件会被 moveCorruptedData 移走导致数据丢失。
+		// 使用解析后的文件路径反查实际 boxID（可能因 symlink 或路径穿越指向加密 box）
+		actualBoxID := ExtractBoxIDFromAssetsPath(filePath)
+		if (actualBoxID != "" && IsEncryptedBox(actualBoxID)) || IsEncryptedBox(box.ID) {
+			logging.LogWarnf("properties not found in encrypted file [%s], skip moveCorruptedData", filePath)
+			return nil
+		}
 		logging.LogWarnf("properties not found in file [%s]", filePath)
 		box.moveCorruptedData(filePath)
 		return nil
 	}
-	cache.PutDocIAL(p, ret)
+	cache.PutDocIALInBox(p, box.ID, ret)
 	return ret
 }
 
@@ -182,23 +194,23 @@ func SearchDocs(keyword string, flashcard bool, excludeIDs []string) (ret []map[
 				}
 			}
 
-			var condition string
+			var condition strings.Builder
 			for i, k := range keywords {
-				condition += "(hpath LIKE '%" + k + "%'"
+				condition.WriteString("(hpath LIKE '%" + k + "%'")
 				namCondition := Conf.Search.NAMFilter(k)
-				condition += " " + namCondition
-				condition += ")"
+				condition.WriteString(" " + namCondition)
+				condition.WriteString(")")
 
 				if i < len(keywords)-1 {
-					condition += " AND "
+					condition.WriteString(" AND ")
 				}
 			}
 
 			for _, excludeID := range excludeIDs {
-				condition += fmt.Sprintf(" AND path NOT LIKE '%%%s%%' ", excludeID)
+				condition.WriteString(fmt.Sprintf(" AND path NOT LIKE '%%%s%%' ", excludeID))
 			}
 
-			rootBlocks = sql.QueryRootBlockByCondition(condition, Conf.Search.Limit)
+			rootBlocks = sql.QueryRootBlockByCondition(condition.String(), Conf.Search.Limit)
 		} else {
 			for _, box := range boxes {
 				if flashcard {
@@ -492,6 +504,13 @@ func ListDocTree(boxID, listPath string, sortMode int, flashcard, showHidden boo
 
 func GetDoc(startID, endID, id string, index int, query string, queryTypes, querySubTypes map[string]bool, queryMethod, mode int, size int, isBacklink bool, originalRefBlockIDs map[string]string, highlight bool) (
 	blockCount int, dom, parentID, parent2ID, rootID, typ string, eof, scroll bool, boxID, docPath string, isBacklinkExpand bool, keywords []string, err error) {
+	return GetDocInBox(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight, "")
+}
+
+// GetDocInBox 与 GetDoc 一致，但按 boxID 路由到加密 db 或全局 db。
+// 加密笔记本打开文档时传入 boxID，blocktree/content 查询走加密 db；boxID 为空时 fall-through 全局 db。
+func GetDocInBox(startID, endID, id string, index int, query string, queryTypes, querySubTypes map[string]bool, queryMethod, mode int, size int, isBacklink bool, originalRefBlockIDs map[string]string, highlight bool, boxID string) (
+	blockCount int, dom, parentID, parent2ID, rootID, typ string, eof, scroll bool, boxIDOut, docPath string, isBacklinkExpand bool, keywords []string, err error) {
 	//os.MkdirAll("pprof", 0755)
 	//cpuProfile, _ := os.Create("pprof/GetDoc")
 	//pprof.StartCPUProfile(cpuProfile)
@@ -500,7 +519,7 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes, quer
 	FlushTxQueue() // 写入数据时阻塞，避免获取到的数据不一致
 
 	inputIndex := index
-	tree, err := LoadTreeByBlockID(id)
+	tree, err := loadTreeByBlockIDInBox(id, boxID)
 	if err != nil {
 		if errors.Is(err, ErrBlockNotFound) {
 			if 0 == mode {
@@ -529,7 +548,7 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes, quer
 	isDoc := ast.NodeDocument == node.Type
 	isHeading := ast.NodeHeading == node.Type
 
-	boxID = node.Box
+	boxIDOut = node.Box
 	docPath = node.Path
 	if isDoc {
 		if 4 == mode { // 加载文档末尾
@@ -679,8 +698,8 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes, quer
 		}
 	}
 
-	refCount := sql.QueryRootChildrenRefCount(rootID)
-	virtualBlockRefKeywords := getBlockVirtualRefKeywords(tree.Root)
+	refCount := sql.QueryRootChildrenRefCountInBox(rootID, boxID)
+	virtualBlockRefKeywords := getBlockVirtualRefKeywords(tree.Root, tree.Box)
 
 	subTree := &parse.Tree{ID: rootID, Root: &ast.Node{Type: ast.NodeDocument}, Marks: tree.Marks}
 
@@ -690,11 +709,11 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes, quer
 		switch queryMethod {
 		case 0:
 			query = stringQuery(query)
-			keywords = highlightByFTS(query, typeFilter, rootID)
+			keywords = highlightByFTSInBox(query, typeFilter, rootID, boxID)
 		case 1:
-			keywords = highlightByFTS(query, typeFilter, rootID)
+			keywords = highlightByFTSInBox(query, typeFilter, rootID, boxID)
 		case 3:
-			keywords = highlightByRegexp(query, typeFilter, rootID)
+			keywords = highlightByRegexpInBox(query, typeFilter, rootID, boxID)
 		}
 	}
 
@@ -706,65 +725,71 @@ func GetDoc(startID, endID, id string, index int, query string, queryTypes, quer
 				return ast.WalkContinue
 			}
 
-			if "1" == n.IALAttr("heading-fold") {
-				// 折叠标题下被引用的块无法悬浮查看
-				// The referenced block under the folded heading cannot be hovered to view https://github.com/siyuan-note/siyuan/issues/9582
-				if (0 != mode && id != n.ID) || isDoc {
-					unlinks = append(unlinks, n)
-					return ast.WalkContinue
-				}
-			}
-
-			if avs := n.IALAttr(av.NodeAttrNameAvs); "" != avs {
-				// 填充属性视图角标 Display the database title on the block superscript https://github.com/siyuan-note/siyuan/issues/10545
-				avNames := getAvNames(n.IALAttr(av.NodeAttrNameAvs))
-				if "" != avNames {
-					n.SetIALAttr(av.NodeAttrViewNames, avNames)
-				}
-			}
-
-			if "" != n.ID {
-				// 填充块引计数
-				if cnt := refCount[n.ID]; 0 < cnt {
-					n.SetIALAttr("refcount", strconv.Itoa(cnt))
-				}
-			}
-
-			if highlight && existKeywords {
-				hitBlock := false
-				for p := n.Parent; nil != p; p = p.Parent {
-					if p.ID == id {
-						hitBlock = true
-						break
-					}
-				}
-				if hitBlock {
-					if ast.NodeCodeBlockCode == n.Type && !treenode.IsChartCodeBlockCode(n) {
-						// 支持代码块搜索定位 https://github.com/siyuan-note/siyuan/issues/5520
-						code := string(n.Tokens)
-						markedCode := search.EncloseHighlighting(code, keywords, search.SearchMarkLeft, search.SearchMarkRight, Conf.Search.CaseSensitive, false)
-						if code != markedCode {
-							n.Tokens = gulu.Str.ToBytes(markedCode)
-							return ast.WalkContinue
-						}
-					} else if markReplaceSpan(n, &unlinks, keywords, search.MarkDataType, luteEngine) {
+			if n.IsBlock() {
+				if treenode.IsInFoldedHeading(n, nil) {
+					// 折叠标题下被引用的块无法悬浮查看
+					// The referenced block under the folded heading cannot be hovered to view https://github.com/siyuan-note/siyuan/issues/9582
+					if (0 != mode && id != n.ID) || isDoc {
+						unlinks = append(unlinks, n)
 						return ast.WalkContinue
 					}
+				} else if "1" == n.IALAttr("heading-fold") {
+					// 标题已展开但子块仍残留 heading-fold 时清理，避免列表等嵌套块渲染为空
+					n.RemoveIALAttr("heading-fold")
+					n.RemoveIALAttr("fold")
 				}
-			}
 
-			if existKeywords && id == n.ID {
-				inlines := n.ChildrenByType(ast.NodeTextMark)
-				for _, inline := range inlines {
-					if inline.IsTextMarkType("inline-memo") && util.ContainsSubStr(inline.TextMarkInlineMemoContent, keywords) {
-						// 支持行级备注搜索定位 https://github.com/siyuan-note/siyuan/issues/13465
-						keywords = append(keywords, inline.TextMarkTextContent)
+				if avs := n.IALAttr(av.NodeAttrNameAvs); "" != avs {
+					// 填充属性视图角标 Display the database title on the block superscript https://github.com/siyuan-note/siyuan/issues/10545
+					avNames := getAvNames(n.IALAttr(av.NodeAttrNameAvs))
+					if "" != avNames {
+						n.SetIALAttr(av.NodeAttrViewNames, avNames)
 					}
 				}
-			}
 
-			if processVirtualRef(n, &unlinks, virtualBlockRefKeywords, refCount, luteEngine) {
-				return ast.WalkContinue
+				if "" != n.ID {
+					// 填充块引计数
+					if cnt := refCount[n.ID]; 0 < cnt {
+						n.SetIALAttr("refcount", strconv.Itoa(cnt))
+					}
+				}
+
+				if existKeywords && id == n.ID {
+					inlines := n.ChildrenByType(ast.NodeTextMark)
+					for _, inline := range inlines {
+						if inline.IsTextMarkType("inline-memo") && util.ContainsSubStr(inline.TextMarkInlineMemoContent, keywords) {
+							// 支持行级备注搜索定位 https://github.com/siyuan-note/siyuan/issues/13465
+							keywords = append(keywords, inline.TextMarkTextContent)
+						}
+					}
+				}
+			} else {
+				if highlight && existKeywords {
+					hitBlock := false
+					for p := n.Parent; nil != p; p = p.Parent {
+						if p.ID == id {
+							hitBlock = true
+							break
+						}
+					}
+					if hitBlock {
+						if ast.NodeCodeBlockCode == n.Type && !treenode.IsChartCodeBlockCode(n) {
+							// 支持代码块搜索定位 https://github.com/siyuan-note/siyuan/issues/5520
+							code := string(n.Tokens)
+							markedCode := search.EncloseHighlighting(code, keywords, search.SearchMarkLeft, search.SearchMarkRight, Conf.Search.CaseSensitive, false)
+							if code != markedCode {
+								n.Tokens = gulu.Str.ToBytes(markedCode)
+								return ast.WalkContinue
+							}
+						} else if markReplaceSpan(n, &unlinks, keywords, search.MarkDataType, luteEngine) {
+							return ast.WalkContinue
+						}
+					}
+				}
+
+				if processVirtualRef(n, &unlinks, virtualBlockRefKeywords, refCount, luteEngine) {
+					return ast.WalkContinue
+				}
 			}
 			return ast.WalkContinue
 		})
@@ -1374,6 +1399,15 @@ func MoveDocs(fromPaths []string, toBoxID, toPath string, callback any) (err err
 		}
 	}
 
+	// 禁止跨加密边界移动文档：加密笔记本是孤岛，不同加密笔记本各有独立 DEK，
+	// 跨边界移动（普通↔加密、加密 A↔加密 B）会导致密文用错 DEK 损坏数据
+	for _, fromBox := range pathsBoxes {
+		if fromBox.ID != toBox.ID && !IsSameCryptoBoundary(fromBox.ID, toBox.ID) {
+			err = errors.New(Conf.Language(313))
+			return
+		}
+	}
+
 	// A progress layer appears when moving more than 64 documents at once https://github.com/siyuan-note/siyuan/issues/9356
 	subDocsCount := 0
 	for fromPath, fromBox := range pathsBoxes {
@@ -1627,7 +1661,10 @@ func removeDoc(box *Box, p string, luteEngine *lute.Lute) (ret *parse.Tree) {
 	}
 
 	generateAvHistoryInTree(ret, historyDir)
-	copyDocAssetsToDataAssets(box.ID, p)
+	// 加密笔记本的 assets 不提升到全局
+	if !IsEncryptedBox(box.ID) {
+		copyDocAssetsToDataAssets(box.ID, p)
+	}
 
 	removeIDs := treenode.RootChildIDs(ret.ID)
 	dir := path.Dir(p)
@@ -1676,7 +1713,7 @@ func removeDoc(box *Box, p string, luteEngine *lute.Lute) (ret *parse.Tree) {
 		}
 	}
 
-	treenode.RemoveBlockTreesByPathPrefix(childrenDir)
+	treenode.RemoveBlockTreesByPathPrefix(box.ID, childrenDir)
 	cache.RemoveDocIAL(ret.Path)
 	cache.RemoveTreeData(ret.ID)
 

@@ -95,11 +95,17 @@ func agentChat(c *gin.Context) {
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
+	// per-request 超时：作用到 agent 每一轮上游 chat-completions 调用上，
+	// 让单次卡死的请求转为可重试错误，而不是干等到整会话超时。
+	requestTimeout := time.Duration(selectedProvider.RequestTimeout) * time.Second
+	if requestTimeout <= 0 {
+		requestTimeout = 30 * time.Second
+	}
 
 	app := c.GetHeader("X-SiYuan-App-ID")
 
 	ctx, cancel := context.WithCancel(c.Request.Context())
-	eventCh := agent.AgentChat(ctx, client, selectedModel.Name, req.SessionID, req.Message, req.Language, req.References, req.EditorContext, req.PluginActions, req.Regenerate, confirmTimeout, maxRetries, req.ReasoningEffort)
+	eventCh := agent.AgentChat(ctx, client, selectedModel.Name, req.SessionID, req.Message, req.Language, req.References, req.EditorContext, req.PluginActions, req.Regenerate, confirmTimeout, maxRetries, req.ReasoningEffort, requestTimeout)
 
 	// 实例级互斥：同一 session 同时只允许一个活跃流。
 	// 检查+占用在同一把锁内（compare-and-set），失败时 cancel 释放刚启动的 goroutine 防泄漏。
@@ -131,13 +137,9 @@ func agentChat(c *gin.Context) {
 		return
 	}
 
-	timeout := selectedProvider.RequestTimeout
-	if timeout <= 0 {
-		timeout = 30
-	}
 	totalTimeout := time.Duration(model.Conf.AI.Agent.SessionTimeout) * time.Second
 	if totalTimeout <= 0 {
-		totalTimeout = time.Duration(timeout) * time.Second * 10
+		totalTimeout = 600 * time.Second
 	}
 	if totalTimeout > 3600*time.Second {
 		totalTimeout = 3600 * time.Second
@@ -391,13 +393,13 @@ func writeSSE(c *gin.Context, event agent.AgentEvent) error {
 	case "reasoning":
 		return writeSSEEvent(c, "reasoning", map[string]string{"token": event.Token})
 	case "confirm":
-		return writeSSEEvent(c, "confirm", map[string]interface{}{
+		return writeSSEEvent(c, "confirm", map[string]any{
 			"name":      event.Name,
 			"arguments": event.Arguments,
 			"confirmID": event.ConfirmID,
 		})
 	case "tool_call":
-		return writeSSEEvent(c, "tool_call", map[string]interface{}{
+		return writeSSEEvent(c, "tool_call", map[string]any{
 			"name":      event.Name,
 			"arguments": event.Arguments,
 		})
@@ -409,7 +411,7 @@ func writeSSE(c *gin.Context, event agent.AgentEvent) error {
 	case "error":
 		return writeSSEEvent(c, "error", map[string]string{"message": event.Error})
 	case "usage":
-		return writeSSEEvent(c, "usage", map[string]interface{}{
+		return writeSSEEvent(c, "usage", map[string]any{
 			"promptTokens":     event.PromptTokens,
 			"completionTokens": event.CompletionTokens,
 			"lastPromptTokens": event.LastPromptTokens,
@@ -418,19 +420,19 @@ func writeSSE(c *gin.Context, event agent.AgentEvent) error {
 			"contextLimit":     event.ContextLimit,
 		})
 	case "done":
-		return writeSSEEvent(c, "done", map[string]interface{}{})
+		return writeSSEEvent(c, "done", map[string]any{})
 	case "retry":
-		return writeSSEEvent(c, "retry", map[string]interface{}{
+		return writeSSEEvent(c, "retry", map[string]any{
 			"attempt":    event.RetryAttempt,
 			"maxRetries": event.RetryMax,
 		})
 	case "question":
-		return writeSSEEvent(c, "question", map[string]interface{}{
+		return writeSSEEvent(c, "question", map[string]any{
 			"questionID": event.QuestionID,
 			"arguments":  event.Arguments,
 		})
 	case "frontend_tool_call":
-		return writeSSEEvent(c, "frontend_tool_call", map[string]interface{}{
+		return writeSSEEvent(c, "frontend_tool_call", map[string]any{
 			"callID":    event.CallID,
 			"name":      event.Name,
 			"arguments": event.Arguments,
@@ -441,7 +443,7 @@ func writeSSE(c *gin.Context, event agent.AgentEvent) error {
 	return nil
 }
 
-func writeSSEEvent(c *gin.Context, eventType string, data interface{}) error {
+func writeSSEEvent(c *gin.Context, eventType string, data any) error {
 	b, err := json.Marshal(data)
 	if err != nil {
 		return err

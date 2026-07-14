@@ -52,15 +52,19 @@ import (
 )
 
 func GetAssetImgSize(assetPath string) (width, height int) {
-	absPath, err := GetAssetAbsPath(assetPath)
+	return GetAssetImgSizeInBox(assetPath, "")
+}
+
+func GetAssetImgSizeInBox(assetPath, boxID string) (width, height int) {
+	data, err := ReadAssetBytesInBox(boxID, assetPath)
 	if err != nil {
 		logging.LogErrorf("get asset [%s] abs path failed: %s", assetPath, err)
 		return
 	}
 
-	img, err := imaging.Open(absPath)
+	img, err := imaging.Decode(bytes.NewReader(data))
 	if err != nil {
-		logging.LogErrorf("open asset image [%s] failed: %s", absPath, err)
+		logging.LogErrorf("open asset image [%s] failed: %s", assetPath, err)
 		return
 	}
 
@@ -69,7 +73,43 @@ func GetAssetImgSize(assetPath string) (width, height int) {
 	return
 }
 
-func GetAssetPathByHash(hash string) string {
+// ReadAssetBytesInBox 读取指定 box 内的资源文件字节。若 box 为加密笔记本则自动解密返回明文。
+// relativePath 形如 "assets/xxx.png"，可带 ?box= 查询参数。
+func ReadAssetBytesInBox(boxID, relativePath string) ([]byte, error) {
+	absPath, err := GetAssetAbsPathInBox(relativePath, boxID)
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := os.ReadFile(absPath)
+	if readErr != nil {
+		return nil, readErr
+	}
+	// 从解析到的绝对路径反推有效 boxID，不轻信传入参数（路径可能通过 ?box= 指定了不同 box）
+	effectiveBoxID := ExtractBoxIDFromAssetsPath(absPath)
+	if effectiveBoxID != "" && IsEncryptedBox(effectiveBoxID) {
+		HoldBoxReadLock(effectiveBoxID)
+		dek, dekErr := GetDEKIfUnlocked(effectiveBoxID)
+		if dekErr != nil {
+			ReleaseBoxReadLock(effectiveBoxID)
+			return nil, dekErr
+		}
+		defer ReleaseBoxReadLock(effectiveBoxID)
+		diskName := filepath.Base(AssetPathWithoutQuery(relativePath))
+		plain, decErr := DecryptAsset(effectiveBoxID, diskName, dek, data)
+		if decErr != nil {
+			return nil, decErr
+		}
+		return plain, nil
+	}
+	return data, nil
+}
+
+// GetAssetPathByHash 按 hash 查已存在的 asset 路径用于去重。boxID 非空且为加密笔记本时返回空——
+// 加密笔记本不参与全局去重（避免复用普通明文 asset）；普通 box 走全局 cache/SQL（加密笔记本数据不在全局表）。
+func GetAssetPathByHash(hash, boxID string) string {
+	if boxID != "" && IsEncryptedBox(boxID) {
+		return "" // 加密 box：跳过全局去重，强制新写（防跨边界复用明文 asset）
+	}
 	assetHash := cache.GetAssetHash(hash)
 	if nil == assetHash {
 		sqlAsset := sql.QueryAssetByHash(hash)
@@ -100,6 +140,12 @@ func HandleAssetsRemoveEvent(assetAbsPath string) {
 		return
 	}
 
+	// 加密笔记本的 asset 是密文，跳过全局索引和 hash 缓存操作
+	if IsEncryptedAssetPath(assetAbsPath) {
+		removeAssetThumbnail(assetAbsPath)
+		return
+	}
+
 	removeIndexAssetContent(assetAbsPath)
 	removeAssetThumbnail(assetAbsPath)
 
@@ -125,6 +171,12 @@ func HandleAssetsChangeEvent(assetAbsPath string) {
 		return
 	}
 	if strings.HasSuffix(assetAbsPath, ".tmp") {
+		return
+	}
+
+	// 加密笔记本的 asset 是密文，跳过全局内容索引和 hash 缓存（避免密文污染搜索索引）
+	if IsEncryptedAssetPath(assetAbsPath) {
+		removeAssetThumbnail(assetAbsPath)
 		return
 	}
 
@@ -231,8 +283,8 @@ func DocAssets(rootID string, retainQueryStr bool) (ret []string, err error) {
 	ret = getAssetsLinkDests(tree.Root, false)
 	if !retainQueryStr {
 		for i, asset := range ret {
-			if idx := strings.Index(asset, "?"); idx >= 0 {
-				ret[i] = asset[:idx]
+			if before, _, ok := strings.Cut(asset, "?"); ok {
+				ret[i] = before
 			}
 		}
 	}
@@ -306,14 +358,43 @@ func netAssets2LocalAssets0(tree *parse.Tree, onlyImg bool, originalURL string, 
 				name = filepath.Base(u)
 				name = util.FilterUploadFileName(name)
 				name = "network-asset-" + name
-				name = util.AssetName(name, ast.NewNodeID())
-				writePath := filepath.Join(assetsDirPath, name)
-				if err = filelock.Copy(u, writePath); err != nil {
-					logging.LogErrorf("copy [%s] to [%s] failed: %s", u, writePath, err)
-					continue
+				var writePath string
+				if IsEncryptedBox(tree.Box) {
+					// 加密 box：脱敏文件名 + 加密内容（writeAssetFile 内部按路径反查 box 加密）+ 写映射
+					diskName := encryptedAssetName(util.Ext(name), ast.NewNodeID())
+					writePath = filepath.Join(assetsDirPath, diskName)
+					f, openErr := os.Open(u)
+					if openErr != nil {
+						logging.LogErrorf("open [%s] failed: %s", u, openErr)
+						continue
+					}
+					if err = writeAssetFile(writePath, f, tree.Box); err != nil {
+						logging.LogErrorf("write encrypted asset [%s] failed: %s", writePath, err)
+						f.Close()
+						continue
+					}
+					f.Close()
+					// 映射写失败则回滚已写的 asset 密文，避免产出"孤儿密文 asset 无映射"（详见设计文档 §7）
+					if mapErr := writeAssetNameMapping(tree.Box, diskName, name); mapErr != nil {
+						logging.LogErrorf("write asset name mapping for [%s] failed: %s", name, mapErr)
+						_ = filelock.Remove(writePath)
+						continue
+					}
+					name = diskName
+				} else {
+					name = util.AssetName(name, ast.NewNodeID())
+					writePath = filepath.Join(assetsDirPath, name)
+					if err = filelock.Copy(u, writePath); err != nil {
+						logging.LogErrorf("copy [%s] to [%s] failed: %s", u, writePath, err)
+						continue
+					}
 				}
 
-				setAssetsLinkDest(destNode, dest, "assets/"+name)
+				assetURL := "assets/" + name
+				if IsEncryptedBox(tree.Box) {
+					assetURL += "?box=" + tree.Box
+				}
+				setAssetsLinkDest(destNode, dest, assetURL)
 				assetsMap[u] = name
 				files++
 				size += gulu.File.GetFileSize(writePath)
@@ -416,15 +497,37 @@ func netAssets2LocalAssets0(tree *parse.Tree, onlyImg bool, originalURL string, 
 						name += ext
 					}
 				}
-				name = util.AssetName(name, ast.NewNodeID())
-				name = "network-asset-" + name
-				writePath := filepath.Join(assetsDirPath, name)
-				if err = filelock.WriteFile(writePath, data); err != nil {
-					logging.LogErrorf("write downloaded network asset [%s] to local asset [%s] failed: %s", u, writePath, err)
-					continue
+				if IsEncryptedBox(tree.Box) {
+					// 加密 box：脱敏文件名 + 加密内容 + 写映射
+					name = "network-asset-" + name
+					diskName := encryptedAssetName(util.Ext(name), ast.NewNodeID())
+					writePath := filepath.Join(assetsDirPath, diskName)
+					if err = writeAssetFile(writePath, bytes.NewReader(data), tree.Box); err != nil {
+						logging.LogErrorf("write encrypted network asset [%s] failed: %s", writePath, err)
+						continue
+					}
+					// 映射写失败则回滚已写的 asset 密文，避免产出"孤儿密文 asset 无映射"（详见设计文档 §7）
+					if mapErr := writeAssetNameMapping(tree.Box, diskName, name); mapErr != nil {
+						logging.LogErrorf("write asset name mapping for [%s] failed: %s", name, mapErr)
+						_ = filelock.Remove(writePath)
+						continue
+					}
+					name = diskName
+				} else {
+					name = util.AssetName(name, ast.NewNodeID())
+					name = "network-asset-" + name
+					writePath := filepath.Join(assetsDirPath, name)
+					if err = filelock.WriteFile(writePath, data); err != nil {
+						logging.LogErrorf("write downloaded network asset [%s] to local asset [%s] failed: %s", u, writePath, err)
+						continue
+					}
 				}
 
-				setAssetsLinkDest(destNode, dest, "assets/"+name)
+				assetURL := "assets/" + name
+				if IsEncryptedBox(tree.Box) {
+					assetURL += "?box=" + tree.Box
+				}
+				setAssetsLinkDest(destNode, dest, assetURL)
 				assetsMap[u] = name
 				files++
 				size += int64(len(data))
@@ -553,12 +656,100 @@ func SearchAssetsByName(keyword string, exts []string) (ret []*cache.Asset) {
 }
 
 func GetAssetAbsPath(relativePath string) (string, error) {
+	return GetAssetAbsPathWithOpt(relativePath, false)
+}
+
+// AssetPathWithoutQuery 返回去掉查询参数后的资源路径，用于复制到导出目录等磁盘路径场景。
+func AssetPathWithoutQuery(relativePath string) string {
+	relativePath = strings.TrimSpace(relativePath)
+	if idx := strings.Index(relativePath, "?"); idx >= 0 {
+		relativePath = relativePath[:idx]
+	}
+	return filepath.ToSlash(relativePath)
+}
+
+func assetPathAndBox(relativePath, defaultBoxID string) (cleanPath, boxID string, err error) {
+	relativePath = strings.TrimSpace(relativePath)
+	boxID = defaultBoxID
+	if idx := strings.Index(relativePath, "?"); idx >= 0 {
+		query := relativePath[idx+1:]
+		relativePath = relativePath[:idx]
+		if values, parseErr := url.ParseQuery(query); parseErr == nil {
+			if queryBoxID := strings.TrimSpace(values.Get("box")); queryBoxID != "" {
+				if defaultBoxID != "" && defaultBoxID != queryBoxID {
+					// 调用方指定了 boxID 但 URL 里是另一个 box：拒绝，防止解析到错误 box
+					err = fmt.Errorf("box mismatch: caller specified [%s] but URL has [%s]", defaultBoxID, queryBoxID)
+					return
+				}
+				boxID = queryBoxID
+			}
+		}
+	}
+	cleanPath = filepath.ToSlash(relativePath)
+	return
+}
+
+// GetAssetAbsPathInBox 在指定 box 内解析资源绝对路径，不进行全局遍历。
+// relativePath 必须以 assets/ 前缀开头，boxID 为空且路径没有 box 查询参数时只解析普通/全局资源，不遍历加密 box。
+// 加密 box 直接从 <boxID>/assets/ 查找，不依赖后缀匹配。
+func GetAssetAbsPathInBox(relativePath, boxID string) (string, error) {
+	var err error
+	relativePath, boxID, err = assetPathAndBox(relativePath, boxID)
+	if err != nil {
+		return "", err
+	}
+	relativePath = path.Clean(relativePath)
+	if relativePath == "." || strings.HasPrefix(relativePath, "../") || relativePath == ".." || path.IsAbs(relativePath) {
+		return "", fmt.Errorf("[%s] is not an asset path", relativePath)
+	}
+	if !strings.HasPrefix(relativePath, "assets/") {
+		return "", fmt.Errorf("[%s] is not an asset path (must start with assets/)", relativePath)
+	}
+	if boxID != "" && !ast.IsNodeIDPattern(boxID) {
+		return "", fmt.Errorf("[%s] is not a box id", boxID)
+	}
+
+	if boxID == "" {
+		return GetAssetAbsPathWithOpt(relativePath, false)
+	}
+
+	p := filepath.Join(util.DataDir, boxID, relativePath)
+	if gulu.File.IsExist(p) {
+		if !gulu.File.IsSubPath(util.WorkspaceDir, p) {
+			return "", fmt.Errorf("[%s] is not sub path of workspace", p)
+		}
+		// 解析符号链接/目录联接，防止软链接跳出资产根目录
+		if realP, evalErr := filepath.EvalSymlinks(p); evalErr == nil && realP != p {
+			if !gulu.File.IsSubPath(util.WorkspaceDir, realP) {
+				return "", fmt.Errorf("symlink [%s] resolves outside workspace: [%s]", p, realP)
+			}
+			// 验证解析后的路径仍在 <boxID>/assets/ 或全局 data/assets/ 下
+			expectedPrefix := filepath.Join(util.DataDir, "assets")
+			if boxID != "" {
+				expectedPrefix = filepath.Join(util.DataDir, boxID, "assets")
+			}
+			if !gulu.File.IsSubPath(expectedPrefix, realP) {
+				return "", fmt.Errorf("symlink [%s] resolves outside assets directory: [%s]", p, realP)
+			}
+		}
+		return p, nil
+	}
+	// 非加密 box 的资源可能回退到全局 data/assets（兼容旧笔记本结构）
+	if !IsEncryptedBox(boxID) {
+		return GetAssetAbsPathWithOpt(relativePath, false)
+	}
+	return "", fmt.Errorf(Conf.Language(12), relativePath)
+}
+
+// GetAssetAbsPathWithOpt 与 GetAssetAbsPath 一致，但可通过 includeEncrypted 控制是否遍历加密 box。
+// serveAssets 传 true（下游 serveEncryptedAsset 会按锁定状态 fail-closed），其他调用方传 false（安全跳过）。
+func GetAssetAbsPathWithOpt(relativePath string, includeEncrypted bool) (string, error) {
 	relativePath = strings.TrimSpace(relativePath)
 	if idx := strings.Index(relativePath, "?"); idx >= 0 {
 		relativePath = relativePath[:idx]
 	}
 
-	absPath, err := getAssetAbsPath(relativePath)
+	absPath, err := getAssetAbsPath(relativePath, includeEncrypted)
 	if err == nil && absPath != "" {
 		return absPath, nil
 	}
@@ -569,13 +760,21 @@ func GetAssetAbsPath(relativePath string) (string, error) {
 	return "", fmt.Errorf(Conf.Language(12), relativePath)
 }
 
-func getAssetAbsPath(relativePath string) (absPath string, err error) {
+func getAssetAbsPath(relativePath string, includeEncrypted bool) (absPath string, err error) {
 	relativePath = filepath.ToSlash(relativePath)
 	// 在 data 文件夹下搜索，主要是 data/assets 文件夹
 	p := filepath.Join(util.DataDir, relativePath)
 	if gulu.File.IsExist(p) {
 		if !gulu.File.IsSubPath(util.WorkspaceDir, p) {
 			return "", fmt.Errorf("[%s] is not sub path of workspace", p)
+		}
+		// 解析符号链接，验证真实路径仍在 data/assets/ 下
+		if realP, evalErr := filepath.EvalSymlinks(p); evalErr == nil && realP != p {
+			assetsRoot := util.GetDataAssetsAbsPath()
+			if !gulu.File.IsSubPath(assetsRoot, realP) {
+				return "", fmt.Errorf("symlink [%s] resolves outside data/assets: [%s]", p, realP)
+			}
+			return realP, nil
 		}
 		return p, nil
 	}
@@ -589,6 +788,9 @@ func getAssetAbsPath(relativePath string) (absPath string, err error) {
 		return "", errors.New(Conf.Language(0))
 	}
 	for _, notebook := range notebooks {
+		if !includeEncrypted && IsEncryptedBox(notebook.ID) {
+			continue // 加密笔记本的资源不参与全局路径解析（孤岛，资源不跨边界）
+		}
 		notebookAbsPath := filepath.Join(util.DataDir, notebook.ID)
 		filelock.Walk(notebookAbsPath, func(path string, d fs.DirEntry, err error) error {
 			if isSkipFile(d.Name()) {
@@ -863,6 +1065,12 @@ func RemoveUnusedAsset(p string) (ret string) {
 		return absPath
 	}
 
+	// 加密笔记本的资源不参与未引用清理（与批量版 RemoveUnusedAssets 经 UnusedAssets 的排除一致），
+	// 否则未解锁时 admin 可删加密 box 的资源，破坏可用性且留下悬空的文件名映射。
+	if IsEncryptedAssetPath(absPath) {
+		return absPath
+	}
+
 	historyDir, err := getHistoryDir(HistoryOpClean)
 	if err != nil {
 		logging.LogErrorf("get history dir failed: %s", err)
@@ -905,13 +1113,19 @@ func RenameAsset(oldPath, newName string) (newPath string, err error) {
 	util.PushEndlessProgress(Conf.Language(110))
 	defer util.PushClearProgress()
 
-	if idx := strings.Index(oldPath, "?"); idx >= 0 {
-		oldPath = oldPath[:idx]
+	oldCleanPath := AssetPathWithoutQuery(oldPath)
+
+	// 加密笔记本的资源文件名已脱敏，重命名会破坏映射关系，禁止
+	if absPath, absErr := GetAssetAbsPathInBox(oldPath, ""); absErr == nil {
+		if IsEncryptedAssetPath(absPath) {
+			err = errors.New("renaming assets in encrypted notebooks is not supported")
+			return
+		}
 	}
 
 	newName = strings.TrimSpace(newName)
 	newName = util.FilterUploadFileName(newName)
-	if path.Base(oldPath) == newName {
+	if path.Base(oldCleanPath) == newName {
 		return
 	}
 	if "" == newName {
@@ -923,10 +1137,10 @@ func RenameAsset(oldPath, newName string) (newPath string, err error) {
 		return
 	}
 
-	newName = util.AssetName(newName+filepath.Ext(oldPath), ast.NewNodeID())
-	parentDir := path.Dir(oldPath)
+	newName = util.AssetName(newName+filepath.Ext(oldCleanPath), ast.NewNodeID())
+	parentDir := path.Dir(oldCleanPath)
 	newPath = path.Join(parentDir, newName)
-	oldAbsPath, getErr := GetAssetAbsPath(oldPath)
+	oldAbsPath, getErr := GetAssetAbsPathInBox(oldPath, "")
 	if getErr != nil {
 		logging.LogErrorf("get asset [%s] abs path failed: %s", oldPath, getErr)
 		return
@@ -971,6 +1185,10 @@ func RenameAsset(oldPath, newName string) (newPath string, err error) {
 
 	luteEngine := util.NewLute()
 	for _, notebook := range notebooks {
+		// 加密笔记本的资源重命名已在入口处拦截，这里跳过加密 box
+		if IsEncryptedBox(notebook.ID) {
+			continue
+		}
 		pages := pagedPaths(filepath.Join(util.DataDir, notebook.ID), 32)
 
 		for _, paths := range pages {
@@ -1068,6 +1286,13 @@ func UnusedAssets(sorted bool) (ret []*UnusedItem) {
 	if err != nil {
 		return
 	}
+	// 排除加密笔记本的资源：加密笔记本锁定时 loadTree 失败会误判引用关系，
+	// 且加密笔记本是孤岛，资源不参与全局未引用清理
+	for dest, absPath := range assetsPathMap {
+		if boxID := ExtractBoxIDFromAssetsPath(absPath); boxID != "" && IsEncryptedBox(boxID) {
+			delete(assetsPathMap, dest)
+		}
+	}
 	linkDestMap := map[string]bool{}
 	notebooks, err := ListNotebooks()
 	if err != nil {
@@ -1075,6 +1300,9 @@ func UnusedAssets(sorted bool) (ret []*UnusedItem) {
 	}
 	luteEngine := util.NewLute()
 	for _, notebook := range notebooks {
+		if IsEncryptedBox(notebook.ID) {
+			continue // 加密笔记本的资源不参与未引用清理（孤岛，资源不跨边界）
+		}
 		dests := map[string]bool{}
 
 		// 分页加载，优化清理未引用资源内存占用 https://github.com/siyuan-note/siyuan/issues/5200
@@ -1166,7 +1394,7 @@ func UnusedAssets(sorted bool) (ret []*UnusedItem) {
 		}
 	}
 
-	// 排除数据库中引用的资源文件
+	// 排除数据库中引用的资源文件。加密笔记本的资源不参与未引用清理（孤岛，资源不跨边界）
 	storageAvDir := filepath.Join(util.DataDir, "storage", "av")
 	if gulu.File.IsDir(storageAvDir) {
 		entries, readErr := os.ReadDir(storageAvDir)
@@ -1667,8 +1895,11 @@ func allAssetAbsPaths() (assetsAbsPathMap map[string]string, err error) {
 	}
 
 	assetsAbsPathMap = map[string]string{}
-	// 笔记本 assets
+	// 笔记本 assets（跳过加密 box，加密资产不参与全局去重/清理）
 	for _, notebook := range notebooks {
+		if IsEncryptedBox(notebook.ID) {
+			continue
+		}
 		notebookAbsPath := filepath.Join(util.DataDir, notebook.ID)
 		filelock.Walk(notebookAbsPath, func(path string, d fs.DirEntry, err error) error {
 			if notebookAbsPath == path {

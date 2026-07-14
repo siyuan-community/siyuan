@@ -56,7 +56,8 @@ export const handleTouchEnd = (event: TouchEvent) => {
     if (!isInHarmony() && !isInAndroid()) {
         handleTouchUp();
     }
-    if (Math.abs(clientX - event.changedTouches[0].clientX) < 5 && Math.abs(clientY - event.changedTouches[0].clientY) < 5) {
+    if (Math.abs(clientX - event.changedTouches[0].clientX) < Constants.SIZE_DRAG_THRESHOLD &&
+        Math.abs(clientY - event.changedTouches[0].clientY) < Constants.SIZE_DRAG_THRESHOLD) {
         if (editor && editor.protyle.toolbar.isMultiSelectMode()) {
             if (longPressTimer) {
                 event.stopImmediatePropagation();
@@ -99,7 +100,7 @@ export const handleTouchEnd = (event: TouchEvent) => {
     }
     if (typeof yDiff === "undefined" && editor?.protyle.options.render.gutter) {
         const nodeElement = hasClosestBlock(target);
-        if (nodeElement) {
+        if (nodeElement && nodeElement.closest(".protyle-wysiwyg")) {
             if (nodeElement.classList.contains("list") || nodeElement.classList.contains("li")) {
                 // 光标在列表下部应显示右侧的元素，而不是列表本身。放在 windowEvent 中的 mousemove 下处理
                 return;

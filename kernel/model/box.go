@@ -59,6 +59,9 @@ type Box struct {
 	NewFlashcardCount int `json:"newFlashcardCount"`
 	DueFlashcardCount int `json:"dueFlashcardCount"`
 	FlashcardCount    int `json:"flashcardCount"`
+
+	Encrypted bool `json:"encrypted"` // 是否为加密笔记本
+	Unlocked  bool `json:"unlocked"`  // 加密笔记本是否已解锁（DEK 在内存），非加密笔记本恒为 false
 }
 
 func StatJob() {
@@ -113,8 +116,26 @@ func ListNotebooks() (ret []*Box, err error) {
 		isExistConf := filelock.IsExist(boxConfPath)
 		if !isExistConf {
 			if !IsUserGuide(id) {
-				// 数据同步时展开文档树操作可能导致数据丢失 https://github.com/siyuan-note/siyuan/issues/7129
-				logging.LogWarnf("found a corrupted box [%s]", boxDirPath)
+				// conf.json 缺失时检查加密备份，确认是否为加密笔记本
+				backup, backupErr := readNotebookCryptBackup(id)
+				if backupErr != nil {
+					logging.LogErrorf("read notebook crypt backup [%s] failed: %s", boxDirPath, backupErr)
+					continue
+				}
+				if backup != nil {
+					// 从备份恢复 conf.json，避免加密笔记本被当作普通笔记本处理
+					boxConf.Encrypted = true
+					boxConf.BoxCrypt = backup
+					tmpBox := &Box{ID: id}
+					if saveErr := tmpBox.SaveConf(boxConf); saveErr != nil {
+						logging.LogErrorf("restore encrypted notebook conf from backup failed [%s]: %s", boxDirPath, saveErr)
+						continue
+					}
+					logging.LogWarnf("restored encrypted notebook conf from backup [%s]", boxDirPath)
+				} else {
+					// 数据同步时展开文档树操作可能导致数据丢失 https://github.com/siyuan-note/siyuan/issues/7129
+					logging.LogWarnf("found a corrupted box [%s]", boxDirPath)
+				}
 			} else {
 				continue
 			}
@@ -126,6 +147,11 @@ func ListNotebooks() (ret []*Box, err error) {
 			}
 			if readErr = gulu.JSON.UnmarshalJSON(data, boxConf); nil != readErr {
 				logging.LogErrorf("parse box conf [%s] failed: %s", boxConfPath, readErr)
+				// 检查加密备份，有备份则保留损坏 conf 不删（避免标记为缺失后自动恢复旧数据）
+				backup, backupErr := readNotebookCryptBackup(id)
+				if backupErr == nil && backup != nil {
+					continue
+				}
 				filelock.Remove(boxConfPath)
 				continue
 			}
@@ -138,17 +164,21 @@ func ListNotebooks() (ret []*Box, err error) {
 		}
 
 		box := &Box{
-			ID:       id,
-			Name:     boxConf.Name,
-			Icon:     icon,
-			Sort:     boxConf.Sort,
-			SortMode: boxConf.SortMode,
-			Closed:   boxConf.Closed,
+			ID:        id,
+			Name:      boxConf.Name,
+			Icon:      icon,
+			Sort:      boxConf.Sort,
+			SortMode:  boxConf.SortMode,
+			Closed:    boxConf.Closed,
+			Encrypted: boxConf.Encrypted,
+			Unlocked:  IsBoxUnlocked(id),
 		}
 
 		if !isExistConf {
 			// Automatically create notebook conf.json if not found it https://github.com/siyuan-note/siyuan/issues/9647
-			box.SaveConf(boxConf)
+			if err := box.SaveConf(boxConf); err != nil {
+				logging.LogErrorf("save box conf [%s] failed: %s", boxDirPath, err)
+			}
 			box.Unindex()
 			logging.LogWarnf("fixed a corrupted box [%s]", boxDirPath)
 		}
@@ -210,43 +240,49 @@ func (box *Box) GetConf() (ret *conf.BoxConf) {
 	return
 }
 
-func (box *Box) SaveConf(conf *conf.BoxConf) {
+func (box *Box) SaveConf(conf *conf.BoxConf) error {
 	confPath := filepath.Join(util.DataDir, box.ID, ".siyuan/conf.json")
 	newData, err := gulu.JSON.MarshalIndentJSON(conf, "", "  ")
 	if err != nil {
-		logging.LogErrorf("marshal box conf [%s] failed: %s", confPath, err)
-		return
+		return fmt.Errorf("marshal box conf [%s] failed: %w", confPath, err)
 	}
 
 	oldData, err := filelock.ReadFile(confPath)
 	if err != nil {
-		box.saveConf0(newData)
-		return
+		return box.saveConf0(newData)
 	}
 
 	if bytes.Equal(newData, oldData) {
-		return
+		return nil
 	}
 
-	box.saveConf0(newData)
+	return box.saveConf0(newData)
 }
 
-func (box *Box) saveConf0(data []byte) {
+func (box *Box) saveConf0(data []byte) error {
 	confPath := filepath.Join(util.DataDir, box.ID, ".siyuan/conf.json")
 	if err := os.MkdirAll(filepath.Join(util.DataDir, box.ID, ".siyuan"), 0755); err != nil {
-		logging.LogErrorf("save box conf [%s] failed: %s", confPath, err)
+		return fmt.Errorf("mkdir box conf dir failed: %w", err)
 	}
 	if err := filelock.WriteFile(confPath, data); err != nil {
-		logging.LogErrorf("write box conf [%s] failed: %s", confPath, err)
 		util.ReportFileSysFatalError(err)
-		return
+		return fmt.Errorf("write box conf [%s] failed: %w", confPath, err)
 	}
+	return nil
+}
+
+// validateBoxPath 校验 box 内相对路径，拒绝 .. 和绝对路径，确保最终路径在 <DataDir>/<boxID>/ 内。
+func (box *Box) validateBoxPath(p string) (string, error) {
+	return filesys.ValidateBoxRelativePath(box.ID, p)
 }
 
 func (box *Box) Ls(p string) (ret []*FileInfo, totals int, err error) {
+	if _, err = box.validateBoxPath(p); err != nil {
+		return
+	}
 	boxLocalPath := filepath.Join(util.DataDir, box.ID)
-	if strings.HasSuffix(p, ".sy") {
-		dir := strings.TrimSuffix(p, ".sy")
+	if before, ok := strings.CutSuffix(p, ".sy"); ok {
+		dir := before
 		absDir := filepath.Join(boxLocalPath, dir)
 		if gulu.File.IsDir(absDir) {
 			p = dir
@@ -298,6 +334,9 @@ func (box *Box) Ls(p string) (ret []*FileInfo, totals int, err error) {
 }
 
 func (box *Box) Stat(p string) (ret *FileInfo) {
+	if _, err := box.validateBoxPath(p); err != nil {
+		return
+	}
 	absPath := filepath.Join(util.DataDir, box.ID, p)
 	info, err := os.Stat(absPath)
 	if err != nil {
@@ -316,10 +355,16 @@ func (box *Box) Stat(p string) (ret *FileInfo) {
 }
 
 func (box *Box) Exist(p string) bool {
+	if _, err := box.validateBoxPath(p); err != nil {
+		return false
+	}
 	return filelock.IsExist(filepath.Join(util.DataDir, box.ID, p))
 }
 
 func (box *Box) Mkdir(path string) error {
+	if _, err := box.validateBoxPath(path); err != nil {
+		return err
+	}
 	if err := os.Mkdir(filepath.Join(util.DataDir, box.ID, path), 0755); err != nil {
 		msg := fmt.Sprintf(Conf.Language(6), box.Name, path, err)
 		logging.LogErrorf("mkdir [path=%s] in box [%s] failed: %s", path, box.ID, err)
@@ -330,6 +375,9 @@ func (box *Box) Mkdir(path string) error {
 }
 
 func (box *Box) MkdirAll(path string) error {
+	if _, err := box.validateBoxPath(path); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Join(util.DataDir, box.ID, path), 0755); err != nil {
 		msg := fmt.Sprintf(Conf.Language(6), box.Name, path, err)
 		logging.LogErrorf("mkdir all [path=%s] in box [%s] failed: %s", path, box.ID, err)
@@ -340,6 +388,12 @@ func (box *Box) MkdirAll(path string) error {
 }
 
 func (box *Box) Move(oldPath, newPath string) error {
+	if _, err := box.validateBoxPath(oldPath); err != nil {
+		return err
+	}
+	if _, err := box.validateBoxPath(newPath); err != nil {
+		return err
+	}
 	boxLocalPath := filepath.Join(util.DataDir, box.ID)
 	fromPath := filepath.Join(boxLocalPath, oldPath)
 	toPath := filepath.Join(boxLocalPath, newPath)
@@ -361,6 +415,9 @@ func (box *Box) Move(oldPath, newPath string) error {
 }
 
 func (box *Box) Remove(path string) error {
+	if _, err := box.validateBoxPath(path); err != nil {
+		return err
+	}
 	boxLocalPath := filepath.Join(util.DataDir, box.ID)
 	filePath := filepath.Join(boxLocalPath, path)
 	if err := filelock.Remove(filePath); err != nil {
@@ -373,6 +430,7 @@ func (box *Box) Remove(path string) error {
 }
 
 func (box *Box) ListFiles(path string) (ret []*FileInfo) {
+	// ListFiles 委托给 Ls，后者已有 validateBoxPath
 	fis, _, err := box.Ls(path)
 	if err != nil {
 		return
@@ -707,6 +765,9 @@ func ClearTempFiles() {
 
 	thumbnailsTmp := filepath.Join(util.TempDir, "thumbnails")
 	clearTempDir(thumbnailsTmp, &count, &size)
+
+	repoTmp := filepath.Join(util.TempDir, "repo")
+	clearTempDir(repoTmp, &count, &size)
 }
 
 func clearTempDir(dir string, count *int, size *int64) {
@@ -778,10 +839,7 @@ func VacuumDataIndex() {
 		humanize.BytesCustomCeil(uint64(oldHistoryDbSize), 2), humanize.BytesCustomCeil(uint64(newHistoryDbSize), 2),
 		humanize.BytesCustomCeil(uint64(oldAssetContentDbSize), 2), humanize.BytesCustomCeil(uint64(newAssetContentDbSize), 2))
 
-	releaseSize := (oldsyDbSize - newSyDbSize) + (oldHistoryDbSize - newHistoryDbSize) + (oldAssetContentDbSize - newAssetContentDbSize)
-	if releaseSize < 0 {
-		releaseSize = 0
-	}
+	releaseSize := max((oldsyDbSize-newSyDbSize)+(oldHistoryDbSize-newHistoryDbSize)+(oldAssetContentDbSize-newAssetContentDbSize), 0)
 	msg := fmt.Sprintf(Conf.language(271), humanize.BytesCustomCeil(uint64(releaseSize), 2))
 	util.PushMsg(msg, 7000)
 }

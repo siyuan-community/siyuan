@@ -49,41 +49,42 @@ var Conf *AppConf
 
 // AppConf 维护应用元数据，保存在 ~/.siyuan/conf.json。
 type AppConf struct {
-	LogLevel       string           `json:"logLevel"`       // 日志级别：off, trace, debug, info, warn, error, fatal
-	Appearance     *conf.Appearance `json:"appearance"`     // 外观
-	Langs          []*conf.Lang     `json:"langs"`          // 界面语言列表
-	Lang           string           `json:"lang"`           // 选择的界面语言，同 Appearance.Lang
-	FileTree       *conf.FileTree   `json:"fileTree"`       // 文档面板
-	Tag            *conf.Tag        `json:"tag"`            // 标签面板
-	Editor         *conf.Editor     `json:"editor"`         // 编辑器配置
-	Export         *conf.Export     `json:"export"`         // 导出配置
-	Graph          *conf.Graph      `json:"graph"`          // 关系图配置
-	UILayout       *conf.UILayout   `json:"uiLayout"`       // 界面布局。不要直接使用，使用 GetUILayout() 和 SetUILayout() 方法
-	UserData       string           `json:"userData"`       // 社区用户信息，对 User 加密存储
-	User           *conf.User       `json:"-"`              // 社区用户内存结构，不持久化。不要直接使用，使用 GetUser() 和 SetUser() 方法
-	Account        *conf.Account    `json:"account"`        // 帐号配置
-	ReadOnly       bool             `json:"readonly"`       // 是否是以只读模式运行
-	ServerAddrs    []string         `json:"serverAddrs"`    // 本地服务器地址列表
-	AccessAuthCode string           `json:"accessAuthCode"` // 锁屏密码
-	System         *conf.System     `json:"system"`         // 系统配置
-	Keymap         *conf.Keymap     `json:"keymap"`         // 快捷键配置
-	Sync           *conf.Sync       `json:"sync"`           // 同步配置
-	Search         *conf.Search     `json:"search"`         // 搜索配置
-	Flashcard      *conf.Flashcard  `json:"flashcard"`      // 闪卡配置
-	AI             *conf.AI         `json:"ai"`             // 人工智能配置
-	Secrets        *conf.Secrets    `json:"secrets"`        // 全局密钥库
-	Variables      *conf.Variables  `json:"variables"`      // 全局变量库
-	Bazaar         *conf.Bazaar     `json:"bazaar"`         // 集市配置
-	Stat           *conf.Stat       `json:"stat"`           // 统计
-	Api            *conf.API        `json:"api"`            // API
-	Repo           *conf.Repo       `json:"repo"`           // 数据仓库
-	Publish        *conf.Publish    `json:"publish"`        // 发布服务
-	OpenHelp       bool             `json:"openHelp"`       // 启动后是否需要打开用户指南
-	ShowChangelog  bool             `json:"showChangelog"`  // 是否显示版本更新日志
-	CloudRegion    int              `json:"cloudRegion"`    // 云端区域，0：中国大陆，1：北美
-	Snippet        *conf.Snpt       `json:"snippet"`        // 代码片段
-	DataIndexState int              `json:"dataIndexState"` // 数据索引状态，0：已索引，1：未索引
-	CookieKey      string           `json:"cookieKey"`      // 用于加密 Cookie 的密钥
+	LogLevel       string               `json:"logLevel"`       // 日志级别：off, trace, debug, info, warn, error, fatal
+	Appearance     *conf.Appearance     `json:"appearance"`     // 外观
+	Langs          []*conf.Lang         `json:"langs"`          // 界面语言列表
+	Lang           string               `json:"lang"`           // 选择的界面语言，同 Appearance.Lang
+	FileTree       *conf.FileTree       `json:"fileTree"`       // 文档面板
+	Tag            *conf.Tag            `json:"tag"`            // 标签面板
+	Editor         *conf.Editor         `json:"editor"`         // 编辑器配置
+	Export         *conf.Export         `json:"export"`         // 导出配置
+	Graph          *conf.Graph          `json:"graph"`          // 关系图配置
+	UILayout       *conf.UILayout       `json:"uiLayout"`       // 界面布局。不要直接使用，使用 GetUILayout() 和 SetUILayout() 方法
+	UserData       string               `json:"userData"`       // 社区用户信息，对 User 加密存储
+	User           *conf.User           `json:"-"`              // 社区用户内存结构，不持久化。不要直接使用，使用 GetUser() 和 SetUser() 方法
+	Account        *conf.Account        `json:"account"`        // 帐号配置
+	ReadOnly       bool                 `json:"readonly"`       // 是否是以只读模式运行
+	ServerAddrs    []string             `json:"serverAddrs"`    // 本地服务器地址列表
+	AccessAuthCode string               `json:"accessAuthCode"` // 锁屏密码
+	System         *conf.System         `json:"system"`         // 系统配置
+	Keymap         *conf.Keymap         `json:"keymap"`         // 快捷键配置
+	Sync           *conf.Sync           `json:"sync"`           // 同步配置
+	Search         *conf.Search         `json:"search"`         // 搜索配置
+	Flashcard      *conf.Flashcard      `json:"flashcard"`      // 闪卡配置
+	AI             *conf.AI             `json:"ai"`             // 人工智能配置
+	Secrets        *conf.Secrets        `json:"secrets"`        // 全局密钥库
+	Variables      *conf.Variables      `json:"variables"`      // 全局变量库
+	Bazaar         *conf.Bazaar         `json:"bazaar"`         // 集市配置
+	Stat           *conf.Stat           `json:"stat"`           // 统计
+	Api            *conf.API            `json:"api"`            // API
+	Repo           *conf.Repo           `json:"repo"`           // 数据仓库
+	NotebookCrypto *conf.NotebookCrypto `json:"notebookCrypto"` // 加密笔记本密钥管理
+	Publish        *conf.Publish        `json:"publish"`        // 发布服务
+	OpenHelp       bool                 `json:"openHelp"`       // 启动后是否需要打开用户指南
+	ShowChangelog  bool                 `json:"showChangelog"`  // 是否显示版本更新日志
+	CloudRegion    int                  `json:"cloudRegion"`    // 云端区域，0：中国大陆，1：北美
+	Snippet        *conf.Snpt           `json:"snippet"`        // 代码片段
+	DataIndexState int                  `json:"dataIndexState"` // 数据索引状态，0：已索引，1：未索引
+	CookieKey      string               `json:"cookieKey"`      // 用于加密 Cookie 的密钥
 
 	m        *sync.RWMutex // 配置数据锁
 	userLock *sync.RWMutex // 用户数据独立锁，避免与配置保存操作竞争
@@ -139,10 +140,31 @@ func InitConf() {
 				logging.LogInfof("loaded conf [%s]", confPath)
 			}
 
+			// 启动时检测并完成中断的改密迁移
+			recoverMasterPasswordMigration()
+
 			if conf.NeedsAIMigration(data) {
 				Conf.AI = conf.MigrateAI(data)
 				Conf.Save()
 				logging.LogInfof("migrated AI config [%s]", confPath)
+			}
+
+			// 重启后加密笔记本的 DEK 丢失（仅内存），必须重新解锁。
+			// 强制把所有加密笔记本标记为已关闭，避免启动索引读到无法解密的密文 .sy。
+			// 使用 IsEncryptedBox 统一判定（含 backup fallback）。
+			changed := false
+			for _, box := range Conf.GetBoxes() {
+				if IsEncryptedBox(box.ID) && !box.Closed {
+					boxConf := box.GetConf()
+					boxConf.Closed = true
+					if err := box.SaveConf(boxConf); err != nil {
+						logging.LogErrorf("close encrypted notebook on boot [%s] failed: %s", box.ID, err)
+					}
+					changed = true
+				}
+			}
+			if changed {
+				logging.LogInfof("closed encrypted notebooks on boot (DEK not in memory)")
 			}
 		}
 	}
@@ -531,6 +553,16 @@ func InitConf() {
 		logging.LogInfof("repo key [%x]", sha1.Sum(Conf.Repo.Key))
 	}
 
+	if nil == Conf.NotebookCrypto {
+		Conf.NotebookCrypto = conf.NewNotebookCrypto()
+	}
+
+	// 注意：此处不在启动时为已启用但备份缺失的情形回填密钥备份。无 KEK 生成的备份 KEKMAC 必为空，
+	// 而 deriveKEK/恢复路径强制要求 KEKMAC 有效，回填会导致该机永远无法解锁（自相矛盾）。
+	// 当前格式备份必须由主密码验证后生成（见 EnableEncryptedNotebook / tryRestoreNotebookCryptoFromBackupLocked）。
+	// Enabled=true 但备份缺失/无效属配置不完整，解锁时由 deriveKEK 返回恢复提示（Language 315），
+	// 引导用户导入匹配的备份文件后重新验证主密码。
+
 	if nil == Conf.Search {
 		Conf.Search = conf.NewSearch()
 	}
@@ -581,7 +613,7 @@ func InitConf() {
 		}()
 	}
 	isInvalidFlashcardWeights := false
-	for _, w := range strings.Split(Conf.Flashcard.Weights, ",") {
+	for w := range strings.SplitSeq(Conf.Flashcard.Weights, ",") {
 		if _, err := strconv.ParseFloat(strings.TrimSpace(w), 64); err != nil {
 			isInvalidFlashcardWeights = true
 			break
@@ -868,6 +900,15 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	}
 
 	Conf.Close()
+	// 退出前关闭已打开的加密笔记本并推送 closeBox，让前端关闭对应的明文文档标签页，避免重启后泄密。
+	// 走 Unmount：落盘 Closed=true + 生成历史 + 锁定清 DEK + 广播 closeBox。
+	// 排除用户指南：Unmount 对用户指南会触发 RemoveBox（mount.go:208-214）。
+	// 放在 BroadcastByType("exit")（第 933 行）之前推送，随后的 time.Sleep(500ms) 留给前端处理事件。
+	for _, box := range Conf.GetOpenedBoxes() {
+		if IsEncryptedBox(box.ID) && !IsUserGuide(box.ID) {
+			Unmount(box.ID)
+		}
+	}
 	sql.CloseDatabase()
 	closePushQueue()
 	util.SaveAssetsTexts()
@@ -1054,7 +1095,8 @@ func (conf *AppConf) GetBoxes() (ret []*Box) {
 		id := notebook.ID
 		name := notebook.Name
 		closed := notebook.Closed
-		box := &Box{ID: id, Name: name, Closed: closed}
+		encrypted := IsEncryptedBox(id) // 使用 IsEncryptedBox 统一判定（含 backup fallback）
+		box := &Box{ID: id, Name: name, Closed: closed, Encrypted: encrypted}
 		ret = append(ret, box)
 	}
 	return
@@ -1408,4 +1450,11 @@ func subscribeConfEvents() {
 		logging.LogInfof("pandoc resources [%s, %s]", util.PandocTemplatePath, util.PandocColorFilterPath)
 		Conf.Save()
 	})
+}
+
+// NotebookCryptoEnabled 返回加密笔记本功能是否已启用（线程安全）。
+func NotebookCryptoEnabled() bool {
+	Conf.m.RLock()
+	defer Conf.m.RUnlock()
+	return Conf.NotebookCrypto.Enabled
 }

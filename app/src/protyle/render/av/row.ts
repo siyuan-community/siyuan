@@ -1,4 +1,4 @@
-import {hasClosestBlock, hasClosestByClassName} from "../../util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName, hasTopClosestByAttribute, isInEmbedBlock} from "../../util/hasClosest";
 import {focusBlock} from "../../util/selection";
 import {Menu} from "../../../plugin/Menu";
 import {transaction} from "../../wysiwyg/transaction";
@@ -283,24 +283,33 @@ export const updateHeader = (rowElement: HTMLElement) => {
     if (!blockElement) {
         return;
     }
-    const bodyElement = rowElement.parentElement as HTMLElement;
-    // 虚拟滚动下 DOM 内只有渲染窗口的行，直接计数会低估；优先用选中快照与已加载行总数。
-    const stat = getAVSelectStat(bodyElement);
-    const selectCount = stat ? stat.selectCount : bodyElement.querySelectorAll(".av__row--select:not(.av__row--header)").length;
-    const count = stat ? stat.loadedCount : bodyElement.querySelectorAll(".av__row:not(.av__row--header)").length;
-
-    const headElement = bodyElement.firstElementChild;
-    const headUseElement = headElement.querySelector("use");
-
-    if (count === selectCount && count !== 0) {
-        headElement.classList.add("av__row--select");
-        headUseElement.setAttribute("xlink:href", "#iconCheck");
-    } else if (selectCount === 0) {
-        headElement.classList.remove("av__row--select");
-        headUseElement.setAttribute("xlink:href", "#iconUncheck");
-    } else if (selectCount > 0) {
-        headElement.classList.add("av__row--select");
-        headUseElement.setAttribute("xlink:href", "#iconIndeterminateCheck");
+    const avType = blockElement.getAttribute("data-av-type") as TAVView;
+    let selectCount: number;
+    if (avType === "table") {
+        const bodyElement = rowElement.parentElement as HTMLElement;
+        // 虚拟滚动下 DOM 内只有渲染窗口的行，直接计数会低估；优先用选中快照与已加载行总数。
+        const stat = getAVSelectStat(bodyElement);
+        selectCount = stat ? stat.selectCount : bodyElement.querySelectorAll(".av__row--select:not(.av__row--header)").length;
+        const count = stat ? stat.loadedCount : bodyElement.querySelectorAll(".av__row:not(.av__row--header)").length;
+        const headElement = bodyElement.firstElementChild as HTMLElement;
+        const headUseElement = headElement.querySelector("use");
+        if (count === selectCount && count !== 0) {
+            headElement.classList.add("av__row--select");
+            headUseElement.setAttribute("xlink:href", "#iconCheck");
+        } else if (selectCount === 0) {
+            headElement.classList.remove("av__row--select");
+            headUseElement.setAttribute("xlink:href", "#iconUncheck");
+        } else if (selectCount > 0) {
+            headElement.classList.add("av__row--select");
+            headUseElement.setAttribute("xlink:href", "#iconIndeterminateCheck");
+        }
+    } else {
+        // 卡片/看板视图按分组（.av__body）聚合选中数，看板与分组卡片视图存在多个 body。
+        selectCount = 0;
+        blockElement.querySelectorAll(".av__body").forEach((bodyItem: HTMLElement) => {
+            const stat = getAVSelectStat(bodyItem);
+            selectCount += stat ? stat.selectCount : bodyItem.querySelectorAll(".av__gallery-item--select").length;
+        });
     }
 
     const counterElement = blockElement.querySelector(".av__counter");
@@ -484,6 +493,16 @@ const syncFixedRowPos = (item: HTMLElement, bodyRect: DOMRect, scrollLeft: numbe
 
 export const stickyRow = (blockElement: HTMLElement, scrollElement: HTMLElement, status: "top" | "bottom" | "all") => {
     if (blockElement.dataset.avType !== "table") {
+        return;
+    }
+    const skipFixed = hasTopClosestByAttribute(blockElement, "fold", "1");
+    if (skipFixed) {
+        blockElement.querySelectorAll(".av__row--header--fixed").forEach((item: HTMLElement) => {
+            removeFixedRow(item, "av__row--header--fixed", "av__row--header-placeholder");
+        });
+        blockElement.querySelectorAll(".av__row--footer--fixed").forEach((item: HTMLElement) => {
+            removeFixedRow(item, "av__row--footer--fixed", "av__row--footer-placeholder");
+        });
         return;
     }
     const scrollEl = blockElement.querySelector(".av__scroll") as HTMLElement;

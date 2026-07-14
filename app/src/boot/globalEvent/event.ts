@@ -5,17 +5,30 @@ import {windowKeyDown} from "./keydown";
 import {globalClick} from "./click";
 import {goBack, goForward} from "../../util/backForward";
 import {Constants} from "../../constants";
-import {isIPad} from "../../protyle/util/compatibility";
 import {hasClosestByClassName, isInEmbedBlock} from "../../protyle/util/hasClosest";
 import {hideTooltip} from "../../dialog/tooltip";
 import {hideAllElements} from "../../protyle/ui/hideElements";
 import {dragOverScroll, stopScrollAnimation} from "./dragover";
 import {setWebViewFocusable} from "../../mobile/util/mobileAppUtil";
-import {initTouchDragBridge} from "../../util/touchDragBridge";
+import {cancelManualTouch, initTouchDragBridge, isLastPointerMouse} from "../../util/touchDragBridge";
 import {isWindow} from "../../util/functions";
 import {getDockByType} from "../../layout/tabUtil";
+import {fetchPost} from "../../util/fetch";
 
 export const initWindowEvent = (app: App) => {
+	let lastEncryptedNotebookTouch = 0;
+	const touchEncryptedNotebooks = () => {
+		const now = Date.now();
+		if (now - lastEncryptedNotebookTouch < 30000) {
+			return;
+		}
+		lastEncryptedNotebookTouch = now;
+		fetchPost("/api/notebook/touchEncryptedNotebooks", {});
+	};
+	window.addEventListener("pointerdown", touchEncryptedNotebooks, {passive: true});
+	window.addEventListener("keydown", touchEncryptedNotebooks);
+	document.addEventListener("touchstart", touchEncryptedNotebooks, {passive: true});
+
     document.body.addEventListener("mouseleave", () => {
         if (window.siyuan.layout.leftDock) {
             window.siyuan.layout.leftDock.hideDock();
@@ -84,8 +97,8 @@ export const initWindowEvent = (app: App) => {
                 }
                 if (["nodeheading", "nodelistitem"].includes(gutterBlockType)) {
                     const statusHeight = document.getElementById("status")?.clientHeight || 0;
-                    const inYRange = event.clientY > document.getElementById("toolbar")?.clientHeight || 0
-                        && event.clientY < window.innerHeight - statusHeight;
+                    const toolbarHeight = document.getElementById("toolbar")?.clientHeight || 0;
+                    const inYRange = event.clientY > toolbarHeight && event.clientY < window.innerHeight - statusHeight;
                     // 通过 dock 容器类名判断位置，避免访问私有属性 position
                     const dockElement = fileDock.layout.element;
                     let onEdge = false;
@@ -198,8 +211,12 @@ export const initWindowEvent = (app: App) => {
     });
 
     let time = 0;
+    let startX = 0;
+    let startY = 0;
     document.addEventListener("touchstart", (event) => {
         time = Date.now();
+        startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
         // https://github.com/siyuan-note/siyuan/issues/6328
         const target = event.target as HTMLElement;
         if (hasClosestByClassName(target, "protyle-icons") ||
@@ -215,12 +232,16 @@ export const initWindowEvent = (app: App) => {
     }, false);
 
     document.addEventListener("touchend", (event) => {
+        // 无条件前置取消手动桥接：触发各组件（如 Outline.bindSort）注册的 mouseup 清理回调，复位 document.onmousemove 等状态
+        cancelManualTouch();
         if (window.siyuan.touchDragActive) {
             return;
         }
-        // pad 端长按事件
-        const currentTime = Date.now();
-        if (isIPad() && currentTime - time > 900 && currentTime - time < 2000) {
+        if (Math.abs(startX - event.changedTouches[0].clientX) < Constants.SIZE_DRAG_THRESHOLD &&
+            Math.abs(startY - event.changedTouches[0].clientY) < Constants.SIZE_DRAG_THRESHOLD &&
+            Date.now() - time > Constants.TIMEOUT_LONGPRESS &&
+            // 鼠标长按不应合成右键菜单：触屏长按出菜单是手指专属手势，鼠标菜单由右键触发
+            !isLastPointerMouse()) {
             event.target.dispatchEvent(new MouseEvent("contextmenu", {
                 bubbles: true,
                 cancelable: true,

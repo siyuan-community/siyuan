@@ -7,8 +7,8 @@ import {bindAvSearch} from "../search";
 import {processRender} from "../../../util/processCode";
 import {getPageSize} from "../groups";
 import {renderKanban} from "../kanban/render";
-import {initVirtualScroll} from "../virtualScroll";
-import {getRowHTML} from "../row";
+import {getBodyVirtualData, initVirtualScroll} from "../virtualScroll";
+import {getRowHTML, updateHeader} from "../row";
 
 interface IIds {
     groupId: string,
@@ -53,7 +53,7 @@ const getGalleryHTML = (data: IAVGallery, e: HTMLElement, virtualData: IAVVirtua
     });
     galleryHTML += `<div class="av__gallery-add" data-type="av-add-bottom"><svg class="svg"><use xlink:href="#iconAdd"></use></svg><span class="fn__space"></span>${window.siyuan.languages.newRow}</div>`;
     return `<div class="av__gallery${data.cardSize === 0 ? " av__gallery--small" : (data.cardSize === 2 ? " av__gallery--big" : "")}">
-    ${galleryHTML}
+    ${virtualData?.topSpacerHeight ? `<div class="av__spacer" style="height: ${virtualData.topSpacerHeight}px;"></div>` : ""}${galleryHTML}
 </div>
 <div class="av__gallery-load${data.cardCount > data.cards.length ? "" : " fn__none"}">
     <button class="b3-button av__button" data-type="av-load-more">
@@ -118,6 +118,11 @@ export const afterRenderGallery = (options: ITableOptions) => {
             itemElement.classList.add("av__gallery-item--select");
         }
     });
+    // 重渲后恢复的选中态需刷新计数器显示
+    const restoredItem = options.blockElement.querySelector(".av__gallery-item--select") as HTMLElement;
+    if (restoredItem) {
+        updateHeader(restoredItem);
+    }
     options.resetData.editIds.find(selectId => {
         let itemElement = options.blockElement.querySelector(`.av__body[data-group-id="${selectId.groupId}"] .av__gallery-item[data-id="${selectId.fieldId}"]`) as HTMLElement;
         if (!itemElement) {
@@ -192,11 +197,14 @@ export const renderGallery = async (options: {
         if (!item.querySelector(".av__gallery-item") || options.blockElement.getAttribute(Constants.ATTRIBUTE_V_SCROLL) !== "true") {
             return;
         }
-        virtualData[item.getAttribute("data-group-id") || "all"] = ({
-            renderedStart: parseInt(item.querySelector(".av__gallery-item").getAttribute("data-index")),
-            renderedEnd: parseInt(item.querySelector(".av__gallery-add").previousElementSibling.getAttribute("data-index")),
-            topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
-        });
+        // 守卫只保证至少 1 个 .av__gallery-item，但首行索引用 :not([data-type=ghost]) 过滤。
+        // body 内全是 ghost 占位行（插入动画进行中）时查询返回 null，需跳过避免解引用 null.getAttribute
+        const firstItem = item.querySelector(".av__gallery-item:not([data-type=ghost])") as HTMLElement;
+        if (!firstItem) {
+            return;
+        }
+        const firstItemIndex = parseInt(firstItem.getAttribute("data-index"));
+        virtualData[item.getAttribute("data-group-id") || "all"] = getBodyVirtualData(item, ".av__gallery-add", firstItemIndex);
     });
     const resetData = {
         isSearching: searchInputElement && document.activeElement === searchInputElement,

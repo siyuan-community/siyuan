@@ -391,7 +391,7 @@ interface ICard {
     deckID: string;
     cardID: string;
     blockID: string;
-    nextDues: IObject;
+    nextDues: Record<string, string>;
     lapses: number;  // 遗忘次数
     lastReview: number;  // 最后复习时间
     reps: number;  // 复习次数
@@ -517,6 +517,7 @@ interface INotebook {
     newFlashcardCount?: string;
     flashcardCount?: string;
     sortMode: number;
+    encrypted?: boolean;
 }
 
 interface ISiyuan {
@@ -638,7 +639,7 @@ interface ISiyuan {
 interface IOperation {
     action: TOperation, // move， delete 不需要传 data
     id?: string,
-    context?: IObject,  // focusId, message, ignoreProcess, setRange
+    context?: Record<string, string>,  // focusId, message, ignoreProcess, setRange
     blockID?: string,
     isTwoWay?: boolean, // 是否双向关联
     backRelationKeyID?: string, // 双向关联的目标关联列 ID
@@ -674,7 +675,7 @@ interface IOperationSrcs {
 }
 
 interface IObject {
-    [key: string]: string;
+    [key: string]: string | number | boolean;
 }
 
 interface ILayoutJSON extends ILayoutOptions {
@@ -718,7 +719,7 @@ interface IPluginData {
     name: string,
     js: string,
     css: string,
-    i18n: IObject
+    i18n: Record<string, string>
 }
 
 interface IPluginDockTab {
@@ -882,7 +883,7 @@ interface IBlock {
     refs?: IBlock[];
     children?: IBlock[]
     length?: number
-    ial: IObject
+    ial: Record<string, string>
     refCount?: number
 }
 

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,7 +103,7 @@ func SetPublishAccess(inputPublishAccess PublishAccess) (err error) {
 	err = os.MkdirAll(filepath.Dir(publishAccessPath), 0755)
 	if err != nil {
 		msg := fmt.Sprintf("create dir for publishAccess.json [%s] failed: %s", publishAccessPath, err)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		err = errors.New(msg)
 		return
 	}
@@ -116,7 +117,7 @@ func SetPublishAccess(inputPublishAccess PublishAccess) (err error) {
 	err = filelock.WriteFile(publishAccessPath, data)
 	if err != nil {
 		msg := fmt.Sprintf("write publishAccess.json [%s] failed: %s", publishAccessPath, err)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		err = errors.New(msg)
 		return
 	}
@@ -275,10 +276,8 @@ func CheckAbsPathAccessableByPublishAccess(c *gin.Context, absPath string, publi
 				passwordID, password := GetPathPasswordByPublishAccess(bt.BoxID, bt.Path, publishAccess)
 				if CheckPathAccessableByPublishIgnore(bt.BoxID, bt.Path, publishIgnore) && (password == "" || CheckPublishAuthCookie(c, passwordID, password)) {
 					assets, _ := DocAssets(bt.ID, false)
-					for _, assetPath := range assets {
-						if assetPath == relPath {
-							return true
-						}
+					if slices.Contains(assets, relPath) {
+						return true
 					}
 				}
 			}

@@ -479,6 +479,10 @@ siyuan notebook list -w ~/SiYuan
 # 全文搜索（JSON 输出）
 siyuan search "关键词" -w ~/SiYuan -f json
 
+# 搜索资源文件内容（PDF/Word/Excel/txt 等）
+siyuan search "关键词" --asset -w ~/SiYuan
+siyuan search "关键词" --asset --ext pdf --ext docx -w ~/SiYuan
+
 # 导出文档为 Markdown
 siyuan export md --id <block-id> -w ~/SiYuan
 ```
@@ -490,7 +494,7 @@ siyuan export md --id <block-id> -w ~/SiYuan
 | 笔记本与文档 | `notebook`、`document`、`dailynote` — 增删改查、每日笔记 |
 | 内容 | `block`、`attr`、`outline` — 块读写、自定义属性、大纲 |
 | 元数据 | `tag`、`bookmark`、`template` — 标签、书签、模板片段 |
-| 查询 | `search`、`sql` — 全文和 SQL 查询 |
+| 查询 | `search`、`sql` — 全文、语义、资源文件内容、SQL 查询 |
 | 引用 | `ref` — 反向链接和提及 |
 | 导入导出 | `export`、`import`、`inbox` — Markdown、HTML、preview、Word、.sy.zip、Data、云端收集箱 |
 | 数据管理 | `repo`、`history`、`sync` — 快照、历史、云端同步 |
@@ -501,19 +505,36 @@ siyuan export md --id <block-id> -w ~/SiYuan
 
 运行 `siyuan --help` 查看完整命令树。使用 `-f json`（默认 `-f table`）获得适合脚本处理的输出。大多数写命令还支持 `--dry-run`，可预览将要发生的改动而不实际执行。
 
-### 设置
+### 安装
 
-CLI 二进制为 `<安装目录>/resources/kernel/SiYuan-Kernel`。
-Windows 安装程序自动将内核目录添加到 PATH。
-macOS/Linux 下需要手动创建软链接：
+CLI 可执行文件为 `<安装目录>/resources/kernel/SiYuan-Kernel`，可通过 `siyuan` 命令调用。
 
-```bash
-# macOS
-ln -s /Applications/SiYuan.app/Contents/Resources/kernel/SiYuan-Kernel /usr/local/bin/siyuan
-
-# Linux
-ln -s /安装路径/SiYuan/resources/kernel/SiYuan-Kernel /usr/local/bin/siyuan
-```
+- **Windows**：安装程序自动将内核目录加入 `PATH`，可直接使用 `siyuan`。微软商店版运行在 MSIX 沙箱中，无法自动修改 `PATH`；可部署一个 `siyuan.cmd` 转发器（一次性，商店版更新后依然有效）：
+  ```powershell
+  # 仅适用于微软商店版 —— 在 PowerShell 中运行一次
+  $shimDir = "$env:LOCALAPPDATA\Microsoft\WindowsApps"   # 该目录默认已在 PATH 中
+  @(
+      '@echo off'
+      'setlocal'
+      'set "ROOT="'
+      'for /f "delims=" %%i in (''powershell -NoProfile -Command "(Get-AppxPackage *SiYuan*).InstallLocation"'') do set "ROOT=%%i"'
+      'if not defined ROOT goto :noshim'
+      '"%ROOT%\app\resources\kernel\SiYuan-Kernel.exe" %*'
+      'exit /b %ERRORLEVEL%'
+      ':noshim'
+      '1>&2 echo siyuan: 未找到微软商店版'
+      'exit /b 1'
+  ) | Set-Content "$shimDir\siyuan.cmd"
+  ```
+  卸载商店版时如需清理：`Remove-Item "$env:LOCALAPPDATA\Microsoft\WindowsApps\siyuan.cmd"`。
+- **macOS**：安装后创建软链接：
+  ```bash
+  ln -s /Applications/SiYuan.app/Contents/Resources/kernel/SiYuan-Kernel /usr/local/bin/siyuan
+  ```
+- **Linux**：安装后创建软链接：
+  ```bash
+  ln -s <安装目录>/resources/kernel/SiYuan-Kernel /usr/local/bin/siyuan
+  ```
 
 ## 🏘️ 社区
 

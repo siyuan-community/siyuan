@@ -425,19 +425,33 @@ func NewAttributeView(id string) (ret *AttributeView) {
 }
 
 func GetAttributeViewName(avID string) (ret string, err error) {
-	avJSONPath := GetAttributeViewDataPath(avID)
+	// 通过 fallback 查找 AV 定义的真实路径（普通 box 全局，加密笔记本笔记本级）
+	avJSONPath, boxID := FindAttributeViewPath(avID)
+	if avJSONPath == "" {
+		avJSONPath = GetAttributeViewDataPath(avID)
+		boxID = ""
+	}
 	if !filelock.IsExist(avJSONPath) {
 		return
 	}
 
-	return GetAttributeViewNameByPath(avJSONPath)
+	return getAttributeViewNameByPathInBox(avJSONPath, boxID)
 }
 
-func GetAttributeViewNameByPath(avJSONPath string) (ret string, err error) {
+func getAttributeViewNameByPathInBox(avJSONPath, boxID string) (ret string, err error) {
 	data, err := filelock.ReadFile(avJSONPath)
 	if err != nil {
 		logging.LogErrorf("read attribute view [%s] failed: %s", avJSONPath, err)
 		return
+	}
+	if boxID != "" {
+		avID := strings.TrimSuffix(filepath.Base(avJSONPath), filepath.Ext(avJSONPath))
+		plain, decErr := decryptAVData(boxID, avID, data)
+		if decErr != nil {
+			logging.LogErrorf("decrypt attribute view [%s] failed: %s", avJSONPath, decErr)
+			return "", decErr
+		}
+		data = plain
 	}
 
 	val := jsoniter.Get(data, "name")
@@ -446,6 +460,11 @@ func GetAttributeViewNameByPath(avJSONPath string) (ret string, err error) {
 	}
 	ret = val.ToString()
 	return
+}
+
+// GetAttributeViewNameByPath 从指定路径读取 AV 名称（不加密，普通 box 兼容入口）。
+func GetAttributeViewNameByPath(avJSONPath string) (ret string, err error) {
+	return getAttributeViewNameByPathInBox(avJSONPath, "")
 }
 
 func GetAttributeViewContent(avID string) (content string) {
@@ -495,16 +514,47 @@ func getAttributeViewContent0(attrView *AttributeView) (content string) {
 }
 
 func IsAttributeViewExist(avID string) bool {
-	avJSONPath := GetAttributeViewDataPath(avID)
+	// 通过 fallback 查找（普通 box 全局，加密笔记本笔记本级）
+	avJSONPath, _ := FindAttributeViewPath(avID)
+	if avJSONPath == "" {
+		avJSONPath = GetAttributeViewDataPath(avID)
+	}
 	return filelock.IsExist(avJSONPath)
 }
 
 func ParseAttributeView(avID string) (ret *AttributeView, err error) {
-	avJSONPath := GetAttributeViewDataPath(avID)
-	return ParseAttributeViewByPath(avJSONPath)
+	// 加密笔记本的 AV 定义存笔记本级路径，通过 fallback 自动查找并解密
+	avJSONPath, boxID := FindAttributeViewPath(avID)
+	if avJSONPath == "" {
+		// 文件不存在，可能是首次创建，按全局路径返回（由调用方处理）
+		avJSONPath = GetAttributeViewDataPath(avID)
+		return parseAttributeViewByPathInBox(avJSONPath, "")
+	}
+	if boxID != "" {
+		SetAVBoxID(avID, boxID)
+	}
+	return parseAttributeViewByPathInBox(avJSONPath, boxID)
+}
+
+func ParseAttributeViewInBox(avID, boxID string) (ret *AttributeView, err error) {
+	avJSONPath, avBoxID := FindAttributeViewPathInBox(avID, boxID)
+	if avJSONPath == "" {
+		avJSONPath = attributeViewDataPathByBox(avID, boxID)
+		avBoxID = boxID
+	} else {
+		// 只在文件确实存在于该 box 内时才设置映射，避免错误 boxID 污染后续路由
+		if boxID != "" {
+			SetAVBoxID(avID, boxID)
+		}
+	}
+	return parseAttributeViewByPathInBox(avJSONPath, avBoxID)
 }
 
 func ParseAttributeViewByPath(avJSONPath string) (ret *AttributeView, err error) {
+	return parseAttributeViewByPathInBox(avJSONPath, avBoxIDFromPath(avJSONPath))
+}
+
+func parseAttributeViewByPathInBox(avJSONPath, boxID string) (ret *AttributeView, err error) {
 	if !filelock.IsExist(avJSONPath) {
 		err = ErrViewNotFound
 		return
@@ -514,7 +564,7 @@ func ParseAttributeViewByPath(avJSONPath string) (ret *AttributeView, err error)
 	avID = strings.TrimSuffix(avID, filepath.Ext(avID))
 
 	var data []byte
-	if cached, ok := cache.GetAVData(avID); ok {
+	if cached, ok := cache.GetAVDataInBox(avID, boxID); ok {
 		data = cached
 	} else {
 		var readErr error
@@ -523,7 +573,19 @@ func ParseAttributeViewByPath(avJSONPath string) (ret *AttributeView, err error)
 			logging.LogErrorf("read attribute view [%s] failed: %s", avID, readErr)
 			return
 		}
-		cache.SetAVData(avID, data)
+		// 加密笔记本的 AV 定义是密文，按路径反查 boxID 后解密
+		if boxID != "" {
+			data, readErr = decryptAVData(boxID, avID, data)
+			if readErr != nil {
+				logging.LogErrorf("decrypt attribute view [%s] failed: %s", avID, readErr)
+				return
+			}
+		} else if util.IsCiphertext(data) {
+			// 历史等无法取得 boxID/DEK 的全局路径上读到密文：无法解密，返回空内容而非按 JSON 解析报错。
+			// 这会在加密笔记本的 AV 因路径迁移（同步、导入、历史布局）落到全局位置时发生。
+			return
+		}
+		cache.SetAVDataInBox(avID, boxID, data)
 	}
 
 	ret = &AttributeView{RenderedViewables: map[string]Viewable{}}
@@ -652,26 +714,52 @@ func SaveAttributeView(av *AttributeView) (err error) {
 	}
 
 	// 缓存与待写入数据一致时跳过落盘；缓存未命中时再读盘比对，避免无变更的重复写入
-	avJSONPath := GetAttributeViewDataPath(av.ID)
-	if cachedData, ok := cache.GetAVData(av.ID); ok {
+	// 通过 fallback 查找 AV 定义的实际路径（普通 box 全局，加密笔记本笔记本级）
+	avJSONPath, avBoxID := FindAttributeViewPath(av.ID)
+	if avJSONPath == "" {
+		// 文件不存在（首次创建），使用全局路径，boxID 为空（普通 box）
+		// 加密笔记本的首次创建由 handler 层通过 SetAVBoxID 预设路径
+		avJSONPath = GetAttributeViewDataPath(av.ID)
+	}
+	if cachedData, ok := cache.GetAVDataInBox(av.ID, avBoxID); ok {
 		if len(cachedData) == len(data) && bytes.Equal(cachedData, data) {
 			return
 		}
 	} else {
-		if diskData, readErr := filelock.ReadFile(avJSONPath); nil == readErr && len(diskData) == len(data) && bytes.Equal(diskData, data) {
-			cache.SetAVData(av.ID, data)
-			return
+		if diskData, readErr := filelock.ReadFile(avJSONPath); nil == readErr {
+			// 加密笔记本的磁盘数据是密文，需先解密再比对
+			if avBoxID != "" {
+				diskData, _ = decryptAVData(avBoxID, av.ID, diskData)
+			}
+			if len(diskData) == len(data) && bytes.Equal(diskData, data) {
+				cache.SetAVDataInBox(av.ID, avBoxID, data)
+				return
+			}
 		}
 	}
 
-	if err = util.WriteFileByMmap(avJSONPath, data); nil != err {
-		if err = filelock.WriteFile(avJSONPath, data); nil != err {
+	// 加密笔记本的数据需加密后再写盘
+	writeData := data
+	if avBoxID != "" {
+		writeData, err = encryptAVData(avBoxID, av.ID, data)
+		if err != nil {
+			logging.LogErrorf("encrypt attribute view [%s] failed: %s", av.ID, err)
+			return
+		}
+	}
+	// 确保目录存在（加密笔记本的笔记本级 AV 目录可能尚不存在）
+	if err = os.MkdirAll(filepath.Dir(avJSONPath), 0755); nil != err {
+		logging.LogErrorf("create attribute view dir [%s] failed: %s", filepath.Dir(avJSONPath), err)
+		return
+	}
+	if err = util.WriteFileByMmap(avJSONPath, writeData); nil != err {
+		if err = filelock.WriteFile(avJSONPath, writeData); nil != err {
 			logging.LogErrorf("save attribute view [%s] failed: %s", av.ID, err)
 			return
 		}
 	}
 
-	cache.SetAVData(av.ID, data)
+	cache.SetAVDataInBox(av.ID, avBoxID, data)
 
 	if util.ExceedLargeFileWarningSize(len(data)) {
 		msg := fmt.Sprintf(util.Langs[util.Lang][268], av.Name+" "+filepath.Base(avJSONPath), util.LargeFileWarningSize)

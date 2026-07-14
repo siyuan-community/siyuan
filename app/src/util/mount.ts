@@ -1,7 +1,7 @@
 import {Constants} from "../constants";
 import {showMessage} from "../dialog/message";
 import {isMobile} from "./functions";
-import {fetchPost} from "./fetch";
+import {fetchPost, fetchSyncPost} from "./fetch";
 import {Dialog} from "../dialog";
 import {getOpenNotebookCount} from "./pathName";
 import {replaceFileName, validateName} from "../editor/rename";
@@ -132,5 +132,103 @@ export const newNotebook = () => {
             name
         });
         dialog.destroy();
+    });
+};
+
+export const newEncryptedNotebook = () => {
+    // 先检查加密功能是否已启用；未启用则提示去设置页启用
+    fetchPost("/api/notebook/getEncryptedNotebookStatus", {}, (response) => {
+        if (!response.data.enabled) {
+            showMessage(window.siyuan.languages.encryptedNotebookTip, 6000);
+            return;
+        }
+        const dialog = new Dialog({
+            title: window.siyuan.languages.newEncryptedNotebook,
+            content: `<div class="b3-dialog__content">
+    <input placeholder="${window.siyuan.languages.notebookName}" class="b3-text-field fn__block">
+    <div class="fn__hr"></div>
+    <input type="password" placeholder="${window.siyuan.languages.masterPassword}" class="b3-text-field fn__block">
+    <div class="fn__hr--b"></div>
+    <div>${window.siyuan.languages.encryptedNotebookRiskTip}</div>
+</div>
+<div class="b3-dialog__action">
+    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
+    <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
+</div>`,
+            width: isMobile() ? "92vw" : "520px"
+        });
+        const btnsElement = dialog.element.querySelectorAll(".b3-button");
+        const inputs = dialog.element.querySelectorAll("input");
+        dialog.bindInput(inputs[0], () => {
+            btnsElement[1].dispatchEvent(new CustomEvent("click"));
+        });
+        btnsElement[0].addEventListener("click", () => {
+            dialog.destroy();
+        });
+        btnsElement[1].addEventListener("click", async () => {
+            const name = inputs[0].value;
+            const password = inputs[1].value;
+            if (!validateName(name)) {
+                return false;
+            }
+            if (!password) {
+                showMessage(window.siyuan.languages.masterPassword);
+                return false;
+            }
+            btnsElement[1].disabled = true;
+            const response = await fetchSyncPost("/api/notebook/createEncryptedNotebook", {
+                name: replaceFileName(name),
+                password
+            });
+            if (response.code === 0) {
+                // createEncryptedNotebook 内核已原子完成创建+挂载，无需再单独 openNotebook
+                dialog.destroy();
+            } else {
+                btnsElement[1].disabled = false;
+            }
+        });
+    });
+};
+
+export const openEncryptedNotebook = (app: App, notebookId: string, name: string) => {
+    const dialog = new Dialog({
+        title: window.siyuan.languages.unlockEncryptedNotebook.replace("${x}", name),
+        content: `<div class="b3-dialog__content">
+    <input type="password" placeholder="${window.siyuan.languages.masterPassword}" class="b3-text-field fn__block">
+    <div class="fn__hr--b"></div>
+    <div>${window.siyuan.languages.encryptedNotebookRiskTip}</div>
+</div>
+<div class="b3-dialog__action">
+    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
+    <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
+</div>`,
+        width: isMobile() ? "92vw" : "520px"
+    });
+    const btnsElement = dialog.element.querySelectorAll(".b3-button");
+    const inputElement = dialog.element.querySelector("input");
+    dialog.bindInput(inputElement, () => {
+        btnsElement[1].dispatchEvent(new CustomEvent("click"));
+    });
+    btnsElement[0].addEventListener("click", () => {
+        dialog.destroy();
+    });
+    btnsElement[1].addEventListener("click", async () => {
+        const password = inputElement.value;
+        if (!password) {
+            return false;
+        }
+        btnsElement[1].disabled = true;
+        // 原子化解锁并挂载：UnlockBox 成功后立即 Mount，Mount 失败则后端自动 LockBox 回滚，避免 DEK 残留
+        const response = await fetchSyncPost("/api/notebook/unlockAndOpenNotebook", {
+            notebook: notebookId,
+            password
+        });
+        if (response.code === 0) {
+            dialog.destroy();
+        } else {
+            btnsElement[1].disabled = false;
+            inputElement.value = "";
+            inputElement.focus();
+        }
     });
 };

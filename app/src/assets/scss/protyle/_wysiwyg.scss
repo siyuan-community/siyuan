@@ -190,7 +190,6 @@
         word-break: keep-all;
         height: calc(1.625em + 8px);
         line-height: calc(1.625em + 8px);
-        touch-action: none;
 
         & ~ [data-type="NodeHeading"] {
           &.h1 {
@@ -227,23 +226,24 @@
           position: absolute;
           top: 50%;
           left: 50%;
-          height: max(14px, 1em);
-          width: max(14px, 1em);
-          margin: min(-7px, -.5em) 0 0 min(-7px, -.5em);
+          height: max(18px, 1em);
+          width: max(18px, 1em);
+          margin: min(-9px, -0.5em) 0 0 min(-9px, -0.5em);
           border-radius: 50%;
           transition: var(--b3-transition);
         }
 
         svg {
           width: 34px;
-          height: max(14px, 1em - 8px);
+          height: max(14px, 1em - 4px);
           display: block;
           z-index: 1;
           position: relative;
           pointer-events: none;
         }
 
-        &--order::after {
+        &--order::after,
+        &--task::after {
           border-radius: var(--b3-border-radius);
         }
       }
@@ -787,55 +787,39 @@
   [data-node-id][fold="1"]:not(.li):not([data-type="NodeHeading"]) {
     @include mixin.text-clamp(1);
     opacity: .38;
-    font-size: 16px;
-    height: 26px;
-    line-height: 26px;
 
     .protyle-attr {
       opacity: 0;
     }
 
-    &.list {
-      height: 34px;
-
-      .li:first-child {
-        overflow: hidden;
-        height: 34px;
-      }
-    }
-
-    &[data-type="NodeBlockQueryEmbed"] {
-      height: 42px;
-
-      .protyle-wysiwyg__embed {
-        height: 34px;
-        overflow: hidden;
-      }
-    }
-
     &.av {
-      height: 109px;
+      height: 4.8em;
     }
 
-    &.sb,
     &.table {
-      height: 36px;
+      height: calc(1.625em + 6px);
     }
 
-    &.bq {
-      height: 42px;
+    &.sb {
+      height: calc(1.625em + 14px);
+    }
 
-      & > div:first-child {
-        font-size: 16px;
-        height: 26px;
-        line-height: 26px;
-        overflow: hidden;
-      }
+    &.list {
+      height: calc(1.625em + 12px);
+    }
+
+    &.callout {
+      height: calc(1.625em * 2.14 + 8px);
+    }
+
+    &[data-type="NodeBlockQueryEmbed"],
+    &.bq {
+      height: calc(1.625em + 8px);
     }
 
     &.code-block {
       line-height: 1.625;
-      height: 25px;
+      height: 1.625em;
 
       .protyle-action__language {
         opacity: .86;

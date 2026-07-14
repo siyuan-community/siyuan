@@ -23,12 +23,14 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/dejavu/entity"
 	"github.com/siyuan-note/filelock"
@@ -38,7 +40,36 @@ import (
 func RenderAttributeView(blockID, avID, viewID, query string, page, pageSize int, groupPaging map[string]any, createIfNotExist, ignoreRows bool) (viewable av.Viewable, attrView *av.AttributeView, err error) {
 	waitForSyncingStorages()
 
-	if avJSONPath := av.GetAttributeViewDataPath(avID); !filelock.IsExist(avJSONPath) {
+	// 加密笔记本的 AV 定义存笔记本级路径，通过 blockID 反查 boxID
+	avBoxID := ""
+	if "" != blockID {
+		bt := treenode.GetBlockTree(blockID)
+		if nil == bt {
+			for _, encBoxID := range treenode.GetOpenedEncryptedBoxIDs() {
+				if encBT := treenode.GetBlockTreeInBox(blockID, encBoxID); nil != encBT {
+					bt = encBT
+					break
+				}
+			}
+		}
+		if nil != bt && IsEncryptedBox(bt.BoxID) {
+			avBoxID = bt.BoxID
+		}
+	}
+
+	// 通过 fallback 查找 AV 定义路径（普通 box 全局，加密笔记本笔记本级）
+	// 已知 box 时直接用 InBox 查找，避免全局 pending 映射被并发覆盖
+	var existPath string
+	if avBoxID != "" {
+		existPath, _ = av.FindAttributeViewPathInBox(avID, avBoxID)
+	} else {
+		existPath, _ = av.FindAttributeViewPath(avID)
+	}
+	if "" == existPath {
+		// fallback 找不到时按全局路径检查（首次创建场景）
+		existPath = av.GetAttributeViewDataPath(avID)
+	}
+	if !filelock.IsExist(existPath) {
 		if !createIfNotExist {
 			err = av.ErrAttributeViewNotFound
 			return
@@ -49,6 +80,11 @@ func RenderAttributeView(blockID, avID, viewID, query string, page, pageSize int
 			return
 		}
 
+		// 加密笔记本首次创建：仅设置 pending 用于 SaveAttributeView 路径路由，创建后立即清除
+		if avBoxID != "" {
+			av.SetAVBoxID(avID, avBoxID)
+			defer av.SetAVBoxID(avID, "") // 创建完成立即清除，避免污染后续路由
+		}
 		attrView = av.NewAttributeView(avID)
 		if err = av.SaveAttributeView(attrView); err != nil {
 			logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
@@ -56,10 +92,21 @@ func RenderAttributeView(blockID, avID, viewID, query string, page, pageSize int
 		}
 	}
 
-	attrView, err = av.ParseAttributeView(avID)
+	// 已知 box 时直接用 InBox 解析，不依赖全局 pending 状态
+	if avBoxID != "" {
+		attrView, err = av.ParseAttributeViewInBox(avID, avBoxID)
+	} else {
+		attrView, err = av.ParseAttributeView(avID)
+	}
 	if err != nil {
 		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
 		return
+	}
+
+	// 诊断：AV 解析后的数据量
+	blockKV := attrView.GetBlockKeyValues()
+	if nil != blockKV {
+	} else {
 	}
 
 	viewable, err = renderAttributeView(attrView, blockID, viewID, query, page, pageSize, groupPaging, ignoreRows)
@@ -437,10 +484,7 @@ func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.At
 			pageSize = table.PageSize
 		}
 		start := (page - 1) * pageSize
-		end := start + pageSize
-		if len(table.Rows) < end {
-			end = len(table.Rows)
-		}
+		end := min(len(table.Rows), start+pageSize)
 		table.Rows = table.Rows[start:end]
 	case av.LayoutTypeGallery:
 		gallery := viewable.(*av.Gallery)
@@ -450,10 +494,7 @@ func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.At
 			pageSize = gallery.PageSize
 		}
 		start := (page - 1) * pageSize
-		end := start + pageSize
-		if len(gallery.Cards) < end {
-			end = len(gallery.Cards)
-		}
+		end := min(len(gallery.Cards), start+pageSize)
 		gallery.Cards = gallery.Cards[start:end]
 	case av.LayoutTypeKanban:
 		kanban := viewable.(*av.Kanban)
@@ -463,10 +504,7 @@ func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.At
 			pageSize = kanban.PageSize
 		}
 		start := (page - 1) * pageSize
-		end := start + pageSize
-		if len(kanban.Cards) < end {
-			end = len(kanban.Cards)
-		}
+		end := min(len(kanban.Cards), start+pageSize)
 		kanban.Cards = kanban.Cards[start:end]
 	}
 	return
@@ -509,6 +547,18 @@ func getRenderAttributeViewView(attrView *av.AttributeView, viewID, nodeID strin
 	return
 }
 
+// avBoxIDFromRepoPath 从快照文件路径反查 boxID。
+// 全局路径 /storage/av/<avID>.json 返回空串；加密笔记本路径 /<boxID>/storage/av/<avID>.json 返回 boxID。
+func avBoxIDFromRepoPath(repoPath string) string {
+	parts := strings.Split(repoPath, "/")
+	// 全局路径: ["", "storage", "av", "xxx.json"] → parts[1]=="storage"
+	// 加密 box: ["", "<boxID>", "storage", "av", "xxx.json"] → parts[1]=="<boxID>"
+	if len(parts) >= 4 && parts[2] == "storage" {
+		return parts[1]
+	}
+	return ""
+}
+
 func RenderRepoSnapshotAttributeView(indexID, avID string) (viewable av.Viewable, attrView *av.AttributeView, err error) {
 	repo, err := newRepository()
 	if err != nil {
@@ -526,7 +576,8 @@ func RenderRepoSnapshotAttributeView(indexID, avID string) (viewable av.Viewable
 	}
 	var avFile *entity.File
 	for _, f := range files {
-		if "/storage/av/"+avID+".json" == f.Path {
+		// 匹配全局 /storage/av/<avID>.json 或加密笔记本/<boxID>/storage/av/<avID>.json
+		if strings.HasSuffix(f.Path, "/storage/av/"+avID+".json") {
 			avFile = f
 			break
 		}
@@ -548,6 +599,17 @@ func RenderRepoSnapshotAttributeView(indexID, avID string) (viewable av.Viewable
 		logging.LogErrorf("read attribute view [%s] failed: %s", avID, readErr)
 		err = readErr
 		return
+	}
+
+	// 加密笔记本的 AV 在快照中是密文，按路径反查 boxID 后解密
+	if histBoxID := avBoxIDFromRepoPath(avFile.Path); histBoxID != "" && IsEncryptedBox(histBoxID) {
+		dec, decErr := av.DecryptAVData(histBoxID, avID, data)
+		if decErr != nil {
+			logging.LogErrorf("decrypt snapshot attribute view [%s] failed: %s", avID, decErr)
+			err = decErr
+			return
+		}
+		data = dec
 	}
 
 	if !ast.IsNodeIDPattern(avID) {
@@ -588,8 +650,27 @@ func RenderHistoryAttributeView(blockID, avID, viewID, query string, page, pageS
 	historyDir := matches[0]
 	avJSONPath := filepath.Join(historyDir, "storage", "av", avID+".json")
 	if !gulu.File.IsExist(avJSONPath) {
+		// 加密笔记本的 AV 定义可能在历史目录的 boxID 子目录下
+		entries, _ := os.ReadDir(historyDir)
+		for _, entry := range entries {
+			if entry.IsDir() && ast.IsNodeIDPattern(entry.Name()) {
+				candidate := filepath.Join(historyDir, entry.Name(), "storage", "av", avID+".json")
+				if gulu.File.IsExist(candidate) {
+					avJSONPath = candidate
+					break
+				}
+			}
+		}
+	}
+	if !gulu.File.IsExist(avJSONPath) {
 		logging.LogWarnf("attribute view [%s] not found in history data [%s], use current data instead", avID, historyDir)
-		avJSONPath = filepath.Join(util.DataDir, "storage", "av", avID+".json")
+		// 加密笔记本的 AV 定义在 notebook 级目录
+		_, boxID := av.FindAttributeViewPath(avID)
+		if boxID != "" {
+			avJSONPath = filepath.Join(util.DataDir, boxID, "storage", "av", avID+".json")
+		} else {
+			avJSONPath = filepath.Join(util.DataDir, "storage", "av", avID+".json")
+		}
 	}
 	if !gulu.File.IsExist(avJSONPath) {
 		logging.LogWarnf("attribute view [%s] not found in current data", avID)
@@ -608,6 +689,36 @@ func RenderHistoryAttributeView(blockID, avID, viewID, query string, page, pageS
 		logging.LogErrorf("read attribute view [%s] failed: %s", avID, readErr)
 		err = readErr
 		return
+	}
+
+	// 加密笔记本的历史 AV 定义是密文，需要解密后才能解析。
+	// 从路径提取 boxID，提取不到时遍历所有已打开的加密笔记本尝试解密。
+	avAbsSlash := filepath.ToSlash(avJSONPath)
+	var histBoxID string
+	if idx := strings.Index(avAbsSlash, "/storage/av/"); idx > 0 {
+		prefix := avAbsSlash[:idx]
+		segs := strings.Split(prefix, "/")
+		for i := len(segs) - 1; i >= 0; i-- {
+			if ast.IsNodeIDPattern(segs[i]) {
+				histBoxID = segs[i]
+				break
+			}
+		}
+	}
+	if histBoxID != "" && IsEncryptedBox(histBoxID) {
+		data, err = av.DecryptAVData(histBoxID, avID, data)
+		if err != nil {
+			logging.LogErrorf("decrypt history AV [%s] failed: %s", avID, err)
+			return
+		}
+	} else {
+		// 路径没提取到 boxID（如历史目录无 boxID 前缀的旧路径），尝试遍历已打开的加密笔记本解密
+		for _, encBoxID := range treenode.GetOpenedEncryptedBoxIDs() {
+			if dec, decErr := av.DecryptAVData(encBoxID, avID, data); decErr == nil {
+				data = dec
+				break
+			}
+		}
 	}
 
 	if !ast.IsNodeIDPattern(avID) {

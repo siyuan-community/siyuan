@@ -29,6 +29,7 @@ import (
 	"github.com/88250/lute/html"
 	"github.com/88250/lute/parse"
 	"github.com/araddon/dateparse"
+	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"
@@ -129,7 +130,7 @@ func SetBlockReminder(id, timed string) (err error) {
 		return
 	}
 	IncSync()
-	cache.PutBlockIAL(id, attrs)
+	cache.PutBlockIALInBox(id, tree.Box, attrs)
 	return
 }
 
@@ -160,12 +161,12 @@ func BatchSetBlockAttrs(blockAttrs []map[string]any) (err error) {
 		}
 
 		attrs := blockAttr["attrs"].(map[string]string)
-		oldAttrs, e := setNodeAttrs0(node, attrs)
+		oldAttrs, e := setNodeAttrs0(node, attrs, tree.Box)
 		if nil != e {
 			return e
 		}
 
-		cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
+		cache.PutBlockIALInBox(node.ID, tree.Box, parse.IAL2Map(node.KramdownIAL))
 		pushBlockAttrs(oldAttrs, node)
 		nodes = append(nodes, node)
 	}
@@ -203,7 +204,7 @@ func SetBlockAttrs(id string, nameValues map[string]string) (err error) {
 }
 
 func setNodeAttrs(node *ast.Node, tree *parse.Tree, nameValues map[string]string) (err error) {
-	oldAttrs, err := setNodeAttrs0(node, nameValues)
+	oldAttrs, err := setNodeAttrs0(node, nameValues, tree.Box)
 	if err != nil {
 		return
 	}
@@ -213,7 +214,7 @@ func setNodeAttrs(node *ast.Node, tree *parse.Tree, nameValues map[string]string
 	}
 
 	IncSync()
-	cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
+	cache.PutBlockIALInBox(node.ID, tree.Box, parse.IAL2Map(node.KramdownIAL))
 
 	pushBlockAttrs(oldAttrs, node)
 
@@ -225,6 +226,11 @@ func setNodeAttrs(node *ast.Node, tree *parse.Tree, nameValues map[string]string
 		go func() {
 			sql.FlushQueue()
 			refreshDynamicRefText(node, tree)
+		}()
+	}
+	if attrsAffectAvBlock(nameValues) {
+		go func() {
+			updateAttributeViewBlockText(map[string]*ast.Node{node.ID: node})
 		}()
 	}
 	return
@@ -248,8 +254,30 @@ func attrsAffectRefText(nameValues map[string]string) bool {
 	return false
 }
 
+// attrsAffectAvBlock 判断本次属性变更是否可能影响数据库（属性视图）主键块的显示。
+//
+// 数据库主键块的 icon 和 content 由 getNodeAvBlockText 从块的 icon、name、
+// custom-sy-av-s-text-<avID> 属性派生，这些属性变更时需调用 updateAttributeViewBlockText
+// 同步到 AV JSON，否则数据库视图中显示的图标/内容不会更新。
+//
+// 该同步原本由 refreshDynamicRefText 顺带完成，但 #18058 的锚文本刷新优化用 attrsAffectRefText
+// 门槛拦截了非 name/title 属性的刷新，导致 icon 变更不再触发同步，故此处独立解耦触发
+// （详见 https://github.com/siyuan-note/siyuan/issues/18204）。
+func attrsAffectAvBlock(nameValues map[string]string) bool {
+	for name := range nameValues {
+		lowerName := strings.ToLower(name)
+		if "icon" == lowerName || "name" == lowerName {
+			return true
+		}
+		if strings.HasPrefix(lowerName, av.NodeAttrViewStaticText) {
+			return true
+		}
+	}
+	return false
+}
+
 func setNodeAttrsWithTx(tx *Transaction, node *ast.Node, tree *parse.Tree, nameValues map[string]string) (err error) {
-	oldAttrs, err := setNodeAttrs0(node, nameValues)
+	oldAttrs, err := setNodeAttrs0(node, nameValues, tree.Box)
 	if err != nil {
 		return
 	}
@@ -257,12 +285,22 @@ func setNodeAttrsWithTx(tx *Transaction, node *ast.Node, tree *parse.Tree, nameV
 	tx.writeTree(tree)
 
 	IncSync()
-	cache.PutBlockIAL(node.ID, parse.IAL2Map(node.KramdownIAL))
+	cache.PutBlockIALInBox(node.ID, tree.Box, parse.IAL2Map(node.KramdownIAL))
 	pushBlockAttrs(oldAttrs, node)
 	return
 }
 
-func setNodeAttrs0(node *ast.Node, nameValues map[string]string) (oldAttrs map[string]string, err error) {
+func setNodeAttrs0(node *ast.Node, nameValues map[string]string, boxID string) (oldAttrs map[string]string, err error) {
+	// 加密笔记本不支持书签和标签（依赖全局 SQLite 聚合，加密笔记本是孤岛）
+	if IsEncryptedBox(boxID) && boxID != "" {
+		for name := range nameValues {
+			switch strings.ToLower(name) {
+			case "bookmark", "tags":
+				err = errors.New(Conf.Language(313))
+				return
+			}
+		}
+	}
 	oldAttrs = parse.IAL2Map(node.KramdownIAL)
 	newAttrsUnEsc := parse.IAL2MapUnEsc(node.KramdownIAL)
 

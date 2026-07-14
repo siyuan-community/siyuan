@@ -327,7 +327,7 @@ interface IUpload {
     /** 跨站点访问控制。默认值: false */
     withCredentials?: boolean;
     /** 请求头设置 */
-    headers?: IObject;
+    headers?: Record<string, string>;
     /** 额外请求参数 */
     extraData?: { [key: string]: string | Blob };
     /** 上传字段名。默认值：file[] */
@@ -472,6 +472,7 @@ interface IProtyleOptions {
     mode?: TEditorMode,
     blockId?: string
     rootId?: string
+    notebookId?: string
     originalRefBlockIDs?: IObject
     key?: string
     defIds?: string[]
@@ -509,6 +510,9 @@ interface IProtyleOptions {
 
     /** 编辑器异步渲染完成后的回调方法 */
     after?(protyle: import("../protyle").Protyle): void;
+
+    /** 精简版本 */
+    lite?: boolean;
 }
 
 interface IProtyle {
@@ -542,6 +546,7 @@ interface IProtyle {
         action?: TProtyleAction[]
     },
     disabled: boolean,
+    lite?: boolean,
     selectElement?: HTMLElement,
     ws?: import("../layout/Model").Model,
     notebookId?: string
@@ -561,6 +566,6 @@ interface IProtyle {
     preview?: import("../protyle/preview").Preview;
     hint?: import("../protyle/hint").Hint;
     upload?: import("../protyle/upload").Upload;
-    undo?: import("../protyle/undo").Undo;
+    undo?: import("../protyle/undo").IUndo;
     wysiwyg?: import("../protyle/wysiwyg").WYSIWYG
 }

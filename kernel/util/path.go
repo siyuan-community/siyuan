@@ -126,6 +126,12 @@ func TimeFromID(id string) (ret string) {
 	return
 }
 
+// NodeIDByTime 根据指定时间生成符合块 ID 格式的字符串，算法与 ast.NewNodeID() 一致，
+// 仅时间源不同：用于让历史输入（如移动端速记暂存文件名时间戳）回填为块 ID。
+func NodeIDByTime(t time.Time) string {
+	return t.Format("20060102150405") + "-" + RandString(7)
+}
+
 func GetChildDocDepth(treeAbsPath string) (ret int) {
 	dir := strings.TrimSuffix(treeAbsPath, ".sy")
 	if !gulu.File.IsDir(dir) {
@@ -535,4 +541,38 @@ func isSensitivePath(p string) bool {
 		}
 	}
 	return false
+}
+
+// ResolveLongestExistingParent 解析 absPath 中最长已存在部分的 symlink，拼回剩余路径。
+// 例如 absPath = /workspace/data/link/newdir/file，其中 /workspace/data/link 是指向
+// /workspace/data/<encBoxID>/ 的 symlink，newdir/file 尚不存在：
+// 返回 /workspace/data/<encBoxID>/newdir/file。
+func ResolveLongestExistingParent(absPath string) string {
+	cleaned := filepath.Clean(absPath)
+	dir := cleaned
+	for {
+		if _, err := os.Lstat(dir); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return cleaned
+		}
+		dir = parent
+	}
+	if dir == cleaned {
+		if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+			return resolved
+		}
+		return cleaned
+	}
+	if dir == "/" || dir == "." {
+		return cleaned
+	}
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return cleaned
+	}
+	remaining := strings.TrimPrefix(cleaned, dir)
+	return resolvedDir + remaining
 }

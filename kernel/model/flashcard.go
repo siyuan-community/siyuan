@@ -215,6 +215,10 @@ func GetFlashcardNotebooks() (ret []*Box) {
 	deckBlockIDs := deck.GetBlockIDs()
 	boxes := Conf.GetOpenedBoxes()
 	for _, box := range boxes {
+		// 加密笔记本不支持闪卡，不在闪卡笔记本列表中展示
+		if IsEncryptedBox(box.ID) {
+			continue
+		}
 		newFlashcardCount, dueFlashcardCount, flashcardCount := countBoxFlashcard(box.ID, deck, deckBlockIDs)
 		if 0 < flashcardCount {
 			box.NewFlashcardCount = newFlashcardCount
@@ -657,7 +661,7 @@ func getTreeSubTreeChildBlocks(rootID string) (treeBlockIDsMap map[string]bool, 
 		return
 	}
 
-	bts := treenode.GetBlockTreesByPathPrefix(strings.TrimSuffix(root.Path, ".sy"))
+	bts := treenode.GetBlockTreesByPathPrefix(root.BoxID, strings.TrimSuffix(root.Path, ".sy"))
 	for _, bt := range bts {
 		treeBlockIDsMap[bt.ID] = true
 		treeBlockIDs = append(treeBlockIDs, bt.ID)
@@ -778,6 +782,10 @@ func (tx *Transaction) removeBlocksDeckAttr(blockIDs []string, deckID string) (e
 		if nil == bt {
 			continue
 		}
+		// 加密笔记本不支持闪卡，移除时也跳过，避免无谓写入加密 tree
+		if IsEncryptedBox(bt.BoxID) {
+			continue
+		}
 
 		rootIDs = append(rootIDs, bt.RootID)
 		blockRoots[blockID] = bt.RootID
@@ -808,7 +816,7 @@ func (tx *Transaction) removeBlocksDeckAttr(blockIDs []string, deckID string) (e
 		var deckIDs []string
 		if "" != deckID {
 			availableDeckIDs := getDeckIDs()
-			for _, dID := range strings.Split(deckAttrs, ",") {
+			for dID := range strings.SplitSeq(deckAttrs, ",") {
 				if dID != deckID && gulu.Str.Contains(dID, availableDeckIDs) {
 					deckIDs = append(deckIDs, dID)
 				}
@@ -827,7 +835,7 @@ func (tx *Transaction) removeBlocksDeckAttr(blockIDs []string, deckID string) (e
 
 		tx.writeTree(tree)
 
-		cache.PutBlockIAL(blockID, parse.IAL2Map(node.KramdownIAL))
+		cache.PutBlockIALInBox(blockID, tree.Box, parse.IAL2Map(node.KramdownIAL))
 		pushBlockAttrs(oldAttrs, node)
 	}
 
@@ -886,6 +894,10 @@ func (tx *Transaction) doAddFlashcards(operation *Operation) (ret *TxErr) {
 		if nil == bt {
 			continue
 		}
+		// 闪卡是全局调度与存储，加密笔记本不支持闪卡，跳过其块避免明文复习计划落盘全局 riff
+		if IsEncryptedBox(bt.BoxID) {
+			continue
+		}
 
 		blockRoots[blockID] = bt.RootID
 	}
@@ -921,7 +933,7 @@ func (tx *Transaction) doAddFlashcards(operation *Operation) (ret *TxErr) {
 
 		tx.writeTree(tree)
 
-		cache.PutBlockIAL(blockID, parse.IAL2Map(node.KramdownIAL))
+		cache.PutBlockIALInBox(blockID, tree.Box, parse.IAL2Map(node.KramdownIAL))
 		pushBlockAttrs(oldAttrs, node)
 	}
 
@@ -964,8 +976,8 @@ func LoadFlashcards() {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasSuffix(name, ".deck") {
-			deckID := strings.TrimSuffix(name, ".deck")
+		if before, ok := strings.CutSuffix(name, ".deck"); ok {
+			deckID := before
 			deck, loadErr := riff.LoadDeck(riffSavePath, deckID, Conf.Flashcard.RequestRetention, Conf.Flashcard.MaximumInterval, Conf.Flashcard.Weights)
 			if nil != loadErr {
 				logging.LogErrorf("load deck [%s] failed: %s", name, loadErr)

@@ -19,7 +19,7 @@ import {clearSelect} from "../../util/clear";
 import {showMessage} from "../../../dialog/message";
 import {renderKanban} from "./kanban/render";
 import {bindAvSearch} from "./search";
-import {initVirtualScroll} from "./virtualScroll";
+import {getBodyVirtualData, initVirtualScroll} from "./virtualScroll";
 
 interface IIds {
     groupId: string,
@@ -459,14 +459,14 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
         const virtualData: { [key: string]: IAVVirtualData } = {};
         e.querySelectorAll(".av__body").forEach((item: HTMLElement) => {
             pageSizes[item.dataset.groupId || "unGroup"] = item.dataset.pageSize;
-            if (!item.querySelector(".av__row") || e.getAttribute(Constants.ATTRIBUTE_V_SCROLL) !== "true") {
+            // 守卫只保证至少 1 个 .av__row，但首行索引取的是 [1]（首个数据行，[0] 为表头）。
+            // 虚拟滚动 trim 后某分组可能只剩表头，[1] 不存在时需跳过，避免解引用 undefined.getAttribute
+            const secondRow = item.querySelectorAll(".av__row")[1] as HTMLElement;
+            if (!secondRow || e.getAttribute(Constants.ATTRIBUTE_V_SCROLL) !== "true") {
                 return;
             }
-            virtualData[item.getAttribute("data-group-id") || "all"] = ({
-                renderedStart: parseInt(item.querySelectorAll(".av__row")[1].getAttribute("data-index")),
-                renderedEnd: parseInt(item.querySelector(".av__row--util").previousElementSibling.getAttribute("data-index")),
-                topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
-            });
+            virtualData[item.getAttribute("data-group-id") || "all"] = getBodyVirtualData(
+                item, ".av__row--util", parseInt(secondRow.getAttribute("data-index")));
         });
         const headerTransformElement = e.querySelector('.av__row--header[style^="transform"]') as HTMLElement;
         const footerTransformElement = e.querySelector('.av__row--footer[style^="transform"]') as HTMLElement;
@@ -594,6 +594,19 @@ const getViewIDByAVElement = (avElement: HTMLElement): string | null => {
         || null;
 };
 
+// 通过渲染数据判断条目是否存在，避免虚拟滚动/分页下条目被 trim 出 DOM 导致误判
+const isItemInData = (data: IAV, itemID: string): boolean => {
+    const view = data.view as IAVTable & IAVGallery;
+    if (view.groups?.length > 0) {
+        return view.groups.some((group: IAVTable & IAVGallery) => {
+            const items = data.viewType === "table" ? group.rows : group.cards;
+            return items?.some((item: IAVRow | IAVGalleryItem) => item.id === itemID);
+        });
+    }
+    const items = data.viewType === "table" ? view.rows : view.cards;
+    return items?.some((item: IAVRow | IAVGalleryItem) => item.id === itemID);
+};
+
 export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
     if (operation.action === "setAttrViewName") {
         getAVElements(protyle, operation.id).forEach((item) => {
@@ -718,12 +731,11 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
     }
     if (operation.action === "setAttrViewShowIcon") {
         getAVElements(protyle, operation.avID, operation.viewID).forEach((item) => {
-            item.querySelectorAll('.av__cell[data-dtype="block"] .b3-menu__avemoji, .av__cell[data-dtype="relation"] .b3-menu__avemoji').forEach(cellItem => {
-                if (operation.data) {
-                    cellItem.classList.remove("fn__none");
-                } else {
-                    cellItem.classList.add("fn__none");
-                }
+            item.querySelectorAll('.av__cell[data-dtype="block"] .b3-menu__avemoji').forEach(cellItem => {
+                cellItem.classList.toggle("fn__none", !operation.data);
+            });
+            item.querySelectorAll('.av__cell[data-dtype="relation"] .av__cell--relation').forEach(cellItem => {
+                cellItem.firstElementChild.classList.toggle("fn__none", !operation.data);
             });
         });
         return;
@@ -801,7 +813,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                 }
             }
             const hasGhost = item.querySelector('[data-type="ghost"]');
-            avRender(item, protyle, () => {
+            avRender(item, protyle, (data: IAV) => {
                 if (operation.action === "insertAttrViewBlock" && operation.context?.ignoreTip !== "true") {
                     if (operation.context?.message) {
                         showMessage(operation.context.message);
@@ -830,8 +842,8 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                             }
                         }
                         operation.srcs.find((srcItem) => {
-                            if (!item.querySelector(`.av__body [data-id="${srcItem.itemID}"]`) &&
-                                !item.querySelector(`.av__body [data-dtype="block"] .av__celltext--ref[data-id="${srcItem.id}"]`)) {
+                            // 虚拟滚动/分页下条目可能不在 DOM 中，需通过渲染数据判断是否被过滤
+                            if (!isItemInData(data, srcItem.itemID)) {
                                 showMessage(window.siyuan.languages.insertRowTip);
                                 return true;
                             }

@@ -6,6 +6,7 @@ import {avRender, genTabHeaderHTML} from "../render";
 import {afterRenderGallery, renderGallery} from "../gallery/render";
 import {escapeHtml} from "../../../../util/escape";
 import {getRowHTML} from "../row";
+import {getBodyVirtualData} from "../virtualScroll";
 
 interface IIds {
     groupId: string,
@@ -51,7 +52,7 @@ const getKanbanHTML = (data: IAVKanban, e: HTMLElement, virtualData: IAVVirtualD
     });
     galleryHTML += `<div class="av__gallery-add" data-type="av-add-bottom"><svg class="svg"><use xlink:href="#iconAdd"></use></svg><span class="fn__space"></span>${window.siyuan.languages.newRow}</div>`;
     return `<div class="av__gallery av__gallery--small">
-    ${galleryHTML}
+    ${virtualData?.topSpacerHeight ? `<div class="av__spacer" style="height: ${virtualData.topSpacerHeight}px;"></div>` : ""}${galleryHTML}
 </div>
 <div class="av__gallery-load${data.cardCount > data.cards.length ? "" : " fn__none"}">
     <button class="b3-button av__button" data-type="av-load-more">
@@ -94,11 +95,14 @@ export const renderKanban = async (options: {
         if (!item.querySelector(".av__gallery-item") || options.blockElement.getAttribute(Constants.ATTRIBUTE_V_SCROLL) !== "true") {
             return;
         }
-        virtualData[item.getAttribute("data-group-id")] = ({
-            renderedStart: parseInt(item.querySelector(".av__gallery-item").getAttribute("data-index")),
-            renderedEnd: parseInt(item.querySelector(".av__gallery-add").previousElementSibling.getAttribute("data-index")),
-            topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
-        });
+        // 守卫只保证至少 1 个 .av__gallery-item，但首行索引用 :not([data-type=ghost]) 过滤。
+        // body 内全是 ghost 占位行（插入动画进行中）时查询返回 null，需跳过避免解引用 null.getAttribute
+        const firstItem = item.querySelector(".av__gallery-item:not([data-type=ghost])") as HTMLElement;
+        if (!firstItem) {
+            return;
+        }
+        const firstItemIndex = parseInt(firstItem.getAttribute("data-index"));
+        virtualData[item.getAttribute("data-group-id")] = getBodyVirtualData(item, ".av__gallery-add", firstItemIndex);
     });
     const resetData = {
         isSearching: searchInputElement && document.activeElement === searchInputElement,

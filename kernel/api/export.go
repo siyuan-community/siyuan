@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/88250/gulu"
+	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/gin-gonic/gin"
 	"github.com/mssola/useragent"
@@ -574,6 +575,13 @@ func exportDocx(c *gin.Context) {
 		return
 	}
 
+	// savePath 由客户端指定，禁止写入加密笔记本目录（明文导出物会绕过加密、锁定后残留）
+	if rejectEncryptedBoxPath(savePath) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(313)
+		return
+	}
+
 	fullPath, err := model.ExportDocx(id, savePath, removeAssets, merge)
 	if err != nil {
 		ret.Code = 1
@@ -606,6 +614,10 @@ func exportMdHTML(c *gin.Context) {
 	savePath = strings.TrimSpace(savePath)
 	if savePath == "" {
 		folderName := "htmlmd-" + id + "-" + util.CurrentTimeSecondsStr()
+		// 加密笔记本的导出临时目录归入 boxID 子目录，确保 LockBox 能清理和服务端可校验锁定状态
+		if bt := treenode.GetBlockTree(id); bt != nil && model.IsEncryptedBox(bt.BoxID) {
+			folderName = bt.BoxID + "/" + folderName
+		}
 		tmpDir := filepath.Join(util.TempDir, "export", folderName)
 		name, content := model.ExportMarkdownHTML(id, tmpDir, false, false)
 		ret.Data = map[string]any{
@@ -614,6 +626,13 @@ func exportMdHTML(c *gin.Context) {
 			"content": content,
 			"folder":  folderName,
 		}
+		return
+	}
+
+	// savePath 由客户端指定，禁止写入加密笔记本目录（明文导出物会绕过加密、锁定后残留）
+	if rejectEncryptedBoxPath(savePath) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(313)
 		return
 	}
 
@@ -634,11 +653,21 @@ func exportTempContent(c *gin.Context) {
 		return
 	}
 
-	var content string
-	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("content", &content, true, false)) {
+	var content, id string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("content", &content, true, false),
+		util.BindJsonArg("id", &id, false, false),
+	) {
 		return
 	}
-	tmpExport := filepath.Join(util.TempDir, "export", "temp")
+	tmpExport := filepath.Join(util.TempDir, "export")
+	// 加密笔记本的临时导出归入 boxID 子目录，确保 LockBox 清理和服务端校验锁定状态
+	if id != "" {
+		if bt := treenode.GetBlockTree(id); bt != nil && model.IsEncryptedBox(bt.BoxID) {
+			tmpExport = filepath.Join(tmpExport, bt.BoxID)
+		}
+	}
+	tmpExport = filepath.Join(tmpExport, "temp")
 	if err := os.MkdirAll(tmpExport, 0755); err != nil {
 		ret.Code = 1
 		ret.Msg = err.Error()
@@ -652,7 +681,22 @@ func exportTempContent(c *gin.Context) {
 		ret.Data = map[string]any{"closeTimeout": 7000}
 		return
 	}
-	urlPath := path.Join("/export/temp/", filepath.Base(p))
+	baseName := filepath.Base(p)
+	urlPath := "/export/"
+	if boxID := func() string {
+		if id != "" {
+			if bt := treenode.GetBlockTree(id); bt != nil && model.IsEncryptedBox(bt.BoxID) {
+				return bt.BoxID
+			}
+		}
+		return ""
+	}(); boxID != "" {
+		// 加密笔记本的临时导出产物须注册到托管表，否则服务端守卫（IsManagedEncryptedExportPath）会拒绝下载
+		token := model.RegisterManagedEncryptedExport(boxID, "temp", p)
+		urlPath += token
+	} else {
+		urlPath = path.Join(urlPath, "temp", baseName)
+	}
 	ret.Data = map[string]any{
 		"url": util.ServerURL.Scheme + "://" + util.LocalHost + ":" + util.ServerPort + urlPath,
 	}
@@ -686,9 +730,27 @@ func exportBrowserHTML(c *gin.Context) {
 		return
 	}
 
+	// 检测是否来自加密笔记本：folder 形如 <boxID>/<folderName>
+	boxID := ""
+	if parts := strings.SplitN(folder, "/", 2); len(parts) >= 1 && ast.IsNodeIDPattern(parts[0]) && model.IsEncryptedBox(parts[0]) {
+		boxID = parts[0]
+	}
+
 	zipFileName := util.FilterFileName(name) + ".zip"
-	zipPath := filepath.Join(util.TempDir, "export", zipFileName)
-	zip, err := gulu.Zip.Create(zipPath)
+	var zipAbsPath string
+	if boxID != "" {
+		// 加密笔记本的导出 ZIP 写入 boxID 子目录，并注册托管 token
+		zipAbsPath = filepath.Join(util.TempDir, "export", boxID, "html", gulu.Rand.String(7)+"-"+zipFileName)
+		if err := os.MkdirAll(filepath.Dir(zipAbsPath), 0755); err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+	} else {
+		zipAbsPath = filepath.Join(util.TempDir, "export", zipFileName)
+	}
+
+	zip, err := gulu.Zip.Create(zipAbsPath)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
@@ -713,7 +775,12 @@ func exportBrowserHTML(c *gin.Context) {
 
 	os.RemoveAll(tmpDir)
 
-	zipURL := "/export/" + url.PathEscape(filepath.Base(zipPath))
+	var zipURL string
+	if boxID != "" {
+		zipURL = "/export/" + model.RegisterManagedEncryptedExport(boxID, "html", zipAbsPath)
+	} else {
+		zipURL = "/export/" + url.PathEscape(filepath.Base(zipAbsPath))
+	}
 	ret.Data = map[string]any{
 		"zip": zipURL,
 	}
@@ -783,6 +850,10 @@ func exportHTML(c *gin.Context) {
 	savePath = strings.TrimSpace(savePath)
 	if savePath == "" {
 		folderName := "html-" + id + "-" + util.CurrentTimeSecondsStr()
+		// 加密笔记本的导出临时目录归入 boxID 子目录，确保 LockBox 能清理和服务端可校验锁定状态
+		if bt := treenode.GetBlockTree(id); bt != nil && model.IsEncryptedBox(bt.BoxID) {
+			folderName = bt.BoxID + "/" + folderName
+		}
 		tmpDir := filepath.Join(util.TempDir, "export", folderName)
 		name, content, _ := model.ExportHTML(id, tmpDir, pdf, keepFold, merge)
 		ret.Data = map[string]any{
@@ -791,6 +862,13 @@ func exportHTML(c *gin.Context) {
 			"content": content,
 			"folder":  folderName,
 		}
+		return
+	}
+
+	// savePath 由客户端指定，禁止写入加密笔记本目录（明文导出物会绕过加密、锁定后残留）
+	if rejectEncryptedBoxPath(savePath) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(313)
 		return
 	}
 
@@ -964,6 +1042,28 @@ func copyExportFile(c *gin.Context) {
 		ret.Code = -1
 		ret.Msg = "invalid source path"
 		return
+	}
+
+	// 加密导出受控路径（<boxID>/<kind>/<file>）：按注册表无条件校验，不依赖 IsEncryptedBox。
+	// 笔记本删除后 IsEncryptedBox 返回 false，若以它为门控会 fail-open 暴露明文产物。
+	// relativePath 去掉 "/export/" 前缀以与 serveExport 的守卫及托管注册 key（<boxID>/kind/<name>）对齐。
+	relativeExportPath := strings.TrimPrefix(srcPath, "/export/")
+	relativeExportPath = strings.TrimPrefix(relativeExportPath, "export/")
+	if model.IsManagedEncryptedExportPath(relativeExportPath) {
+		boxID, _, ok := model.ResolveManagedEncryptedExport(relativeExportPath)
+		if !ok {
+			ret.Code = -1
+			ret.Msg = "export file is not available"
+			return
+		}
+		model.HoldBoxReadLock(boxID)
+		if _, dekErr := model.GetDEKIfUnlocked(boxID); dekErr != nil {
+			model.ReleaseBoxReadLock(boxID)
+			ret.Code = -1
+			ret.Msg = "encrypted notebook locked"
+			return
+		}
+		defer model.ReleaseBoxReadLock(boxID)
 	}
 
 	if util.IsSensitivePath(dest) {

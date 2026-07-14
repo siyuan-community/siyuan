@@ -64,9 +64,9 @@ func (tx *Transaction) doFoldHeading(operation *Operation) (ret *TxErr) {
 
 	tx.writeTree(tree)
 	IncSync()
-	cache.PutBlockIAL(headingID, parse.IAL2Map(heading.KramdownIAL))
+	cache.PutBlockIALInBox(headingID, tree.Box, parse.IAL2Map(heading.KramdownIAL))
 	for _, child := range children {
-		cache.PutBlockIAL(child.ID, parse.IAL2Map(child.KramdownIAL))
+		cache.PutBlockIALInBox(child.ID, tree.Box, parse.IAL2Map(child.KramdownIAL))
 	}
 	sql.UpsertTreeQueue(tree)
 	operation.RetData = childrenIDs
@@ -128,9 +128,9 @@ func (tx *Transaction) doUnfoldHeading(operation *Operation) (ret *TxErr) {
 	tx.writeTree(tree)
 	IncSync()
 
-	cache.PutBlockIAL(headingID, parse.IAL2Map(heading.KramdownIAL))
+	cache.PutBlockIALInBox(headingID, tree.Box, parse.IAL2Map(heading.KramdownIAL))
 	for _, child := range children {
-		cache.PutBlockIAL(child.ID, parse.IAL2Map(child.KramdownIAL))
+		cache.PutBlockIALInBox(child.ID, tree.Box, parse.IAL2Map(child.KramdownIAL))
 	}
 	sql.UpsertTreeQueue(tree)
 
@@ -174,6 +174,13 @@ func Doc2Heading(srcID, targetID string, after bool) (srcTreeBox, srcTreePath st
 	targetTree, _ := LoadTreeByBlockID(targetID)
 	if nil == targetTree {
 		// 目标块不存在时忽略处理
+		return
+	}
+
+	// 禁止跨加密边界：Doc2Heading 会合并 srcTree 和 targetTree 的内容，
+	// 不同加密笔记本各有独立 DEK，跨边界合并会导致密文用错 DEK 损坏数据
+	if !IsSameCryptoBoundary(srcTree.Box, targetTree.Box) {
+		err = errors.New(Conf.Language(313))
 		return
 	}
 
@@ -258,10 +265,7 @@ func Doc2Heading(srcID, targetID string, after bool) (srcTreeBox, srcTreePath st
 
 	for _, n := range nodes {
 		if ast.NodeHeading == n.Type {
-			n.HeadingLevel = n.HeadingLevel + deltaLevel
-			if 6 < n.HeadingLevel {
-				n.HeadingLevel = 6
-			}
+			n.HeadingLevel = min(6, n.HeadingLevel+deltaLevel)
 		}
 		n.Box = targetTree.Box
 		n.Path = targetTree.Path
@@ -289,8 +293,8 @@ func Doc2Heading(srcID, targetID string, after bool) (srcTreeBox, srcTreePath st
 
 	srcTreeBox, srcTreePath = srcTree.Box, srcTree.Path // 返回旧的文档块位置，前端后续会删除旧的文档块
 	targetTree.Root.SetIALAttr("updated", util.CurrentTimeSecondsStr())
-	treenode.RemoveBlockTreesByRootID(srcTree.ID)
-	treenode.RemoveBlockTreesByRootID(targetTree.ID)
+	treenode.RemoveBlockTreesByRootID(srcTree.Box, srcTree.ID)
+	treenode.RemoveBlockTreesByRootID(targetTree.Box, targetTree.ID)
 	err = indexWriteTreeUpsertQueue(targetTree)
 	IncSync()
 	go func() {
@@ -405,10 +409,7 @@ func Heading2Doc(srcHeadingID, targetBoxID, targetPath, previousPath string, toT
 	topLevel := treenode.TopHeadingLevel(newTree)
 	for c := newTree.Root.FirstChild; nil != c; c = c.Next {
 		if ast.NodeHeading == c.Type {
-			c.HeadingLevel = c.HeadingLevel - topLevel + 2
-			if 6 < c.HeadingLevel {
-				c.HeadingLevel = 6
-			}
+			c.HeadingLevel = min(6, c.HeadingLevel-topLevel+2)
 		}
 	}
 
@@ -417,7 +418,7 @@ func Heading2Doc(srcHeadingID, targetBoxID, targetPath, previousPath string, toT
 	if nil == srcTree.Root.FirstChild {
 		srcTree.Root.AppendChild(treenode.NewParagraph(""))
 	}
-	treenode.RemoveBlockTreesByRootID(srcTree.ID)
+	treenode.RemoveBlockTreesByRootID(srcTree.Box, srcTree.ID)
 	if err = indexWriteTreeUpsertQueue(srcTree); err != nil {
 		return "", "", err
 	}

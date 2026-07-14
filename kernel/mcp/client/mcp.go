@@ -30,6 +30,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
 )
 
@@ -241,13 +242,17 @@ func connectHTTP(client *mcp.Client, server conf.MCPServer) (*mcp.ClientSession,
 	transport := &mcp.StreamableClientTransport{
 		Endpoint: server.URL,
 	}
+	// 所有 MCP HTTP 出站请求统一带上 SiYuan UA，便于第三方 MCP server 识别客户端身份
+	uaBase := httpclient.NewUserAgentRoundTripper(http.DefaultTransport)
 	if len(server.Headers) > 0 {
 		transport.HTTPClient = &http.Client{
 			Transport: &headerRoundTripper{
-				base:    http.DefaultTransport,
+				base:    uaBase,
 				headers: server.Headers,
 			},
 		}
+	} else {
+		transport.HTTPClient = &http.Client{Transport: uaBase}
 	}
 
 	connectCtx, connectCancel := context.WithTimeout(context.Background(), serverTimeout(server))
@@ -260,8 +265,8 @@ func connectHTTP(client *mcp.Client, server conf.MCPServer) (*mcp.ClientSession,
 	return session, nil, nil
 }
 
-func mcpToolHandler(serverName, toolName string, timeout time.Duration) func(args map[string]interface{}) (tools.CallToolResult, error) {
-	return func(args map[string]interface{}) (tools.CallToolResult, error) {
+func mcpToolHandler(serverName, toolName string, timeout time.Duration) func(args map[string]any) (tools.CallToolResult, error) {
+	return func(args map[string]any) (tools.CallToolResult, error) {
 		result, err := callMCPTool(serverName, toolName, timeout, args)
 		if err != nil && isReconnectableError(err) {
 			logging.LogWarnf("mcp: server [%s] tool [%s] disconnected (%s), reconnecting", serverName, toolName, err)
@@ -295,7 +300,7 @@ func mcpToolHandler(serverName, toolName string, timeout time.Duration) func(arg
 	}
 }
 
-func callMCPTool(serverName, toolName string, timeout time.Duration, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func callMCPTool(serverName, toolName string, timeout time.Duration, args map[string]any) (*mcp.CallToolResult, error) {
 	session := getMCPSession(serverName)
 	if session == nil {
 		return nil, fmt.Errorf("mcp server [%s] not connected", serverName)

@@ -4,8 +4,9 @@ import {FileFilter, ipcRenderer} from "electron";
 import * as path from "path";
 /// #endif
 import {MenuItem} from "./Menu";
-import {getDisplayName, getNotebookName, getTopPaths, pathPosix, useShell} from "../util/pathName";
+import {getDisplayName, getNotebookName, getTopPaths, isEncryptedBox, pathPosix, useShell} from "../util/pathName";
 import {showMessage} from "../dialog/message";
+import {confirmDialog} from "../dialog/confirmDialog";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {onGetnotebookconf} from "./onGetnotebookconf";
 /// #if !MOBILE
@@ -32,6 +33,14 @@ import {saveExportFile} from "../protyle/util/compatibility";
 import {exportMarkdownZip} from "../protyle/export/exportMd";
 import {addFilesToDatabase} from "../protyle/render/av/addToDatabase";
 
+const confirmEncryptedExport = (notebookId: string, callback: () => void) => {
+    if (!isEncryptedBox(notebookId)) {
+        callback();
+        return;
+    }
+    confirmDialog(window.siyuan.languages.export, window.siyuan.languages.encryptedExportRiskTip, callback);
+};
+
 const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
     window.siyuan.menus.menu.element.setAttribute("data-from", Constants.MENU_FROM_DOC_TREE_MORE_ITEMS);
     const fileItemElement = Array.from(selectItemElements).find(item => {
@@ -43,6 +52,7 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
         return window.siyuan.menus.menu;
     }
     const blockIDs: string[] = [];
+    const notebookId = fileItemElement.parentElement?.getAttribute("data-url") || "";
     selectItemElements.forEach(item => {
         const id = item.getAttribute("data-node-id");
         if (id) {
@@ -155,11 +165,13 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
             label: "SiYuan .sy.zip",
             icon: "iconSiYuan",
             click: () => {
-                const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost("/api/export/exportSYs", {
-                    ids: blockIDs,
-                }, response => {
-                    saveExportFile(response.data.zip, msgId);
+                confirmEncryptedExport(notebookId, () => {
+                    const msgId = showMessage(window.siyuan.languages.exporting, -1);
+                    fetchPost("/api/export/exportSYs", {
+                        ids: blockIDs,
+                    }, response => {
+                        saveExportFile(response.data.zip, msgId);
+                    });
                 });
             }
         }, {
@@ -167,7 +179,7 @@ const initMultiMenu = (selectItemElements: NodeListOf<Element>, app: App) => {
             label: "Markdown .zip",
             icon: "iconMarkdown",
             click: () => {
-                exportMarkdownZip({ids: blockIDs});
+                confirmEncryptedExport(notebookId, () => exportMarkdownZip({ids: blockIDs}));
             }
         }]
     }).element);
@@ -257,7 +269,7 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
             submenu: subMenu,
         }).element);
     }
-    if (!window.siyuan.config.readonly) {
+    if (!window.siyuan.config.readonly && !isEncryptedBox(notebookId)) {
         window.siyuan.menus.menu.append(new MenuItem({
             id: "riffCard",
             label: window.siyuan.languages.riffCard,
@@ -382,11 +394,13 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
             label: "SiYuan .sy.zip",
             icon: "iconSiYuan",
             click: () => {
-                const msgId = showMessage(window.siyuan.languages.exporting, -1);
-                fetchPost("/api/export/exportNotebookSY", {
-                    id: notebookId,
-                }, response => {
-                    saveExportFile(response.data.zip, msgId);
+                confirmEncryptedExport(notebookId, () => {
+                    const msgId = showMessage(window.siyuan.languages.exporting, -1);
+                    fetchPost("/api/export/exportNotebookSY", {
+                        id: notebookId,
+                    }, response => {
+                        saveExportFile(response.data.zip, msgId);
+                    });
                 });
             }
         }, {
@@ -394,7 +408,7 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
             label: "Markdown .zip",
             icon: "iconMarkdown",
             click: () => {
-                exportMarkdownZip({notebook: notebookId});
+                confirmEncryptedExport(notebookId, () => exportMarkdownZip({notebook: notebookId}));
             }
         }]
     }).element);
@@ -524,14 +538,18 @@ export const initFileMenu = (app: App, notebookId: string, pathString: string, l
             label: window.siyuan.languages.attr,
             icon: "iconAttr",
             click() {
-                fetchPost("/api/block/getDocInfo", {
+                const docInfoParam: IObject = {
                     id
-                }, (response) => {
+                };
+                if (isEncryptedBox(notebookId)) {
+                    docInfoParam.notebook = notebookId;
+                }
+                fetchPost("/api/block/getDocInfo", docInfoParam, (response) => {
                     openFileAttr(response.data.ial);
                 });
             }
         }).element);
-        if (!window.siyuan.config.readonly) {
+        if (!window.siyuan.config.readonly && !isEncryptedBox(notebookId)) {
             const riffCardMenu = [{
                 id: "spaceRepetition",
                 iconHTML: "",

@@ -23,6 +23,7 @@ import {App} from "../../index";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {transaction, turnsIntoTransaction} from "../../protyle/wysiwyg/transaction";
 import {goHome} from "../../protyle/wysiwyg/commonHotkey";
+import {isEncryptedBox} from "../../util/pathName";
 import {Editor} from "../../editor";
 import {mathRender} from "../../protyle/render/mathRender";
 import {genEmptyElement} from "../../block/util";
@@ -114,7 +115,15 @@ export class Outline extends Model {
         this.tree = new Tree({
             element: this.element,
             data: null,
-            click: (element: HTMLElement) => {
+            click: (element: HTMLElement, event?: MouseEvent) => {
+                window.siyuan.menus.menu.remove();
+                if (event) {
+                    const actionElement = hasClosestByClassName(event.target as HTMLElement, "b3-list-item__action");
+                    if (actionElement) {
+                        this.showContextMenu(element, event);
+                        return;
+                    }
+                }
                 const id = element.getAttribute("data-node-id");
                 if (this.isPreview) {
                     const headElement = document.getElementById(id);
@@ -186,7 +195,9 @@ export class Outline extends Model {
                     }
                 }
                 this.saveExpendIds();
-            }
+            },
+            blockExtHTML: window.siyuan.config.readonly ? undefined : '<span class="b3-list-item__action"><svg><use xlink:href="#iconMore"></use></svg></span>',
+            topExtHTML: window.siyuan.config.readonly ? undefined : '<span class="b3-list-item__action"><svg><use xlink:href="#iconMore"></use></svg></span>',
         });
         // 为了快捷键的 dispatch
         options.tab.panelElement.querySelector('[data-type="collapse"]').addEventListener("click", () => {
@@ -288,10 +299,22 @@ export class Outline extends Model {
         });
         this.bindSort();
 
-        fetchPost("/api/outline/getDocOutline", {
+        const outlineParam: IObject = {
             id: this.blockId,
             preview: this.isPreview
-        }, response => {
+        };
+        // 解析当前大纲面板所属 box：按 blockId 在已打开的编辑器里查找
+        let notebookId: string;
+        getAllModels().editor.some(item => {
+            if (item.editor.protyle.block.rootID === this.blockId) {
+                notebookId = item.editor.protyle.notebookId;
+                return true;
+            }
+        });
+        if (isEncryptedBox(notebookId)) {
+            outlineParam.notebook = notebookId;
+        }
+        fetchPost("/api/outline/getDocOutline", outlineParam, response => {
             this.update(response);
             if (this.blockId) {
                 this.updateDocTitle((options.tab.model as Editor)?.editor?.protyle?.background?.ial, response.data?.length || 0);
@@ -486,7 +509,7 @@ export class Outline extends Model {
         });
     }
 
-    public updateDocTitle(ial?: IObject, count?: number) {
+    public updateDocTitle(ial?: Record<string, string>, count?: number) {
         const docTitleElement = this.headerElement.nextElementSibling as HTMLElement;
         if (this.type === "pin") {
             if (!ial && typeof count === "undefined") {
@@ -549,10 +572,22 @@ export class Outline extends Model {
             });
         }
         if (needReload) {
-            fetchPost("/api/outline/getDocOutline", {
+            const outlineParam: IObject = {
                 id: this.blockId,
                 preview: this.isPreview
-            }, response => {
+            };
+            // 解析当前大纲面板所属 box：按 blockId 在已打开的编辑器里查找
+            let notebookId: string;
+            getAllModels().editor.some(item => {
+                if (item.editor.protyle.block.rootID === this.blockId) {
+                    notebookId = item.editor.protyle.notebookId;
+                    return true;
+                }
+            });
+            if (isEncryptedBox(notebookId)) {
+                outlineParam.notebook = notebookId;
+            }
+            fetchPost("/api/outline/getDocOutline", outlineParam, response => {
                 // 文档切换后不再更新原有推送 https://github.com/siyuan-note/siyuan/issues/13409
                 if (data.data.rootID !== this.blockId) {
                     return;
@@ -592,10 +627,22 @@ export class Outline extends Model {
             if (previousElement) {
                 this.setCurrentById(previousElement.getAttribute("data-node-id"));
             } else {
-                fetchPost("/api/block/getBlockBreadcrumb", {
+                const breadcrumbParam: Record<string, any> = {
                     id: nodeElement.getAttribute("data-node-id"),
                     excludeTypes: []
-                }, (response) => {
+                };
+                // 解析当前大纲面板所属 box：按 blockId 在已打开的编辑器里查找
+                let notebookId: string;
+                getAllModels().editor.some(editorItem => {
+                    if (editorItem.editor.protyle.block.rootID === this.blockId) {
+                        notebookId = editorItem.editor.protyle.notebookId;
+                        return true;
+                    }
+                });
+                if (isEncryptedBox(notebookId)) {
+                    breadcrumbParam.notebook = notebookId;
+                }
+                fetchPost("/api/block/getBlockBreadcrumb", breadcrumbParam, (response) => {
                     response.data.reverse().find((item: IBreadcrumb) => {
                         if (item.type === "NodeHeading") {
                             this.setCurrentById(item.id);
@@ -624,7 +671,7 @@ export class Outline extends Model {
         }
     }
 
-    private setCurrentById(id: string) {
+    private setCurrentById(id: string, scroll = true) {
         this.element.querySelectorAll(".b3-list-item.b3-list-item--focus").forEach(item => {
             item.classList.remove("b3-list-item--focus");
         });
@@ -647,8 +694,10 @@ export class Outline extends Model {
         }
         if (currentElement) {
             currentElement.classList.add("b3-list-item--focus");
-            const elementRect = this.element.getBoundingClientRect();
-            this.element.scrollTop = this.element.scrollTop + (currentElement.getBoundingClientRect().top - (elementRect.top + elementRect.height / 2));
+            if (scroll) {
+                const elementRect = this.element.getBoundingClientRect();
+                this.element.scrollTop = this.element.scrollTop + (currentElement.getBoundingClientRect().top - (elementRect.top + elementRect.height / 2));
+            }
         }
     }
 
@@ -952,7 +1001,7 @@ export class Outline extends Model {
                     action: zoomIn ? [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL, Constants.CB_GET_HTML, Constants.CB_GET_OUTLINE] : [Constants.CB_GET_FOCUS, Constants.CB_GET_OUTLINE, Constants.CB_GET_SETID, Constants.CB_GET_CONTEXT, Constants.CB_GET_HTML],
                 });
             });
-            this.setCurrentById(id);
+            this.setCurrentById(id, false);
             const headingSubMenu = [];
             if (currentLevel !== 1) {
                 headingSubMenu.push(this.genHeadingTransform(id, 1));

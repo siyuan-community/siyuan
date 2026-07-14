@@ -9,7 +9,7 @@ import {openFile, openFileById} from "../editor/util";
 import {showMessage} from "../dialog/message";
 import {reloadProtyle} from "../protyle/util/reload";
 import {MenuItem} from "../menus/Menu";
-import {getDisplayName, getNotebookIcon, getNotebookName, movePathTo, pathPosix, useShell} from "../util/pathName";
+import {getDisplayName, getNotebookIcon, getNotebookName, isEncryptedBox, movePathTo, pathPosix, useShell} from "../util/pathName";
 import {Protyle} from "../protyle";
 import {onGet} from "../protyle/util/onGet";
 import {addLoading} from "../protyle/ui/initUI";
@@ -1151,13 +1151,17 @@ export const getArticle = (options: {
         }
         options.edit.protyle.scroll.lastScrollTop = 0;
         addLoading(options.edit.protyle);
-        fetchPost("/api/block/getDocInfo", {
+        const docInfoParam: IObject = {
             id: options.id,
-        }, (response) => {
+        };
+        if (isEncryptedBox(options.edit.protyle.notebookId)) {
+            docInfoParam.notebook = options.edit.protyle.notebookId;
+        }
+        fetchPost("/api/block/getDocInfo", docInfoParam, (response) => {
             if (articleId !== options.id) {
                 return;
             }
-            fetchPost("/api/filetree/getDoc", {
+            const getDocParam: Record<string, any> = {
                 id: options.id,
                 query: options.value || null,
                 queryMethod: options.config?.method || null,
@@ -1167,7 +1171,11 @@ export const getArticle = (options: {
                 size: zoomIn ? Constants.SIZE_GET_MAX : window.siyuan.config.editor.dynamicLoadBlocks,
                 zoom: zoomIn,
                 highlight: !isSupportCSSHL(),
-            }, getResponse => {
+            };
+            if (isEncryptedBox(options.edit.protyle.notebookId)) {
+                getDocParam.notebook = options.edit.protyle.notebookId;
+            }
+            fetchPost("/api/filetree/getDoc", getDocParam, getResponse => {
                 if (articleId !== options.id) {
                     return;
                 }
@@ -1349,7 +1357,7 @@ export const inputEvent = (element: Element, config: Config.IUILayoutTabSearchCo
                 previousElement.setAttribute("disabled", "disabled");
             }
             const endpoint = config.method === 4 ? "/api/search/semanticSearchBlock" : "/api/search/fullTextSearchBlock";
-            fetchPost(endpoint, {
+            const searchParam: Record<string, any> = {
                 query: config.query,
                 method: config.method,
                 types: config.types,
@@ -1359,7 +1367,16 @@ export const inputEvent = (element: Element, config: Config.IUILayoutTabSearchCo
                 orderBy: config.sort,
                 page: config.page || 1,
                 pageSize: 32,
-            }, (response) => {
+            };
+            // 限定在单个加密 box 内搜索时带 notebook，让内核走加密 db；跨 box 或全局搜索走原函数
+            const idPaths = config.idPath || [];
+            if (idPaths.length > 0) {
+                const box = idPaths[0].split("/")[0];
+                if (isEncryptedBox(box) && idPaths.every(p => p.split("/")[0] === box)) {
+                    searchParam.notebook = box;
+                }
+            }
+            fetchPost(endpoint, searchParam, (response) => {
                 const searchReqId = config.method === 4
                     ? window.siyuan.reqIds["/api/search/semanticSearchBlock"]
                     : window.siyuan.reqIds["/api/search/fullTextSearchBlock"];

@@ -354,8 +354,11 @@ export const uploadFiles = (protyle: IProtyle, files: FileList | DataTransferIte
             msg += window.siyuan.languages.uploadFileTooLarge.replace("${x}", validateResult.files[i].name).replace("${y}", filesize(validateResult.files[i].size, {standard: "iec"})) + "<br>";
         }
     }
-
-    formData.append("id", protyle.block.rootID);
+    if (protyle.lite) {
+        formData.append("assetsDirPath", "/assets/");
+    } else {
+        formData.append("id", protyle.block?.rootID);
+    }
     confirmDialog(msg ? window.siyuan.languages.upload : "", msg, () => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", protyle.options.upload.url);

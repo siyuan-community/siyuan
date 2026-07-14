@@ -1,11 +1,11 @@
 {
   "name": "SiYuan",
   "desktopName": "org.b3log.siyuan",
-  "version": "3.7.1",
+  "version": "3.7.2",
   "description": "Refactor your thinking",
   "homepage": "https://b3log.org/siyuan",
   "main": "./electron/main.js",
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.12.0",
   "scripts": {
     "lint": "eslint . --fix --cache",
     "test": "node --import tsx --test",
@@ -54,17 +54,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.24.0",
-    "@tiptap/core": "^3.24.0",
-    "@tiptap/extension-document": "^3.24.0",
-    "@tiptap/extension-hard-break": "^3.24.0",
-    "@tiptap/extension-history": "^3.24.0",
-    "@tiptap/extension-mention": "^3.24.0",
-    "@tiptap/extension-paragraph": "^3.24.0",
-    "@tiptap/extension-placeholder": "^3.24.0",
-    "@tiptap/extension-text": "^3.24.0",
-    "@tiptap/pm": "^3.24.0",
-    "@tiptap/suggestion": "^3.24.0",
     "@types/node": "^18.13.0",
+    "@types/zxcvbn": "4.4.5",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
     "blueimp-md5": "^2.19.0",
@@ -72,7 +63,7 @@
     "cross-env": "^10.1.0",
     "css-loader": "^7.1.2",
     "dayjs": "^1.11.5",
-    "electron": "42.5.0",
+    "electron": "42.6.1",
     "electron-builder": "26.15.6",
     "encoding": "^0.1.13",
     "esbuild-loader": "^3.0.1",
@@ -89,6 +80,7 @@
     "safer-buffer": "^2.1.2",
     "sass": "^1.89.2",
     "sass-loader": "^16.0.5",
+    "sharp": "^0.35.3",
     "tsx": "^4.22.4",
     "typescript": "^4.9.5",
     "webpack": "^5.104.1",
@@ -96,6 +88,7 @@
     "webpack-cli": "^4.10.0"
   },
   "dependencies": {
-    "@electron/remote": "^2.1.3"
+    "@electron/remote": "^2.1.3",
+    "zxcvbn": "4.4.2"
   }
 }

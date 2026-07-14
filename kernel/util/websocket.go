@@ -34,6 +34,10 @@ var (
 	// map[string]map[string]*melody.Session{}
 	sessions     = sync.Map{} // {appId, {sessionId, session}}
 	authSessions = sync.Map{}
+
+	// ReloadDocInfoGuard 由 model 层注入，在广播 docInfo 前检查 box 是否仍处于可广播状态。
+	// 加密笔记本锁定后返回 false，防止 500ms 延迟任务在锁定后泄漏明文元数据。
+	ReloadDocInfoGuard func(boxID string) bool
 )
 
 func BroadcastByTypeAndExcludeApp(excludeApp, typ, cmd string, code int, msg string, data any) {
@@ -345,6 +349,14 @@ func PushSaveDoc(rootID, typ string, sources any) {
 }
 
 func PushReloadDocInfo(docInfo map[string]any) {
+	// 加密笔记本锁定后丢弃延迟广播，避免泄漏明文元数据（title/alias/memo/bookmark）
+	if ReloadDocInfoGuard != nil {
+		if boxID, ok := docInfo["box"].(string); ok && boxID != "" {
+			if !ReloadDocInfoGuard(boxID) {
+				return
+			}
+		}
+	}
 	BroadcastByType("filetree", "reloadDocInfo", 0, "", docInfo)
 }
 
@@ -352,7 +364,13 @@ func PushReloadProtyle(rootID string) {
 	BroadcastByType("protyle", "reload", 0, "", rootID)
 }
 
-func PushSetRefDynamicText(rootID, blockID, defBlockID, refText string) {
+func PushSetRefDynamicText(rootID, blockID, defBlockID, refText, boxID string) {
+	// 加密笔记本锁定后丢弃延迟广播，避免泄漏明文 refText
+	if ReloadDocInfoGuard != nil && boxID != "" {
+		if !ReloadDocInfoGuard(boxID) {
+			return
+		}
+	}
 	BroadcastByType("main", "setRefDynamicText", 0, "", map[string]any{"rootID": rootID, "blockID": blockID, "defBlockID": defBlockID, "refText": refText})
 }
 

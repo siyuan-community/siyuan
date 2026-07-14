@@ -11,8 +11,9 @@ import {getThemeMode, setInlineStyle} from "../../util/assets";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {Dialog} from "../../dialog";
 import {replaceLocalPath} from "../../editor/rename";
-import {getScreenWidth, isInMobileApp, setStorageVal} from "../util/compatibility";
+import {getScreenWidth, isInMobileApp, saveExportFile, setStorageVal} from "../util/compatibility";
 import {getFrontend} from "../../util/functions";
+import {isEncryptedBox} from "../../util/pathName";
 
 const getPluginStyle = async () => {
     const response = await fetchSyncPost("/api/petal/loadPetals", {frontend: getFrontend()});
@@ -33,6 +34,7 @@ const getIconScript = (servePath: string) => {
 export const saveExport = (option: IExportOptions) => {
     /// #if BROWSER
     if (["html", "htmlmd"].includes(option.type)) {
+        const startExport = () => {
         const msgId = showMessage(window.siyuan.languages.exporting, -1);
         // 浏览器环境：先调用 API 生成资源文件，再在前端生成完整的 HTML
         const url = option.type === "htmlmd" ? "/api/export/exportMdHTML" : "/api/export/exportHTML";
@@ -49,14 +51,22 @@ export const saveExport = (option: IExportOptions) => {
                 html: html,
                 name: exportResponse.data.name
             }, zipResponse => {
-                hideMessage(msgId);
                 if (zipResponse.code === -1) {
+                    hideMessage(msgId);
                     showMessage(window.siyuan.languages._kernel[14].replace("%s", zipResponse.msg), 0, "error");
                     return;
                 }
-                window.open(zipResponse.data.zip);
-                showMessage(window.siyuan.languages.exported);
+                // 与导出 .sy.zip/markdown.zip/图片一致，统一走 saveExportFile，以便移动端原生 App 调用 JSAndroid.saveExportFile 等接口保存到本地
+                saveExportFile(zipResponse.data.zip, msgId);
             });
+        });
+        };
+        fetchPost("/api/block/getBlockInfo", {id: option.id}, (response) => {
+            if (response.code === 0 && isEncryptedBox(response.data.box)) {
+                confirmDialog("⚠️ " + window.siyuan.languages.export, window.siyuan.languages.encryptedExportRiskTip, startExport);
+                return;
+            }
+            startExport();
         });
         return;
     }
@@ -697,17 +707,23 @@ ${getIconScript(servePath)}
 </script>
 ${getSnippetJS()}
 </body></html>`;
-    fetchPost("/api/export/exportTempContent", {content: html}, (response) => {
+	    fetchPost("/api/export/exportTempContent", {content: html, id}, (response) => {
         ipcRenderer.send(Constants.SIYUAN_EXPORT_NEWWINDOW, response.data.url);
     });
 };
 
-const getExportPath = (option: IExportOptions, removeAssets?: boolean, mergeSubdocs?: boolean) => {
+const getExportPath = (option: IExportOptions, removeAssets?: boolean, mergeSubdocs?: boolean, confirmed = false) => {
     fetchPost("/api/block/getBlockInfo", {
         id: option.id
     }, async (response) => {
         if (response.code === 3) {
             showMessage(response.msg);
+            return;
+        }
+        if (!confirmed && isEncryptedBox(response.data.box)) {
+            confirmDialog("⚠️ " + window.siyuan.languages.export, window.siyuan.languages.encryptedExportRiskTip, () => {
+                getExportPath(option, removeAssets, mergeSubdocs, true);
+            });
             return;
         }
         let exportType = "HTML (SiYuan)";

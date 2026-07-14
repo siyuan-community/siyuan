@@ -12,9 +12,12 @@
 
   &__tab-container {
     overflow: auto;
-    scrollbar-gutter: stable;
     box-sizing: border-box;
     height: 100%;
+
+    &[data-name="keymap"] {
+      scrollbar-gutter: stable;
+    }
 
     .b3-label:not(.b3-label--inner) {
       margin: 0 16px;
@@ -127,15 +130,19 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        margin: 0;
+        margin: 0 -12px 0 0;
+        padding-right: 2px;
+        scrollbar-gutter: stable;
         list-style: none;
+        overflow-x: hidden;
       }
 
       .config__tab-title {
         display: flex;
         align-items: center;
-        height: 32px;
-        margin-bottom: 8px;
+        height: 21px;
+        margin-bottom: 16px;
+        padding: 0 4px;
       }
 
       .b3-list-item {
@@ -143,10 +150,7 @@
         margin: 8px;
 
         &__graphic {
-          margin-right: 2px;
-          padding: 0 8px 0 4px;
-          height: 16px;
-          width: 16px;
+          padding: 0 6px 0 4px;
         }
       }
     }

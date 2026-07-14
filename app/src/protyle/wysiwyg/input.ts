@@ -4,7 +4,7 @@ import * as dayjs from "dayjs";
 import {transaction, updateTransaction} from "./transaction";
 import {mathRender} from "../render/mathRender";
 import {highlightRender} from "../render/highlightRender";
-import {getContenteditableElement, hasNextSibling, hasPreviousSibling, isNotEditBlock} from "./getBlock";
+import {getContenteditableElement, fixAdjacentTags, hasNextSibling, hasPreviousSibling, isNotEditBlock} from "./getBlock";
 import {genEmptyBlock} from "../../block/util";
 import {blockRender} from "../render/blockRender";
 import {hideElements} from "../ui/hideElements";
@@ -146,6 +146,8 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
             refElement.setAttribute("data-subtype", "s");
         }
     }
+    // 相邻标签之间插入空格区隔，避免 SpinBlockDOM 解析时合并为一个标签 https://github.com/siyuan-note/siyuan/issues/18191
+    fixAdjacentTags(editElement);
     let html = blockElement.outerHTML;
     let focusHR = false;
     if (["---", "___", "***"].includes(editElement.textContent) && type !== "NodeCodeBlock") {
@@ -183,19 +185,17 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
                 html = blockElement.outerHTML;
             }
         }
+        // 相邻标签之间插入空格区隔，避免 SpinBlockDOM 解析时合并为一个标签 https://github.com/siyuan-note/siyuan/issues/18191
+        // 使用迭代替换处理多个连续相邻标签（全局正则无法匹配重叠情况）
+        // 若中间含有 <wbr>（光标标记），替换后需保留 <wbr>，否则 focusByWbr 无法定位光标
+        let prevHTML: string;
+        do {
+            prevHTML = html;
+            html = html.replace(/(data-type="tag[^"]*">[\s\S]*?<\/span>)((?:\u200b|<wbr>)*)(<span data-type="tag[^"]*">)/, (match, before, between, after) => {
+                return before + (between.indexOf("<wbr>") > -1 ? " <wbr>" : " ") + after;
+            });
+        } while (html !== prevHTML);
         html = protyle.lute.SpinBlockDOM(html);
-        // 列表项内紧挨标记的第一个段落块不允许产生子列表 https://github.com/siyuan-note/siyuan/issues/17890
-        if (blockElement.closest('[data-type="NodeListItem"]') &&
-            blockElement.previousElementSibling?.classList.contains("protyle-action")) {
-            const tempDiv = document.createElement("div");
-            tempDiv.innerHTML = html;
-            const firstChild = tempDiv.firstElementChild;
-            if (firstChild?.getAttribute("data-type") === "NodeList" ||
-                firstChild?.getAttribute("data-type") === "NodeListItem") {
-                const p = firstChild.querySelector('[data-type="NodeParagraph"]');
-                if (p) html = p.outerHTML;
-            }
-        }
     }
     // 在数学公式输入框中撤销到最后一步，再继续撤销会撤销编辑器正文内容，从而出发 input 事件
     hideElements(["util"], protyle, true);
@@ -204,6 +204,15 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
     }
     const tempElement = document.createElement("template");
     tempElement.innerHTML = html;
+    // 列表项内紧挨标记的第一个段落块不允许产生子列表 https://github.com/siyuan-note/siyuan/issues/17890
+    if (blockElement.closest('[data-type="NodeListItem"]') &&
+        blockElement.previousElementSibling?.classList.contains("protyle-action")) {
+        if (tempElement.content.firstElementChild.classList.contains("list")) {
+            getContenteditableElement(blockElement).innerHTML = "<wbr>";
+            html = blockElement.outerHTML;
+            tempElement.innerHTML = html;
+        }
+    }
     if (needRender && (
             getContenteditableElement(tempElement.content.firstElementChild)?.innerHTML !== getContenteditableElement(blockElement).innerHTML ||
             // 内容删空后使用上下键，光标无法到达 https://github.com/siyuan-note/siyuan/issues/4167 https://ld246.com/article/1636256333803
@@ -220,9 +229,10 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
         let scrollLeft: number;
         let scrollTop: number;
         if (blockElement.classList.contains("table")) {
+            // 表格的横向、纵向滚动均发生在首个子节点（contenteditable 容器，overflow:auto）上，
+            // 重建 DOM 后需一并还原，否则固定表头长表格输入会跳回开头 https://github.com/siyuan-note/siyuan/issues/18035
             scrollLeft = blockElement.firstElementChild.scrollLeft;
-            // 固定表头后表格出现纵向滚动条，输入会重置滚动位置 https://github.com/siyuan-note/siyuan/issues/18035
-            scrollTop = blockElement.querySelector("table").scrollTop;
+            scrollTop = blockElement.firstElementChild.scrollTop;
         }
         if (!/<span data-type="backslash">.{1,8}<\/span><wbr>/.test(html)) {
             // 使用 md 闭合后继续输入应为普通文本, 转义不需要添加 zwsp
@@ -303,7 +313,7 @@ export const input = async (protyle: IProtyle, blockElement: HTMLElement, range:
                         blockElement.firstElementChild.scrollLeft = scrollLeft;
                     }
                     if (scrollTop > 0) {
-                        blockElement.querySelector("table").scrollTop = scrollTop;
+                        blockElement.firstElementChild.scrollTop = scrollTop;
                     }
                 }
             }

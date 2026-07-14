@@ -73,6 +73,11 @@ declare namespace Config {
          * 全局只读
          */
         readonly: boolean;
+        /**
+         * Encrypted notebook global settings
+         * 加密笔记本全局设置
+         */
+        notebookCrypto: INotebookCrypto;
         repo: IRepo;
         /**
          * Global secrets store, referenced via {{secrets.NAME}} placeholders.
@@ -129,6 +134,7 @@ declare namespace Config {
         agent: IAgent;
         mcp: IMCP;
         embedding: IEmbedding;
+        rerank: IRerank;
     }
 
     /**
@@ -165,6 +171,19 @@ declare namespace Config {
         name: string;
         timeout: number;
         dimensions: number;
+    }
+
+    /**
+     * Rerank model configuration (semantic search result re-ranking)
+     */
+    export interface IRerank {
+        id: string;
+        enabled: boolean;
+        endpoint: string;
+        apiKey: string;
+        name: string;
+        timeout: number;
+        candidateCount: number;
     }
 
     /**
@@ -1481,6 +1500,23 @@ declare namespace Config {
      * Global variables store. Referenced via {{vars.NAME}} placeholders by the
      * agent http_request tool and MCP server headers.
      */
+    /**
+     * Encrypted notebook global settings
+     * 加密笔记本全局设置
+     */
+    export interface INotebookCrypto {
+        /**
+         * Whether encrypted notebook feature is enabled
+         * 加密笔记本功能是否已启用
+         */
+        enabled: boolean;
+        /**
+         * Auto-lock after idle minutes, 0 = disabled
+         * 自动锁定闲置分钟数，0 表示禁用
+         */
+        autoLockMinutes: number;
+    }
+
     export interface IVariables {
         items: IVariable[];
     }

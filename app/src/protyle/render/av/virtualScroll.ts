@@ -25,6 +25,13 @@ const bodyStates = new WeakMap<HTMLElement, IBodyState>();
 const trimPending = new WeakSet<HTMLElement>();
 let lastScrollTop: number;
 
+// 测量 DOM 变更前后容器 scrollHeight 的差值，用于精确计算 gallery 多列网格中行移除/回填的实际高度（含 gap）
+const measureHeightDiff = (el: HTMLElement, mutate: () => void): number => {
+    const before = el?.scrollHeight || 0;
+    mutate();
+    return Math.abs((el?.scrollHeight || 0) - before);
+};
+
 const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
     const viewportHeight = elementRect.bottom - elementRect.top;
     const buffer = viewportHeight * BUFFER_RATIO;
@@ -32,7 +39,13 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
     const bottomLimit = elementRect.bottom + buffer;
     const blockRect = blockElement.getBoundingClientRect();
 
-    const protyle = dataStore.get(blockElement.getAttribute("data-av-id") + blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW)).protyle;
+    // AV 重渲/新增分组/局部更新未走完整 initVirtualScroll 时 dataStore 可能缺失，跳过本次 trim，
+    // 等下次 initVirtualScroll 重新登记后再处理，避免解引用 undefined.protyle
+    const stored = dataStore.get(blockElement.getAttribute("data-av-id") + blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW));
+    if (!stored) {
+        return;
+    }
+    const protyle = stored.protyle;
     const isScrollingUp = lastScrollTop && lastScrollTop > protyle.contentElement.scrollTop;
     lastScrollTop = protyle.contentElement.scrollTop;
 
@@ -44,6 +57,11 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
     const bodies = blockElement.querySelectorAll(".av__body:not(.fn__none)") as NodeListOf<HTMLElement>;
     bodies.forEach((bodyEl: HTMLElement) => {
         const state = bodyStates.get(bodyEl);
+        // body 尚未在 initVirtualScroll 中登记（重渲/新增分组/局部更新未走完整流程），
+        // WeakMap 查不到则跳过本次 trim，避免解引用 undefined.view
+        if (!state) {
+            return;
+        }
         const dataRows = type === "table" ? (state.view as IAVTable).rows : (state.view as IAVKanban).cards;
         let currentRows;
         let bottomElement;
@@ -55,6 +73,21 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
             bottomElement = bodyEl.querySelector(".av__gallery-add");
         }
         if (currentRows.length === 0) {
+            return;
+        }
+        // 数据行数不超过 trim 有效范围（视口 + 上下 buffer）时不 trim（如看板中较短的分组），
+        // 全部渲染即可，避免短列因 trim 导致 spacer 抖动或全部移除后无法回填
+        const trimRange = viewportHeight + buffer * 2;
+        if (dataRows.length <= Math.ceil(trimRange / Math.max(state.rowHeight || currentRows[0].offsetHeight, 1))) {
+            // 清理可能残留的 spacer 和状态，恢复全部渲染
+            const spacerEl = bodyEl.querySelector(".av__spacer") as HTMLElement;
+            if (spacerEl) {
+                spacerEl.remove();
+                state.topSpacerHeight = 0;
+                state.renderedStart = 0;
+                state.renderedEnd = dataRows.length - 1;
+                bodyStates.set(bodyEl, state);
+            }
             return;
         }
         let topElement = currentRows[0];
@@ -88,7 +121,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         let lastVisibleIndex: number;
         const toRemoveAbove: HTMLElement[] = [];
         const toRemoveBelow: HTMLElement[] = [];
-        let galleryColumn = type === "gallery" ? 0 : 1;
+        let galleryColumn = type === "table" ? 1 : 0;
         // 行高缓存，避免每帧读 offsetHeight 触发布局
         const rowHeight = state.rowHeight || currentRows[0].offsetHeight;
         state.rowHeight = rowHeight;
@@ -158,51 +191,50 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                 lastVisibleIndex = Math.min(state.renderedEnd + Math.ceil((bottomLimit - rect.bottom) / rowHeight) * galleryColumn, dataRows.length - 1);
             }
         }
+        // gallery 多列布局需按视觉行整体移除，不能拆分同一行的卡片，否则 grid 重排导致列跳动。
+        // 若最后一个被收集卡片和首个保留卡片在同一视觉行，说明该行被拆分，需将该行从 toRemoveAbove 中移除
+        if (type === "gallery" && toRemoveAbove.length > 0 && !isScrollingUp) {
+            const lastRemoved = toRemoveAbove[toRemoveAbove.length - 1];
+            const firstKept = lastRemoved.nextElementSibling as HTMLElement;
+            if (firstKept && firstKept.offsetTop === lastRemoved.offsetTop) {
+                const incompleteTop = lastRemoved.offsetTop;
+                while (toRemoveAbove.length > 0 &&
+                    (toRemoveAbove[toRemoveAbove.length - 1] as HTMLElement).offsetTop === incompleteTop) {
+                    toRemoveAbove.pop();
+                }
+            }
+        }
         // 需等待 galleryColumn 计算完成
         if (isScrollingUp && firstTop > topLimit) {
             firstVisibleIndex = Math.max(0, state.renderedStart - Math.ceil((firstTop - topLimit) / rowHeight) * galleryColumn);
         }
         if (!isScrollingUp) {
             if (toRemoveAbove.length > 0) {
-                // 计算被移除行的总高度并累加到 topSpacerHeight，保持文档总高度不变、视口不跳。
-                // table 为连续前缀，用首行 top 与首个保留行 top 之差求得精确总高度；
-                // gallery/kanban 多列布局需逐行读取以判断换行。
-                let removeHeight = 0;
+                // 计算被移除行的总高度并累加到 topSpacerHeight，保持文档总高度不变、视口不跳
                 topElement = toRemoveAbove[toRemoveAbove.length - 1].nextElementSibling as HTMLElement;
-                if (type === "table" && topElement) {
+                let removeHeight = 0;
+                if (type === "gallery") {
+                    // gallery 多列网格：用容器 scrollHeight 差值精确计算（含 gap，避免逐行估算不准）
+                    const galleryEl = bodyEl.querySelector(".av__gallery") as HTMLElement;
+                    removeHeight = measureHeightDiff(galleryEl, () => {
+                        toRemoveAbove.forEach((row) => {
+                            row.remove();
+                        });
+                    });
+                } else if (type === "table" && topElement) {
                     const removeStartTop = toRemoveAbove[0].getBoundingClientRect().top;
                     const removeEndTop = topElement.getBoundingClientRect().top;
                     removeHeight = Math.round(removeEndTop - removeStartTop);
-                } else {
-                    const removeHeights: number[] = [];
-                    let galleryAccumulated = 0;
-                    toRemoveAbove.forEach((row, index) => {
-                        topElement = row.nextElementSibling as HTMLElement;
-                        if (type === "gallery") {
-                            if (galleryAccumulated === 0 || topElement.offsetTop !== row.offsetTop) {
-                                let h = row.offsetHeight;
-                                if (state.topSpacerHeight !== 0 && index !== 0) {
-                                    h += 16; // .av__kanban-group gap: 16px;
-                                }
-                                galleryAccumulated += h;
-                                removeHeights.push(h);
-                            } else {
-                                removeHeights.push(0);
-                            }
-                        } else { // kanban
-                            let h = row.offsetHeight;
-                            if (state.topSpacerHeight !== 0 && index !== 0) {
-                                h += 16; // .av__kanban-group gap: 16px;
-                            }
-                            removeHeights.push(h);
-                        }
+                    toRemoveAbove.forEach((row) => {
+                        row.remove();
                     });
-                    removeHeight = removeHeights.reduce((sum, h) => sum + h, 0);
+                } else { // kanban
+                    // grid 布局中 spacer 与行、行与行之间均有 16px gap，每行都需计入
+                    removeHeight = toRemoveAbove.reduce((sum, row) => sum + row.offsetHeight + 16, 0);
+                    toRemoveAbove.forEach((row) => {
+                        row.remove();
+                    });
                 }
-                // 统一移除，此时不再读取布局，仅触发一次重排
-                toRemoveAbove.forEach((row) => {
-                    row.remove();
-                });
                 state.topSpacerHeight += removeHeight;
                 state.renderedStart = state.renderedStart + toRemoveAbove.length;
 
@@ -259,24 +291,28 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                 if (!topElement.isConnected) {
                     return;
                 }
-                topElement.insertAdjacentHTML("beforebegin", rowsHTML);
-
                 let renderedHeight = 0;
-                let newRowElement = topElement.previousElementSibling as HTMLElement;
-                while (newRowElement) {
-                    if (type === "table") {
-                        renderedHeight += newRowElement.offsetHeight;
-                    } else if (type === "gallery") {
-                        if (renderedHeight === 0 || (topElement.previousElementSibling as HTMLElement).offsetTop !== newRowElement.offsetTop) {
+                if (type === "gallery") {
+                    // gallery 多列网格：用容器 scrollHeight 差值精确计算（含 gap，避免逐行估算不准）
+                    const galleryEl = bodyEl.querySelector(".av__gallery") as HTMLElement;
+                    renderedHeight = measureHeightDiff(galleryEl, () => {
+                        topElement.insertAdjacentHTML("beforebegin", rowsHTML);
+                    });
+                } else {
+                    topElement.insertAdjacentHTML("beforebegin", rowsHTML);
+                    let newRowElement = topElement.previousElementSibling as HTMLElement;
+                    while (newRowElement) {
+                        if (type === "table") {
+                            renderedHeight += newRowElement.offsetHeight;
+                        } else { // kanban
+                            // grid 布局中行与行之间均有 16px gap，每行都需计入
                             renderedHeight += newRowElement.offsetHeight + 16;
                         }
-                    } else if (type === "kanban") {
-                        renderedHeight += newRowElement.offsetHeight + 16;
-                    }
-                    newRowElement = newRowElement.previousElementSibling as HTMLElement;
-                    if (!newRowElement || newRowElement.classList.contains("av__spacer") ||
-                        newRowElement.classList.contains("av__row--header")) {
-                        break;
+                        newRowElement = newRowElement.previousElementSibling as HTMLElement;
+                        if (!newRowElement || newRowElement.classList.contains("av__spacer") ||
+                            newRowElement.classList.contains("av__row--header")) {
+                            break;
+                        }
                     }
                 }
                 state.topSpacerHeight = Math.max(0, state.topSpacerHeight - renderedHeight);
@@ -293,6 +329,43 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
             bodyStates.set(bodyEl, state);
         }
     });
+};
+
+// 读取虚拟滚动渲染窗口。insertAttrViewBlockAnimation/insertGalleryItemAnimation 插入的 ghost 占位行
+// 没有 data-index，会污染 renderedEnd，需跳过；同时内核按 previousID 决定新行在数据中的位置，
+// 需据此扩展渲染窗口让新行立即可见，否则虚拟滚动下新行会落在窗口外不渲染。
+export const getBodyVirtualData = (bodyEl: HTMLElement, endSelector: string, firstRowIndex: number): IAVVirtualData => {
+    // 末尾标记前可能存在连续 ghost 行，向前回溯找到真实末行
+    // 末尾标记（.av__row--util / .av__gallery-add）缺失时（重渲竞态）直接回退到 firstRowIndex，
+    // 避免解引用 null.previousElementSibling
+    const endMarker = bodyEl.querySelector(endSelector);
+    let lastRow = endMarker ? endMarker.previousElementSibling as HTMLElement : null;
+    while (lastRow && !lastRow.getAttribute("data-index")) {
+        lastRow = lastRow.previousElementSibling as HTMLElement;
+    }
+    let renderedStart = firstRowIndex;
+    let renderedEnd = parseInt(lastRow?.getAttribute("data-index") || "");
+    const ghostElements = bodyEl.querySelectorAll('[data-type="ghost"]');
+    if (ghostElements.length > 0) {
+        // 连续 ghost 行紧跟同一 previousElement，取首个 ghost 前最近的非 ghost 元素确定新行插入点
+        let prev = (ghostElements[0] as HTMLElement).previousElementSibling as HTMLElement;
+        while (prev && prev.getAttribute("data-type") === "ghost") {
+            prev = prev.previousElementSibling as HTMLElement;
+        }
+        const prevIndex = prev?.getAttribute("data-index");
+        if (prevIndex) {
+            renderedEnd = Math.max(renderedEnd, parseInt(prevIndex) + ghostElements.length);
+        } else {
+            // previousElement 为表头（previousID 为空），新行插在数据最前面
+            renderedStart = 0;
+            renderedEnd = Math.max(renderedEnd, ghostElements.length - 1);
+        }
+    }
+    return {
+        renderedStart,
+        renderedEnd,
+        topSpacerHeight: bodyEl.querySelector(".av__spacer")?.clientHeight || 0,
+    };
 };
 
 const getBodyData = (bodyEl: HTMLElement) => {

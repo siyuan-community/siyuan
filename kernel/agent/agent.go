@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"os"
 
@@ -80,8 +81,24 @@ const systemPrompt = `You are a SiYuan AI assistant. You help users manage their
 - To also apply a markdown mark (bold/italic), list multiple types in data-type (note: this is about marking types, not CSS):
   <span data-type="text strong" style="color: #ff0000;">bold red</span> (text + bold)
   <span data-type="text em" style="background-color: #ffff00;">italic highlighted</span>
+- Prefer a semantic data-type mark over an equivalent style — data-type is SiYuan's native mark (recognized by the editor, convertible to/from markdown, and queryable), whereas style is just raw CSS. Markdown has no equivalent for these, so use the mark rather than faking it with style:
+  - Underline:   <span data-type="u">underlined</span>      (NOT style="text-decoration: underline")
+  - Superscript: x<span data-type="sup">2</span>            (NOT style="vertical-align: super")
+  - Subscript:   H<span data-type="sub">2</span>O           (NOT style="vertical-align: sub")
+  - Keyboard key:<span data-type="kbd">Ctrl</span>          (NOT a bare <kbd>, NOT style)
+  - Tag:         <span data-type="tag">todo</span>         (NOT style="color: ...")
+- This rule also forbids faking ANY mark type with style — never write style="font-weight: bold", style="font-style: italic", style="text-decoration: line-through", etc. to mimic bold/italic/strikethrough/mark/code; use standard markdown (or the data-type mark) instead.
 - NEVER write a bare <span style="..."> without data-type — it will render as escaped literal text.
 - Prefer standard markdown (such as **bold**) when no color/size is needed.
+- HTML blocks (NodeHTMLBlock) render raw HTML in the document. Use one when the user wants HTML actually rendered (e.g. <ruby> annotations, styled containers), not displayed as code.
+  Write the HTML as a bare block-level element whose opening tag starts with <div, on its own line(s); in SiYuan's editor the parser only recognizes a <div-opening line as an HTML block:
+
+  <div>
+  <ruby>你<rt>nǐ</rt></ruby>
+  </div>
+
+  - If the HTML root is not <div (e.g. <p>, <table>, <section>, <ruby>), wrap the whole snippet in <div>...</div> — otherwise it falls back to a plain paragraph and the HTML is escaped to literal text.
+  - Do NOT use a fenced code block with an html info string for rendered HTML: that produces a code block (NodeCodeBlock) where the HTML is shown as syntax-highlighted text, not rendered. A fenced code block is for displaying source code, the opposite of rendering HTML.
 
 ## SiYuan User Guide
 SiYuan has a built-in user guide notebook documenting all features. IDs by language: 简体中文 "20210808180117-czj9bvb", 繁體中文 "20211226090932-5lcq56f", 日本語 "20240530133126-axarxgx", others "20210808180117-6v0mkxr".
@@ -164,18 +181,19 @@ var toolSignatureKeys = map[string][]string{
 }
 
 // buildDoomSignature 用 toolName + action + 关键参数构造死循环签名。
-func buildDoomSignature(name, action string, args map[string]interface{}) string {
-	sig := name + "::action=" + action
+func buildDoomSignature(name, action string, args map[string]any) string {
+	var sig strings.Builder
+	sig.WriteString(name + "::action=" + action)
 	for _, k := range toolSignatureKeys[name] {
 		if v, ok := args[k]; ok {
 			s := fmt.Sprint(v)
 			if len(s) > 64 {
 				s = s[:64] + "..."
 			}
-			sig += "::" + k + "=" + s
+			sig.WriteString("::" + k + "=" + s)
 		}
 	}
-	return sig
+	return sig.String()
 }
 
 var confirmChannelsMu sync.Mutex
@@ -252,7 +270,7 @@ type AgentEvent struct {
 	Type             string
 	Token            string
 	Name             string
-	Arguments        map[string]interface{}
+	Arguments        map[string]any
 	Result           string
 	Reasoning        string
 	ConfirmID        string
@@ -277,10 +295,10 @@ type AgentMessage struct {
 }
 
 type AgentToolCall struct {
-	ID        string                 `json:"id,omitempty"`
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments"`
-	Result    string                 `json:"result,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
+	Result    string         `json:"result,omitempty"`
 }
 
 type Reference struct {
@@ -312,21 +330,21 @@ type PluginAction struct {
 // SessionEntry 与前端 SessionStore.ts 中 entries 元素一一对应，
 // 是会话持久化的唯一数据源（不再单独持久化 messages）。
 type SessionEntry struct {
-	ID            string                 `json:"id,omitempty"`
-	Type          string                 `json:"type"` // user|thinking|assistant|confirm|snapshot|rollback
-	Content       string                 `json:"content,omitempty"`
-	Steps         []SessionEntryStep     `json:"steps,omitempty"`        // 仅 thinking
-	ToolCalls     []AgentToolCall        `json:"toolCalls,omitempty"`    // 仅 assistant
-	Duration      float64                `json:"duration,omitempty"`     // 秒（thinking/assistant 均可能带）
-	PromptTokens  int                    `json:"promptTokens,omitempty"` // 仅 assistant
-	CompletionTok int                    `json:"completionTokens,omitempty"`
-	Timestamp     int64                  `json:"timestamp,omitempty"`
-	ReasoningCont string                 `json:"reasoningContent,omitempty"`
-	ConfirmName   string                 `json:"confirmName,omitempty"`
-	ConfirmArgs   map[string]interface{} `json:"confirmArgs,omitempty"`
-	ConfirmID     string                 `json:"confirmID,omitempty"`
-	ConfirmStatus string                 `json:"confirmStatus,omitempty"`
-	SnapshotID    string                 `json:"snapshotID,omitempty"`
+	ID            string             `json:"id,omitempty"`
+	Type          string             `json:"type"` // user|thinking|assistant|confirm|snapshot|rollback
+	Content       string             `json:"content,omitempty"`
+	Steps         []SessionEntryStep `json:"steps,omitempty"`        // 仅 thinking
+	ToolCalls     []AgentToolCall    `json:"toolCalls,omitempty"`    // 仅 assistant
+	Duration      float64            `json:"duration,omitempty"`     // 秒（thinking/assistant 均可能带）
+	PromptTokens  int                `json:"promptTokens,omitempty"` // 仅 assistant
+	CompletionTok int                `json:"completionTokens,omitempty"`
+	Timestamp     int64              `json:"timestamp,omitempty"`
+	ReasoningCont string             `json:"reasoningContent,omitempty"`
+	ConfirmName   string             `json:"confirmName,omitempty"`
+	ConfirmArgs   map[string]any     `json:"confirmArgs,omitempty"`
+	ConfirmID     string             `json:"confirmID,omitempty"`
+	ConfirmStatus string             `json:"confirmStatus,omitempty"`
+	SnapshotID    string             `json:"snapshotID,omitempty"`
 }
 
 // SessionEntryStep 描述一次思考步骤。工具调用只保留名字列表，
@@ -356,7 +374,7 @@ type agentCheckpoint struct {
 	ContextLimit          int            `json:"contextLimit,omitempty"`
 }
 
-func AgentChat(ctx context.Context, client *openai.Client, model string, sessionID string, userMessage string, language string, references []Reference, editorCtx EditorContext, pluginActions []PluginAction, regenerate bool, confirmTimeout time.Duration, maxRetries int, reasoningEffort string) <-chan AgentEvent {
+func AgentChat(ctx context.Context, client *openai.Client, model string, sessionID string, userMessage string, language string, references []Reference, editorCtx EditorContext, pluginActions []PluginAction, regenerate bool, confirmTimeout time.Duration, maxRetries int, reasoningEffort string, requestTimeout time.Duration) <-chan AgentEvent {
 	ch := make(chan AgentEvent, 256)
 
 	go func() {
@@ -434,10 +452,7 @@ func AgentChat(ctx context.Context, client *openai.Client, model string, session
 		if temperature < 0 || 2 < temperature {
 			temperature = 1.0
 		}
-		maxCompletionTokens := kernelModel.Conf.AI.Agent.MaxCompletionTokens
-		if maxCompletionTokens < 0 {
-			maxCompletionTokens = 0
-		}
+		maxCompletionTokens := max(kernelModel.Conf.AI.Agent.MaxCompletionTokens, 0)
 		maxRounds := kernelModel.Conf.AI.Agent.MaxToolCallRounds
 
 		for round := 0; maxRounds <= 0 || round < maxRounds; round++ {
@@ -465,13 +480,18 @@ func AgentChat(ctx context.Context, client *openai.Client, model string, session
 				ReasoningEffort: reasoningEffort,
 			}
 
-			stream, streamErr := createStreamWithRetry(ctx, client, req, maxRetries, ch)
+			// 为每轮单次上游调用派生独立子 context，便于把单轮卡死转为可重试错误，
+			// 而不是直接取消整会话。requestTimeout<=0 时退化为可取消但无超时的 context。
+			roundCtx, roundCancel := context.WithCancel(ctx)
+			if requestTimeout > 0 {
+				roundCtx, roundCancel = context.WithTimeout(ctx, requestTimeout)
+			}
+
+			stream, streamErr := createStreamWithRetry(roundCtx, client, req, maxRetries, ch)
 			if streamErr != nil {
+				roundCancel()
 				if compactCount < 3 && isContextOverflow(streamErr) {
-					keepTurns := 3 - compactCount
-					if keepTurns < 1 {
-						keepTurns = 1
-					}
+					keepTurns := max(3-compactCount, 1)
 					messages = compactMessages(messages, keepTurns)
 					checkpointMsgs = compactCheckpointMsgs(checkpointMsgs, keepTurns)
 					compactCount++
@@ -502,12 +522,14 @@ func AgentChat(ctx context.Context, client *openai.Client, model string, session
 					}
 					finalCheckpoint()
 					stream.Close()
+					roundCancel()
 					return
 				}
 
 				select {
 				case <-ctx.Done():
 					stream.Close()
+					roundCancel()
 					return
 				default:
 				}
@@ -556,6 +578,7 @@ func AgentChat(ctx context.Context, client *openai.Client, model string, session
 			}
 
 			stream.Close()
+			roundCancel()
 
 			if len(aggregatedToolCalls) > 0 {
 				filtered := make([]openai.ToolCall, 0, len(aggregatedToolCalls))
@@ -577,7 +600,7 @@ func AgentChat(ctx context.Context, client *openai.Client, model string, session
 					Role:    "assistant",
 					Content: contentBuilder.String(),
 				}
-				parsedArgs := make([]map[string]interface{}, len(aggregatedToolCalls))
+				parsedArgs := make([]map[string]any, len(aggregatedToolCalls))
 				for i, tc := range aggregatedToolCalls {
 					args := parseToolArgs(tc.Function.Arguments)
 					parsedArgs[i] = args
@@ -1085,10 +1108,7 @@ func buildSystemPrompt(language string, references []Reference, editorCtx Editor
 			} else {
 				sb.WriteString("Visible block ids:\n")
 			}
-			limit := totalVisible
-			if limit > maxVisibleBlockIDs {
-				limit = maxVisibleBlockIDs
-			}
+			limit := min(totalVisible, maxVisibleBlockIDs)
 			for i := 0; i < limit; i++ {
 				sb.WriteString("- ")
 				sb.WriteString(editorCtx.VisibleBlockIDs[i])
@@ -1312,17 +1332,13 @@ func saveCheckpointAsync(sessionID string, messages []AgentMessage, promptTokens
 	var alwaysAllowCopy map[string]bool
 	if alwaysAllow != nil {
 		alwaysAllowCopy = make(map[string]bool, len(alwaysAllow))
-		for k, v := range alwaysAllow {
-			alwaysAllowCopy[k] = v
-		}
+		maps.Copy(alwaysAllowCopy, alwaysAllow)
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		checkpointMu.Lock()
 		defer checkpointMu.Unlock()
 		writeCheckpointLocked(sessionID, snap, promptTokens, completionTokens, startTime, snapshotIDsCopy, alwaysAllowCopy)
-	}()
+	})
 }
 
 func writeCheckpointLocked(sessionID string, messages []AgentMessage, promptTokens int, completionTokens int, startTime int64, snapshotIDs []string, alwaysAllow map[string]bool) {
@@ -1462,8 +1478,14 @@ func classifyRetry(err error) string {
 	if strings.Contains(msg, "Bad Request") {
 		return "fatal"
 	}
-	if strings.Contains(msg, "context canceled") || strings.Contains(msg, "context deadline exceeded") {
+	// 父 context 被取消（用户停止 / 会话结束）属于不可重试的致命错误。
+	if errors.Is(err, context.Canceled) {
 		return "fatal"
+	}
+	// per-request 超时（本会话主动加的 roundCtx deadline）通常意味着对端只是慢，
+	// 归入 timeout 类走退避重试，避免一次卡顿直接终结整个会话。
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
 	}
 	return "network"
 }
@@ -1486,10 +1508,7 @@ func delayForCategory(category string, attempt int) time.Duration {
 }
 
 func backoffDuration(attempt int) time.Duration {
-	base := time.Duration(1<<uint(attempt)) * time.Second
-	if base > 64*time.Second {
-		base = 64 * time.Second
-	}
+	base := min(time.Duration(1<<uint(attempt))*time.Second, 64*time.Second)
 	if base <= 1*time.Second {
 		return base
 	}

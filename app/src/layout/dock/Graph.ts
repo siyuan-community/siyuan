@@ -288,11 +288,13 @@ export class Graph extends Model {
                         this.searchGraph(false, undefined, true);
                     } else if (dataType === "fullscreen") {
                         fullscreen(this.element, target);
-                        const minElement = this.element.querySelector('.block__icons .block__icon[data-type="min"]');
+                        const minElement = this.element.querySelector('.block__icons .block__icon[data-type="min"]') as HTMLElement;
                         if (this.element.className.includes("fullscreen")) {
+                            minElement.style.transition = "none";
                             minElement.classList.add("fn__none");
                             minElement.previousElementSibling.classList.add("fn__none");
                         } else {
+                            minElement.style.transition = "";
                             minElement.classList.remove("fn__none");
                             minElement.previousElementSibling.classList.remove("fn__none");
                         }

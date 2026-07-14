@@ -1,6 +1,6 @@
 import {popSearch} from "./search";
 import {closePanel} from "../util/closePanel";
-import {mountHelp, newDailyNote, newNotebook} from "../../util/mount";
+import {mountHelp, newDailyNote, newEncryptedNotebook, newNotebook} from "../../util/mount";
 import {exitSiYuan, lockScreen, processSync} from "../../dialog/processSystem";
 import {openHistory} from "../../history/history";
 import {syncGuide} from "../../sync/syncGuide";
@@ -65,6 +65,9 @@ export const initRightMenu = (app: App) => {
     </div>
     <div class="b3-menu__item${window.siyuan.config.readonly ? " fn__none" : ""}" id="menuNewNotebook">
         <svg class="b3-menu__icon"><use xlink:href="#iconNewNoteBook"></use></svg><span class="b3-menu__label">${window.siyuan.languages.newNotebook}</span>
+    </div>
+    <div class="b3-menu__item${(window.siyuan.config.readonly || !window.siyuan.config.notebookCrypto?.enabled) ? " fn__none" : ""}" id="menuNewEncryptedNotebook">
+        <svg class="b3-menu__icon"><use xlink:href="#iconLock"></use></svg><span class="b3-menu__label">${window.siyuan.languages.newEncryptedNotebook}</span>
     </div>
     <div class="b3-menu__separator"></div>
     <div id="menuNewDaily" class="b3-menu__item${window.siyuan.config.readonly ? " fn__none" : ""}">
@@ -144,6 +147,12 @@ export const initRightMenu = (app: App) => {
                 event.preventDefault();
                 event.stopPropagation();
                 break;
+            } else if (target.id === "menuNewEncryptedNotebook") {
+                newEncryptedNotebook();
+                closePanel();
+                event.preventDefault();
+                event.stopPropagation();
+                break;
             } else if (target.id === "menuNewDaily") {
                 newDailyNote(app);
                 closePanel();
@@ -172,18 +181,16 @@ export const initRightMenu = (app: App) => {
                 exitSiYuan();
                 break;
             } else if ((settingTabDef = getSettingTabFromMenuTarget(target))) {
-                if (!settingTabDef.hidden) {
-                    openModel({
-                        title: settingTabDef.title,
-                        icon: settingTabDef.icon,
-                        html: `<div class="config${isMobile() ? " config--mobile" : ""}"></div>`,
-                        bindEvent(modelMainElement: HTMLElement) {
-                            const root = modelMainElement.firstElementChild as HTMLElement;
-                            bindSettingSaveDelegation(root);
-                            void getSettingTab(settingTabDef.id).mount(root, undefined, app);
-                        }
-                    });
-                }
+                openModel({
+                    title: settingTabDef.title,
+                    icon: settingTabDef.icon,
+                    html: `<div class="config${isMobile() ? " config--mobile" : ""}"></div>`,
+                    bindEvent(modelMainElement: HTMLElement) {
+                        const root = modelMainElement.firstElementChild as HTMLElement;
+                        bindSettingSaveDelegation(root);
+                        void getSettingTab(settingTabDef.id).mount(root, undefined, app);
+                    }
+                });
                 event.preventDefault();
                 event.stopPropagation();
                 break;

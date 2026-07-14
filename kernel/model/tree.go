@@ -168,6 +168,24 @@ func loadTree(localPath string, luteEngine *lute.Lute) (ret *parse.Tree, err err
 		return
 	}
 
+	// 加密笔记本的 .sy 是密文，需先解密。从路径反推 boxID，已解锁的加密笔记本用 fileKey 解密；
+	// 加密笔记本未解锁时返回错误（fail-closed）；非加密笔记本原样 data。
+	if boxID := extractBoxIDFromPath(localPath); boxID != "" && IsEncryptedBox(boxID) {
+		HoldBoxReadLock(boxID)
+		defer ReleaseBoxReadLock(boxID)
+		dek, dekErr := GetDEKIfUnlocked(boxID)
+		if dekErr != nil {
+			err = dekErr
+			return
+		}
+		// 从绝对路径推导 box 内相对路径作为 AAD
+		relPath := filepath.ToSlash(strings.TrimPrefix(localPath, filepath.Join(util.DataDir, boxID)+string(os.PathSeparator)))
+		if data, err = DecryptFile(boxID, relPath, dek, data); err != nil {
+			logging.LogErrorf("decrypt tree [path=%s] failed: %s", localPath, err)
+			return
+		}
+	}
+
 	ret, err = dataparser.ParseJSONWithoutFix(data, luteEngine.ParseOptions)
 	if err != nil {
 		logging.LogErrorf("parse json to tree [%s] failed: %s", localPath, err)
@@ -186,12 +204,26 @@ var (
 )
 
 func LoadTreeByBlockIDWithReindex(id string) (ret *parse.Tree, err error) {
+	return LoadTreeByBlockIDWithReindexInBox(id, "")
+}
+
+// LoadTreeByBlockIDWithReindexInBox 与 LoadTreeByBlockIDWithReindex 一致，但按 boxID 路由 blocktree 查询。
+func LoadTreeByBlockIDWithReindexInBox(id, boxID string) (ret *parse.Tree, err error) {
 	if "" == id {
 		logging.LogWarnf("block id is empty")
 		return nil, ErrTreeNotFound
 	}
 
-	bt := treenode.GetBlockTree(id)
+	bt := treenode.GetBlockTreeInBox(id, boxID)
+	if nil == bt && "" == boxID {
+		// boxID 未知时（如通用打开入口），遍历所有已打开的加密笔记本查找
+		for _, encBoxID := range treenode.GetOpenedEncryptedBoxIDs() {
+			if encBT := treenode.GetBlockTreeInBox(id, encBoxID); nil != encBT {
+				bt = encBT
+				break
+			}
+		}
+	}
 	if nil == bt {
 		if task.ContainIndexTask() {
 			err = ErrIndexing
@@ -200,7 +232,7 @@ func LoadTreeByBlockIDWithReindex(id string) (ret *parse.Tree, err error) {
 
 		// 尝试从文件系统加载并建立索引
 		err = indexTreeInFilesystem(id)
-		bt = treenode.GetBlockTree(id)
+		bt = treenode.GetBlockTreeInBox(id, boxID)
 		if nil == bt {
 			if "dev" == util.Mode {
 				logging.LogWarnf("block tree not found [id=%s], stack: [%s]", id, logging.ShortStack())
@@ -215,13 +247,40 @@ func LoadTreeByBlockIDWithReindex(id string) (ret *parse.Tree, err error) {
 }
 
 func LoadTreeByBlockID(id string) (ret *parse.Tree, err error) {
+	return loadTreeByBlockIDInBox(id, "")
+}
+
+func loadTreeByBlockTree(bt *treenode.BlockTree) (ret *parse.Tree, err error) {
+	luteEngine := util.NewLute()
+	ret, needFix, err := filesys.LoadTreeWithFix(bt.BoxID, bt.Path, luteEngine)
+	if nil != err {
+		return
+	}
+	if needFix {
+		treenode.UpsertBlockTree(ret)
+		sql.IndexTreeQueue(ret)
+	}
+	return
+}
+
+// loadTreeByBlockIDInBox 与 LoadTreeByBlockID 一致，但按 boxID 路由 blocktree 查询到加密 db 或全局 db。
+func loadTreeByBlockIDInBox(id, boxID string) (ret *parse.Tree, err error) {
 	if !ast.IsNodeIDPattern(id) {
 		stack := logging.ShortStack()
 		logging.LogErrorf("block id is invalid [id=%s], stack: [%s]", id, stack)
 		return nil, ErrTreeNotFound
 	}
 
-	bt := treenode.GetBlockTree(id)
+	bt := treenode.GetBlockTreeInBox(id, boxID)
+	if nil == bt && "" == boxID {
+		// boxID 未知时（如通用打开入口），遍历所有已打开的加密笔记本查找
+		for _, encBoxID := range treenode.GetOpenedEncryptedBoxIDs() {
+			if encBT := treenode.GetBlockTreeInBox(id, encBoxID); nil != encBT {
+				bt = encBT
+				break
+			}
+		}
+	}
 	if nil == bt {
 		if task.ContainIndexTask() {
 			err = ErrIndexing
@@ -238,19 +297,6 @@ func LoadTreeByBlockID(id string) (ret *parse.Tree, err error) {
 	}
 
 	ret, err = loadTreeByBlockTree(bt)
-	return
-}
-
-func loadTreeByBlockTree(bt *treenode.BlockTree) (ret *parse.Tree, err error) {
-	luteEngine := util.NewLute()
-	ret, needFix, err := filesys.LoadTreeWithFix(bt.BoxID, bt.Path, luteEngine)
-	if nil != err {
-		return
-	}
-	if needFix {
-		treenode.UpsertBlockTree(ret)
-		sql.IndexTreeQueue(ret)
-	}
 	return
 }
 

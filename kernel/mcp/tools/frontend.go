@@ -22,7 +22,7 @@ package tools
 // browser over SSE and blocks until the browser responds. The stub exists only so that
 // convertMCPToolsToOpenAI() lists this tool for the LLM.
 var FrontendTool = &Tool{
-	Name: "frontend",
+	Name:        "frontend",
 	Description: "Frontend/UI actions in the SiYuan editor (run in the browser; may change what the user sees). Actions: open_setting(query?), focus_block(id), open_document(id), open_search(query?). Plugins may register more — see <plugin_actions> and invoke by full name (e.g. plugin__myplugin__myaction).",
 	InputSchema: ToolSchema{
 		Type: "object",
@@ -40,7 +40,7 @@ func init() {
 	register(FrontendTool)
 }
 
-func frontendHandler(args map[string]interface{}) (CallToolResult, error) {
+func frontendHandler(args map[string]any) (CallToolResult, error) {
 	return CallToolResult{
 		Content: []ContentItem{{Type: "text", Text: "frontend actions are only available in the interactive agent chat (not via direct tool invocation)"}},
 		IsError: true,

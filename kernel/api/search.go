@@ -92,6 +92,32 @@ func getAssetContent(c *gin.Context) {
 	return
 }
 
+func getAssetContentByPath(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	path := arg["path"].(string)
+	assetContent := model.GetAssetContentByPath(path)
+	if model.IsReadOnlyRoleContext(c) && assetContent != nil {
+		publishAccess := model.GetPublishAccess()
+		filteredAssetContents := model.FilterAssetContentByPublishAccess(c, publishAccess, []*model.AssetContent{assetContent})
+		if len(filteredAssetContents) > 0 {
+			assetContent = filteredAssetContents[0]
+		} else {
+			assetContent = nil
+		}
+	}
+	ret.Data = map[string]any{
+		"assetContent": assetContent,
+	}
+	return
+}
+
 func fullTextSearchAssetContent(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -338,7 +364,13 @@ func searchEmbedBlock(c *gin.Context) {
 		breadcrumb = breadcrumbArg.(bool)
 	}
 
-	blocks := model.SearchEmbedBlock(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb)
+	// 加密笔记本的嵌入块查询走 InBox 版（查加密 content db，全局库不含加密数据）
+	var blocks []*model.EmbedBlock
+	if notebook, ok := arg["notebook"].(string); ok && notebook != "" && model.IsEncryptedBox(notebook) {
+		blocks = model.SearchEmbedBlockInBox(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb, notebook)
+	} else {
+		blocks = model.SearchEmbedBlock(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb)
+	}
 	if model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		blocks = model.FilterEmbedBlocksByPublishAccess(c, publishAccess, blocks)
@@ -377,7 +409,14 @@ func searchRefBlock(c *gin.Context) {
 	id := arg["id"].(string)
 	keyword := arg["k"].(string)
 	beforeLen := int(arg["beforeLen"].(float64))
-	blocks, newDoc := model.SearchRefBlock(id, rootID, keyword, beforeLen, isSquareBrackets, isDatabase)
+	// 加密笔记本内的块引搜索走 InBox 版（只搜该 box 自己的加密 db，阻止跨加密边界引用）
+	var blocks []*model.Block
+	var newDoc bool
+	if notebook, ok := arg["notebook"].(string); ok && notebook != "" && model.IsEncryptedBox(notebook) {
+		blocks, newDoc = model.SearchRefBlockInBox(id, rootID, keyword, beforeLen, isSquareBrackets, isDatabase, notebook)
+	} else {
+		blocks, newDoc = model.SearchRefBlock(id, rootID, keyword, beforeLen, isSquareBrackets, isDatabase)
+	}
 	if model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		blocks = model.FilterBlocksByPublishAccess(c, publishAccess, blocks)
@@ -408,7 +447,15 @@ func fullTextSearchBlock(c *gin.Context) {
 		return
 	}
 
-	blocks, matchedBlockCount, matchedRootCount, pageCount, docMode := model.FullTextSearchBlock(query, boxes, paths, types, subTypes, method, orderBy, groupBy, page, pageSize)
+	var blocks []*model.Block
+	var matchedBlockCount, matchedRootCount, pageCount int
+	var docMode bool
+	// 加密笔记本的全文搜索走 InBox 版（查加密 content db + blocks_fts）
+	if notebook, ok := arg["notebook"].(string); ok && notebook != "" && model.IsEncryptedBox(notebook) {
+		blocks, matchedBlockCount, matchedRootCount, pageCount, docMode = model.FullTextSearchBlockInBox(query, boxes, paths, types, subTypes, method, orderBy, groupBy, page, pageSize, notebook)
+	} else {
+		blocks, matchedBlockCount, matchedRootCount, pageCount, docMode = model.FullTextSearchBlock(query, boxes, paths, types, subTypes, method, orderBy, groupBy, page, pageSize)
+	}
 	if model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		blocks = model.FilterBlocksByPublishAccess(c, publishAccess, blocks)

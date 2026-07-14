@@ -15,6 +15,8 @@ import {
     genEmbeddingStatsHtml,
     getEmbeddingStatsKeywords,
     mountEmbeddingStatsBlock,
+    mountEmbeddingTestBtn,
+    mountRerankTestBtn,
 } from "./aiUi";
 
 const registerAiProvidersGroup = (tab: SettingTabBuilder) => {
@@ -106,7 +108,7 @@ const registerAiAgentGroup = (tab: SettingTabBuilder) => {
 };
 
 const registerAiMcpGroup = (tab: SettingTabBuilder) => {
-    const group = tab.group("mcp", "智能体 MCP 服务");
+    const group = tab.group("mcp", window.siyuan.languages.configGroupMcp);
 
     group.slot({
         key: "mcpServers",
@@ -117,7 +119,7 @@ const registerAiMcpGroup = (tab: SettingTabBuilder) => {
 };
 
 const registerAiEmbeddingGroup = (tab: SettingTabBuilder) => {
-    const group = tab.group("embedding", "嵌入模型");
+    const group = tab.group("embedding", window.siyuan.languages.configGroupEmbedding);
 
     group.switch("ai.embedding.enabled", {
         title: window.siyuan.languages.semanticSearch,
@@ -137,6 +139,7 @@ const registerAiEmbeddingGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.apiModel,
         desc: window.siyuan.languages.apiModelTip,
         mode: "input-text",
+        afterMount: mountEmbeddingTestBtn,
     });
     group.number("ai.embedding.dimensions", {
         title: window.siyuan.languages.apiDimensions,
@@ -178,6 +181,43 @@ const registerAiEmbeddingGroup = (tab: SettingTabBuilder) => {
     });
 };
 
+const registerAiRerankGroup = (tab: SettingTabBuilder) => {
+    const group = tab.group("rerank", window.siyuan.languages.configGroupRerank);
+
+    group.switch("ai.rerank.enabled", {
+        title: window.siyuan.languages.rerankModel,
+        desc: window.siyuan.languages.rerankTip,
+    });
+    group.textBlock("ai.rerank.endpoint", {
+        title: window.siyuan.languages.apiEndpoint,
+        desc: window.siyuan.languages.apiEndpointRerankTip,
+        mode: "input-text",
+    });
+    group.textBlock("ai.rerank.apiKey", {
+        title: window.siyuan.languages.apiKey,
+        desc: window.siyuan.languages.apiKeyTip,
+        mode: "input-password",
+    });
+    group.textBlock("ai.rerank.name", {
+        title: window.siyuan.languages.apiModel,
+        desc: window.siyuan.languages.apiModelTip,
+        mode: "input-text",
+        afterMount: mountRerankTestBtn,
+    });
+    group.number("ai.rerank.candidateCount", {
+        title: window.siyuan.languages.rerankCandidateCount,
+        desc: window.siyuan.languages.rerankCandidateCountTip,
+        min: 5,
+        max: 100,
+    });
+    group.number("ai.rerank.timeout", {
+        title: window.siyuan.languages.apiTimeout,
+        desc: window.siyuan.languages.apiTimeoutTip,
+        min: 1,
+        unit: "s",
+    });
+};
+
 export const registerAiTab = (tab: SettingTabBuilder) => {
     registerAiProvidersGroup(tab);
     registerAiEditingGroup(tab);
@@ -185,4 +225,5 @@ export const registerAiTab = (tab: SettingTabBuilder) => {
     registerAiMcpGroup(tab);
     // TODO: add skills group?
     registerAiEmbeddingGroup(tab);
+    registerAiRerankGroup(tab);
 };

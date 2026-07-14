@@ -154,6 +154,7 @@ func refreshDocInfo0(tree *parse.Tree, size uint64) {
 	}
 
 	docInfo := map[string]any{
+		"box":          tree.Box,
 		"rootID":       tree.ID,
 		"name":         tree.Root.IALAttr("title"),
 		"alias":        tree.Root.IALAttr("alias"),
@@ -263,7 +264,7 @@ func refreshDynamicRefTexts(updatedDefNodes map[string]*ast.Node, updatedTrees m
 		changedRootIDs = append(changedRootIDs, t)
 	}
 
-	for i := 0; i < 7; i++ {
+	for range 7 {
 		updatedRefNodes, updatedRefTrees := refreshDynamicRefTexts0(updatedDefNodes, updatedTrees)
 		if 1 > len(updatedRefNodes) {
 			break
@@ -333,7 +334,7 @@ func refreshDynamicRefTexts0(updatedDefNodes map[string]*ast.Node, updatedTrees 
 				for _, defNode := range changedDefNodes {
 					switch defNode.refType {
 					case "ref-d":
-						task.AppendAsyncTaskWithDelay(task.SetRefDynamicText, 200*time.Millisecond, util.PushSetRefDynamicText, refTreeID, n.ID, defNode.id, defNode.refText)
+						task.AppendAsyncTaskWithDelay(task.SetRefDynamicText, 200*time.Millisecond, util.PushSetRefDynamicText, refTreeID, n.ID, defNode.id, defNode.refText, refTree.Box)
 					}
 				}
 				return ast.WalkContinue
@@ -374,8 +375,8 @@ func updateAttributeViewBlockText(updatedDefNodes map[string]*ast.Node) {
 			continue
 		}
 
-		avIDs := strings.Split(avs, ",")
-		for _, avID := range avIDs {
+		avIDs := strings.SplitSeq(avs, ",")
+		for avID := range avIDs {
 			attrView, parseErr := av.ParseAttributeView(avID)
 			if nil != parseErr {
 				continue

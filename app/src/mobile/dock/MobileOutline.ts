@@ -14,6 +14,8 @@ import {focusBlock, focusByWbr} from "../../protyle/util/selection";
 import {openMobileFileById} from "../editor";
 import {Model} from "../../layout/Model";
 import {genUUID} from "../../util/genID";
+import {isEncryptedBox} from "../../util/pathName";
+import {dragOverScroll, stopScrollAnimation} from "../../boot/globalEvent/dragover";
 
 export class MobileOutline extends Model {
     public tree: Tree;
@@ -21,6 +23,15 @@ export class MobileOutline extends Model {
     public blockId: string;
     public isPreview: boolean;
     private preFilterExpandIds: string[] | null = null;
+    private touchDragState: {
+        selectedElement: HTMLElement;
+        startX: number;
+        startY: number;
+        isDragging: boolean;
+        ghostElement: HTMLElement;
+        startTime: number;
+        selectItem: HTMLElement;
+    };
 
     constructor(options: {
         app: App,
@@ -183,13 +194,199 @@ export class MobileOutline extends Model {
             }
         });
 
-        fetchPost("/api/outline/getDocOutline", {
+        this.bindSort();
+
+        const outlineParam: IObject = {
             id: this.blockId,
             preview: this.isPreview
-        }, response => {
+        };
+        const mobileProtyle = window.siyuan.mobile.editor?.protyle;
+        if (mobileProtyle && mobileProtyle.block.rootID === this.blockId && isEncryptedBox(mobileProtyle.notebookId)) {
+            outlineParam.notebook = mobileProtyle.notebookId;
+        }
+        fetchPost("/api/outline/getDocOutline", outlineParam, response => {
             this.update(response);
         });
     }
+
+    // 大纲拖拽排序：原生触摸事件实现，长按门槛避免与列表滚动冲突，排序逻辑对齐桌面端 Outline.bindSort
+    private bindSort() {
+        // 滚动容器为列表本体（不含顶部工具栏），否则边缘滚动判定会把工具栏算进可视区导致拖到列表顶/底部不滚动
+        const scrollElement = this.tree.element;
+        const contentRect = () => scrollElement.getBoundingClientRect();
+        this.element.addEventListener("touchstart", (event: TouchEvent) => {
+            if (window.siyuan.config.readonly) return;
+            if (this.element.getAttribute("data-loading") === "true") return;
+            if (event.touches.length !== 1) return;
+            // 仅当触摸到当前文档对应的编辑器时才允许拖拽排序
+            const editor = window.siyuan.mobile.editor?.protyle;
+            if (!editor || editor.disabled || editor.block.rootID !== this.blockId) return;
+
+            const touch = event.touches[0];
+            const liElement = hasClosestByClassName(touch.target as HTMLElement, "b3-list-item") as HTMLElement;
+            if (!liElement || liElement.tagName !== "LI") return;
+
+            this.touchDragState = {
+                selectedElement: liElement,
+                startX: touch.clientX,
+                startY: touch.clientY,
+                isDragging: false,
+                ghostElement: null,
+                startTime: Date.now(),
+                selectItem: null,
+            };
+        }, {passive: false});
+
+        this.element.addEventListener("touchmove", (event: TouchEvent) => {
+            const state = this.touchDragState;
+            if (!state) return;
+            const touch = event.touches[0];
+
+            // 长按门槛：未达到长按时间就移动则视为滚动，放弃拖拽
+            if (!state.isDragging) {
+                if (Date.now() - state.startTime < Constants.TIMEOUT_LONGPRESS &&
+                    (Math.abs(touch.clientX - state.startX) > Constants.SIZE_DRAG_THRESHOLD ||
+                        Math.abs(touch.clientY - state.startY) > Constants.SIZE_DRAG_THRESHOLD)) {
+                    this.touchDragState = null;
+                    return;
+                }
+                if (Math.abs(touch.clientX - state.startX) < Constants.SIZE_DRAG_THRESHOLD &&
+                    Math.abs(touch.clientY - state.startY) < Constants.SIZE_DRAG_THRESHOLD) return;
+                state.isDragging = true;
+
+                // 创建 ghost 元素，跟随手指移动
+                state.selectedElement.style.opacity = "0.38";
+                const ghostElement = state.selectedElement.cloneNode(true) as HTMLElement;
+                ghostElement.setAttribute("id", "dragGhost");
+                ghostElement.firstElementChild.setAttribute("style", "padding-left:4px");
+                ghostElement.setAttribute("style", `border-radius: var(--b3-border-radius);background-color: var(--b3-list-hover);position: fixed; top: ${touch.clientY}px; left: ${touch.clientX}px; z-index:999997;`);
+                document.body.append(ghostElement);
+                state.ghostElement = ghostElement;
+            }
+
+            // 进入拖拽后阻止原生滚动，避免列表伴随手指滚动
+            event.preventDefault();
+            event.stopPropagation();
+            state.ghostElement.style.top = touch.clientY + "px";
+            state.ghostElement.style.left = touch.clientX + "px";
+            dragOverScroll({clientY: touch.clientY} as MouseEvent, contentRect(), scrollElement);
+
+            // 通过 elementFromPoint 定位手指下的目标项
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            const selectItem = target?.closest(".b3-list-item") as HTMLElement;
+            if (!selectItem || selectItem.tagName !== "LI") return;
+
+            this.clearDragIndicators();
+            if (selectItem === state.selectedElement) {
+                selectItem.classList.add("dragover__current");
+                return;
+            }
+            const selectRect = selectItem.getBoundingClientRect();
+            const dragHeight = selectRect.height * .2;
+            if (touch.clientY > selectRect.bottom - dragHeight) {
+                selectItem.classList.add("dragover__bottom");
+            } else if (touch.clientY < selectRect.top + dragHeight) {
+                selectItem.classList.add("dragover__top");
+            } else {
+                selectItem.classList.add("dragover");
+            }
+            state.selectItem = selectItem;
+        }, {passive: false});
+
+        this.element.addEventListener("touchend", () => {
+            const state = this.touchDragState;
+            if (!state) return;
+            stopScrollAnimation();
+            state.selectedElement.style.opacity = "";
+            const item = state.selectedElement;
+
+            if (state.isDragging) {
+                state.ghostElement?.remove();
+                let selectItem = state.selectItem;
+                if (!selectItem) {
+                    selectItem = this.element.querySelector(".dragover__top, .dragover__bottom, .dragover") as HTMLElement;
+                }
+                const editor = window.siyuan.mobile.editor?.protyle;
+                let hasChange = true;
+                if (selectItem && editor &&
+                    (selectItem.classList.contains("dragover__top") || selectItem.classList.contains("dragover__bottom") || selectItem.classList.contains("dragover"))) {
+                    let previousID;
+                    let parentID;
+                    const undoPreviousID = (item.previousElementSibling && item.previousElementSibling.tagName === "UL") ? item.previousElementSibling.previousElementSibling.getAttribute("data-node-id") : item.previousElementSibling?.getAttribute("data-node-id");
+                    const undoParentID = item.parentElement.previousElementSibling?.getAttribute("data-node-id");
+                    if (selectItem.classList.contains("dragover")) {
+                        parentID = selectItem.getAttribute("data-node-id");
+                        if (selectItem.nextElementSibling && selectItem.nextElementSibling.tagName === "UL") {
+                            selectItem.nextElementSibling.insertAdjacentElement("afterbegin", item);
+                        } else {
+                            selectItem.insertAdjacentHTML("afterend", `<ul>${item.outerHTML}</ul>`);
+                            item.remove();
+                        }
+                    } else if (selectItem.classList.contains("dragover__top")) {
+                        parentID = selectItem.parentElement.previousElementSibling?.getAttribute("data-node-id");
+                        if (selectItem.previousElementSibling && selectItem.previousElementSibling.tagName === "UL") {
+                            previousID = selectItem.previousElementSibling.previousElementSibling.getAttribute("data-node-id");
+                        } else {
+                            previousID = selectItem.previousElementSibling?.getAttribute("data-node-id");
+                        }
+                        if (previousID === item.dataset.nodeId || parentID === item.dataset.nodeId) {
+                            hasChange = false;
+                        } else {
+                            selectItem.before(item);
+                        }
+                    } else if (selectItem.classList.contains("dragover__bottom")) {
+                        previousID = selectItem.getAttribute("data-node-id");
+                        if (previousID === item.previousElementSibling?.getAttribute("data-node-id")) {
+                            hasChange = false;
+                        } else {
+                            selectItem.after(item);
+                        }
+                    }
+                    if (hasChange) {
+                        this.element.setAttribute("data-loading", "true");
+
+                        transaction(editor, [{
+                            action: "moveOutlineHeading",
+                            id: item.dataset.nodeId,
+                            previousID,
+                            parentID,
+                        }], [{
+                            action: "moveOutlineHeading",
+                            id: item.dataset.nodeId,
+                            previousID: undoPreviousID,
+                            parentID: undoParentID,
+                        }]);
+
+                        // https://github.com/siyuan-note/siyuan/issues/10828#issuecomment-2044099675
+                        editor.wysiwyg.element.querySelectorAll('[data-type="NodeHeading"] [contenteditable="true"][spellcheck]').forEach(headingItem => {
+                            headingItem.setAttribute("contenteditable", "false");
+                        });
+                    }
+                }
+                this.clearDragIndicators();
+            }
+            this.touchDragState = null;
+        });
+
+        this.element.addEventListener("touchcancel", () => {
+            stopScrollAnimation();
+            if (this.touchDragState?.ghostElement) {
+                this.touchDragState.ghostElement.remove();
+            }
+            if (this.touchDragState?.selectedElement) {
+                this.touchDragState.selectedElement.style.opacity = "";
+            }
+            this.clearDragIndicators();
+            this.touchDragState = null;
+        });
+    }
+
+    // 清理拖拽指示线
+    private clearDragIndicators = () => {
+        this.element.querySelectorAll(".dragover__top, .dragover__bottom, .dragover, .dragover__current").forEach(item => {
+            item.classList.remove("dragover__top", "dragover__bottom", "dragover", "dragover__current");
+        });
+    };
 
     private handleMsgCallback(data: IWebSocketData) {
         if (data) {
@@ -219,10 +416,15 @@ export class MobileOutline extends Model {
             if (previousElement) {
                 this.setCurrentById(previousElement.getAttribute("data-node-id"));
             } else {
-                fetchPost("/api/block/getBlockBreadcrumb", {
+                const breadcrumbParam: Record<string, any> = {
                     id: nodeElement.getAttribute("data-node-id"),
                     excludeTypes: []
-                }, (response) => {
+                };
+                const mobileProtyle = window.siyuan.mobile.editor?.protyle;
+                if (mobileProtyle && mobileProtyle.block.rootID === this.blockId && isEncryptedBox(mobileProtyle.notebookId)) {
+                    breadcrumbParam.notebook = mobileProtyle.notebookId;
+                }
+                fetchPost("/api/block/getBlockBreadcrumb", breadcrumbParam, (response) => {
                     response.data.reverse().find((item: IBreadcrumb) => {
                         if (item.type === "NodeHeading") {
                             this.setCurrentById(item.id);
@@ -538,10 +740,15 @@ export class MobileOutline extends Model {
             });
         }
         if (needReload) {
-            fetchPost("/api/outline/getDocOutline", {
+            const outlineParam: IObject = {
                 id: this.blockId,
                 preview: this.isPreview
-            }, response => {
+            };
+            const mobileProtyle = window.siyuan.mobile.editor?.protyle;
+            if (mobileProtyle && mobileProtyle.block.rootID === this.blockId && isEncryptedBox(mobileProtyle.notebookId)) {
+                outlineParam.notebook = mobileProtyle.notebookId;
+            }
+            fetchPost("/api/outline/getDocOutline", outlineParam, response => {
                 // 文档切换后不再更新原有推送 https://github.com/siyuan-note/siyuan/issues/13409
                 if (data.data.rootID !== this.blockId) {
                     return;

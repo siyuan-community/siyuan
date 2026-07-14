@@ -37,14 +37,14 @@ import {highlightRender} from "../render/highlightRender";
 import {blockRender} from "../render/blockRender";
 import {getContenteditableElement, getParentBlock, getTopAloneElement, isNotEditBlock} from "../wysiwyg/getBlock";
 import * as dayjs from "dayjs";
-import {fetchPost} from "../../util/fetch";
+import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {cancelSB, genEmptyElement, getLangByType, insertEmptyBlock, jumpToParent,} from "../../block/util";
 import {transparentImgSrc} from "../util/dragTip";
 import {countBlockWord} from "../../layout/status";
 import {Constants} from "../../constants";
 import {mathRender} from "../render/mathRender";
 import {duplicateBlock} from "../wysiwyg/commonHotkey";
-import {movePathTo, useShell} from "../../util/pathName";
+import {isEncryptedBox, movePathTo, useShell} from "../../util/pathName";
 import {hintMoveBlock} from "../hint/extend";
 import {makeCard, quickMakeCard} from "../../card/makeCard";
 import {transferBlockRef} from "../../menus/block";
@@ -62,6 +62,7 @@ import {addEditorToDatabase} from "../render/av/addToDatabase";
 import {processClonePHElement} from "../render/util";
 /// #if !MOBILE
 import {openFileById} from "../../editor/util";
+import {getDockByType} from "../../layout/tabUtil";
 import * as path from "path";
 /// #endif
 import {showMessage} from "../../dialog/message";
@@ -497,7 +498,7 @@ export class Gutter {
                     }
                 }
                 foldElement.classList.remove("protyle-wysiwyg--hl");
-            } else if (event.shiftKey && !protyle.disabled) {
+            } else if (event.shiftKey && !protyle.disabled && !isEncryptedBox(protyle.notebookId)) {
                 // 不使用 window.siyuan.shiftIsPressed ，否则窗口未激活时按 Shift 点击块标无法打开属性面板 https://github.com/siyuan-note/siyuan/issues/15075
                 openAttr(protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`), "bookmark", protyle);
             } else if (!window.siyuan.ctrlIsPressed && !window.siyuan.altIsPressed && !window.siyuan.shiftIsPressed) {
@@ -640,33 +641,40 @@ export class Gutter {
             plusBefore.style.display = "none";
             plusAfter.style.display = "none";
             if (compressed) {
-                // 竖排：框线贴块标左右边缘，+号定位在外偏位置
+                // 竖排：压缩模式块标贴编辑区左缘，左侧紧邻 .layout__resize--lr 分栏拖拽条（z-index 4）
+                // 若 lineBefore/plusBefore 按横排逻辑外延到块标左侧，鼠标移入该区会被分栏拖拽条抢占悬浮，
+                // 导致加号无法触发。故竖排时上方/下方插入指示均置于块标右侧，上下以纵向位置区分：
+                // 上方插入指示贴图标右缘上半段，下方插入指示贴图标右缘下半段，完全避开左侧拖拽条命中区。
                 const iconRect = buttonElement.querySelector("svg").getBoundingClientRect();
                 const centerY = iconRect.top + iconRect.height / 2;
-                const lineH = 12;
-                const top = centerY - lineH / 2;
+                const lineH = Math.max(8, iconRect.height / 2 - 1);
                 const plusSize = 16;
+                // 线条/加号需落在 button rect（rect.right）外，否则 case A 会判定鼠标仍在块标内而不触发加号
+                const rightX = rect.right + 1;
+                // 上方插入：块标右侧上半段
                 lineBefore.style.display = "";
                 lineBefore.style.opacity = "1";
                 lineBefore.style.width = "2px";
                 lineBefore.style.height = `${lineH}px`;
-                lineBefore.style.left = `${rect.left - 4}px`;
-                lineBefore.style.top = `${top}px`;
+                lineBefore.style.left = `${rightX}px`;
+                lineBefore.style.top = `${iconRect.top - 1}px`;
+                // 下方插入：块标右侧下半段
                 lineAfter.style.display = "";
                 lineAfter.style.opacity = "1";
                 lineAfter.style.width = "2px";
                 lineAfter.style.height = `${lineH}px`;
-                lineAfter.style.left = `${rect.right + 2}px`;
-                lineAfter.style.top = `${top}px`;
+                lineAfter.style.left = `${rightX}px`;
+                lineAfter.style.top = `${centerY + 1}px`;
+                // +号位于右侧线条外偏，上下分开避免重叠
                 plusBefore.style.width = `${plusSize}px`;
                 plusBefore.style.height = `${plusSize}px`;
-                plusBefore.style.left = `${rect.left - 6 - plusSize / 2}px`;
-                plusBefore.style.top = `${centerY - plusSize / 2}px`;
+                plusBefore.style.left = `${rightX + 4}px`;
+                plusBefore.style.top = `${iconRect.top + lineH / 2 - plusSize / 2}px`;
                 plusAfter.style.width = `${plusSize}px`;
                 plusAfter.style.height = `${plusSize}px`;
-                plusAfter.style.left = `${rect.right + 4 - plusSize / 2}px`;
-                plusAfter.style.top = `${centerY - plusSize / 2}px`;
-                // 竖排时隐藏块标提示，避免其遮挡左侧框线
+                plusAfter.style.left = `${rightX + 4}px`;
+                plusAfter.style.top = `${centerY + 1 + lineH / 2 - plusSize / 2}px`;
+                // 竖排时隐藏块标提示，避免其遮挡右侧框线与+号
                 hideTooltip();
             } else {
                 // 横排：框线贴块标上下边缘，+号定位在外偏位置
@@ -972,7 +980,7 @@ export class Gutter {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "ai",
                 icon: "iconSparkles",
-                label: window.siyuan.languages.ai,
+                label: window.siyuan.languages.aiEdit,
                 accelerator: window.siyuan.config.keymap.editor.general.ai.custom,
                 click() {
                     AIActions(selectsElement, protyle);
@@ -1062,6 +1070,19 @@ export class Gutter {
                     addEditorToDatabase(protyle, getEditorRange(selectsElement[0]));
                 }
             }).element);
+            /// #if !MOBILE
+            // 加密笔记本中的块不暴露该菜单：避免把受保护内容引入智能体会话。
+            if (!isEncryptedBox(protyle.notebookId)) {
+                window.siyuan.menus.menu.append(new MenuItem({
+                    id: "addToAgent",
+                    icon: "iconSend",
+                    label: window.siyuan.languages.addToAgent,
+                    click: () => {
+                        addBlockToAgent(Array.from(selectsElement).map(item => item.getAttribute("data-node-id")));
+                    }
+                }).element);
+            }
+            /// #endif
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "delete",
                 label: window.siyuan.languages.delete,
@@ -1104,7 +1125,7 @@ export class Gutter {
             this.genWidths(selectsElement, protyle);
             // this.genHeights(selectsElement, protyle);
         }
-        if (!window.siyuan.config.readonly) {
+        if (!window.siyuan.config.readonly && !isEncryptedBox(protyle.notebookId)) {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "separator_quickMakeCard",
                 type: "separator"
@@ -1546,7 +1567,7 @@ export class Gutter {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "ai",
                 icon: "iconSparkles",
-                label: window.siyuan.languages.ai,
+                label: window.siyuan.languages.aiEdit,
                 accelerator: window.siyuan.config.keymap.editor.general.ai.custom,
                 click() {
                     AIActions([nodeElement], protyle);
@@ -1661,6 +1682,19 @@ export class Gutter {
                     addEditorToDatabase(protyle, getEditorRange(nodeElement));
                 }
             }).element);
+            /// #if !MOBILE
+            // 加密笔记本中的块不暴露该菜单：避免把受保护内容引入智能体会话。
+            if (!isEncryptedBox(protyle.notebookId)) {
+                window.siyuan.menus.menu.append(new MenuItem({
+                    id: "addToAgent",
+                    icon: "iconSend",
+                    label: window.siyuan.languages.addToAgent,
+                    click: () => {
+                        addBlockToAgent([nodeElement.getAttribute("data-node-id")]);
+                    }
+                }).element);
+            }
+            /// #endif
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "delete",
                 icon: "iconTrashcan",
@@ -1872,7 +1906,13 @@ export class Gutter {
                 icon: "iconFolder",
                 label: window.siyuan.languages.showInFolder,
                 click() {
-                    useShell("showItemInFolder", path.join(window.siyuan.config.system.dataDir, "storage", "av", nodeElement.getAttribute("data-av-id")) + ".json");
+                    const avId = nodeElement.getAttribute("data-av-id");
+                    const notebookId = protyle.notebookId;
+                    // 加密笔记本的 AV 定义存笔记本级路径
+                    const avDir = isEncryptedBox(notebookId)
+                        ? path.join(window.siyuan.config.system.dataDir, notebookId, "storage", "av")
+                        : path.join(window.siyuan.config.system.dataDir, "storage", "av");
+                    useShell("showItemInFolder", path.join(avDir, avId) + ".json");
                 }
             }).element);
         } else if ((type === "NodeVideo" || type === "NodeAudio") && !protyle.disabled) {
@@ -2265,7 +2305,7 @@ export class Gutter {
                     }
                 }).element);
             }
-            if (!protyle.disabled) {
+            if (!protyle.disabled && !isEncryptedBox(protyle.notebookId)) {
                 window.siyuan.menus.menu.append(new MenuItem({
                     id: "attr",
                     label: window.siyuan.languages.attr,
@@ -2323,7 +2363,7 @@ export class Gutter {
                 }
             }).element);
         }
-        if (type !== "NodeThematicBreak" && !window.siyuan.config.readonly) {
+        if (type !== "NodeThematicBreak" && !window.siyuan.config.readonly && !isEncryptedBox(protyle.notebookId)) {
             const isCardMade = nodeElement.hasAttribute(Constants.CUSTOM_RIFF_DECKS);
             window.siyuan.menus.menu.append(new MenuItem({
                 id: isCardMade ? "removeCard" : "quickMakeCard",
@@ -3004,3 +3044,55 @@ data-type="fold" style="cursor:inherit;"><svg style="width: 10px;${fold && fold 
         this.element.insertAdjacentHTML("beforeend", `<button class="protyle-gutters__line" data-type="gutterLineBefore" style="display:none"></button><button class="protyle-gutters__line" data-type="gutterLineAfter" style="display:none"></button><button class="protyle-gutters__plus ariaLabel" data-type="gutterPlusBefore" data-position="4west" aria-label="${window.siyuan.languages.insertBefore}" style="display:none"><svg><use xlink:href="#iconAdd"></use></svg></button><button class="protyle-gutters__plus ariaLabel" data-type="gutterPlusAfter" data-position="4west" aria-label="${window.siyuan.languages.insertAfter}" style="display:none"><svg><use xlink:href="#iconAdd"></use></svg></button>`);
     }
 }
+
+// 仅声明调用所需的最小接口，避免在 gutter 中 import AgentChat 类而引入
+// gutter → AgentChat → platformUtils → compatibility → gutter 的循环依赖（TDZ）。
+interface AgentChatLike {
+    insertBlockMentions: (mentions: Array<{ id: string; label: string }>) => void;
+}
+
+// 将选中的块以 @ 引用形式追加到智能体会话发送框末尾，等价于拖拽块到发送框或在框内 @ 搜索选块。
+// 仅桌面端可用：智能体面板（dock）在移动端不存在。
+/// #if !MOBILE
+export const addBlockToAgent = async (blockIds: string[]) => {
+    const ids = blockIds.filter(Boolean);
+    if (ids.length === 0) {
+        return;
+    }
+    const dock = getDockByType("agentChat");
+    if (!dock) {
+        return;
+    }
+    // 智能体面板首次打开前 dock.data.agentChat 是占位值（非 AgentChat 实例）。
+    const isReady = (m: unknown): m is AgentChatLike =>
+        !!m && typeof (m as AgentChatLike).insertBlockMentions === "function";
+    let agentChat = dock.data.agentChat;
+    // 实例未就绪（面板从未打开）或面板被折叠时，先 toggleModel 打开/展开：
+    // show=true 既会同步 new AgentChat() 构造常驻实例，也会把折叠的面板重新展开。
+    const dockItem = document.querySelector(".dock__item[data-type=\"agentChat\"]");
+    const isCollapsed = !dockItem || !dockItem.classList.contains("dock__item--active");
+    if (!isReady(agentChat) || isCollapsed) {
+        dock.toggleModel("agentChat", true);
+        agentChat = dock.data.agentChat;
+    }
+    if (!isReady(agentChat)) {
+        // 极端情况下实例仍未就绪，放弃插入避免报错。
+        return;
+    }
+    // 用 getRefText API 并行获取每个块的引用文本作为 label（与 @ 搜索、拖拽一致），失败时回退到 blockId。
+    const mentions: Array<{ id: string; label: string }> = [];
+    await Promise.all(ids.map(async (id) => {
+        let label = id;
+        try {
+            const resp = await fetchSyncPost("/api/block/getRefText", {id});
+            if (resp && resp.data) {
+                label = resp.data;
+            }
+        } catch {
+            label = id;
+        }
+        mentions.push({id, label});
+    }));
+    agentChat.insertBlockMentions(mentions);
+};
+/// #endif

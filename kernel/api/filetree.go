@@ -33,6 +33,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
@@ -76,10 +77,33 @@ func listDocTree(c *gin.Context) {
 		return
 	}
 
+	// 加密笔记本锁定时拒绝直接列举磁盘目录，防止泄漏文档 ID、层级和数量
+	if model.IsEncryptedBox(notebook) {
+		model.HoldBoxReadLock(notebook)
+		defer model.ReleaseBoxReadLock(notebook)
+		if _, dekErr := model.GetDEKIfUnlocked(notebook); dekErr != nil {
+			ret.Code = -1
+			ret.Msg = model.Conf.Language(314)
+			return
+		}
+	}
+
 	p := arg["path"].(string)
 	p = strings.TrimSuffix(p, ".sy")
+	// 越界校验：拒绝 ..，确保路径位于 <data>/<notebook>/ 内。
+	// 无需 filepath.IsAbs —— notebook 路径全为 notebook 内相对路径，且跨 OS 对 "/" 判定不一致。
+	if found := strings.Contains(p, ".."); found {
+		ret.Code = -1
+		ret.Msg = "path must not contain '..'"
+		return
+	}
 	var doctree []*DocFile
 	root := filepath.Join(util.WorkspaceDir, "data", notebook, p)
+	if !gulu.File.IsSubPath(filepath.Join(util.WorkspaceDir, "data", notebook), root) {
+		ret.Code = -1
+		ret.Msg = "path escapes notebook directory"
+		return
+	}
 	dir, err := os.ReadDir(root)
 	if err != nil {
 		ret.Code = -1
@@ -238,6 +262,14 @@ func heading2Doc(c *gin.Context) {
 
 	srcHeadingID := arg["srcHeadingID"].(string)
 	targetNotebook := arg["targetNoteBook"].(string)
+
+	// 禁止跨加密笔记本移动块：加密笔记本是孤岛
+	if bt := treenode.GetBlockTree(srcHeadingID); bt != nil && model.IsEncryptedBox(bt.BoxID) && bt.BoxID != targetNotebook {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(313)
+		ret.Data = map[string]any{"closeTimeout": 5000}
+		return
+	}
 	var targetPath string
 	if arg["targetPath"] != nil {
 		targetPath = arg["targetPath"].(string)
@@ -281,6 +313,15 @@ func li2Doc(c *gin.Context) {
 
 	srcListItemID := arg["srcListItemID"].(string)
 	targetNotebook := arg["targetNoteBook"].(string)
+
+	// 禁止跨加密笔记本移动块：加密笔记本是孤岛
+	if bt := treenode.GetBlockTree(srcListItemID); bt != nil && model.IsEncryptedBox(bt.BoxID) && bt.BoxID != targetNotebook {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(313)
+		ret.Data = map[string]any{"closeTimeout": 5000}
+		return
+	}
+
 	var targetPath string
 	if arg["targetPath"] != nil {
 		targetPath = arg["targetPath"].(string)
@@ -1060,6 +1101,14 @@ func listDocsByPath(c *gin.Context) {
 
 	notebook := arg["notebook"].(string)
 	p := arg["path"].(string)
+
+	// 越界校验：拒绝 ..，确保路径位于 <data>/<notebook>/ 内
+	if strings.Contains(p, "..") {
+		ret.Code = -1
+		ret.Msg = "path must not contain '..' and must be relative"
+		return
+	}
+
 	sortParam := arg["sort"]
 	sortMode := util.SortModeUnassigned
 	if nil != sortParam {
@@ -1200,8 +1249,21 @@ func getDoc(c *gin.Context) {
 		highlight = highlightArg.(bool)
 	}
 
-	blockCount, content, parentID, parent2ID, rootID, typ, eof, scroll, boxID, docPath, isBacklinkExpand, keywords, err :=
-		model.GetDoc(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight)
+	var blockCount int
+	var content, parentID, parent2ID, rootID, typ string
+	var eof, scroll bool
+	var boxID, docPath string
+	var isBacklinkExpand bool
+	var keywords []string
+	var err error
+	// 加密笔记本的打开文档走 InBox 版（查加密 blocktree + content db）
+	if notebook, ok := arg["notebook"].(string); ok && notebook != "" && model.IsEncryptedBox(notebook) {
+		blockCount, content, parentID, parent2ID, rootID, typ, eof, scroll, boxID, docPath, isBacklinkExpand, keywords, err =
+			model.GetDocInBox(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight, notebook)
+	} else {
+		blockCount, content, parentID, parent2ID, rootID, typ, eof, scroll, boxID, docPath, isBacklinkExpand, keywords, err =
+			model.GetDoc(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight)
+	}
 	if errors.Is(err, model.ErrBlockNotFound) {
 		ret.Code = 3
 		return

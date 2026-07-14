@@ -46,7 +46,7 @@ func statAsset(c *gin.Context) {
 	var p string
 	if strings.HasPrefix(path, "assets/") {
 		var err error
-		p, err = model.GetAssetAbsPath(path)
+		p, err = model.GetAssetAbsPathInBox(path, "")
 		if err != nil {
 			ret.Code = 1
 			return
@@ -122,6 +122,14 @@ func getImageOCRText(c *gin.Context) {
 
 	path = arg["path"].(string)
 
+	// 加密笔记本的资源不参与全局 OCR（OCR 文本存在全局 data/assets/ocr-texts.json）
+	if absPath, absErr := model.GetAssetAbsPathInBox(path, ""); absErr == nil && model.IsEncryptedAssetPath(absPath) {
+		ret.Data = map[string]any{
+			"text": "",
+		}
+		return
+	}
+
 	ret.Data = map[string]any{
 		"text": util.GetAssetText(path),
 	}
@@ -138,6 +146,11 @@ func setImageOCRText(c *gin.Context) {
 
 	path := arg["path"].(string)
 	text := arg["text"].(string)
+
+	// 加密笔记本的资源不参与全局 OCR
+	if absPath, absErr := model.GetAssetAbsPathInBox(path, ""); absErr == nil && model.IsEncryptedAssetPath(absPath) {
+		return
+	}
 	util.SetAssetText(path, text)
 
 	// 刷新 OCR 结果到数据库
@@ -159,6 +172,14 @@ func ocr(c *gin.Context) {
 	}
 
 	path := arg["path"].(string)
+
+	// 加密笔记本的资源不参与全局 OCR
+	if absPath, absErr := model.GetAssetAbsPathInBox(path, ""); absErr == nil && model.IsEncryptedAssetPath(absPath) {
+		ret.Code = -1
+		ret.Msg = "OCR is not supported for assets in encrypted notebooks"
+		ret.Data = map[string]any{"closeTimeout": 3000}
+		return
+	}
 
 	ocrJSON, err := util.OcrAsset(path)
 	if nil != err {
@@ -280,10 +301,31 @@ func setFileAnnotation(c *gin.Context) {
 			ret.Msg = err.Error()
 			return
 		}
-	} else if err = filelock.WriteFile(writePath, []byte(data)); err != nil {
-		ret.Code = -1
-		ret.Msg = err.Error()
-		return
+	} else {
+		// 加密笔记本的 .sya 写盘前必须加密；加密笔记本未解锁时拒绝写入（fail-closed，避免明文落盘）
+		writeData := []byte(data)
+		if boxID := model.ExtractBoxIDFromAssetsPath(writePath); boxID != "" && model.IsEncryptedBox(boxID) {
+			model.HoldBoxReadLock(boxID)
+			defer model.ReleaseBoxReadLock(boxID)
+			dek, dekErr := model.GetDEKIfUnlocked(boxID)
+			if dekErr != nil {
+				ret.Code = -1
+				ret.Msg = dekErr.Error()
+				return
+			}
+			enc, encErr := model.EncryptAsset(boxID, filepath.Base(writePath), dek, writeData)
+			if encErr != nil {
+				ret.Code = -1
+				ret.Msg = encErr.Error()
+				return
+			}
+			writeData = enc
+		}
+		if err = filelock.WriteFile(writePath, writeData); err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
 	}
 
 	model.IncSync()
@@ -318,20 +360,38 @@ func getFileAnnotation(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	// 加密笔记本的 .sya 读盘后必须解密；未解锁时拒绝返回（fail-closed，避免返回密文或误判）
+	if boxID := model.ExtractBoxIDFromAssetsPath(readPath); boxID != "" && model.IsEncryptedBox(boxID) {
+		model.HoldBoxReadLock(boxID)
+		defer model.ReleaseBoxReadLock(boxID)
+		dek, dekErr := model.GetDEKIfUnlocked(boxID)
+		if dekErr != nil {
+			ret.Code = -1
+			ret.Msg = dekErr.Error()
+			return
+		}
+		plain, decErr := model.DecryptAsset(boxID, filepath.Base(readPath), dek, data)
+		if decErr != nil {
+			ret.Code = -1
+			ret.Msg = decErr.Error()
+			return
+		}
+		data = plain
+	}
 	ret.Data = map[string]any{
 		"data": string(data),
 	}
 }
 
 func resolveFileAnnotationAbsPath(assetRelPath string) (ret string, err error) {
+	// .sya 在 URL 末尾，例如 assets/a.pdf?box=<id>.sya
+	// TrimSuffix 去掉 .sya 得到 assets/a.pdf?box=<id>，保留 query 供 box-aware 解析
 	filePath := strings.TrimSuffix(assetRelPath, ".sya")
-	absPath, err := model.GetAssetAbsPath(filePath)
+	absPath, err := model.GetAssetAbsPathInBox(filePath, "")
 	if err != nil {
 		return
 	}
-	dir := filepath.Dir(absPath)
-	base := filepath.Base(assetRelPath)
-	ret = filepath.Join(dir, base)
+	ret = absPath + ".sya"
 	return
 }
 
@@ -396,10 +456,16 @@ func resolveAssetPath(c *gin.Context) {
 	}
 
 	path := arg["path"].(string)
-	p, err := model.GetAssetAbsPath(path)
+	p, err := model.GetAssetAbsPathInBox(path, "")
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
+		ret.Data = map[string]any{"closeTimeout": 3000}
+		return
+	}
+	if model.IsEncryptedAssetPath(p) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(314)
 		ret.Data = map[string]any{"closeTimeout": 3000}
 		return
 	}
@@ -498,6 +564,49 @@ func insertLocalAssets(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	ret.Data = map[string]any{
+		"succMap": succMap,
+	}
+}
+
+func insertCover(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	name := arg["name"].(string)
+	// 防止路径穿越：只允许文件名，不能含分隔符或 ..
+	name = filepath.Base(name)
+	if "" == name || "." == name || ".." == name {
+		ret.Code = -1
+		ret.Msg = "invalid name"
+		return
+	}
+
+	srcPath := filepath.Join(util.AppearancePath, "covers", name)
+	if gulu.File.IsDir(srcPath) {
+		ret.Code = -1
+		ret.Msg = "invalid cover"
+		return
+	}
+	if _, statErr := os.Stat(srcPath); nil != statErr {
+		ret.Code = -1
+		ret.Msg = "cover not found"
+		return
+	}
+
+	id := arg["id"].(string)
+	succMap, err := model.InsertLocalAssets(id, []string{srcPath}, true)
+	if nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
 	ret.Data = map[string]any{
 		"succMap": succMap,
 	}

@@ -118,6 +118,18 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/notebook/changeSortNotebook", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, changeSortNotebook)
 	ginServer.Handle("POST", "/api/notebook/setNotebookIcon", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setNotebookIcon)
 	ginServer.Handle("POST", "/api/notebook/getNotebookInfo", model.CheckAuth, getNotebookInfo)
+	ginServer.Handle("POST", "/api/notebook/enableEncryptedNotebooks", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, enableEncryptedNotebooks)
+	ginServer.Handle("POST", "/api/notebook/disableEncryptedNotebooks", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, disableEncryptedNotebooks)
+	ginServer.Handle("POST", "/api/notebook/createEncryptedNotebook", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, createEncryptedNotebook)
+	ginServer.Handle("POST", "/api/notebook/unlockNotebook", model.CheckAuth, model.CheckAdminRole, unlockNotebook)
+	ginServer.Handle("POST", "/api/notebook/lockNotebook", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, lockNotebook)
+	ginServer.Handle("POST", "/api/notebook/unlockAndOpenNotebook", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, unlockAndOpenNotebook)
+	ginServer.Handle("POST", "/api/notebook/changeMasterPassword", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, changeMasterPassword)
+	ginServer.Handle("POST", "/api/notebook/getEncryptedNotebookStatus", model.CheckAuth, getEncryptedNotebookStatus)
+	ginServer.Handle("POST", "/api/notebook/exportNotebookCryptoBackup", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, exportNotebookCryptoBackup)
+	ginServer.Handle("POST", "/api/notebook/importNotebookCryptoBackup", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, importNotebookCryptoBackup)
+	ginServer.Handle("POST", "/api/notebook/setNotebookCryptoAutoLock", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setNotebookCryptoAutoLock)
+	ginServer.Handle("POST", "/api/notebook/touchEncryptedNotebooks", model.CheckAuth, model.CheckAdminRole, touchEncryptedNotebooks)
 
 	ginServer.Handle("POST", "/api/filetree/searchDocs", model.CheckAuth, searchDocs)
 	ginServer.Handle("POST", "/api/filetree/listDocsByPath", model.CheckAuth, listDocsByPath)
@@ -201,6 +213,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/search/findReplace", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, findReplace)
 	ginServer.Handle("POST", "/api/search/fullTextSearchAssetContent", model.CheckAuth, fullTextSearchAssetContent)
 	ginServer.Handle("POST", "/api/search/getAssetContent", model.CheckAuth, getAssetContent)
+	ginServer.Handle("POST", "/api/search/getAssetContentByPath", model.CheckAuth, getAssetContentByPath)
 	ginServer.Handle("POST", "/api/search/listInvalidBlockRefs", model.CheckAuth, listInvalidBlockRefs)
 	ginServer.Handle("POST", "/api/search/semanticSearchBlock", model.CheckAuth, semanticSearchBlock)
 
@@ -322,6 +335,7 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/asset/uploadCloud", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, uploadCloud)
 	ginServer.Handle("POST", "/api/asset/uploadCloudByAssetsPaths", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, uploadCloudByAssetsPaths)
 	ginServer.Handle("POST", "/api/asset/insertLocalAssets", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, insertLocalAssets)
+	ginServer.Handle("POST", "/api/asset/insertCover", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, insertCover)
 	ginServer.Handle("POST", "/api/asset/resolveAssetPath", model.CheckAuth, resolveAssetPath)
 	ginServer.Handle("POST", "/api/asset/upload", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, model.Upload)
 	ginServer.Handle("POST", "/api/asset/setFileAnnotation", model.CheckAuth, model.CheckAdminRole, model.CheckReadonly, setFileAnnotation)
@@ -536,6 +550,8 @@ func ServeAPI(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/ai/chatGPT", model.CheckAuth, model.CheckAdminRole, chatGPT)
 	ginServer.Handle("POST", "/api/ai/chatGPTWithAction", model.CheckAuth, model.CheckAdminRole, chatGPTWithAction)
 	ginServer.Handle("POST", "/api/ai/testModel", model.CheckAuth, model.CheckAdminRole, testModel)
+	ginServer.Handle("POST", "/api/ai/testEmbeddingModel", model.CheckAuth, model.CheckAdminRole, testEmbeddingModel)
+	ginServer.Handle("POST", "/api/ai/testRerankModel", model.CheckAuth, model.CheckAdminRole, testRerankModel)
 	ginServer.Handle("POST", "/api/ai/listModels", model.CheckAuth, model.CheckAdminRole, listModels)
 	ginServer.Handle("POST", "/api/ai/embeddingStat", model.CheckAuth, model.CheckAdminRole, embeddingStat)
 	ginServer.Handle("POST", "/api/ai/mcpStatus", model.CheckAuth, model.CheckAdminRole, mcpStatus)
@@ -609,7 +625,7 @@ func deprecated(c *gin.Context) {
 
 	msg := fmt.Sprintf("[%s] is deprecated, visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
 		c.Request.RequestURI)
-	logging.LogWarnf(msg)
+	logging.LogWarn(msg)
 
 	ret.Code = -1
 	ret.Msg = msg

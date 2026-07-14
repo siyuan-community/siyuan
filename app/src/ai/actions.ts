@@ -151,8 +151,8 @@ const filterAI = (element: HTMLElement, inputElement: HTMLInputElement) => {
             item.classList.remove("fn__none");
         }
     });
-    element.querySelector(".b3-list-item--focus").classList.remove("b3-list-item--focus");
-    element.querySelector(".b3-list-item:not(.fn__none)").classList.add("b3-list-item--focus");
+    element.querySelector(".b3-list-item--focus")?.classList.remove("b3-list-item--focus");
+    element.querySelector(".b3-list-item:not(.fn__none)")?.classList.add("b3-list-item--focus");
 };
 
 export const AIActions = (elements: Element[], protyle: IProtyle) => {
@@ -179,7 +179,7 @@ export const AIActions = (elements: Element[], protyle: IProtyle) => {
         iconHTML: "",
         type: "empty",
         label: `<div class="fn__flex-column b3-menu__filter">
-    <input class="b3-text-field fn__flex-shrink" placeholder="${window.siyuan.languages.ai}"/>
+    <input class="b3-text-field fn__flex-shrink"/>
     <div class="fn__hr"></div>
     <div class="b3-list fn__flex-1 b3-list--background">
        <div class="b3-list-item b3-list-item--narrow b3-list-item--focus" data-action="Continue writing">
@@ -226,6 +226,9 @@ export const AIActions = (elements: Element[], protyle: IProtyle) => {
                     event.preventDefault();
                     event.stopPropagation();
                     const currentElement = listElement.querySelector(".b3-list-item--focus") as HTMLElement;
+                    if (!currentElement) {
+                        return;
+                    }
                     if (currentElement.dataset.type === "custom") {
                         customDialog(protyle, ids, elements);
                         menu.close();

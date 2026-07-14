@@ -315,15 +315,18 @@ func removeIndexes(removeFilePaths []string) (removeRootIDs []string) {
 		util.PushStatusBar(msg)
 
 		cache.RemoveTreeData(rootID)
-		sql.RemoveTreeQueue(rootID)
-		bts := treenode.GetBlockTreesByRootID(rootID)
+		block := treenode.GetBlockTree(rootID)
+		boxID := ""
+		if nil != block {
+			boxID = block.BoxID
+			cache.RemoveDocIAL(block.Path)
+		}
+		sql.RemoveTreeQueue(boxID, rootID)
+		bts := treenode.GetBlockTreesByRootIDInBox(rootID, boxID)
 		for _, b := range bts {
 			cache.RemoveBlockIAL(b.ID)
 		}
-		if block := treenode.GetBlockTree(rootID); nil != block {
-			cache.RemoveDocIAL(block.Path)
-		}
-		treenode.RemoveBlockTreesByRootID(rootID)
+		treenode.RemoveBlockTreesByRootID(boxID, rootID)
 	}
 
 	if 1 > len(removeRootIDs) {
@@ -363,7 +366,7 @@ func upsertIndexes(upsertFilePaths []string) (upsertRootIDs []string) {
 		treenode.UpsertBlockTree(tree)
 		sql.UpsertTreeQueue(tree)
 
-		bts := treenode.GetBlockTreesByRootID(rootID)
+		bts := treenode.GetBlockTreesByRootIDInBox(rootID, tree.Box)
 		for _, b := range bts {
 			cache.RemoveBlockIAL(b.ID)
 		}
@@ -484,26 +487,26 @@ func SetSyncProviderLocal(local *conf.Local) (err error) {
 	absPath, err := filepath.Abs(local.Endpoint)
 	if nil != err {
 		msg := fmt.Sprintf("get endpoint [%s] abs path failed: %s", local.Endpoint, err)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		err = fmt.Errorf(Conf.Language(77), msg)
 		return
 	}
 	if !gulu.File.IsExist(absPath) {
 		msg := fmt.Sprintf("endpoint [%s] not exist", local.Endpoint)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		err = fmt.Errorf(Conf.Language(77), msg)
 		return
 	}
 	if util.IsAbsPathInWorkspace(absPath) || filepath.Clean(absPath) == filepath.Clean(util.WorkspaceDir) {
 		msg := fmt.Sprintf("endpoint [%s] is in workspace", local.Endpoint)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		err = fmt.Errorf(Conf.Language(77), msg)
 		return
 	}
 
 	if gulu.File.IsSubPath(absPath, util.WorkspaceDir) {
 		msg := fmt.Sprintf("endpoint [%s] is parent of workspace", local.Endpoint)
-		logging.LogErrorf(msg)
+		logging.LogError(msg)
 		err = fmt.Errorf(Conf.Language(77), msg)
 		return
 	}
@@ -910,7 +913,7 @@ func connectSyncWebSocket() {
 				}
 
 				reconnected := false
-				for retries := 0; retries < 7; retries++ {
+				for range 7 {
 					time.Sleep(7 * time.Second)
 					if nil == Conf.GetUser() {
 						return

@@ -18,6 +18,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -30,7 +31,6 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
-	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 )
 
@@ -88,10 +88,17 @@ func html2BlockDOM(c *gin.Context) {
 	if !util.ParseJsonArgs(arg, ret, util.BindJsonArg("dom", &dom, true, false)) {
 		return
 	}
+	// 可选 notebook 参数：指定目标加密笔记本时资源写入 box 内并加密
+	boxID := ""
+	if notebook, ok := arg["notebook"].(string); ok && notebook != "" {
+		if model.IsEncryptedBox(notebook) {
+			boxID = notebook
+		}
+	}
 	luteEngine := util.NewLute()
 	luteEngine.SetHTMLTag2TextMark(true)
 	luteEngine.SetHTML2MarkdownAttrs([]string{"alias", "memo", "bookmark", "custom-*"})
-	tree, _ := model.HTML2Tree(dom, luteEngine)
+	tree, _ := model.HTML2Tree(dom, luteEngine, boxID)
 	if nil == tree {
 		ret.Data = "Failed to convert"
 		return
@@ -176,12 +183,26 @@ func html2BlockDOM(c *gin.Context) {
 			ext := filepath.Ext(name)
 			name = name[0 : len(name)-len(ext)]
 			name = name + "-" + ast.NewNodeID() + ext
-			targetPath := filepath.Join(util.DataDir, "assets", name)
-			if err := filelock.Copy(localPath, targetPath); err != nil {
-				logging.LogErrorf("copy asset from [%s] to [%s] failed: %s", localPath, targetPath, err)
+
+			data, readErr := os.ReadFile(localPath)
+			if readErr != nil {
+				logging.LogErrorf("read asset [%s] failed: %s", localPath, readErr)
 				return ast.WalkStop
 			}
-			n.Tokens = gulu.Str.ToBytes("assets/" + name)
+			assetsDir := filepath.Join(util.DataDir, "assets")
+			if boxID != "" {
+				assetsDir = filepath.Join(util.DataDir, boxID, "assets")
+			}
+			storedName, storeErr := model.StoreAssetForBox(boxID, assetsDir, name, data)
+			if storeErr != nil {
+				logging.LogErrorf("store asset [%s] failed: %s", localPath, storeErr)
+				return ast.WalkStop
+			}
+			assetURL := "assets/" + storedName
+			if boxID != "" {
+				assetURL += "?box=" + boxID
+			}
+			n.Tokens = gulu.Str.ToBytes(assetURL)
 			return ast.WalkContinue
 		})
 	}

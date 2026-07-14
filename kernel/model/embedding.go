@@ -141,10 +141,8 @@ func processPendingEmbeddings() {
 	workCh := make(chan embeddingJob, embeddingMaxConcurrency*2)
 
 	var workersWg sync.WaitGroup
-	for i := 0; i < embeddingMaxConcurrency; i++ {
-		workersWg.Add(1)
-		go func() {
-			defer workersWg.Done()
+	for range embeddingMaxConcurrency {
+		workersWg.Go(func() {
 			for job := range workCh {
 				if embeddingStop.Load() {
 					// 本轮已熔断（其它 worker 处理失败触发），这些积压 job 里的块不能直接丢弃，
@@ -154,7 +152,7 @@ func processPendingEmbeddings() {
 				}
 				doEmbedAndStore(job.texts, job.blocks)
 			}
-		}()
+		})
 	}
 
 	go func() {
@@ -239,16 +237,10 @@ func processPendingEmbeddings() {
 			// 本轮没有提交任何 job，且全部是被退避跳过的块：这些块状态没变，下轮 SQL 还会捞出同样的块，
 			// 直接进下一轮会 CPU 忙等 + 高频 DB 查询。sleep 到最近的到期时间再继续，期间检查熔断以便及时退出。
 			if !anySubmitted && backoffSkipped > 0 {
-				wait := time.Duration(minRemaining) * time.Second
-				if wait < time.Second {
-					wait = time.Second
-				}
+				wait := max(time.Duration(minRemaining)*time.Second, time.Second)
 				// 分段 sleep，每秒检查一次 embeddingStop，熔断时尽快退出
 				for wait > 0 && !embeddingStop.Load() {
-					step := wait
-					if step > time.Second {
-						step = time.Second
-					}
+					step := min(wait, time.Second)
 					time.Sleep(step)
 					wait -= step
 				}
@@ -277,10 +269,9 @@ func embeddingBackoffFor(failCount int) time.Duration {
 	if failCount < 1 {
 		return time.Duration(embeddingBackoffBase) * time.Second
 	}
-	shift := failCount - 1
-	if shift > 20 {
-		shift = 20 // 防溢出
-	}
+	shift := min(failCount-1,
+		// 防溢出
+		20)
 	d := embeddingBackoffBase << uint(shift)
 	if d > embeddingBackoffMax || d < 0 {
 		return time.Duration(embeddingBackoffMax) * time.Second
@@ -453,12 +444,15 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 	hasFilter := 0 < len(boxes) || 0 < len(paths) || 0 < len(types)
 	hasTypeFilter := 0 < len(types)
 
-	numWorkers := runtime.GOMAXPROCS(0)
-	if numWorkers < 1 {
-		numWorkers = 1
-	}
+	numWorkers := max(runtime.GOMAXPROCS(0), 1)
 
+	// 向量召回候选数：启用重排时至少召回 candidateCount 条，保证重排有足够候选精排；否则只取当前页所需。
 	topK := page * pageSize
+	if isRerankEnabled() {
+		if cc := rerankCandidateCount(); cc > topK {
+			topK = cc
+		}
+	}
 	h := &scoredHeap{}
 	heap.Init(h)
 
@@ -500,10 +494,7 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 
 		for w := 0; w < numWorkers; w++ {
 			start := w * chunkSize
-			end := start + chunkSize
-			if end > len(rows) {
-				end = len(rows)
-			}
+			end := min(start+chunkSize, len(rows))
 			if start >= end {
 				continue
 			}
@@ -554,25 +545,30 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 		result[i] = heap.Pop(h).(scoredBlock)
 	}
 
+	// 按向量相似度降序取出全部候选块 ID。重排启用时 result 已是 topK（含 candidateCount）；
+	// 未启用时 result 即当前页所需，后续分页逻辑统一处理。
+	var candidateIDs []string
+	for _, s := range result {
+		candidateIDs = append(candidateIDs, s.id)
+	}
+
+	sqlBlocks := sql.GetBlocks(candidateIDs)
+
+	// 重排：对 query 与候选块文本逐对精排，失败则降级保留向量相似度原序，不阻断搜索。
+	// 注意 GetBlocks 的返回顺序未必与 candidateIDs 一致，重排以返回的 sqlBlocks 为准。
+	sqlBlocks = rerankSqlBlocks(query, sqlBlocks)
+
 	offset := (page - 1) * pageSize
-	if offset >= len(result) {
+	if offset >= len(sqlBlocks) {
 		pageCount = (matchedBlockCount + pageSize - 1) / pageSize
 		return
 	}
 
-	end := offset + pageSize
-	if end > len(result) {
-		end = len(result)
-	}
+	end := min(offset+pageSize, len(sqlBlocks))
 
-	var topIDs []string
-	for i := offset; i < end; i++ {
-		topIDs = append(topIDs, result[i].id)
-	}
-
-	sqlBlocks := sql.GetBlocks(topIDs)
 	rootIDSet := map[string]bool{}
-	for _, b := range sqlBlocks {
+	for i := offset; i < end; i++ {
+		b := sqlBlocks[i]
 		rootIDSet[b.RootID] = true
 		blocks = append(blocks, fromSQLBlock(b, "", 36))
 	}
@@ -584,6 +580,48 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 
 func isEmbeddingEnabled() bool {
 	return nil != Conf.AI.Embedding && Conf.AI.Embedding.Enabled && len(Conf.AI.Embedding.APIKey) > 0
+}
+
+// rerankSqlBlocks 用重排模型对候选块按 query 逐对精排。未启用或调用失败时原样返回（降级为向量相似度排序）。
+// 重排服务以块的 Content（嵌入向量所代表的纯文本）作为文档文本，跨页排序一致：rerank 对每个
+// query-doc 对独立打分，分数不随候选集大小变化。
+func rerankSqlBlocks(query string, sqlBlocks []*sql.Block) []*sql.Block {
+	if !isRerankEnabled() || len(sqlBlocks) < 2 {
+		return sqlBlocks
+	}
+
+	documents := make([]string, len(sqlBlocks))
+	for i, b := range sqlBlocks {
+		documents[i] = b.Content
+	}
+
+	// topN=0 表示不传 top_n，要求服务端返回全部文档评分，避免被服务端 top_n 上限截断
+	indices, _, err := util.Rerank(query, documents, rerankKey(), rerankEndpoint(), rerankModel(), 0, rerankTimeout())
+	if nil != err {
+		logging.LogErrorf("rerank failed, fallback to vector similarity order: %s", err)
+		return sqlBlocks
+	}
+	if len(indices) != len(sqlBlocks) {
+		// 服务端返回数量与输入不符，按原序降级，避免错位
+		logging.LogErrorf("rerank returned %d indices for %d documents, fallback", len(indices), len(sqlBlocks))
+		return sqlBlocks
+	}
+
+	// 防御重复 index：服务端不应返回重复下标，但若出现则降级，避免某些块丢失、某些块重复
+	seen := make(map[int]bool, len(indices))
+	for _, idx := range indices {
+		if seen[idx] {
+			logging.LogErrorf("rerank returned duplicate index %d, fallback", idx)
+			return sqlBlocks
+		}
+		seen[idx] = true
+	}
+
+	reranked := make([]*sql.Block, len(indices))
+	for i, idx := range indices {
+		reranked[i] = sqlBlocks[idx]
+	}
+	return reranked
 }
 
 // ReindexEmbedding 清空嵌入向量表并触发后台索引器重新计算所有块。异步执行：只入队任务后立即返回。
