@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   lock:
+    if: ${{ github.repository_owner == 'siyuan-note' }}
     runs-on: ubuntu-latest
     steps:
       - uses: dessant/lock-threads@v6
