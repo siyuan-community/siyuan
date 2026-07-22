@@ -1,0 +1,19 @@
+scripts/darwin-build.nu
+  s_2449e29872a0d5::t_e19ec9003f62ee 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.35-trip",
+  "base_commit_sha": "7685642fee97dd60be9d0ce1241ebe7fd3a3578a",
+  "prompts": {},
+  "sessions": {
+    "s_2449e29872a0d5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f883e-9ef1-7d71-b572-ce9acffd920d",
+        "model": "gpt-5.5-2026-04-24"
+      },
+      "human_author": "Yingyi / 颖逸 <49649786+Zuoqiu-Yingyi@users.noreply.github.com>"
+    }
+  }
+}
