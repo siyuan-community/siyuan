@@ -15,7 +15,9 @@ import {
     setNoteBook
 } from "./util/pathName";
 import {registerServiceWorker} from "./util/serviceWorker";
+import {activateQueuedAVLocate, queueAVLocateRequest} from "./protyle/render/av/locate";
 import {openFileById} from "./editor/util";
+import {activateOnboarding, ensureOnboarding} from "./onboarding";
 import {
     bootSync,
     downloadProgress,
@@ -183,6 +185,13 @@ export class App {
                                     }
                                 }
                             });
+                            if (window.siyuan.config.onboarding?.newUser && !window.siyuan.config.onboarding.dismissed &&
+                                data.data.ids.includes(window.siyuan.config.onboarding.documentID)) {
+                                void activateOnboarding(this, window.siyuan.config.onboarding);
+                            }
+                            break;
+                        case "onboarding":
+                            void activateOnboarding(this, data.data);
                             break;
                         case "statusbar":
                             progressStatus(data);
@@ -252,18 +261,21 @@ export class App {
                     window.siyuan.languages = lauguages;
                     window.siyuan.menus = new Menus(this);
                     bootSync();
-                    fetchPost("/api/setting/getCloudUser", {}, userResponse => {
+                    fetchPost("/api/setting/getCloudUser", {}, async userResponse => {
                         window.siyuan.user = userResponse.data;
-                        onGetConfig(response.data.start, this);
-                        onSetaccount();
-                        setTitle("", true);
-                        initMessage();
-                        /// #if BROWSER && !MOBILE
-                        if (!isInMobileApp() && !window.siyuan.config.readonly && !window.siyuan.isPublish && !isChromeBrowser()
-                            && window.siyuan.config.appearance.notifications?.browserCompatibility !== false) {
-                            showMessage(window.siyuan.languages.useChrome, 0, "error");
-                        }
-                        /// #endif
+                        await ensureOnboarding();
+                        setNoteBook(() => {
+                            onGetConfig(response.data.start, this);
+                            onSetaccount();
+                            setTitle("", true);
+                            initMessage();
+                            /// #if BROWSER && !MOBILE
+                            if (!isInMobileApp() && !window.siyuan.config.readonly && !window.siyuan.isPublish && !isChromeBrowser()
+                                && window.siyuan.config.appearance.notifications?.browserCompatibility !== false) {
+                                showMessage(window.siyuan.languages.useChrome, 0, "error");
+                            }
+                            /// #endif
+                        });
                     });
                 });
             });
@@ -278,11 +290,25 @@ const siyuanApp = new App();
 window.openFileByURL = (openURL) => {
     const blockInfo = parseSiYuanUriInfo(openURL);
     if (blockInfo != null) {
+        if (blockInfo.avItemID) {
+            queueAVLocateRequest(blockInfo.id, {
+                itemID: blockInfo.avItemID,
+                viewID: blockInfo.avViewID,
+                groupID: blockInfo.avGroupID,
+            });
+        }
         openFileById({
             app: siyuanApp,
             id: blockInfo.id,
-            action: blockInfo.focus ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
-            zoomIn: blockInfo.focus
+            action: blockInfo.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
+                (blockInfo.focus ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
+            zoomIn: blockInfo.avItemID ? false : blockInfo.focus,
+            afterOpen: (model) => {
+                const protyle = (model as { editor?: { protyle?: IProtyle } })?.editor?.protyle;
+                if (protyle) {
+                    activateQueuedAVLocate(protyle, blockInfo.id);
+                }
+            },
         });
         return true;
     }

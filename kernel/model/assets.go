@@ -18,6 +18,7 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -41,6 +42,7 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/search"
 	"github.com/siyuan-community/siyuan/kernel/sql"
@@ -272,6 +274,264 @@ func DocImageAssets(rootID string) (ret []string, err error) {
 		return ast.WalkContinue
 	})
 	return
+}
+
+type ImageArtifactRef struct {
+	Kind       string `json:"kind"`
+	Path       string `json:"path"`
+	MIMEType   string `json:"mimeType,omitempty"`
+	DocumentID string `json:"documentId,omitempty"`
+}
+
+type DocumentImageList struct {
+	DocumentID string             `json:"documentId"`
+	Images     []ImageArtifactRef `json:"images"`
+}
+
+type AnalyzeDocumentImageRequest struct {
+	DocumentID string `json:"documentId"`
+	AssetPath  string `json:"assetPath"`
+	Question   string `json:"question"`
+	Detail     string `json:"detail"`
+}
+
+type AnalyzeDocumentImageResult struct {
+	Artifact ImageArtifactRef `json:"artifact"`
+	Analysis string           `json:"analysis"`
+	Width    int              `json:"width"`
+	Height   int              `json:"height"`
+}
+
+type AnalyzeImageResult struct {
+	Analysis string `json:"analysis"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+}
+
+type GenerateImageRequest struct {
+	Prompt       string `json:"prompt"`
+	Size         string `json:"size"`
+	Quality      string `json:"quality"`
+	OutputFormat string `json:"outputFormat"`
+}
+
+type GenerateImageResult struct {
+	Data          []byte `json:"-"`
+	MIMEType      string `json:"mimeType"`
+	Extension     string `json:"extension"`
+	RevisedPrompt string `json:"revisedPrompt,omitempty"`
+}
+
+type GenerateDocumentImageRequest struct {
+	DocumentID   string `json:"documentId"`
+	Prompt       string `json:"prompt"`
+	Size         string `json:"size"`
+	Quality      string `json:"quality"`
+	OutputFormat string `json:"outputFormat"`
+}
+
+type GenerateDocumentImageResult struct {
+	Artifact      ImageArtifactRef `json:"artifact"`
+	RevisedPrompt string           `json:"revisedPrompt,omitempty"`
+}
+
+type imageExecutionUnknownError struct {
+	err error
+}
+
+func (err *imageExecutionUnknownError) Error() string {
+	return err.err.Error()
+}
+
+func (err *imageExecutionUnknownError) Unwrap() error {
+	return err.err
+}
+
+// IsImageExecutionUnknown 判断图片提供商调用是否已经开始，调用方不得自动重试这类错误。
+func IsImageExecutionUnknown(err error) bool {
+	var target *imageExecutionUnknownError
+	return errors.As(err, &target)
+}
+
+func markImageExecutionUnknown(err error) error {
+	if err == nil || IsImageExecutionUnknown(err) {
+		return err
+	}
+	return &imageExecutionUnknownError{err: err}
+}
+
+// ListDocumentImages 返回文档引用的本地图片，供智能体工具和编辑器功能复用。
+func ListDocumentImages(documentID string) (DocumentImageList, error) {
+	bt, err := resolveMultimodalDocument(documentID)
+	if err != nil {
+		return DocumentImageList{}, err
+	}
+	paths, err := DocImageAssets(bt.RootID)
+	if err != nil {
+		return DocumentImageList{}, fmt.Errorf("list document images failed: %w", err)
+	}
+	refs := make([]ImageArtifactRef, 0, len(paths))
+	seen := map[string]bool{}
+	for _, assetPath := range paths {
+		if !strings.HasPrefix(AssetPathWithoutQuery(assetPath), "assets/") || seen[assetPath] {
+			continue
+		}
+		seen[assetPath] = true
+		refs = append(refs, ImageArtifactRef{Kind: "image", Path: assetPath, DocumentID: bt.RootID})
+	}
+	return DocumentImageList{DocumentID: bt.RootID, Images: refs}, nil
+}
+
+// AnalyzeDocumentImage 使用全局图片理解配置分析文档引用的资源图片。
+func AnalyzeDocumentImage(ctx context.Context, request AnalyzeDocumentImageRequest) (AnalyzeDocumentImageResult, error) {
+	if strings.TrimSpace(request.AssetPath) == "" {
+		return AnalyzeDocumentImageResult{}, errors.New("assetPath is required for analyze")
+	}
+	if !strings.HasPrefix(AssetPathWithoutQuery(request.AssetPath), "assets/") {
+		return AnalyzeDocumentImageResult{}, errors.New("only local assets/... images are supported")
+	}
+	bt, err := resolveMultimodalDocument(request.DocumentID)
+	if err != nil {
+		return AnalyzeDocumentImageResult{}, err
+	}
+	if !documentReferencesImage(bt.RootID, request.AssetPath) {
+		return AnalyzeDocumentImageResult{}, errors.New("assetPath is not an image referenced by the document")
+	}
+	data, err := ReadAssetBytesInBox(bt.BoxID, request.AssetPath)
+	if err != nil {
+		return AnalyzeDocumentImageResult{}, fmt.Errorf("read image failed: %w", err)
+	}
+	result, err := AnalyzeImage(ctx, data, request.Question, request.Detail)
+	if err != nil {
+		return AnalyzeDocumentImageResult{}, err
+	}
+	return AnalyzeDocumentImageResult{
+		Artifact: ImageArtifactRef{Kind: "image", Path: request.AssetPath, DocumentID: bt.RootID},
+		Analysis: result.Analysis,
+		Width:    result.Width,
+		Height:   result.Height,
+	}, nil
+}
+
+// AnalyzeImage 使用全局图片理解配置分析图片字节，可供文档资源、聊天附件和其他图片入口复用。
+func AnalyzeImage(ctx context.Context, data []byte, question, detail string) (AnalyzeImageResult, error) {
+	if Conf == nil || Conf.AI == nil {
+		return AnalyzeImageResult{}, errors.New("AI configuration is unavailable")
+	}
+	provider, visionModel := Conf.AI.GetVisionModel()
+	if err := validateImageModel(provider, visionModel); err != nil {
+		return AnalyzeImageResult{}, err
+	}
+	prepared, err := util.PrepareForVision(data, Conf.AI.Vision.MaxImageBytes, Conf.AI.Vision.MaxPixels, Conf.AI.Vision.MaxEdge)
+	if err != nil {
+		return AnalyzeImageResult{}, err
+	}
+	analysis, err := util.NewOpenAIImageAdapter(
+		provider.APIKey, provider.BaseURL, visionModel.Name, Conf.AI.Vision.RequestTimeout,
+	).Analyze(ctx, prepared, question, detail)
+	if err != nil {
+		return AnalyzeImageResult{}, markImageExecutionUnknown(fmt.Errorf("analyze image failed: %w", err))
+	}
+	return AnalyzeImageResult{Analysis: analysis, Width: prepared.Width, Height: prepared.Height}, nil
+}
+
+// GenerateImage 使用全局图片生成配置创建图片字节，可供文档资源、编辑器和其他图片入口复用。
+func GenerateImage(ctx context.Context, request GenerateImageRequest) (GenerateImageResult, error) {
+	if Conf == nil || Conf.AI == nil {
+		return GenerateImageResult{}, errors.New("AI configuration is unavailable")
+	}
+	provider, generationModel := Conf.AI.GetImageGenerationModel()
+	if err := validateImageModel(provider, generationModel); err != nil {
+		return GenerateImageResult{}, err
+	}
+	prompt := strings.TrimSpace(request.Prompt)
+	if prompt == "" {
+		return GenerateImageResult{}, errors.New("prompt is required for image generation")
+	}
+	size := multimodalValueOrDefault(request.Size, Conf.AI.ImageGeneration.Size)
+	quality := multimodalValueOrDefault(request.Quality, Conf.AI.ImageGeneration.Quality)
+	outputFormat := strings.ToLower(multimodalValueOrDefault(request.OutputFormat, Conf.AI.ImageGeneration.OutputFormat))
+	if outputFormat != "png" && outputFormat != "jpeg" && outputFormat != "webp" {
+		return GenerateImageResult{}, errors.New("unsupported image output format")
+	}
+	generated, err := util.NewOpenAIImageAdapter(
+		provider.APIKey, provider.BaseURL, generationModel.Name, Conf.AI.ImageGeneration.RequestTimeout,
+	).Generate(ctx, util.GenerateImageRequest{
+		Prompt: prompt, Size: size, Quality: quality, OutputFormat: outputFormat,
+	})
+	if err != nil {
+		return GenerateImageResult{}, markImageExecutionUnknown(fmt.Errorf("generate image failed: %w", err))
+	}
+	if ctx.Err() != nil {
+		return GenerateImageResult{}, markImageExecutionUnknown(errors.New("image generation was cancelled"))
+	}
+	return GenerateImageResult{
+		Data: generated.Data, MIMEType: generated.MIMEType, Extension: generated.Extension, RevisedPrompt: generated.RevisedPrompt,
+	}, nil
+}
+
+// GenerateDocumentImage 使用通用图片生成能力创建文档资源。
+func GenerateDocumentImage(ctx context.Context, request GenerateDocumentImageRequest) (GenerateDocumentImageResult, error) {
+	bt, err := resolveMultimodalDocument(request.DocumentID)
+	if err != nil {
+		return GenerateDocumentImageResult{}, err
+	}
+	generated, err := GenerateImage(ctx, GenerateImageRequest{
+		Prompt: request.Prompt, Size: request.Size, Quality: request.Quality, OutputFormat: request.OutputFormat,
+	})
+	if err != nil {
+		return GenerateDocumentImageResult{}, err
+	}
+	assetPath, _, err := InsertAssetBytes(bt.RootID, "ai-image"+generated.Extension, generated.Data)
+	if err != nil {
+		return GenerateDocumentImageResult{}, markImageExecutionUnknown(fmt.Errorf("save generated image failed: %w", err))
+	}
+	return GenerateDocumentImageResult{
+		Artifact: ImageArtifactRef{
+			Kind: "image", Path: assetPath, MIMEType: generated.MIMEType, DocumentID: bt.RootID,
+		},
+		RevisedPrompt: generated.RevisedPrompt,
+	}, nil
+}
+
+func resolveMultimodalDocument(documentID string) (*treenode.BlockTree, error) {
+	bt := treenode.GetBlockTree(strings.TrimSpace(documentID))
+	if bt == nil {
+		return nil, errors.New("document not found: " + documentID)
+	}
+	return bt, nil
+}
+
+func validateImageModel(provider *conf.Provider, imageModel *conf.Model) error {
+	if provider == nil || imageModel == nil {
+		return errors.New("image model is not configured")
+	}
+	if provider.Protocol != "" && provider.Protocol != "openai" {
+		return fmt.Errorf("unsupported multimodal provider protocol: %s", provider.Protocol)
+	}
+	return nil
+}
+
+func documentReferencesImage(rootID, assetPath string) bool {
+	paths, err := DocImageAssets(rootID)
+	if err != nil {
+		return false
+	}
+	wanted := AssetPathWithoutQuery(assetPath)
+	for _, current := range paths {
+		if AssetPathWithoutQuery(current) == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func multimodalValueOrDefault(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func DocAssets(rootID string, retainQueryStr bool) (ret []string, err error) {
@@ -771,10 +1031,15 @@ func getAssetAbsPath(relativePath string, includeEncrypted bool) (absPath string
 		// 解析符号链接，验证真实路径仍在 data/assets/ 下
 		if realP, evalErr := filepath.EvalSymlinks(p); evalErr == nil && realP != p {
 			assetsRoot := util.GetDataAssetsAbsPath()
-			if !gulu.File.IsSubPath(assetsRoot, realP) {
+			realAssetsRoot, rootEvalErr := filepath.EvalSymlinks(assetsRoot)
+			if rootEvalErr != nil {
+				return "", fmt.Errorf("resolve assets root [%s] failed: %w", assetsRoot, rootEvalErr)
+			}
+			if !gulu.File.IsSubPath(realAssetsRoot, realP) {
 				return "", fmt.Errorf("symlink [%s] resolves outside data/assets: [%s]", p, realP)
 			}
-			return realP, nil
+			// 安全校验使用解析后的路径，返回原路径以便下游与 DataDir 保持同一路径形式
+			return p, nil
 		}
 		return p, nil
 	}
@@ -1273,9 +1538,10 @@ func RenameAsset(oldPath, newName string) (newPath string, err error) {
 }
 
 type UnusedItem struct {
-	Item    string    `json:"item"`
-	Name    string    `json:"name"`
-	ModTime time.Time `json:"-"`
+	Item     string    `json:"item"`
+	Name     string    `json:"name"`
+	BlockIDs []string  `json:"blockIDs,omitempty"`
+	ModTime  time.Time `json:"-"`
 }
 
 func UnusedAssets(sorted bool) (ret []*UnusedItem) {
@@ -1477,12 +1743,12 @@ func MissingAssets() (ret []*UnusedItem) {
 		return
 	}
 	luteEngine := util.NewLute()
+	destBlockIDs := map[string]map[string]bool{}
 	for _, notebook := range notebooks {
 		if notebook.Closed {
 			continue
 		}
 
-		dests := map[string]bool{}
 		pages := pagedPaths(filepath.Join(util.DataDir, notebook.ID), 32)
 		for _, paths := range pages {
 			var trees []*parse.Tree
@@ -1494,58 +1760,113 @@ func MissingAssets() (ret []*UnusedItem) {
 				trees = append(trees, tree)
 			}
 			for _, tree := range trees {
-				for _, d := range getAssetsLinkDests(tree.Root, false) {
-					dests[d] = true
-				}
+				ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+					if !entering {
+						return ast.WalkContinue
+					}
+
+					blockID := assetLinkDestBlockID(n)
+					for _, dest := range getAssetLinkDestsByNode(n, false) {
+						addAssetLinkDestBlockID(destBlockIDs, dest, blockID)
+					}
+					return ast.WalkContinue
+				})
 
 				if titleImgPath := treenode.GetDocTitleImgPath(tree.Root); "" != titleImgPath {
 					// 题头图计入
 					if !util.IsAssetLinkDest([]byte(titleImgPath), false) {
 						continue
 					}
-					dests[titleImgPath] = true
+					addAssetLinkDestBlockID(destBlockIDs, titleImgPath, tree.Root.ID)
 				}
-			}
-		}
-
-		for dest := range dests {
-			if !strings.HasPrefix(dest, "assets/") {
-				continue
-			}
-
-			if idx := strings.Index(dest, "?"); 0 < idx {
-				dest = dest[:idx]
-			}
-
-			if strings.HasSuffix(dest, "/") {
-				continue
-			}
-
-			if strings.Contains(strings.ToLower(dest), ".pdf/") {
-				if idx := strings.LastIndex(dest, "/"); -1 < idx {
-					if ast.IsNodeIDPattern(dest[idx+1:]) {
-						// PDF 标注不计入 https://github.com/siyuan-note/siyuan/issues/13891
-						continue
-					}
-				}
-			}
-
-			if "" == assetsPathMap[dest] {
-				if strings.HasPrefix(dest, "assets/.") {
-					// Assets starting with `.` should not be considered missing assets https://github.com/siyuan-note/siyuan/issues/8821
-					if !filelock.IsExist(filepath.Join(util.DataDir, dest)) {
-						name := path.Base(dest)
-						ret = append(ret, &UnusedItem{Item: dest, Name: name})
-					}
-				} else {
-					name := path.Base(dest)
-					ret = append(ret, &UnusedItem{Item: dest, Name: name})
-				}
-				continue
 			}
 		}
 	}
+
+	for dest, blockIDSet := range destBlockIDs {
+		if "" == assetsPathMap[dest] {
+			if strings.HasPrefix(dest, "assets/.") {
+				// Assets starting with `.` should not be considered missing assets https://github.com/siyuan-note/siyuan/issues/8821
+				if filelock.IsExist(filepath.Join(util.DataDir, dest)) {
+					continue
+				}
+			}
+
+			blockIDs := make([]string, 0, len(blockIDSet))
+			for blockID := range blockIDSet {
+				blockIDs = append(blockIDs, blockID)
+			}
+			sort.Strings(blockIDs)
+			ret = append(ret, &UnusedItem{Item: dest, Name: path.Base(dest), BlockIDs: blockIDs})
+		}
+	}
+	sort.Slice(ret, func(i, j int) bool {
+		return ret[i].Item < ret[j].Item
+	})
 	return
+}
+
+func addAssetLinkDestBlockID(destBlockIDs map[string]map[string]bool, dest, blockID string) {
+	dest = normalizeMissingAssetLinkDest(dest)
+	if "" == dest {
+		return
+	}
+
+	blockIDs := destBlockIDs[dest]
+	if nil == blockIDs {
+		blockIDs = map[string]bool{}
+		destBlockIDs[dest] = blockIDs
+	}
+	if "" != blockID {
+		blockIDs[blockID] = true
+	}
+}
+
+func normalizeMissingAssetLinkDest(dest string) string {
+	dest = strings.TrimSpace(dest)
+	if !strings.HasPrefix(dest, "assets/") {
+		return ""
+	}
+	if idx := strings.Index(dest, "?"); 0 < idx {
+		dest = dest[:idx]
+	}
+	if strings.HasSuffix(dest, "/") || strings.HasSuffix(dest, ".rtfd") {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(dest), ".pdf/") {
+		if idx := strings.LastIndex(dest, "/"); -1 < idx && ast.IsNodeIDPattern(dest[idx+1:]) {
+			// PDF 标注不计入 https://github.com/siyuan-note/siyuan/issues/13891
+			return ""
+		}
+	}
+	return dest
+}
+
+func assetLinkDestBlockID(node *ast.Node) string {
+	if node.IsBlock() && "" != node.ID {
+		return node.ID
+	}
+	if block := treenode.ParentBlock(node); nil != block {
+		return block.ID
+	}
+	return ""
+}
+
+func getAssetLinkDestsByNode(node *ast.Node, includeServePath bool) []string {
+	if !node.IsBlock() && ast.NodeLinkDest != node.Type && ast.NodeHTMLBlock != node.Type && ast.NodeInlineHTML != node.Type &&
+		ast.NodeIFrame != node.Type && ast.NodeWidget != node.Type && ast.NodeAudio != node.Type && ast.NodeVideo != node.Type &&
+		ast.NodeAttributeView != node.Type && !node.IsTextMarkType("a") && !node.IsTextMarkType("file-annotation-ref") {
+		return nil
+	}
+
+	// 复用统一的资源链接提取逻辑，但仅处理当前节点，避免重复遍历子树。
+	nodeCopy := *node
+	nodeCopy.Parent = nil
+	nodeCopy.Previous = nil
+	nodeCopy.Next = nil
+	nodeCopy.FirstChild = nil
+	nodeCopy.LastChild = nil
+	return getAssetsLinkDests(&nodeCopy, includeServePath)
 }
 
 func emojisInTree(tree *parse.Tree) (ret []string) {

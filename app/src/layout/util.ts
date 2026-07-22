@@ -25,12 +25,18 @@ import {showMessage} from "../dialog/message";
 import {isEncryptedBox, parseUriInfo} from "../util/pathName";
 import {Custom} from "./dock/Custom";
 import {newCardModel} from "../card/newCardTab";
+import {newDatabaseRowModel} from "../editor/databaseRow";
 import {App} from "../index";
-import {afterLoadPlugin} from "../plugin/loader";
+import {afterLayoutReady} from "../plugin/loader";
 import {newCenterEmptyTab, resizeTabs, setTabPosition} from "./tabUtil";
 import {setStorageVal} from "../protyle/util/compatibility";
 import {adjustDockPadding} from "./dock/util";
 import {setTitle} from "../util/processTitle";
+import {activateQueuedAVLocate, queueAVLocateRequest} from "../protyle/render/av/locate";
+
+const isBuiltInCustomModel = (type: string) => {
+    return type === "siyuan-card" || type === "siyuan-database-row";
+};
 
 export const setPanelFocus = (element: Element, isSaveLayout = true) => {
     if (element.getAttribute("data-type") === "wnd") {
@@ -434,6 +440,15 @@ export const JSONToCenter = (
             config: json.config
         }));
     } else if (json.instance === "Custom") {
+        if (json.customModelType === "siyuan-database-row") {
+            const notebookId = json.customModelData?.notebookId;
+            const notebook = window.siyuan.notebooks.find((item) => item.id === notebookId);
+            if (notebook?.closed && isEncryptedBox(notebookId)) {
+                (layout as Tab).headElement.removeAttribute("data-init-active");
+                removedTabs.push(layout as Tab);
+                return;
+            }
+        }
         if (window.siyuan.config.fileTree.openFilesUseCurrentTab) {
             (layout as Tab).headElement.classList.add("item--unupdate");
         }
@@ -481,7 +496,7 @@ export const JSONToLayout = (app: App, isStart: boolean) => {
         const initData = item.getAttribute("data-initdata");
         if (initData) {
             const initDataObj = JSON.parse(initData);
-            if (initDataObj.instance === "Custom" && initDataObj.customModelType !== "siyuan-card") {
+            if (initDataObj.instance === "Custom" && !isBuiltInCustomModel(initDataObj.customModelType)) {
                 let hasPlugin = false;
                 app.plugins.find(plugin => {
                     if (Object.keys(plugin.models).includes(initDataObj.customModelType)) {
@@ -502,11 +517,25 @@ export const JSONToLayout = (app: App, isStart: boolean) => {
 
     const info = parseUriInfo();
     if (info.id) {
+        if (info.avItemID) {
+            queueAVLocateRequest(info.id, {
+                itemID: info.avItemID,
+                viewID: info.avViewID,
+                groupID: info.avGroupID,
+            });
+        }
         openFileById({
             app,
             id: info.id,
-            action: info.focus ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
-            zoomIn: info.focus,
+            action: info.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
+                (info.focus ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
+            zoomIn: info.avItemID ? false : info.focus,
+            afterOpen: (model) => {
+                const protyle = (model as { editor?: { protyle?: IProtyle } })?.editor?.protyle;
+                if (protyle) {
+                    activateQueuedAVLocate(protyle, info.id);
+                }
+            },
         });
     } else {
         let latestTabHeaderElement: HTMLElement;
@@ -531,9 +560,7 @@ export const JSONToLayout = (app: App, isStart: boolean) => {
         });
     }
     // 需放在 tab.parent.switchTab 后，否则当前 tab 永远为最后一个
-    app.plugins.forEach(item => {
-        afterLoadPlugin(item);
-    });
+    afterLayoutReady(app);
     saveLayout();
     // https://github.com/siyuan-note/siyuan/issues/17779
     if (window.siyuan.layout.rightDock.layout.children[0].element.classList.contains("fn__none") &&
@@ -610,6 +637,7 @@ export const layoutToJSON = (layout: Layout | Wnd | Tab | Model, json: any, brea
         json.rootId = layout.editor.protyle.block.rootID;
         json.mode = layout.editor.protyle.preview.element.classList.contains("fn__none") ? "wysiwyg" : "preview";
         json.action = (layout.editor.protyle.block.showAll && layout.editor.protyle.block.id !== layout.editor.protyle.block.rootID) ? Constants.CB_GET_ALL : Constants.CB_GET_SCROLL;
+        json.databaseRowId = layout.editor.protyle.element.dataset.databaseRowId;
         json.instance = "Editor";
     } else if (layout instanceof Asset) {
         json.path = layout.path;
@@ -773,6 +801,12 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
                 tab: tab,
                 data: json.customModelData
             });
+        } else if (json.customModelType === "siyuan-database-row") {
+            model = newDatabaseRowModel({
+                app,
+                tab,
+                data: json.customModelData,
+            });
         } else {
             app.plugins.find(item => {
                 if (item.models[json.customModelType]) {
@@ -792,7 +826,7 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
                 json.action = json.action.filter((item: string) => item !== Constants.CB_GET_ALL);
             }
         }
-        model = new Editor({
+        const editorModel = new Editor({
             app,
             tab,
             rootId: json.rootId,
@@ -802,7 +836,17 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
             scrollPosition: json.scrollPosition,
             action: Array.isArray(json.action) ? json.action.concat(Constants.CB_GET_FOCUS) :
                 (json.action ? [json.action, Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS]),
+            afterInitProtyle(editor) {
+                if (json.databaseRowId) {
+                    editor.protyle.databaseAttributePanel?.expand();
+                    editor.protyle.contentElement.scrollTop = 0;
+                }
+            },
         });
+        if (json.databaseRowId) {
+            editorModel.editor.protyle.element.dataset.databaseRowId = json.databaseRowId;
+        }
+        model = editorModel;
     }
     return model;
 };

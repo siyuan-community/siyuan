@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	stdhtml "html"
 	"math"
 	"os"
 	"path"
@@ -42,6 +43,7 @@ import (
 	"github.com/88250/vitess-sqlparser/sqlparser"
 	"github.com/jinzhu/copier"
 	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/search"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
@@ -188,8 +190,9 @@ func ListInvalidBlockRefs(page, pageSize int) (ret []*Block, matchedBlockCount, 
 }
 
 type EmbedBlock struct {
-	Block      *Block       `json:"block"`
-	BlockPaths []*BlockPath `json:"blockPaths"`
+	Block               *Block       `json:"block"`
+	BlockPaths          []*BlockPath `json:"blockPaths"`
+	AllowChildOperation bool         `json:"allowChildOperation"`
 }
 
 func UpdateEmbedBlock(id, content string) (err error) {
@@ -215,23 +218,88 @@ func UpdateEmbedBlock(id, content string) (err error) {
 }
 
 func GetEmbedBlock(embedBlockID string, includeIDs []string, headingMode int, breadcrumb bool) (ret []*EmbedBlock) {
-	return getEmbedBlock(embedBlockID, includeIDs, headingMode, breadcrumb)
+	return getEmbedBlock(embedBlockID, includeIDs, headingMode, breadcrumb, true)
 }
 
-func getEmbedBlock(embedBlockID string, includeIDs []string, headingMode int, breadcrumb bool) (ret []*EmbedBlock) {
-	stmt := "SELECT * FROM `blocks` WHERE `id` IN ('" + strings.Join(includeIDs, "','") + "')"
-	sqlBlocks := sql.SelectBlocksRawStmtNoParse(stmt, 1024)
+func GetEmbedBlockForPublish(embedBlockID string, includeIDs []string, headingMode int, breadcrumb bool) (ret []*EmbedBlock) {
+	return getEmbedBlock(embedBlockID, includeIDs, headingMode, breadcrumb, false)
+}
+
+func getEmbedBlock(embedBlockID string, includeIDs []string, headingMode int, breadcrumb, updateIndex bool) (ret []*EmbedBlock) {
+	validIDs := validEmbedBlockIDs(includeIDs, 1024)
+	sqlBlocks := sql.GetBlocks(validIDs)
+	var existingBlocks []*sql.Block
+	for _, block := range sqlBlocks {
+		if nil != block {
+			existingBlocks = append(existingBlocks, block)
+		}
+	}
+	sqlBlocks = existingBlocks
 
 	// 根据 includeIDs 的顺序排序 Improve `//!js` query embed block result sorting https://github.com/siyuan-note/siyuan/issues/9977
 	m := map[string]int{}
-	for i, id := range includeIDs {
+	for i, id := range validIDs {
 		m[id] = i
 	}
 	sort.Slice(sqlBlocks, func(i, j int) bool {
 		return m[sqlBlocks[i].ID] < m[sqlBlocks[j].ID]
 	})
 
-	ret = buildEmbedBlock(embedBlockID, []string{}, headingMode, breadcrumb, sqlBlocks)
+	ret = buildEmbedBlock(embedBlockID, []string{}, headingMode, breadcrumb, "", sqlBlocks, updateIndex)
+	return
+}
+
+func validEmbedBlockIDs(includeIDs []string, limit int) (ret []string) {
+	if 1 > limit {
+		return
+	}
+	seen := map[string]struct{}{}
+	for _, id := range includeIDs {
+		if !ast.IsNodeIDPattern(id) {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ret = append(ret, id)
+		if limit <= len(ret) {
+			break
+		}
+	}
+	return
+}
+
+func GetQueryEmbedStatement(embedBlockID string) (stmt, boxID string, err error) {
+	bt := treenode.GetBlockTree(embedBlockID)
+	if nil == bt {
+		err = ErrBlockNotFound
+		return
+	}
+	if treenode.TypeAbbr(ast.NodeBlockQueryEmbed.String()) != bt.Type {
+		err = errors.New("not query embed block")
+		return
+	}
+
+	tree, loadErr := filesys.LoadTree(bt.BoxID, bt.Path, util.NewLute())
+	if nil != loadErr {
+		err = loadErr
+		return
+	}
+	node := treenode.GetNodeInTree(tree, embedBlockID)
+	if nil == node || ast.NodeBlockQueryEmbed != node.Type {
+		err = ErrBlockNotFound
+		return
+	}
+	scriptNode := node.ChildByType(ast.NodeBlockQueryEmbedScript)
+	if nil == scriptNode {
+		err = errors.New("query embed block statement not found")
+		return
+	}
+
+	stmt = stdhtml.UnescapeString(scriptNode.TokensStr())
+	stmt = strings.ReplaceAll(stmt, editor.IALValEscNewLine, "\n")
+	boxID = bt.BoxID
 	return
 }
 
@@ -242,17 +310,28 @@ func SearchEmbedBlock(embedBlockID, stmt string, excludeIDs []string, headingMod
 // SearchEmbedBlockInBox 与 SearchEmbedBlock 一致，但按 boxID 路由 SQL 到加密 content db。
 // 加密笔记本的嵌入块查询走独立加密库（全局 siyuan.db 不含加密数据），boxID 为空时落回全局库。
 func SearchEmbedBlockInBox(embedBlockID, stmt string, excludeIDs []string, headingMode int, breadcrumb bool, boxID string) (ret []*EmbedBlock) {
+	return searchEmbedBlockInBox(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb, boxID, true)
+}
+
+func SearchEmbedBlockForPublish(embedBlockID, stmt string, excludeIDs []string, headingMode int, breadcrumb bool,
+	boxID string) (ret []*EmbedBlock) {
+	return searchEmbedBlockInBox(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb, boxID, false)
+}
+
+func searchEmbedBlockInBox(embedBlockID, stmt string, excludeIDs []string, headingMode int, breadcrumb bool, boxID string,
+	updateIndex bool) (ret []*EmbedBlock) {
 	var sqlBlocks []*sql.Block
 	if "" != boxID {
 		sqlBlocks = sql.SelectBlocksRawStmtNoParseInBox(stmt, Conf.Search.Limit, boxID)
 	} else {
 		sqlBlocks = sql.SelectBlocksRawStmtNoParse(stmt, Conf.Search.Limit)
 	}
-	ret = buildEmbedBlock(embedBlockID, excludeIDs, headingMode, breadcrumb, sqlBlocks)
+	ret = buildEmbedBlock(embedBlockID, excludeIDs, headingMode, breadcrumb, treenode.GetEmbedBlockRefID(stmt), sqlBlocks, updateIndex)
 	return
 }
 
-func buildEmbedBlock(embedBlockID string, excludeIDs []string, headingMode int, breadcrumb bool, sqlBlocks []*sql.Block) (ret []*EmbedBlock) {
+func buildEmbedBlock(embedBlockID string, excludeIDs []string, headingMode int, breadcrumb bool, embedBlockRefID string,
+	sqlBlocks []*sql.Block, updateIndex bool) (ret []*EmbedBlock) {
 	var tmp []*sql.Block
 	for _, b := range sqlBlocks {
 		if "query_embed" == b.Type { // 嵌入块不再嵌入
@@ -289,13 +368,16 @@ func buildEmbedBlock(embedBlockID string, excludeIDs []string, headingMode int, 
 			continue
 		}
 		ret = append(ret, &EmbedBlock{
-			Block:      block,
-			BlockPaths: blockPaths,
+			Block:               block,
+			BlockPaths:          blockPaths,
+			AllowChildOperation: embedBlockRefID == block.ID && block.IsContainerBlock(),
 		})
 	}
 
-	// 嵌入块支持搜索 https://github.com/siyuan-note/siyuan/issues/7112
-	task.AppendTaskWithTimeout(task.DatabaseIndexEmbedBlock, 30*time.Second, updateEmbedBlockContent, embedBlockID, ret)
+	if updateIndex {
+		// 嵌入块支持搜索 https://github.com/siyuan-note/siyuan/issues/7112
+		task.AppendTaskWithTimeout(task.DatabaseIndexEmbedBlock, 30*time.Second, updateEmbedBlockContent, embedBlockID, ret)
+	}
 
 	// 添加笔记本名称
 	var boxIDs []string
@@ -1198,6 +1280,9 @@ func FullTextSearchBlockInBox(query string, boxes, paths []string, types, subTyp
 	}
 
 	query = filterQueryInvisibleChars(query)
+	if 2 != method && 3 != method && ast.IsNodeIDPattern(query) && isHiddenBoxDocBlock(query, boxID) {
+		return
+	}
 	var ignoreFilter string
 	if ignoreLines := getSearchIgnoreLines(); 0 < len(ignoreLines) {
 		// Support ignore search results https://github.com/siyuan-note/siyuan/issues/10089
@@ -1216,6 +1301,9 @@ func FullTextSearchBlockInBox(query string, boxes, paths []string, types, subTyp
 	case 1: // 查询语法
 		typeFilter := buildTypeFilter(types, subTypes)
 		boxFilter, boxArgs := buildBoxesFilter(boxes)
+		boxDocFilter, boxDocArgs := buildRootIDExclusionFilter(hiddenBoxDocRootIDs())
+		boxFilter += boxDocFilter
+		boxArgs = append(boxArgs, boxDocArgs...)
 		pathFilter, pathArgs := buildPathsFilter(paths)
 		if ast.IsNodeIDPattern(query) {
 			blocks, matchedBlockCount, matchedRootCount = searchBySQLInBox("SELECT * FROM `blocks` WHERE `id` = '"+query+"'", beforeLen, page, pageSize, boxID)
@@ -1227,11 +1315,17 @@ func FullTextSearchBlockInBox(query string, boxes, paths []string, types, subTyp
 	case 3: // 正则表达式
 		typeFilter := buildTypeFilter(types, subTypes)
 		boxFilter, boxArgs := buildBoxesFilter(boxes)
+		boxDocFilter, boxDocArgs := buildRootIDExclusionFilter(hiddenBoxDocRootIDs())
+		boxFilter += boxDocFilter
+		boxArgs = append(boxArgs, boxDocArgs...)
 		pathFilter, pathArgs := buildPathsFilter(paths)
 		blocks, matchedBlockCount, matchedRootCount = fullTextSearchByRegexpInBox(query, boxFilter, pathFilter, boxArgs, pathArgs, typeFilter, ignoreFilter, orderByClause, beforeLen, page, pageSize, boxID)
 	default: // 关键字
 		typeFilter := buildTypeFilter(types, subTypes)
 		boxFilter, boxArgs := buildBoxesFilter(boxes)
+		boxDocFilter, boxDocArgs := buildRootIDExclusionFilter(hiddenBoxDocRootIDs())
+		boxFilter += boxDocFilter
+		boxArgs = append(boxArgs, boxDocArgs...)
 		pathFilter, pathArgs := buildPathsFilter(paths)
 		if ast.IsNodeIDPattern(query) {
 			blocks, matchedBlockCount, matchedRootCount = searchBySQLInBox("SELECT * FROM `blocks` WHERE `id` = '"+query+"'", beforeLen, page, pageSize, boxID)
@@ -1440,7 +1534,31 @@ func buildPathsFilter(paths []string, alias ...string) (clause string, args []an
 	return
 }
 
+// buildRootIDExclusionFilter 构造根文档 ID 排除子句，ID 通过绑定参数传递。
+func buildRootIDExclusionFilter(rootIDs []string, alias ...string) (clause string, args []any) {
+	if 0 == len(rootIDs) {
+		return
+	}
+	prefix := ""
+	if 0 < len(alias) && "" != alias[0] {
+		prefix = alias[0]
+	}
+	builder := bytes.Buffer{}
+	builder.WriteString(fmt.Sprintf(" AND %sroot_id NOT IN (", prefix))
+	for i, rootID := range rootIDs {
+		if 0 < i {
+			builder.WriteString(", ")
+		}
+		builder.WriteString("?")
+		args = append(args, rootID)
+	}
+	builder.WriteString(")")
+	clause = builder.String()
+	return
+}
+
 func buildOrderBy(query string, method, orderBy int) string {
+	escapedQuery := strings.ReplaceAll(query, "'", "''")
 	switch orderBy {
 	case 1:
 		return "ORDER BY created ASC"
@@ -1460,15 +1578,23 @@ func buildOrderBy(query string, method, orderBy int) string {
 		if 0 != method && 1 != method {
 			return "ORDER BY sort ASC, updated DESC"
 		}
-		return "ORDER BY rank" // 默认是按相关度降序
+		clause := "ORDER BY CASE " +
+			"WHEN content = '${keyword}' AND type = 'd' THEN 10 " +
+			"WHEN content = '${keyword}' AND type = 'h' THEN 20 " +
+			"ELSE 65535 END ASC, rank"
+		return strings.ReplaceAll(clause, "${keyword}", escapedQuery) // 默认是按相关度降序
 	default:
 		clause := "ORDER BY CASE " +
 			"WHEN name = '${keyword}' THEN 10 " +
 			"WHEN alias = '${keyword}' THEN 20 " +
+			"WHEN content = '${keyword}' AND type = 'd' THEN 30 " +
+			"WHEN content LIKE '%${keyword}%' AND type = 'd' THEN 40 " +
 			"WHEN name LIKE '%${keyword}%' THEN 50 " +
 			"WHEN alias LIKE '%${keyword}%' THEN 60 " +
+			"WHEN content = '${keyword}' AND type = 'h' THEN 70 " +
+			"WHEN content LIKE '%${keyword}%' AND type = 'h' THEN 80 " +
 			"ELSE 65535 END ASC, sort ASC, updated DESC"
-		clause = strings.ReplaceAll(clause, "${keyword}", strings.ReplaceAll(query, "'", "''"))
+		clause = strings.ReplaceAll(clause, "${keyword}", escapedQuery)
 		return clause
 	}
 }
@@ -1716,7 +1842,7 @@ func fullTextSearchRefBlockInBox(keyword string, beforeLen int, onlyDoc bool, bo
 		stmt += buf.String()
 	}
 
-	orderBy := ` ORDER BY CASE
+	orderBy := " ORDER BY " + buildRefUsedOrderBy(GetRefUsed()) + `CASE
              WHEN name = '${keyword}' THEN 10
              WHEN alias = '${keyword}' THEN 20
              WHEN memo = '${keyword}' THEN 30
@@ -1739,6 +1865,44 @@ func fullTextSearchRefBlockInBox(keyword string, beforeLen int, onlyDoc bool, bo
 		ret = []*Block{}
 	}
 	return
+}
+
+func buildRefUsedOrderBy(refUsed map[string]int64) string {
+	type refUsedEntry struct {
+		id        string
+		timestamp int64
+	}
+
+	entries := make([]refUsedEntry, 0, len(refUsed))
+	for id, timestamp := range refUsed {
+		if 22 == len(id) && ast.IsNodeIDPattern(id) {
+			entries = append(entries, refUsedEntry{id: id, timestamp: timestamp})
+		}
+	}
+	if 1 > len(entries) {
+		return ""
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].timestamp == entries[j].timestamp {
+			return entries[i].id > entries[j].id
+		}
+		return entries[i].timestamp > entries[j].timestamp
+	})
+
+	buf := bytes.Buffer{}
+	buf.WriteString("CASE id ")
+	for i, entry := range entries {
+		buf.WriteString("WHEN '")
+		buf.WriteString(entry.id)
+		buf.WriteString("' THEN ")
+		buf.WriteString(strconv.Itoa(i))
+		buf.WriteByte(' ')
+	}
+	buf.WriteString("ELSE ")
+	buf.WriteString(strconv.Itoa(len(entries)))
+	buf.WriteString(" END ASC, ")
+	return buf.String()
 }
 
 func extractID(content string) (ret string) {

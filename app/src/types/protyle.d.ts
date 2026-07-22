@@ -386,6 +386,8 @@ interface IMenuItem {
     hotkey?: string;
     /** 提示的位置 */
     tipPosition?: string;
+    /** 是否在精简版中显示。默认值：false */
+    showInLite?: boolean;
 
     click?(protyle: import("../protyle").Protyle): void;
 }
@@ -458,6 +460,7 @@ interface IHint {
 
 /** @link https://ld246.com/article/1549638745630#options */
 interface IProtyleOptions {
+    databaseAttr?: boolean,
     history?: {
         created?: string
         snapshot?: string
@@ -559,6 +562,7 @@ interface IProtyle {
     breadcrumb?: import("../protyle/breadcrumb").Breadcrumb,
     title?: import("../protyle/header/Title").Title,
     background?: import("../protyle/header/background").Background,
+    databaseAttributePanel?: import("../protyle/render/av/attributePanel").AVAttributePanel,
     contentElement?: HTMLElement,
     options: IProtyleOptions;
     lute?: Lute;

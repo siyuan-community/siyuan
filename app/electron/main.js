@@ -38,6 +38,7 @@ const {
 const path = require("path");
 const fs = require("fs");
 const gNet = require("net");
+const childProcess = require("child_process");
 const remote = require("@electron/remote/main");
 
 process.noAsar = true;
@@ -47,13 +48,31 @@ const appVer = app.getVersion();
 const confDir = path.join(app.getPath("home"), ".config", "siyuan");
 const windowStatePath = path.join(confDir, "windowState.json");
 const appCrashLogPath = path.join(confDir, "app.crash.log");
+const appCrashMarkerPath = path.join(confDir, "app.crash.json");
+const systemShutdownNone = 0;
+const systemShutdownEnding = 1;
+const systemShutdownForced = 2;
+const systemShutdownExitTimeout = 30000;
+const updateKernelExitTimeout = 30000;
+const safeModeReasons = new Set(["abnormal-exit", "killed", "crashed", "oom", "memory-eviction"]);
+const noSafeModeReasons = new Set(["clean-exit", "launch-failed", "integrity-failure"]);
+const expectedRendererExitIds = new Set();
+const expectedKernelExitPorts = new Set();
+const handledCrashWebContents = new Set();
+const kernelProcesses = new Map();
 let bootWindow;
 let latestActiveWindow;
 let firstOpen = false;
-let workspaces = []; // workspaceDir, id, browserWindow, tray, hideShortcut
+let workspaces = []; // workspaceDir, id, port, webContentsId, browserWindow, tray, hideShortcut
 let kernelPort = 6806;
 let resetWindowStateOnRestart = false;
 let openAsHidden = false;
+let systemShutdownState = systemShutdownNone;
+let gracefulSystemShutdownPromise;
+let keepAppOpenDuringSystemShutdown = false;
+let updateInstallPromise;
+let keepAppOpenDuringUpdate = false;
+const openDialogSingletons = new Set();
 const isOpenAsHidden = function () {
     return 1 === workspaces.length && openAsHidden;
 };
@@ -110,6 +129,7 @@ for (let i = argStart; i < process.argv.length; i++) {
         || arg.startsWith("--openAsHidden")
         || arg.startsWith("--port=")
         || arg.startsWith("--safe-mode=")
+        || arg.startsWith("--lang=")
 
         || arg.startsWith("--proxy=")
         || arg.startsWith("--remote=")
@@ -316,22 +336,24 @@ const resolveAppLanguage = (languageTags) => {
     return languageMapping[language] || "en";
 };
 
+const markExpectedRendererExit = (window) => {
+    if (window && !window.isDestroyed()) {
+        expectedRendererExitIds.add(window.webContents.id);
+    }
+};
+
 const exitApp = (port, errorWindowId) => {
-    let tray;
-    let mainWindow;
+    const workspaceIndex = workspaces.findIndex((item) => port.toString() === item.port.toString());
+    const workspace = -1 < workspaceIndex ? workspaces[workspaceIndex] : undefined;
+    const mainWindow = workspace ? workspace.browserWindow : undefined;
+    const tray = workspace ? workspace.tray : undefined;
 
     // 关闭端口相同的所有非主窗口
     BrowserWindow.getAllWindows().forEach((item) => {
         try {
             const currentURL = new URL(item.getURL());
             if (port.toString() === currentURL.port.toString()) {
-                const hasMain = workspaces.find((workspaceItem) => {
-                    if (workspaceItem.browserWindow.id === item.id) {
-                        mainWindow = item;
-                        return true;
-                    }
-                });
-                if (!hasMain) {
+                if (!mainWindow || mainWindow.id !== item.id) {
                     item.destroy();
                 }
             }
@@ -339,16 +361,13 @@ const exitApp = (port, errorWindowId) => {
             // load file is not a url
         }
     });
-    workspaces.find((item, index) => {
-        if (mainWindow && mainWindow.id === item.browserWindow.id) {
-            if (workspaces.length > 1) {
-                item.browserWindow.destroy();
-            }
-            workspaces.splice(index, 1);
-            tray = item.tray;
-            return true;
+    if (workspace) {
+        if (workspaces.length > 1 && mainWindow && !mainWindow.isDestroyed()) {
+            markExpectedRendererExit(mainWindow);
+            mainWindow.destroy();
         }
-    });
+        workspaces.splice(workspaceIndex, 1);
+    }
     if (tray && ("win32" === process.platform || "linux" === process.platform)) {
         tray.destroy();
     }
@@ -377,13 +396,19 @@ const exitApp = (port, errorWindowId) => {
         }
 
         if (errorWindowId) {
+            markExpectedRendererExit(mainWindow);
             BrowserWindow.getAllWindows().forEach((item) => {
                 if (errorWindowId !== item.id) {
                     item.destroy();
                 }
             });
         } else {
-            app.exit();
+            markExpectedRendererExit(mainWindow);
+            if (keepAppOpenDuringSystemShutdown || keepAppOpenDuringUpdate) {
+                mainWindow.destroy();
+            } else {
+                app.exit();
+            }
         }
         globalShortcut.unregisterAll();
         writeLog("exited ui");
@@ -396,13 +421,398 @@ const localServer = "https://127.0.0.1";
 const getServer = (port = kernelPort) => {
     return localhost ? `${localServer}:${port}` : remoteURL;
 };
-
-const exitKernel = (origin = getServer()) => {
-    return localhost
-        ? net.fetch(`${origin}/api/system/exit`, {method: "POST"})
-        : null;
-};
 // endregion 🛜 remote
+
+const requestKernelExit = (port, options = {}, signal) => {
+    // region 🛜 remote
+    if (!localhost) {
+        return Promise.resolve();
+    }
+    // endregion 🛜 remote
+
+    if (!port) {
+        return Promise.resolve();
+    }
+
+    const exitOptions = Object.assign({
+        force: false,
+        setCurrentWorkspace: true,
+        execInstallPkg: 1,
+    }, options);
+    return net.fetch(getServer(port) + "/api/system/exit", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(exitOptions),
+        signal,
+    }).catch((error) => {
+        writeLog("shutdown kernel failed [port=" + port + "]: " + error);
+    });
+};
+
+const waitForKernelProcessExit = (port, timeout) => {
+    const portKey = port.toString();
+    const kernelProcess = kernelProcesses.get(portKey);
+    if (!kernelProcess) {
+        return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+        let timer;
+        const onClose = () => {
+            clearTimeout(timer);
+            resolve(true);
+        };
+        kernelProcess.once("close", onClose);
+        timer = setTimeout(() => {
+            kernelProcess.removeListener("close", onClose);
+            resolve(false);
+        }, timeout);
+    });
+};
+
+const requestUpdateKernelExit = async (port, options) => {
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), updateKernelExitTimeout);
+    try {
+        const response = await requestKernelExit(port, options, abortController.signal);
+        if (!response) {
+            return false;
+        }
+        const apiData = await response.json();
+        if (apiData.code === 0) {
+            writeLog("update kernel exit request succeeded [port=" + port + "]");
+            return apiData;
+        }
+        writeLog("update kernel exit request failed [port=" + port + ", code=" + apiData.code + "]");
+    } catch (error) {
+        writeLog("parse update kernel exit response failed [port=" + port + "]: " + error);
+    } finally {
+        clearTimeout(timeout);
+    }
+    return false;
+};
+
+const closeKernelForUpdate = async (port, initiatingPort, setCurrentWorkspace) => {
+    const isInitiatingKernel = port.toString() === initiatingPort.toString();
+    const exitResponse = await requestUpdateKernelExit(port, {
+        force: isInitiatingKernel,
+        setCurrentWorkspace: isInitiatingKernel && setCurrentWorkspace,
+        execInstallPkg: isInitiatingKernel ? 2 : 1,
+    });
+    if (exitResponse) {
+        return exitResponse;
+    }
+
+    writeLog("forcing kernel to exit for update [port=" + port + "]");
+    return requestUpdateKernelExit(port, {
+        force: true,
+        setCurrentWorkspace: isInitiatingKernel && setCurrentWorkspace,
+        execInstallPkg: isInitiatingKernel ? 2 : 1,
+    });
+};
+
+const validateUpdateInstallRequest = (event, data) => {
+    const workspace = workspaces.find((item) => item.webContentsId === event.sender.id);
+    if (!workspace || !workspace.workspaceDir || !data || !data.port ||
+        workspace.port.toString() !== data.port.toString()) {
+        writeLog("rejected update install request from an unknown workspace");
+        return;
+    }
+    if (process.platform !== "win32" && process.platform !== "darwin") {
+        writeLog("rejected update install request on unsupported platform [platform=" + process.platform + "]");
+        return;
+    }
+
+    return {
+        initiatingPort: workspace.port.toString(),
+        setCurrentWorkspace: data.setCurrentWorkspace !== false,
+        workspaceDir: workspace.workspaceDir,
+    };
+};
+
+const validateUpdateInstallPackage = (request, requestedInstallPkgPath) => {
+    if (!requestedInstallPkgPath) {
+        writeLog("the initiating kernel did not return an update install package");
+        return;
+    }
+
+    try {
+        const installDir = fs.realpathSync(path.join(request.workspaceDir, "temp", "install"));
+        const installPkgPath = fs.realpathSync(requestedInstallPkgPath);
+        const relativePkgPath = path.relative(installDir, installPkgPath);
+        if (!relativePkgPath || path.isAbsolute(relativePkgPath) || path.dirname(relativePkgPath) !== ".") {
+            writeLog("rejected update install package outside the workspace install directory [path=" + installPkgPath + "]");
+            return;
+        }
+
+        const packageName = path.basename(installPkgPath);
+        const validPackageName = process.platform === "win32"
+            ? /^siyuan-.+-win(?:-arm64)?\.exe$/i.test(packageName)
+            : /^siyuan-.+-mac(?:-arm64)?\.dmg$/i.test(packageName);
+        if (!validPackageName || !fs.statSync(installPkgPath).isFile()) {
+            writeLog("rejected invalid update install package [path=" + installPkgPath + "]");
+            return;
+        }
+        writeLog("validated update install package [path=" + installPkgPath + "]");
+        return installPkgPath;
+    } catch (error) {
+        writeLog("validate update install package failed: " + error);
+    }
+};
+
+const launchUpdateInstallPackage = (installPkgPath) => {
+    return new Promise((resolve, reject) => {
+        const command = process.platform === "darwin" ? "/usr/bin/open" : installPkgPath;
+        const args = process.platform === "darwin" ? [installPkgPath] : [];
+        const installProcess = childProcess.spawn(command, args, {
+            cwd: path.dirname(installPkgPath),
+            detached: true,
+            stdio: "ignore",
+        });
+        installProcess.once("error", reject);
+        installProcess.once("spawn", () => {
+            writeLog("launched update install package [pid=" + installProcess.pid + ", path=" + installPkgPath + "]");
+            installProcess.unref();
+            resolve();
+        });
+    });
+};
+
+const waitForUpdateKernelExits = async (ports) => {
+    if (ports.length === 0) {
+        return;
+    }
+
+    const exitResults = await Promise.all(ports.map(async (port) => {
+        return {
+            port,
+            exited: await waitForKernelProcessExit(port, updateKernelExitTimeout),
+        };
+    }));
+    const timedOutPorts = exitResults.filter((item) => !item.exited).map((item) => item.port);
+    if (timedOutPorts.length === 0) {
+        return;
+    }
+
+    writeLog("kernel exit timed out before update [ports=" + timedOutPorts.join(",") + "]");
+    timedOutPorts.forEach((port) => {
+        const kernelProcess = kernelProcesses.get(port);
+        if (kernelProcess) {
+            writeLog("terminating residual kernel before update [pid=" + kernelProcess.pid + ", port=" + port + "]");
+            kernelProcess.kill("SIGKILL");
+        }
+    });
+    await Promise.all(timedOutPorts.map((port) => waitForKernelProcessExit(port, 5000)));
+    const residualPorts = timedOutPorts.filter((port) => kernelProcesses.has(port));
+    if (residualPorts.length > 0) {
+        if (process.platform === "win32") {
+            writeLog("residual kernel processes will be terminated by the installer [ports=" + residualPorts.join(",") + "]");
+        } else {
+            throw new Error("failed to terminate residual kernel processes [ports=" + residualPorts.join(",") + "]");
+        }
+    }
+};
+
+const closeUpdateKernelStage = async (ports, request) => {
+    if (ports.length === 0) {
+        return [];
+    }
+
+    const exitResponses = await Promise.all(ports.map((port) => closeKernelForUpdate(port, request.initiatingPort,
+        request.setCurrentWorkspace)));
+    ports.forEach((port) => exitApp(port));
+    await waitForUpdateKernelExits(ports);
+    return exitResponses;
+};
+
+// 更新时先退出其他工作空间，再退出发起更新的工作空间，确保安装器启动前所有内核已经停止。
+// https://github.com/siyuan-note/siyuan/issues/18258
+const coordinateUpdateInstall = async (request) => {
+    const ports = Array.from(new Set(getSystemShutdownPorts().map((port) => port.toString())
+        .concat(Array.from(kernelProcesses.keys()), request.initiatingPort)));
+    ports.forEach((port) => expectedKernelExitPorts.add(port));
+    writeLog("coordinating update install [initiatingPort=" + request.initiatingPort + ", ports=" + ports.join(",") +
+        "]");
+
+    workspaces.forEach((workspace) => {
+        if (workspace.browserWindow && !workspace.browserWindow.isDestroyed()) {
+            workspace.browserWindow.hide();
+        }
+    });
+
+    const otherPorts = ports.filter((port) => port !== request.initiatingPort);
+    writeLog("closing other workspaces for update [ports=" + otherPorts.join(",") + "]");
+    await closeUpdateKernelStage(otherPorts, request);
+    writeLog("closing initiating workspace for update [port=" + request.initiatingPort + "]");
+    const [initiatingExitResponse] = await closeUpdateKernelStage([request.initiatingPort], request);
+    const installPkgPath = validateUpdateInstallPackage(request, initiatingExitResponse?.data?.installPkgPath);
+    if (!installPkgPath) {
+        throw new Error("the update install package returned by the kernel is invalid");
+    }
+
+    await launchUpdateInstallPackage(installPkgPath);
+    keepAppOpenDuringUpdate = false;
+    app.exit();
+};
+
+const beginUpdateInstall = (event, data) => {
+    if (updateInstallPromise) {
+        writeLog("ignored duplicate update install request");
+        return true;
+    }
+    if (systemShutdownState !== systemShutdownNone) {
+        writeLog("rejected update install request during system shutdown");
+        return false;
+    }
+
+    const request = validateUpdateInstallRequest(event, data);
+    if (!request) {
+        return false;
+    }
+
+    keepAppOpenDuringUpdate = true;
+    updateInstallPromise = coordinateUpdateInstall(request).catch((error) => {
+        writeLog("coordinate update install failed: " + error);
+        keepAppOpenDuringUpdate = false;
+        updateInstallPromise = undefined;
+        app.relaunch();
+        app.exit();
+    });
+    return true;
+};
+
+const getSystemShutdownPorts = () => {
+    const ports = new Set();
+    workspaces.forEach((workspaceItem) => {
+        if (workspaceItem.port) {
+            ports.add(workspaceItem.port);
+        }
+    });
+    if (bootWindow && !bootWindow.isDestroyed() && kernelPort) {
+        ports.add(kernelPort);
+    }
+    return Array.from(ports);
+};
+
+const requestGracefulKernelExit = async (port) => {
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), systemShutdownExitTimeout);
+    try {
+        const response = await requestKernelExit(port, {
+            force: false,
+            setCurrentWorkspace: false,
+            execInstallPkg: 1,
+        }, abortController.signal);
+        if (!response) {
+            return false;
+        }
+
+        const apiData = await response.json();
+        if (apiData.code !== 0) {
+            writeLog("graceful system shutdown failed [port=" + port + ", code=" + apiData.code + "]");
+            return false;
+        }
+        writeLog("graceful system shutdown succeeded [port=" + port + "]");
+        return true;
+    } catch (error) {
+        writeLog("parse graceful system shutdown response failed [port=" + port + "]: " + error);
+        return false;
+    } finally {
+        clearTimeout(timeout);
+    }
+};
+
+const resetSystemShutdown = (ports) => {
+    if (systemShutdownState === systemShutdownForced) {
+        return;
+    }
+
+    systemShutdownState = systemShutdownNone;
+    gracefulSystemShutdownPromise = undefined;
+    keepAppOpenDuringSystemShutdown = false;
+    writeLog("system shutdown canceled because SiYuan failed to exit gracefully [ports=" + ports.join(",") + "]");
+    ports.forEach((port) => {
+        const workspace = workspaces.find((item) => port.toString() === item.port.toString());
+        if (workspace && workspace.browserWindow && !workspace.browserWindow.isDestroyed()) {
+            showWindow(workspace.browserWindow);
+        }
+    });
+    if (bootWindow && !bootWindow.isDestroyed() && ports.includes(kernelPort)) {
+        showWindow(bootWindow);
+    }
+};
+
+const beginGracefulSystemShutdown = () => {
+    if (gracefulSystemShutdownPromise || systemShutdownState === systemShutdownForced) {
+        return;
+    }
+
+    systemShutdownState = systemShutdownEnding;
+    const ports = getSystemShutdownPorts();
+    if (ports.length === 0) {
+        app.exit();
+        return;
+    }
+
+    keepAppOpenDuringSystemShutdown = true;
+    gracefulSystemShutdownPromise = Promise.all(ports.map(async (port) => {
+        return {
+            port,
+            success: await requestGracefulKernelExit(port),
+        };
+    })).then((results) => {
+        const succeededPorts = results.filter((item) => item.success).map((item) => item.port);
+        const failedPorts = results.filter((item) => !item.success).map((item) => item.port);
+        succeededPorts.forEach((port) => exitApp(port));
+        if (bootWindow && !bootWindow.isDestroyed() && succeededPorts.includes(kernelPort)) {
+            bootWindow.destroy();
+        }
+
+        const remainingPorts = getSystemShutdownPorts();
+        const incompletePorts = Array.from(new Set(failedPorts.concat(remainingPorts)));
+        if (incompletePorts.length > 0) {
+            resetSystemShutdown(incompletePorts);
+            return;
+        }
+        keepAppOpenDuringSystemShutdown = false;
+        app.exit();
+    }).catch((error) => {
+        writeLog("graceful system shutdown failed: " + error);
+        resetSystemShutdown(getSystemShutdownPorts());
+    });
+};
+
+const beginForcedSystemShutdown = () => {
+    if (systemShutdownState === systemShutdownForced) {
+        return;
+    }
+
+    systemShutdownState = systemShutdownForced;
+    keepAppOpenDuringSystemShutdown = false;
+    getSystemShutdownPorts().forEach((port) => {
+        requestKernelExit(port, {
+            force: true,
+            setCurrentWorkspace: false,
+        });
+    });
+};
+
+if (process.platform === "win32") {
+    // Windows 关机、重启或注销时取消本次会话结束，等待内核安全退出后再关闭思源。
+    app.on("browser-window-created", (event, window) => {
+        window.on("query-session-end", (sessionEvent) => {
+            writeLog("query-session-end");
+            sessionEvent.preventDefault();
+            beginGracefulSystemShutdown();
+        });
+        window.on("session-end", () => {
+            writeLog("session-end");
+            beginForcedSystemShutdown();
+        });
+    });
+}
 
 const sleep = (ms) => {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -439,7 +849,7 @@ const showErrorWindow = (titleZh, titleEn, content, emoji = "⚠️") => {
     return errWindow.id;
 };
 
-const initMainWindow = () => {
+const initMainWindow = (currentKernelPort = kernelPort) => {
     if (!app.isReady()) {
         writeLog("initMainWindow: app not ready, skipping");
         return;
@@ -552,7 +962,7 @@ const initMainWindow = () => {
     // pending（既不 resolve 也不 reject），会导致 loadURL 永不执行，主窗口卡在启动页无法显示。
     // 这里无论 setProxy 是否完成，最多等待 5 秒后强制加载主界面。
     const loadMainURL = () => {
-        currentWindow.loadURL(getServer() + "/stage/build/app/?v=" + Date.now());
+        currentWindow.loadURL(getServer(currentKernelPort) + "/stage/build/app/?v=" + Date.now());
     };
     // region 🛜 remote
     const applyProxyAndLoad = (proxyPromise) => {
@@ -669,6 +1079,8 @@ const initMainWindow = () => {
     });
     workspaces.push({
         browserWindow: currentWindow,
+        webContentsId: currentWindow.webContents.id,
+        port: currentKernelPort,
     });
     // loadURL 后设置超时兜底：前端 app bundle 加载或初始化异常导致 siyuan-ready-to-show 迟迟不发时，
     // 强制销毁 boot 窗口并显示主窗口，避免永久卡在启动页
@@ -795,7 +1207,8 @@ const initKernel = (workspace, port, lang, safeMode) => {
             resolve(false);
             return;
         }
-        const cmds = ["serve", "--port", kernelPort, "--wd", appDir, "--attach-ui"];
+        const currentKernelPort = kernelPort;
+        const cmds = ["serve", "--port", currentKernelPort, "--wd", appDir, "--attach-ui"];
         if (isDevEnv && workspaces.length === 0) {
             cmds.push("--mode", "dev");
         }
@@ -811,17 +1224,21 @@ const initKernel = (workspace, port, lang, safeMode) => {
         let cmd = `ui version [${appVer}], booting kernel [${kernelPath} ${cmds.join(" ")}]`;
         writeLog(cmd);
         if (!isDevEnv || workspaces.length > 0) {
-            const cp = require("child_process");
-            const kernelProcess = cp.spawn(kernelPath, cmds, {
+            const kernelProcess = childProcess.spawn(kernelPath, cmds, {
                 detached: false, // 桌面端内核进程不再以游离模式拉起 https://github.com/siyuan-note/siyuan/issues/6336
                 stdio: "ignore",
             },);
 
-            const currentKernelPort = kernelPort;
-            writeLog("booted kernel process [pid=" + kernelProcess.pid + ", port=" + kernelPort + "]");
-            kernelProcess.on("close", (code) => {
-                writeLog(`kernel [pid=${kernelProcess.pid}, port=${currentKernelPort}] exited with code [${code}]`);
-                if (0 !== code) {
+            const kernelPortKey = currentKernelPort.toString();
+            kernelProcesses.set(kernelPortKey, kernelProcess);
+            writeLog("booted kernel process [pid=" + kernelProcess.pid + ", port=" + currentKernelPort + "]");
+            kernelProcess.on("close", (code, signal) => {
+                if (kernelProcesses.get(kernelPortKey) === kernelProcess) {
+                    kernelProcesses.delete(kernelPortKey);
+                }
+                const expectedExit = expectedKernelExitPorts.delete(kernelPortKey);
+                writeLog(`kernel [pid=${kernelProcess.pid}, port=${currentKernelPort}] exited with code [${code}], signal [${signal}], expected [${expectedExit}]`);
+                if (0 !== code && !expectedExit) {
                     let errorWindowId;
                     switch (code) {
                         case 20:
@@ -862,7 +1279,7 @@ const initKernel = (workspace, port, lang, safeMode) => {
         writeLog("checking kernel version");
         for (; ;) {
             try {
-                const apiResult = await net.fetch(getServer() + "/api/system/version");
+                const apiResult = await net.fetch(getServer(currentKernelPort) + "/api/system/version");
                 apiData = await apiResult.json();
                 break;
             } catch (e) {
@@ -882,7 +1299,7 @@ const initKernel = (workspace, port, lang, safeMode) => {
             writeLog("got kernel version [" + apiData.data + "]");
             if (!isDevEnv && apiData.data !== appVer) {
                 writeLog(`kernel [${apiData.data}] is running, shutdown it now and then start kernel [${appVer}]`);
-                exitKernel(); // 🛜 remote
+                requestKernelExit(currentKernelPort);
                 bootWindow.destroy();
                 resolve(false);
             } else {
@@ -897,26 +1314,26 @@ const initKernel = (workspace, port, lang, safeMode) => {
                         showErrorWindow("启动超时", "Boot timeout",
                             "<div>内核启动超时，请查看 工作空间/temp/siyuan.log 获取详细报错信息，或尝试重启思源。</div>" +
                             "<div>Kernel boot timed out. Please check workspace/temp/siyuan.log for details, or try restarting SiYuan.</div>");
-                        net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                        requestKernelExit(currentKernelPort);
                         bootWindow.destroy();
                         resolve(false);
                         progressing = true;
                         break;
                     }
                     try {
-                        const progressResult = await net.fetch(getServer() + "/api/system/bootProgress");
+                        const progressResult = await net.fetch(getServer(currentKernelPort) + "/api/system/bootProgress");
                         const progressData = await progressResult.json();
                         if (progressData.data.progress >= 100) {
                             // 内核完成后等待动画快进收尾（200ms）再进入主窗口
                             await sleep(200);
-                            resolve(true);
+                            resolve(currentKernelPort);
                             progressing = true;
                         } else {
                             await sleep(100);
                         }
                     } catch (e) {
                         writeLog("get boot progress failed: " + e.message);
-                        exitKernel(); // 🛜 remote
+                        requestKernelExit(currentKernelPort);
                         bootWindow.destroy();
                         resolve(false);
                         progressing = true;
@@ -940,11 +1357,42 @@ app.whenReady().then(() => {
         }
     });
 
-    // 渲染进程崩溃监听，应用级别监听比 webContents 级别更早注册、更可靠（可覆盖所有渲染进程）
+    // 渲染进程崩溃监听，只有工作空间主窗口的非预期崩溃才会触发安全模式。
     app.on("render-process-gone", (event, webContents, details) => {
         writeLog("Render process gone [reason=" + details.reason + ", exitCode=" + details.exitCode + "]");
-        writeAppCrashLog(details.reason, details.exitCode);
-        exitApp(kernelPort); // 退出当前工作空间的窗口和内核进程，下次启动时由用户选择是否以安全模式启动
+        if (updateInstallPromise) {
+            writeLog("ignore renderer exit during update [webContentsId=" + webContents.id + "]");
+            return;
+        }
+        if (systemShutdownState !== systemShutdownNone) {
+            writeLog("ignore renderer exit during system shutdown [webContentsId=" + webContents.id + "]");
+            return;
+        }
+        if (expectedRendererExitIds.delete(webContents.id)) {
+            writeLog("ignore expected renderer exit [webContentsId=" + webContents.id + "]");
+            return;
+        }
+
+        const workspace = workspaces.find((item) => item.webContentsId === webContents.id);
+        if (!workspace) {
+            writeLog("ignore non-workspace renderer exit [webContentsId=" + webContents.id + "]");
+            return;
+        }
+        if (!safeModeReasons.has(details.reason)) {
+            writeLog("ignore renderer exit reason [reason=" + details.reason + "]");
+            return;
+        }
+        if (handledCrashWebContents.has(webContents.id)) {
+            return;
+        }
+
+        handledCrashWebContents.add(webContents.id);
+        writeAppCrashMarker(workspace, details);
+        requestKernelExit(workspace.port, {
+            force: true,
+            setCurrentWorkspace: false,
+        });
+        exitApp(workspace.port); // 退出崩溃的工作空间，下次启动时由用户选择启动方式。
     });
 
     const resetTrayMenu = (tray, lang, mainWindow) => {
@@ -1055,6 +1503,19 @@ app.whenReady().then(() => {
             return clipboard.read(data.format);
         }
         if (data.cmd === "showOpenDialog") {
+            if (data.singleton) {
+                const singleton = `${event.sender.id}:${data.singleton}`;
+                if (openDialogSingletons.has(singleton)) {
+                    return {canceled: true, filePaths: []};
+                }
+                openDialogSingletons.add(singleton);
+                const options = {...data};
+                delete options.cmd;
+                delete options.singleton;
+                return dialog.showOpenDialog(options).finally(() => {
+                    openDialogSingletons.delete(singleton);
+                });
+            }
             return dialog.showOpenDialog(data);
         }
         if (data.cmd === "getContentsId") {
@@ -1359,6 +1820,9 @@ app.whenReady().then(() => {
     ipcMain.on("siyuan-quit", (event, port) => {
         exitApp(port);
     });
+    ipcMain.handle("siyuan-install-update", (event, data) => {
+        return beginUpdateInstall(event, data);
+    });
     ipcMain.on("siyuan-show-window", (event) => {
         const mainWindow = getWindowByContentId(event.sender.id);
         if (!mainWindow) {
@@ -1418,6 +1882,10 @@ app.whenReady().then(() => {
         }
     });
     ipcMain.on("siyuan-open-workspace", (event, data) => {
+        if (updateInstallPromise) {
+            writeLog("ignored opening workspace while installing update");
+            return;
+        }
         const foundWorkspace = workspaces.find((item) => {
             if (item.workspaceDir === data.workspace) {
                 showWindow(item.browserWindow);
@@ -1425,17 +1893,17 @@ app.whenReady().then(() => {
             }
         });
         if (!foundWorkspace) {
-            initKernel(data.workspace, "", "").then((isSucc) => {
-                if (isSucc) {
-                    initMainWindow();
+            initKernel(data.workspace, "", "").then((startedKernelPort) => {
+                if (startedKernelPort) {
+                    initMainWindow(startedKernelPort);
                 }
             });
         }
     });
     ipcMain.handle("siyuan-init", async (event, data) => {
         const exitWS = workspaces.find(item => {
-            if (event.sender.id === item.browserWindow.webContents.id && item.workspaceDir) {
-                if (item.tray && "win32" === process.platform || "linux" === process.platform) {
+            if (event.sender.id === item.webContentsId && item.workspaceDir) {
+                if (item.tray && ("win32" === process.platform || "linux" === process.platform)) {
                     // Tray menu text does not change with the appearance language https://github.com/siyuan-note/siyuan/issues/7935
                     resetTrayMenu(item.tray, data.languages, item.browserWindow);
                 }
@@ -1446,27 +1914,27 @@ app.whenReady().then(() => {
             return;
         }
 
-        workspaces.find(item => {
-            if (!item.workspaceDir) {
-                item.workspaceDir = data.workspaceDir;
-                let tray;
-                if ("win32" === process.platform || "linux" === process.platform) {
-                    // 系统托盘
-                    tray = new Tray(path.join(appDir, "stage", "icon-large.png"));
-                    tray.setToolTip(`${path.basename(data.workspaceDir)} - SiYuan v${appVer}`);
-                    const mainWindow = getWindowByContentId(event.sender.id);
-                    if (!mainWindow || mainWindow.isDestroyed()) {
-                        return;
-                    }
+        const workspaceItem = workspaces.find((item) => event.sender.id === item.webContentsId);
+        if (workspaceItem) {
+            workspaceItem.workspaceDir = data.workspaceDir;
+            let tray;
+            if ("win32" === process.platform || "linux" === process.platform) {
+                // 系统托盘
+                tray = new Tray(path.join(appDir, "stage", "icon-large.png"));
+                tray.setToolTip(`${path.basename(data.workspaceDir)} - SiYuan v${appVer}`);
+                const mainWindow = getWindowByContentId(event.sender.id);
+                if (!mainWindow || mainWindow.isDestroyed()) {
+                    tray.destroy();
+                    tray = undefined;
+                } else {
                     resetTrayMenu(tray, data.languages, mainWindow);
                     tray.on("click", () => {
                         showHideWindow(tray, data.languages, mainWindow);
                     });
                 }
-                item.tray = tray;
-                return true;
             }
-        });
+            workspaceItem.tray = tray;
+        }
         await net.fetch(getServer(data.port) + "/api/system/uiproc?pid=" + process.pid, {method: "POST"});
     });
     ipcMain.on("siyuan-hotkey", (event, data) => {
@@ -1549,6 +2017,7 @@ app.whenReady().then(() => {
             args: data.openAsHidden ? ["--openAsHidden"] : ""
         });
     });
+    const appCrashInfo = readAppCrashInfo();
     if (firstOpen) {
         const firstOpenWindow = new BrowserWindow({
             width: Math.floor(screen.getPrimaryDisplay().size.width * 0.6),
@@ -1581,15 +2050,15 @@ app.whenReady().then(() => {
         firstOpenWindow.show();
         // 初始化启动
         ipcMain.on("siyuan-first-init", (event, data) => {
-            initKernel(data.workspace, "", data.lang).then((isSucc) => {
-                if (isSucc) {
-                    initMainWindow();
+            initKernel(data.workspace, "", data.lang).then((startedKernelPort) => {
+                if (startedKernelPort) {
+                    initMainWindow(startedKernelPort);
                 }
             });
             firstOpenWindow.destroy();
         });
-    } else if (hasAppCrashLog()) {
-        // 上次渲染进程崩溃，弹出安全模式选择窗口
+    } else if (appCrashInfo) {
+        // 上次工作空间渲染进程崩溃，弹出安全模式选择窗口。
         const safeModeWindow = new BrowserWindow({
             width: Math.floor(screen.getPrimaryDisplay().size.width * 0.55),
             height: Math.floor(screen.getPrimaryDisplay().workAreaSize.height * 0.65),
@@ -1610,12 +2079,11 @@ app.whenReady().then(() => {
         // 改进桌面端初始化时使用的外观语言 https://github.com/siyuan-note/siyuan/issues/6803
         const languages = app.getPreferredSystemLanguages();
         const language = resolveAppLanguage(languages);
-        let crashInfo = "";
-        try {
-            crashInfo = fs.readFileSync(appCrashLogPath, "utf8");
-        } catch (e) {
-            writeLog("read crash log failed: " + e);
+        let crashWorkspace = appCrashInfo.workspaceDir || lastWorkspacePath;
+        if (!appCrashInfo.workspaceDir && !isDirectory(crashWorkspace)) {
+            crashWorkspace = availableWorkspaces[availableWorkspaces.length - 1] || lastWorkspacePath;
         }
+        const crashWorkspaceMissing = !isDirectory(crashWorkspace);
         safeModeWindow.loadFile(safeModeHTMLPath, {
             query: {
                 lang: language,
@@ -1623,17 +2091,19 @@ app.whenReady().then(() => {
                 v: appVer,
                 icon: path.join(appDir, "stage", "icon-large.png"),
                 crash: "1",
-                workspace: lastWorkspacePath,
-                crashInfo: crashInfo,
+                workspace: crashWorkspace,
+                crashWorkspaceMissing: crashWorkspaceMissing ? "1" : "0",
+                missing: crashWorkspaceMissing ? crashWorkspace : "",
+                crashInfo: appCrashInfo.crashInfo,
             },
         });
         safeModeWindow.show();
-        // 用户选择启动方式后启动内核，仅在崩溃恢复路径下、内核启动成功后删除崩溃日志
+        // 用户选择启动方式后启动内核，仅在内核启动成功后删除崩溃信息。
         ipcMain.on("siyuan-select-workspace", (event, data) => {
-            initKernel(data.workspace, "", data.lang, data.safeMode).then((isSucc) => {
-                if (isSucc) {
-                    clearAppCrashLog();
-                    initMainWindow();
+            initKernel(data.workspace, "", data.lang, data.safeMode).then((startedKernelPort) => {
+                if (startedKernelPort) {
+                    clearAppCrashInfo();
+                    initMainWindow(startedKernelPort);
                 }
             });
             safeModeWindow.destroy();
@@ -1673,9 +2143,9 @@ app.whenReady().then(() => {
         missingWorkspaceWindow.show();
         // 选择工作空间后启动内核
         ipcMain.on("siyuan-select-workspace", (event, data) => {
-            initKernel(data.workspace, "", data.lang).then((isSucc) => {
-                if (isSucc) {
-                    initMainWindow();
+            initKernel(data.workspace, "", data.lang).then((startedKernelPort) => {
+                if (startedKernelPort) {
+                    initMainWindow(startedKernelPort);
                 }
             });
             missingWorkspaceWindow.destroy();
@@ -1693,9 +2163,13 @@ app.whenReady().then(() => {
         if (safeMode) {
             writeLog("got arg [--safe-mode=true]");
         }
-        initKernel(workspace, port, "", safeMode).then((isSucc) => {
-            if (isSucc) {
-                initMainWindow();
+        const lang = getArg("--lang") || "";
+        if (lang) {
+            writeLog("got arg [--lang=" + lang + "]");
+        }
+        initKernel(workspace, port, lang, safeMode).then((startedKernelPort) => {
+            if (startedKernelPort) {
+                initMainWindow(startedKernelPort);
             }
         });
     }
@@ -1736,10 +2210,7 @@ app.whenReady().then(() => {
     });
     powerMonitor.on("shutdown", () => {
         writeLog("system shutdown");
-        workspaces.forEach(item => {
-            const currentURL = new URL(item.browserWindow.getURL());
-            exitKernel(); // 🛜 remote
-        });
+        beginForcedSystemShutdown();
     });
     powerMonitor.on("lock-screen", () => {
         writeLog("system lock-screen");
@@ -1750,6 +2221,10 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", async (event, url) => { // for macOS
+    if (updateInstallPromise) {
+        writeLog("ignored URL while installing update");
+        return;
+    }
     if (url.startsWith("siyuan://")) {
         let isBackground = true;
         if (workspaces.length === 0) {
@@ -1776,6 +2251,10 @@ app.on("open-url", async (event, url) => { // for macOS
 
 app.on("second-instance", (event, argv) => {
     writeLog("second-instance [" + argv + "]");
+    if (updateInstallPromise) {
+        writeLog("ignored second instance while installing update");
+        return;
+    }
     let workspace = argv.find((arg) => arg.startsWith("--workspace="));
     if (workspace) {
         workspace = workspace.split("=")[1];
@@ -1787,6 +2266,13 @@ app.on("second-instance", (event, argv) => {
         writeLog("got second-instance arg [--port=" + port + "]");
     } else {
         port = 0;
+    }
+    let lang = argv.find((arg) => arg.startsWith("--lang="));
+    if (lang) {
+        lang = lang.split("=")[1];
+        writeLog("got second-instance arg [--lang=" + lang + "]");
+    } else {
+        lang = "";
     }
     const foundWorkspace = workspaces.find(item => {
         if (item.browserWindow && !item.browserWindow.isDestroyed()) {
@@ -1800,9 +2286,9 @@ app.on("second-instance", (event, argv) => {
         return;
     }
     if (workspace) {
-        initKernel(workspace, port, "").then((isSucc) => {
-            if (isSucc) {
-                initMainWindow();
+        initKernel(workspace, port, lang).then((startedKernelPort) => {
+            if (startedKernelPort) {
+                initMainWindow(startedKernelPort);
             }
         });
         return;
@@ -1821,6 +2307,9 @@ app.on("second-instance", (event, argv) => {
 });
 
 app.on("activate", () => {
+    if (updateInstallPromise) {
+        return;
+    }
     if (workspaces.length > 0) {
         const mainWindow = (latestActiveWindow && !latestActiveWindow.isDestroyed()) ? latestActiveWindow : workspaces[0].browserWindow;
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1845,6 +2334,10 @@ app.on("web-contents-created", (webContentsCreatedEvent, contents) => {
 });
 
 app.on("before-quit", (event) => {
+    if (keepAppOpenDuringUpdate) {
+        event.preventDefault();
+        return;
+    }
     workspaces.forEach(item => {
         if (item.browserWindow && !item.browserWindow.isDestroyed()) {
             event.preventDefault();
@@ -1875,33 +2368,121 @@ function writeLog(out) {
     }
 }
 
-// 记录渲染进程崩溃信息，多次崩溃追加记录，供下次启动时判断是否进入安全模式
-const writeAppCrashLog = (reason, exitCode) => {
+// 同步记录工作空间主渲染进程崩溃标记，确保主进程退出前落盘。
+const writeAppCrashMarker = (workspace, details) => {
+    const timestamp = new Date().toISOString();
+    const marker = {
+        version: 1,
+        timestamp: timestamp,
+        reason: details.reason,
+        exitCode: details.exitCode,
+        workspaceDir: workspace.workspaceDir || "",
+    };
+
     try {
-        const line = new Date().toISOString().replace(/T/, " ").replace(/\..+/, "") +
-            " Render process gone [reason=" + reason + ", exitCode=" + exitCode + "]\n";
-        // 与 writeLog 一致，用 readFileSync + writeFileSync 实现，确保同步落盘
+        fs.writeFileSync(appCrashMarkerPath, JSON.stringify(marker, null, 2));
+    } catch (e) {
+        console.error(e);
+    }
+
+    try {
+        const line = timestamp.replace(/T/, " ").replace(/\..+/, "") +
+            " Render process gone [reason=" + details.reason + ", exitCode=" + details.exitCode +
+            ", workspace=" + JSON.stringify(marker.workspaceDir) + "]";
         let log = "";
         if (fs.existsSync(appCrashLogPath)) {
-            log = fs.readFileSync(appCrashLogPath).toString();
+            log = fs.readFileSync(appCrashLogPath, "utf8");
         }
-        log += line;
-        fs.writeFileSync(appCrashLogPath, log);
+        const lines = (log + line).trimEnd().split("\n").slice(-20);
+        fs.writeFileSync(appCrashLogPath, lines.join("\n") + "\n");
     } catch (e) {
         console.error(e);
     }
 };
 
-// 删除崩溃日志，在内核启动成功后调用
-const clearAppCrashLog = () => {
+const isDirectory = (filePath) => {
+    if (!filePath) {
+        return false;
+    }
+
     try {
-        fs.unlinkSync(appCrashLogPath);
+        return fs.statSync(filePath).isDirectory();
     } catch (e) {
-        // 文件不存在等异常忽略
+        return false;
     }
 };
 
-// 是否存在崩溃日志（上次渲染进程崩溃）
-const hasAppCrashLog = () => {
-    return fs.existsSync(appCrashLogPath);
+// 优先读取结构化标记，并兼容旧版本的 app.crash.log。
+const readAppCrashInfo = () => {
+    if (fs.existsSync(appCrashMarkerPath)) {
+        try {
+            const markerText = fs.readFileSync(appCrashMarkerPath, "utf8");
+            const marker = JSON.parse(markerText);
+            if (noSafeModeReasons.has(marker.reason)) {
+                fs.unlinkSync(appCrashMarkerPath);
+            } else {
+                let crashInfo = markerText;
+                if (fs.existsSync(appCrashLogPath)) {
+                    crashInfo = fs.readFileSync(appCrashLogPath, "utf8");
+                }
+                return {
+                    workspaceDir: typeof marker.workspaceDir === "string" ? marker.workspaceDir : "",
+                    crashInfo: crashInfo,
+                };
+            }
+        } catch (e) {
+            writeLog("read crash marker failed: " + e);
+            try {
+                return {
+                    workspaceDir: "",
+                    crashInfo: fs.readFileSync(appCrashMarkerPath, "utf8"),
+                };
+            } catch (readError) {
+                writeLog("read invalid crash marker failed: " + readError);
+                return {
+                    workspaceDir: "",
+                    crashInfo: "Invalid renderer crash marker",
+                };
+            }
+        }
+    }
+
+    if (!fs.existsSync(appCrashLogPath)) {
+        return undefined;
+    }
+
+    try {
+        const crashInfo = fs.readFileSync(appCrashLogPath, "utf8");
+        const legacyLines = crashInfo.split(/\r?\n/).filter((line) => line.trim());
+        const reasons = legacyLines.map((line) => {
+            const match = line.match(/reason=([^,\]]+)/);
+            return match ? match[1] : undefined;
+        });
+        if (reasons.length > 0 && reasons.every((reason) => reason && noSafeModeReasons.has(reason))) {
+            fs.unlinkSync(appCrashLogPath);
+            writeLog("ignored legacy crash log without safe mode reason");
+            return undefined;
+        }
+        return {
+            workspaceDir: "",
+            crashInfo: crashInfo,
+        };
+    } catch (e) {
+        writeLog("read crash log failed: " + e);
+        return {
+            workspaceDir: "",
+            crashInfo: "Unreadable renderer crash log",
+        };
+    }
+};
+
+// 安全模式选择后内核启动成功，删除本次恢复所使用的崩溃信息。
+const clearAppCrashInfo = () => {
+    [appCrashMarkerPath, appCrashLogPath].forEach((filePath) => {
+        try {
+            fs.unlinkSync(filePath);
+        } catch (e) {
+            // 文件不存在等异常忽略。
+        }
+    });
 };

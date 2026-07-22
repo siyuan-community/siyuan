@@ -79,12 +79,14 @@ type AppConf struct {
 	Repo           *conf.Repo           `json:"repo"`           // 数据仓库
 	NotebookCrypto *conf.NotebookCrypto `json:"notebookCrypto"` // 加密笔记本密钥管理
 	Publish        *conf.Publish        `json:"publish"`        // 发布服务
-	OpenHelp       bool                 `json:"openHelp"`       // 启动后是否需要打开用户指南
+	Onboarding     *conf.Onboarding     `json:"onboarding"`     // 首次使用引导
 	ShowChangelog  bool                 `json:"showChangelog"`  // 是否显示版本更新日志
 	CloudRegion    int                  `json:"cloudRegion"`    // 云端区域，0：中国大陆，1：北美
 	Snippet        *conf.Snpt           `json:"snippet"`        // 代码片段
 	DataIndexState int                  `json:"dataIndexState"` // 数据索引状态，0：已索引，1：未索引
 	CookieKey      string               `json:"cookieKey"`      // 用于加密 Cookie 的密钥
+
+	MCPOAuth string `json:"mcpOAuth"` // MCP OAuth 凭据密文
 
 	m        *sync.RWMutex // 配置数据锁
 	userLock *sync.RWMutex // 用户数据独立锁，避免与配置保存操作竞争
@@ -98,6 +100,26 @@ func NewAppConf() *AppConf {
 		m:        &sync.RWMutex{},
 		userLock: &sync.RWMutex{},
 	}
+}
+
+func (conf *AppConf) GetMCPOAuth() string {
+	conf.m.RLock()
+	defer conf.m.RUnlock()
+	return conf.MCPOAuth
+}
+
+func (conf *AppConf) SetMCPOAuth(value string) {
+	conf.m.Lock()
+	conf.MCPOAuth = value
+	conf.m.Unlock()
+	conf.Save()
+}
+
+func (conf *AppConf) SetAI(ai *conf.AI) {
+	conf.m.Lock()
+	conf.AI = ai
+	conf.m.Unlock()
+	conf.Save()
 }
 
 func (conf *AppConf) GetUILayout() *conf.UILayout {
@@ -128,6 +150,7 @@ func InitConf() {
 	initLang()
 
 	Conf = NewAppConf()
+	clearEncryptedExportTempOnBoot()
 	confPath := filepath.Join(util.ConfDir, "conf.json")
 	if gulu.File.IsExist(confPath) {
 		if data, err := os.ReadFile(confPath); err != nil {
@@ -314,6 +337,10 @@ func InitConf() {
 	if nil == Conf.FileTree.CreateDocAtTop { // v3.4.0 之前的版本没有该字段，设置默认值为 true，即在顶部创建新文档，不改变用户习惯
 		Conf.FileTree.CreateDocAtTop = func() *bool { b := true; return &b }()
 	}
+	if nil == Conf.FileTree.BoxDocEnabled {
+		// 历史工作空间默认关闭顶层笔记本文档，新工作空间使用 NewFileTree 中的默认值。
+		Conf.FileTree.BoxDocEnabled = func() *bool { b := false; return &b }()
+	}
 
 	if conf.MinFileTreeRecentDocsListCount > Conf.FileTree.RecentDocsMaxListCount {
 		Conf.FileTree.RecentDocsMaxListCount = conf.MinFileTreeRecentDocsListCount
@@ -410,9 +437,9 @@ func InitConf() {
 		Conf.Graph = conf.NewGraph()
 	}
 
-	if nil == Conf.System {
+	isNewWorkspace := nil == Conf.System
+	if isNewWorkspace {
 		Conf.System = conf.NewSystem()
-		Conf.OpenHelp = true
 	} else {
 		cmp := semver.Compare("v"+util.Ver, "v"+Conf.System.KernelVersion)
 		if 0 < cmp {
@@ -424,6 +451,12 @@ func InitConf() {
 
 		Conf.System.KernelVersion = util.Ver
 		Conf.System.IsInsider = util.IsInsider
+	}
+	if nil == Conf.Onboarding {
+		Conf.Onboarding = &conf.Onboarding{State: conf.OnboardingCompleted}
+	}
+	if boxes, listErr := ListNotebooks(); listErr == nil {
+		prepareOnboardingForEmptyWorkspace(Conf.Onboarding, util.ReadOnly, len(boxes))
 	}
 	if nil == Conf.System.NetworkProxy {
 		Conf.System.NetworkProxy = &conf.NetworkProxy{}
@@ -527,10 +560,6 @@ func InitConf() {
 	if nil == Conf.Publish {
 		Conf.Publish = conf.NewPublish()
 	}
-	if Conf.OpenHelp && Conf.Publish.Enable {
-		Conf.OpenHelp = false
-	}
-
 	if nil == Conf.Repo {
 		Conf.Repo = conf.NewRepo()
 	}
@@ -648,11 +677,11 @@ func InitConf() {
 	}
 
 	for _, p := range Conf.AI.Providers {
-		if p == nil || len(p.APIKey) == 0 {
+		if p == nil || !p.Enabled {
 			continue
 		}
 		for _, m := range p.Models {
-			if m.Name == "" {
+			if m == nil || m.Name == "" || !m.Enabled {
 				continue
 			}
 			logging.LogInfof("AI provider enabled\n"+
@@ -837,11 +866,11 @@ var exitLock = sync.Mutex{}
 //
 // setCurrentWorkspace：是否将当前工作空间放到工作空间列表的最后一个
 //
-// execInstallPkg：是否执行新版本安装包
+// execInstallPkg：是否返回新版本安装包
 //
 //	0：默认按照设置项 System.DownloadInstallPkg 检查并推送提示
-//	1：不执行新版本安装
-//	2：执行新版本安装
+//	1：不返回新版本安装包
+//	2：返回新版本安装包路径并退出，由桌面宿主执行安装
 //
 // 返回值 exitCode：
 //
@@ -849,8 +878,9 @@ var exitLock = sync.Mutex{}
 //	1：同步执行失败
 //	2：提示新安装包
 //
-// 当 force 为 true（强制退出）并且 execInstallPkg 为 0（默认检查更新）并且同步失败并且新版本安装版已经准备就绪时，执行新版本安装 https://github.com/siyuan-note/siyuan/issues/10288
-func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
+// 当 force 为 true（强制退出）并且 execInstallPkg 为 0（默认检查更新）并且新版本安装包已经准备就绪时，将安装包路径返回给桌面宿主
+// https://github.com/siyuan-note/siyuan/issues/10288
+func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int, installPkgPath string) {
 	exitLock.Lock()
 	defer exitLock.Unlock()
 
@@ -871,6 +901,9 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 			syncData(true, false)
 			if 0 != ExitSyncSucc {
 				exitCode = 1
+				if 1 != execInstallPkg && !skipNewVerInstallPkg() {
+					installPkgPath = getNewVerInstallPkgPath()
+				}
 				return
 			}
 		}
@@ -883,16 +916,13 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	sql.FlushQueue()
 
 	util.IsExiting.Store(true)
-	waitSecondForExecInstallPkg := false
 	newVerInstallPkgPath := getNewVerInstallPkgPath()
 	if !skipNewVerInstallPkg() && "" != newVerInstallPkgPath {
-		if 2 == execInstallPkg || (force && 0 == execInstallPkg) { // 执行新版本安装
-			waitSecondForExecInstallPkg = true
-			if gulu.OS.IsWindows() {
-				util.PushMsg(Conf.Language(130), 1000*30)
-			}
-			go execNewVerInstallPkg(newVerInstallPkgPath)
+		if 2 == execInstallPkg || (force && 0 == execInstallPkg) { // 将新版本安装包交给桌面宿主执行
+			installPkgPath = newVerInstallPkgPath
+			logging.LogInfof("the new version install pkg is ready for the desktop host [%s]", newVerInstallPkgPath)
 		} else if 0 == execInstallPkg { // 新版本安装包已经准备就绪
+			installPkgPath = newVerInstallPkgPath
 			exitCode = 2
 			logging.LogInfof("the new version install pkg is ready [%s], waiting for the user's next instruction", newVerInstallPkgPath)
 			return
@@ -912,7 +942,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	sql.CloseDatabase()
 	closePushQueue()
 	util.SaveAssetsTexts()
-	clearWorkspaceTemp()
+	clearWorkspaceTemp("" != installPkgPath)
 	clearCorruptedNotebooks()
 	clearPortJSON()
 
@@ -933,14 +963,6 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	util.UnlockWorkspace()
 
 	time.Sleep(500 * time.Millisecond)
-	if waitSecondForExecInstallPkg {
-		// 桌面端退出拉起更新安装时有时需要重启两次 https://github.com/siyuan-note/siyuan/issues/6544
-		// 这里多等待一段时间，等待安装程序启动
-		if gulu.OS.IsWindows() {
-			time.Sleep(30 * time.Second)
-		}
-	}
-
 	closeSyncWebSocket()
 
 	go func() {
@@ -1004,26 +1026,35 @@ func (conf *AppConf) Save() {
 		return
 	}
 
-	Conf.m.Lock()
-	defer Conf.m.Unlock()
+	conf.m.Lock()
+	defer conf.m.Unlock()
 
-	if nil != Conf.AI {
-		Conf.AI.EncryptAPIKeys()
-		defer Conf.AI.DecryptAPIKeys()
+	plainData, err := gulu.JSON.MarshalJSON(conf)
+	if err != nil {
+		logging.LogErrorf("marshal conf failed: %s", err)
+		return
 	}
-
-	if nil != Conf.Secrets {
-		Conf.Secrets.Encrypt()
-		defer Conf.Secrets.Decrypt()
+	snapshot := NewAppConf()
+	if err = gulu.JSON.UnmarshalJSON(plainData, snapshot); err != nil {
+		logging.LogErrorf("copy conf failed: %s", err)
+		return
 	}
-
+	if snapshot.AI != nil {
+		snapshot.AI.EncryptAPIKeys()
+	}
+	if snapshot.Secrets != nil {
+		snapshot.Secrets.Encrypt()
+	}
 	// safeMode 是纯运行时状态（由 --safe-mode 注入），不随 conf.json 持久化，避免跨启动残留。
-	// 序列化写盘时临时清零，写完恢复内存值（供 getConf 等运行时读取）。
-	safeMode := Conf.System.SafeMode
-	Conf.System.SafeMode = false
-	defer func() { Conf.System.SafeMode = safeMode }()
+	if snapshot.System != nil {
+		snapshot.System.SafeMode = false
+	}
 
-	newData, _ := gulu.JSON.MarshalIndentJSON(Conf, "", "  ")
+	newData, err := gulu.JSON.MarshalIndentJSON(snapshot, "", "  ")
+	if err != nil {
+		logging.LogErrorf("marshal conf snapshot failed: %s", err)
+		return
+	}
 	confPath := filepath.Join(util.ConfDir, "conf.json")
 	oldData, err := filelock.ReadFile(confPath)
 	if err != nil {
@@ -1151,6 +1182,9 @@ func InitBoxes() {
 	blockCount := treenode.CountBlocks()
 	initialized := 0 < blockCount
 	for _, box := range Conf.GetOpenedBoxes() {
+		if _, err := EnsureBoxDoc(box.ID); nil != err {
+			logging.LogErrorf("ensure box document [%s] failed: %s", box.ID, err)
+		}
 		box.UpdateHistoryGenerated() // 初始化历史生成时间为当前时间
 
 		if !initialized {
@@ -1201,6 +1235,7 @@ func GetMaskedConf() (ret *AppConf, err error) {
 	}
 
 	ret.UserData = MaskedUserData
+	ret.MCPOAuth = ""
 	if "" != ret.AccessAuthCode {
 		ret.AccessAuthCode = MaskedAccessAuthCode
 	}
@@ -1211,6 +1246,7 @@ func GetMaskedConf() (ret *AppConf, err error) {
 // REF: https://github.com/siyuan-note/siyuan/issues/11364
 func HideConfSecret(c *AppConf) {
 	c.AI = &conf.AI{}
+	c.MCPOAuth = ""
 	c.Api = &conf.API{}
 	c.Flashcard = &conf.Flashcard{}
 	c.ServerAddrs = []string{}
@@ -1285,7 +1321,7 @@ func clearCorruptedNotebooks() {
 	}
 }
 
-func clearWorkspaceTemp() {
+func clearWorkspaceTemp(preserveInstallPkgs bool) {
 	os.RemoveAll(filepath.Join(util.TempDir, "bazaar"))
 	os.RemoveAll(filepath.Join(util.TempDir, "export"))
 	os.RemoveAll(filepath.Join(util.TempDir, "import"))
@@ -1297,7 +1333,7 @@ func clearWorkspaceTemp() {
 
 	// 退出时自动删除超过 7 天的安装包 https://github.com/siyuan-note/siyuan/issues/6128
 	install := filepath.Join(util.TempDir, "install")
-	if gulu.File.IsDir(install) {
+	if !preserveInstallPkgs && gulu.File.IsDir(install) {
 		monthAgo := time.Now().Add(-time.Hour * 24 * 7)
 		entries, err := os.ReadDir(install)
 		if err != nil {
@@ -1306,8 +1342,9 @@ func clearWorkspaceTemp() {
 			for _, entry := range entries {
 				info, _ := entry.Info()
 				if nil != info && !info.IsDir() && info.ModTime().Before(monthAgo) {
-					if err = os.RemoveAll(filepath.Join(install, entry.Name())); err != nil {
-						logging.LogErrorf("remove old install pkg [%s] failed: %s", filepath.Join(install, entry.Name()), err)
+					installPkgPath := filepath.Join(install, entry.Name())
+					if err = os.RemoveAll(installPkgPath); err != nil {
+						logging.LogErrorf("remove old install pkg [%s] failed: %s", installPkgPath, err)
 					}
 				}
 			}
@@ -1351,6 +1388,7 @@ func clearWorkspaceTemp() {
 	os.RemoveAll(filepath.Join(util.TempDir, "queue.wal"))
 	os.RemoveAll(filepath.Join(util.TempDir, "queue.wal.lock"))
 	os.RemoveAll(filepath.Join(util.DataDir, "storage", "ai", "agent", "todos"))
+	os.RemoveAll(filepath.Join(util.DataDir, "storage", "ai", "agent", "operations", "image"))
 
 	logging.LogInfof("cleared workspace temp")
 }

@@ -26,7 +26,8 @@ import {
     getFiltersHTML,
     hasFilterForColumn,
     removeFilterByPath,
-    removeFiltersByColumn
+    removeFiltersByColumn,
+    prepareFilterColumns
 } from "./filter";
 import {genCellValue, updateCellsValue} from "./cell";
 import {addSort, bindSortsEvent, getSortsHTML} from "./sort";
@@ -107,7 +108,7 @@ export const openMenuPanel = (options: {
         ignoreRows,
     };
     // 接收视图数据并构建面板 DOM、绑定事件。fetch 回调与 options.data 复用两条路径都走这里
-    const renderData = (responseData: IAV) => {
+    const renderData = async (responseData: IAV) => {
         const response = {data: responseData} as IWebSocketData;
         avPanelElement = document.querySelector(".av__panel");
         if (avPanelElement) {
@@ -119,6 +120,9 @@ export const openMenuPanel = (options: {
 
         const isCustomAttr = !options.blockElement.classList.contains("av");
         let data = response.data as IAV;
+        if (options.type === "filters") {
+            await prepareFilterColumns(data);
+        }
         let html;
         let fields = getFieldsByData(data);
         if (options.type === "config") {
@@ -1286,6 +1290,7 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "goUpdateColType") {
+                    window.siyuan.menus.menu.remove();
                     const editMenuElement = hasClosestByClassName(target, "b3-menu");
                     if (editMenuElement) {
                         editMenuElement.firstElementChild.classList.add("fn__none");
@@ -1296,7 +1301,7 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "goSearchAV") {
-                    openSearchAV(avID, target, undefined, false);
+                    openSearchAV(avID, target, undefined, false, options.blockElement.getAttribute("data-node-id"));
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -1589,7 +1594,7 @@ export const openMenuPanel = (options: {
                         previewAttrViewImages(assetLink, avID, options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW),
                             options.blockElement.querySelector('[data-type="av-search"]')?.textContent.trim() || "");
                     } else {
-                        openLink(options.protyle, assetLink, event, event.ctrlKey || event.metaKey);
+                        openLink(options.protyle.app, assetLink, event, event.ctrlKey || event.metaKey);
                     }
                     event.preventDefault();
                     event.stopPropagation();
@@ -1964,4 +1969,3 @@ ${hideHTML}
 </button>
 </div>`;
 };
-

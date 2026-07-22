@@ -20,7 +20,7 @@ import "github.com/siyuan-community/siyuan/kernel/util"
 
 type Editor struct {
 	AllowSVGScript                  bool           `json:"allowSVGScript"`                  // 允许执行 SVG 内脚本
-	AllowHTMLBLockScript            bool           `json:"allowHTMLBLockScript"`            // 允许执行 HTML 块内脚本
+	AllowHTMLBLockScript            bool           `json:"allowHTMLBLockScript"`            // 允许执行 HTML 内容中的脚本
 	FontSize                        int            `json:"fontSize"`                        // 字体大小
 	FontSizeScrollZoom              bool           `json:"fontSizeScrollZoom"`              // 字体大小是否支持滚轮缩放
 	FontFamily                      string         `json:"fontFamily"`                      // 字体
@@ -32,6 +32,7 @@ type Editor struct {
 	CodeLigatures                   bool           `json:"codeLigatures"`                   // 代码块是否连字
 	DisplayBookmarkIcon             bool           `json:"displayBookmarkIcon"`             // 是否显示内容块角标
 	DisplayNetImgMark               bool           `json:"displayNetImgMark"`               // 是否显示网络图片角标
+	DatabaseAttrViewMode            int            `json:"databaseAttrViewMode"`            // 数据库属性默认展开状态，0：展开，1：折叠
 	GenerateHistoryInterval         int            `json:"generateHistoryInterval"`         // 生成历史时间间隔，单位：分钟
 	HistoryRetentionDays            int            `json:"historyRetentionDays"`            // 历史保留天数
 	Emoji                           []string       `json:"emoji"`                           // 常用表情
@@ -78,6 +79,7 @@ func NewEditor() *Editor {
 		CodeLigatures:                   false,
 		DisplayBookmarkIcon:             true,
 		DisplayNetImgMark:               true,
+		DatabaseAttrViewMode:            0,
 		GenerateHistoryInterval:         10,
 		HistoryRetentionDays:            30,
 		Emoji:                           []string{},

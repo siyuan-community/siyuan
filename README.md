@@ -38,7 +38,6 @@
 - [💡 Introduction](#-introduction)
 - [🔮 Features](#-features)
 - [🏗️ Architecture and Ecosystem](#-architecture-and-ecosystem)
-- [🌟 Star History](#-star-history)
 - [🗺️ Roadmap](#️-roadmap)
 - [🚀 Download Setup](#-download-setup)
   - [App Market](#app-market)
@@ -130,16 +129,6 @@ Some features are only available to paid members, for more details please refer 
 | [ios](https://github.com/siyuan-note/siyuan-ios)         | iOS App               | ![GitHub forks](https://img.shields.io/github/forks/siyuan-note/siyuan-ios)     | ![GitHub Repo stars](https://img.shields.io/github/stars/siyuan-note/siyuan-ios)     |
 | [harmony](https://github.com/siyuan-note/siyuan-harmony) | HarmonyOS App         | ![GitHub forks](https://img.shields.io/github/forks/siyuan-note/siyuan-harmony) | ![GitHub Repo stars](https://img.shields.io/github/stars/siyuan-note/siyuan-harmony) |
 | [riff](https://github.com/siyuan-note/riff)              | Spaced repetition     | ![GitHub forks](https://img.shields.io/github/forks/siyuan-note/riff)           | ![GitHub Repo stars](https://img.shields.io/github/stars/siyuan-note/riff)           |
-
-## 🌟 Star History
-
-<a href="https://star-history.com/#siyuan-note/siyuan&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=siyuan-note/siyuan&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=siyuan-note/siyuan&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=siyuan-note/siyuan&type=Date" />
- </picture>
-</a>
 
 ## 🗺️ Roadmap
 
@@ -467,11 +456,6 @@ Data synchronization through third-party synchronization disks is not supported,
 
 Although it does not support third-party sync disks, it supports connecting with third-party cloud storage (Members' privileges).
 
-In addition, you can also consider manually exporting and importing data to achieve data synchronization:
-
-- Desktop: <kbd>Settings</kbd> - <kbd>Export</kbd> - <kbd>Export Data</kbd> / <kbd>Import Data</kbd>
-- Mobile: <kbd>Right column</kbd> - <kbd>About</kbd> - <kbd>Export Data</kbd> / <kbd>Import Data</kbd>
-
 ### Is SiYuan open source?
 
 SiYuan is completely open source, and contributions are welcome:
@@ -487,7 +471,7 @@ For more details, please refer to [Development Guide](https://github.com/siyuan-
 ### How to upgrade to a new version?
 
 - If installed via app store, please update via app store
-- If it is installed through the installation package on the desktop, you can enable the option of <kbd>Settings</kbd> - <kbd>About</kbd> - <kbd>Automatically download update installation package</kbd>, so that SiYuan will automatically download the latest version of the installation package and prompt to install
+- If it is installed with the desktop installation package on Windows or macOS, you can enable the option of <kbd>Settings</kbd> - <kbd>About</kbd> - <kbd>Automatically download update installation package</kbd>, so that SiYuan will automatically download the latest version of the installation package and prompt to install
 - If it is installed by manual installation package, please download the installation package again to install
 
 You can <kbd>Check update</kbd> in <kbd>Settings</kbd> - <kbd>About</kbd> - <kbd>Current Version</kbd>, or pay attention to [Official Download](https://b3log.org/siyuan/en/download.html) or [GitHub Releases](https://github.com/siyuan-note/siyuan/releases) to get the new version.
@@ -498,11 +482,11 @@ The block icon is omitted for the first sub-block under the list item. You can m
 
 ### What should I do if the data repo key is lost?
 
-- If the data repo key is correctly initialized on multiple devices previously, the key is the same on all devices and can be retrieved in <kbd>Settings</kbd> - <kbd>About</kbd> - <kbd>Data repo key</kbd> - <kbd>Copy key string</kbd>
+- If the data repo key is correctly initialized on multiple devices previously, the key is the same on all devices and can be retrieved in <kbd>Settings</kbd> - <kbd>Account & Sync</kbd> - <kbd>Local Data Repo</kbd> - <kbd>Data repo key</kbd> - <kbd>Copy key string</kbd>
 - If it has not been configured correctly before (for example, the keys on multiple devices are inconsistent) or all devices are unavailable and the key string cannot be obtained, you can reset the key by following the steps below:
 
   1. Manually back up the data, you can use <kbd>Export Data</kbd> or directly copy the <kbd>workspace/data/</kbd> folder on the file system
-  2. <kbd>Settings</kbd> - <kbd>About</kbd> - <kbd>Data repo key</kbd> - <kbd>Reset data repo</kbd>
+  2. <kbd>Settings</kbd> - <kbd>Account & Sync</kbd> - <kbd>Local Data Repo</kbd> - <kbd>Data repo key</kbd> - <kbd>Reset data repo</kbd>
   3. Reinitialize the data repo key. After initializing the key on one device, other devices import the key
   4. The cloud uses the new synchronization directory, the old synchronization directory is no longer available and can be deleted
   5. The existing cloud snapshots are no longer available and can be deleted

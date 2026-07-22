@@ -17,12 +17,14 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
@@ -128,10 +130,36 @@ func fullTextSearchAssetContent(c *gin.Context) {
 	}
 
 	page, pageSize, query, types, method, orderBy := parseSearchAssetContentArgs(arg)
-	assetContents, matchedAssetCount, pageCount := model.FullTextSearchAssetContent(query, types, method, orderBy, page, pageSize)
-	if model.IsReadOnlyRoleContext(c) {
+	if method == 2 && !model.IsAdminRoleContext(c) {
+		ret.Code = -1
+		ret.Msg = "SQL search requires administrator privileges"
+		return
+	}
+
+	isReadOnlyRole := model.IsReadOnlyRoleContext(c)
+	searchPage, searchPageSize := page, pageSize
+	if isReadOnlyRole {
+		searchPage = 1
+		searchPageSize = model.Conf.Search.Limit
+	}
+	assetContents, matchedAssetCount, pageCount, err := model.FullTextSearchAssetContent(query, types, method, orderBy, searchPage, searchPageSize)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	if isReadOnlyRole {
 		publishAccess := model.GetPublishAccess()
 		assetContents = model.FilterAssetContentByPublishAccess(c, publishAccess, assetContents)
+		matchedAssetCount = len(assetContents)
+		pageCount = (matchedAssetCount + pageSize - 1) / pageSize
+		if page > pageCount {
+			assetContents = []*model.AssetContent{}
+		} else {
+			from := (page - 1) * pageSize
+			to := min(from+pageSize, matchedAssetCount)
+			assetContents = assetContents[from:to]
+		}
 	}
 	ret.Data = map[string]any{
 		"assetContents":     assetContents,
@@ -300,10 +328,19 @@ func getEmbedBlock(c *gin.Context) {
 		breadcrumb = breadcrumbArg.(bool)
 	}
 
-	blocks := model.GetEmbedBlock(embedBlockID, includeIDs, headingMode, breadcrumb)
-	if model.IsReadOnlyRoleContext(c) {
+	isReadOnlyRole := model.IsReadOnlyRoleContext(c)
+	var blocks []*model.EmbedBlock
+	if isReadOnlyRole {
 		publishAccess := model.GetPublishAccess()
+		if !model.CheckBlockIdAccessableByPublishAccess(c, publishAccess, embedBlockID) {
+			ret.Code = -1
+			ret.Msg = fmt.Sprintf(model.Conf.Language(15), embedBlockID)
+			return
+		}
+		blocks = model.GetEmbedBlockForPublish(embedBlockID, includeIDs, headingMode, breadcrumb)
 		blocks = model.FilterEmbedBlocksByPublishAccess(c, publishAccess, blocks)
+	} else {
+		blocks = model.GetEmbedBlock(embedBlockID, includeIDs, headingMode, breadcrumb)
 	}
 	ret.Data = map[string]any{
 		"blocks": blocks,
@@ -345,6 +382,7 @@ func searchEmbedBlock(c *gin.Context) {
 
 	embedBlockID := arg["embedBlockID"].(string)
 	stmt := arg["stmt"].(string)
+	boxID, _ := arg["notebook"].(string)
 	excludeIDsArg := arg["excludeIDs"].([]any)
 	var excludeIDs []string
 	for _, excludeID := range excludeIDsArg {
@@ -364,16 +402,41 @@ func searchEmbedBlock(c *gin.Context) {
 		breadcrumb = breadcrumbArg.(bool)
 	}
 
-	// 加密笔记本的嵌入块查询走 InBox 版（查加密 content db，全局库不含加密数据）
-	var blocks []*model.EmbedBlock
-	if notebook, ok := arg["notebook"].(string); ok && notebook != "" && model.IsEncryptedBox(notebook) {
-		blocks = model.SearchEmbedBlockInBox(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb, notebook)
-	} else {
-		blocks = model.SearchEmbedBlock(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb)
+	isReadOnlyRole := model.IsReadOnlyRoleContext(c)
+	var publishAccess model.PublishAccess
+	if isReadOnlyRole {
+		publishAccess = model.GetPublishAccess()
+		if !model.CheckBlockIdAccessableByPublishAccess(c, publishAccess, embedBlockID) {
+			ret.Code = -1
+			ret.Msg = fmt.Sprintf(model.Conf.Language(15), embedBlockID)
+			return
+		}
+		var err error
+		stmt, boxID, err = model.GetQueryEmbedStatement(embedBlockID)
+		if nil != err {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
 	}
-	if model.IsReadOnlyRoleContext(c) {
-		publishAccess := model.GetPublishAccess()
+
+	if err := sql.CheckSingleStatement(stmt); nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	if err := sql.CheckReadonlyStatementInBox(stmt, boxID); nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	var blocks []*model.EmbedBlock
+	if isReadOnlyRole {
+		blocks = model.SearchEmbedBlockForPublish(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb, boxID)
 		blocks = model.FilterEmbedBlocksByPublishAccess(c, publishAccess, blocks)
+	} else {
+		blocks = model.SearchEmbedBlockInBox(embedBlockID, stmt, excludeIDs, headingMode, breadcrumb, boxID)
 	}
 	ret.Data = map[string]any{
 		"blocks": blocks,

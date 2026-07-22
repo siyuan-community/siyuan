@@ -48,16 +48,12 @@ func GetBoxByName(name string) (ret *Box) {
 }
 
 func CreateBox(name string) (id string, err error) {
-	name = util.RemoveInvalid(name)
+	name = normalizeBoxName(name)
 	if 512 < utf8.RuneCountInString(name) {
 		// 限制笔记本名和文档名最大长度为 `512` https://github.com/siyuan-note/siyuan/issues/6299
 		err = errors.New(Conf.Language(106))
 		return
 	}
-	if "" == name {
-		name = Conf.language(105)
-	}
-
 	FlushTxQueue()
 
 	createDocLock.Lock()
@@ -85,6 +81,14 @@ func CreateBox(name string) (id string, err error) {
 	if err := box.SaveConf(boxConf); err != nil {
 		logging.LogErrorf("save box conf [%s] failed: %s", id, err)
 	}
+	if _, err = ensureBoxDoc0(id); err != nil {
+		treenode.RemoveBlockTreesByBoxID(id)
+		sql.DeleteBoxQueue(id)
+		if removeErr := filelock.Remove(boxLocalPath); nil != removeErr {
+			logging.LogErrorf("remove box [%s] after initializing box document failed: %s", id, removeErr)
+		}
+		return "", err
+	}
 	IncSync()
 	logging.LogInfof("created box [%s]", id)
 	return
@@ -96,25 +100,35 @@ func RenameBox(boxID, name string) (err error) {
 		return errors.New(Conf.Language(0))
 	}
 
+	name = normalizeBoxName(name)
 	if 512 < utf8.RuneCountInString(name) {
 		// 限制笔记本名和文档名最大长度为 `512` https://github.com/siyuan-note/siyuan/issues/6299
 		err = errors.New(Conf.Language(106))
 		return
 	}
 
-	if "" == name {
-		name = Conf.language(105)
-	}
-
 	boxConf := box.GetConf()
 	boxConf.Name = name
 	box.Name = name
-	if err := box.SaveConf(boxConf); err != nil {
+	if err = box.SaveConf(boxConf); err != nil {
 		logging.LogErrorf("save box conf [%s] failed: %s", boxID, err)
+		return
+	}
+	if err = renameBoxDoc(boxID, name); err != nil {
+		logging.LogErrorf("rename box document [box=%s] failed: %s", boxID, err)
+		return
 	}
 	IncSync()
 	logging.LogInfof("renamed box [%s] to [%s]", boxID, name)
 	return
+}
+
+func normalizeBoxName(name string) string {
+	name = normalizeDocTitle(name)
+	if "" == name {
+		name = normalizeDocTitle(Conf.language(105))
+	}
+	return name
 }
 
 var boxLock = sync.Map{}
@@ -227,6 +241,9 @@ func Unmount(boxID string) {
 		"box": boxID,
 	}
 	util.PushEvent(evt)
+	if cmdName == "removeBox" {
+		TriggerOnboardingIfEmpty()
+	}
 }
 
 // clearDEKIfUnlockedEncryptedBox 清除已解锁但未挂载的加密笔记本的 DEK。
@@ -325,11 +342,6 @@ func Mount(boxID string) (alreadyMount bool, err error) {
 			box.SaveConf(boxConf)
 		}
 
-		if Conf.OpenHelp {
-			Conf.OpenHelp = false
-			Conf.Save()
-		}
-
 		task.AppendAsyncTaskWithDelay(task.PushMsg, 3*time.Second, util.PushErrMsg, Conf.Language(244), 7000)
 		go func() {
 			// 每次打开帮助文档时自动检查版本更新并提醒 https://github.com/siyuan-note/siyuan/issues/5057
@@ -361,10 +373,14 @@ func Mount(boxID string) (alreadyMount bool, err error) {
 	if err := box.SaveConf(boxConf); err != nil {
 		logging.LogErrorf("save box conf [%s] failed: %s", boxID, err)
 	}
+	if _, ensureErr := EnsureBoxDoc(boxID); nil != ensureErr {
+		logging.LogErrorf("ensure box document [%s] failed: %s", boxID, ensureErr)
+	}
 
 	// 缓存根一级的文档树展开
 	files, _, _ := ListDocTree(box.ID, "/", util.SortModeUnassigned, false, false, Conf.FileTree.MaxListCount)
-	if 0 < len(files) {
+	box = Conf.Box(boxID)
+	if 0 < len(files) || (nil != box && box.Exist(boxDocPath(box.ID))) {
 		box.Index()
 	}
 

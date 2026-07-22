@@ -217,11 +217,16 @@ func GetPathPasswordByPublishAccess(box string, blockPath string, publishAccess 
 }
 
 func CheckBlockIdAccessableByPublishAccess(c *gin.Context, publishAccess PublishAccess, blockID string) bool {
-	publishIgnore := GetDisablePublishAccess(publishAccess)
 	bt := treenode.GetBlockTree(blockID)
+	return checkBlockTreeAccessableByPublishAccess(c, publishAccess, bt)
+}
+
+func checkBlockTreeAccessableByPublishAccess(c *gin.Context, publishAccess PublishAccess, bt *treenode.BlockTree) bool {
 	if bt == nil {
 		return false
 	}
+
+	publishIgnore := GetDisablePublishAccess(publishAccess)
 	passwordID, password := GetPathPasswordByPublishAccess(bt.BoxID, bt.Path, publishAccess)
 	return CheckPathAccessableByPublishIgnore(bt.BoxID, bt.Path, publishIgnore) && (password == "" || CheckPublishAuthCookie(c, passwordID, password))
 }
@@ -421,6 +426,80 @@ func FilterBlockAttributeViewKeysByPublishAccess(c *gin.Context, publishAccess P
 	return
 }
 
+func FilterAttributeViewBacklinksByPublishAccess(c *gin.Context, publishAccess PublishAccess, backlinks *AttributeViewBacklinks) (ret *AttributeViewBacklinks) {
+	ret = &AttributeViewBacklinks{Items: []*AttributeViewBacklink{}}
+	if nil == backlinks {
+		return
+	}
+
+	publishIgnore := GetDisablePublishAccess(publishAccess)
+	accessibleTargetAvIDs := map[string]bool{}
+	checkedTargetAvIDs := map[string]bool{}
+	cachedBlockTrees := map[string]map[string]*treenode.BlockTree{}
+	for _, backlink := range backlinks.Items {
+		var relations []*AttributeViewBacklinkRelation
+		for _, relation := range backlink.Relations {
+			if !checkedTargetAvIDs[relation.TargetAvID] {
+				checkedTargetAvIDs[relation.TargetAvID] = true
+				for _, bt := range treenode.GetBlockTrees(treenode.GetMirrorAttrViewBlockIDs(relation.TargetAvID)) {
+					passwordID, password := GetPathPasswordByPublishAccess(bt.BoxID, bt.Path, publishAccess)
+					if ("" == password || CheckPublishAuthCookie(c, passwordID, password)) &&
+						CheckPathAccessableByPublishIgnore(bt.BoxID, bt.Path, publishIgnore) {
+						accessibleTargetAvIDs[relation.TargetAvID] = true
+						break
+					}
+				}
+			}
+			if accessibleTargetAvIDs[relation.TargetAvID] {
+				relations = append(relations, relation)
+			}
+		}
+		if 1 > len(relations) {
+			continue
+		}
+		backlink.Relations = relations
+
+		databaseAccessible := false
+		blockTrees := cachedBlockTrees[backlink.AvID]
+		if nil == blockTrees {
+			blockTrees = treenode.GetBlockTrees(backlink.BlockIDs)
+			cachedBlockTrees[backlink.AvID] = blockTrees
+		}
+		for _, blockID := range backlink.BlockIDs {
+			bt := blockTrees[blockID]
+			if nil == bt {
+				continue
+			}
+			passwordID, password := GetPathPasswordByPublishAccess(bt.BoxID, bt.Path, publishAccess)
+			if ("" == password || CheckPublishAuthCookie(c, passwordID, password)) &&
+				CheckPathAccessableByPublishIgnore(bt.BoxID, bt.Path, publishIgnore) {
+				databaseAccessible = true
+				backlink.DatabaseBlockID = bt.ID
+				backlink.BoxID = bt.BoxID
+				backlink.DatabasePath = bt.HPath
+				break
+			}
+		}
+		if !databaseAccessible {
+			continue
+		}
+		if "" != backlink.BoundBlockID && !backlink.IsDetached {
+			bt := treenode.GetBlockTree(backlink.BoundBlockID)
+			if nil == bt {
+				continue
+			}
+			passwordID, password := GetPathPasswordByPublishAccess(bt.BoxID, bt.Path, publishAccess)
+			if ("" != password && !CheckPublishAuthCookie(c, passwordID, password)) ||
+				!CheckPathAccessableByPublishIgnore(bt.BoxID, bt.Path, publishIgnore) {
+				continue
+			}
+		}
+		ret.Items = append(ret.Items, backlink)
+	}
+	ret.Total = len(ret.Items)
+	return
+}
+
 func FilterBlockInfoByPublishAccess(c *gin.Context, publishAccess PublishAccess, info *BlockInfo) (ret *BlockInfo) {
 	ret = info
 	if info == nil {
@@ -519,8 +598,28 @@ func FilterContentByPublishAccess(c *gin.Context, publishAccess PublishAccess, b
 func FilterEmbedBlocksByPublishAccess(c *gin.Context, publishAccess PublishAccess, embedBlocks []*EmbedBlock) (ret []*EmbedBlock) {
 	ret = []*EmbedBlock{}
 	for _, embedBlock := range embedBlocks {
-		embedBlock.Block.Content = FilterContentByPublishAccess(c, publishAccess, embedBlock.Block.Box, embedBlock.Block.Path, embedBlock.Block.Content, false)
-		ret = append(ret, embedBlock)
+		if nil == embedBlock || nil == embedBlock.Block {
+			continue
+		}
+
+		block := embedBlock.Block
+		publishIgnore := GetDisablePublishAccess(publishAccess)
+		passwordID, password := GetPathPasswordByPublishAccess(block.Box, block.Path, publishAccess)
+		accessible := CheckPathAccessableByPublishIgnore(block.Box, block.Path, publishIgnore) &&
+			(password == "" || CheckPublishAuthCookie(c, passwordID, password))
+		if !accessible {
+			// 不返回不可访问的查询结果，避免泄漏结果数量、顺序和访问控制边界。
+			continue
+		}
+
+		ret = append(ret, &EmbedBlock{
+			Block: &Block{
+				ID:      block.ID,
+				Content: block.Content,
+			},
+			BlockPaths:          embedBlock.BlockPaths,
+			AllowChildOperation: embedBlock.AllowChildOperation,
+		})
 	}
 	return
 }
@@ -560,6 +659,25 @@ func FilterBlocksByPublishAccess(c *gin.Context, publishAccess PublishAccess, bl
 		passwordID, password := GetPathPasswordByPublishAccess(block.Box, block.Path, publishAccess)
 		if CheckPathAccessableByPublishIgnore(block.Box, block.Path, publishIgnore) && (c == nil || password == "" || CheckPublishAuthCookie(c, passwordID, password)) {
 			ret = append(ret, block)
+		}
+	}
+	return
+}
+
+func FilterSearchDocsByPublishAccess(c *gin.Context, publishAccess PublishAccess, docs []map[string]string) (ret []map[string]string) {
+	ret = []map[string]string{}
+
+	publishIgnore := GetInvisiblePublishAccess(publishAccess)
+
+	for _, doc := range docs {
+		box, docPath := doc["box"], doc["path"]
+		if !ast.IsNodeIDPattern(box) || (docPath != "/" && !strings.HasPrefix(docPath, "/")) {
+			continue
+		}
+		passwordID, password := GetPathPasswordByPublishAccess(box, docPath, publishAccess)
+		if CheckPathAccessableByPublishIgnore(box, docPath, publishIgnore) &&
+			(password == "" || CheckPublishAuthCookie(c, passwordID, password)) {
+			ret = append(ret, doc)
 		}
 	}
 	return

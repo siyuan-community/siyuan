@@ -24,6 +24,7 @@ SiYuan spans several repos. This repo (`siyuan`) holds the kernel + Electron/web
 | `siyuan` | **This repo** — kernel + Electron/web/tablet UI |
 | `siyuan-android` / `siyuan-ios` / `siyuan-harmony` | Native apps wrapping the gomobile kernel; build steps differ per platform — see each project's README |
 | `siyuan-chrome` | Browser extension (web clipper); talks to the running kernel over HTTP only |
+| `siyuan-testing` | Playwright end-to-end tests for a running SiYuan instance; test data belongs in the `SiYuan Testing` notebook — see that repository's `AGENTS.md` |
 | `petal` | SiYuan Plugin API declaration (the plugin system is named "petal"); consumed by plugins, not a kernel Go dependency |
 | `lute` | Markdown/Kramdown AST engine — the editor + `.sy` format; also the source of the bundled `lute.min.js` (a GopherJS build served to the frontend). **Lives under `$GOPATH/src/github.com/88250/lute`, not as a sibling repo** |
 | `dejavu` | Data repo / sync engine (encrypted snapshots) |
@@ -116,17 +117,22 @@ Four webpack configs each emit a separate bundle to `app/stage/build/{app,deskto
    - New keys go at the **top** of each `langs/*.json` object; add to every language file (reference `en.json`)
    - Exception: inside the `_kernel` object, append new entries at the **end** using the next incremental numeric key
    - Each language must be properly translated — do NOT copy the same text across all language files
+   - Use three ASCII periods (`...`) for ellipses in all localized strings; do not use Unicode ellipsis characters (`…` or `……`)
    - Domains: `ld246.com` only in `zh-CN.json`; use `liuyun.io` in all other languages
    - After modifying i18n files, run `python scripts/check-lang-keys.py` to verify key completeness across all language files
 2. **Windows scripting:** Prefer Node.js / Python; avoid PowerShell unless necessary
 3. **Frontend verification:** Do not use `npx webpack` or `pnpm dev` to verify changes; after changes, run `cd app && pnpm run lint` to check code style
 4. **Frontend build:** Do NOT run `pnpm build` — the developer runs `pnpm dev` manually, and `pnpm build` will conflict with it, producing broken bundles
-5. **Icons:** Do not hand-write SVG; use existing icons from `app/appearance/icons/litheness/icon.js` when possible
-6. **User guide:** When editing the user guide, follow `docs/SY-FORMAT.md`
-7. **Git:**
+5. **Kernel development:** After modifying Go code, do not compile the kernel binary or restart a running kernel; the developer handles both manually
+6. **Icons:** Do not hand-write SVG; use existing icons from `app/appearance/icons/litheness/icon.js` when possible
+7. **User guide:** When editing the user guide, follow `docs/SY-FORMAT.md`
+8. **Git:**
    - **NEVER** run `git commit` / `git push` unless explicitly asked — no exceptions
    - When you do commit, follow the style of recent commits (gitmoji prefix + subject, in English)
-   - Append the full issue/PR URL (e.g. `https://github.com/siyuan-note/siyuan/issues/<NNN>`, not the `#NNN` short form — it is clickable) only when a related issue exists; do not fabricate one
+   - Append the full issue/PR URL to the end of the commit title (e.g. `https://github.com/siyuan-note/siyuan/issues/<NNN>`, not the `#NNN` short form — it is clickable) only when a related issue exists; never put the URL in the commit body, and do not fabricate one
+9. **GitHub:** Prefer the GitHub CLI (`gh`) for all GitHub operations, including reading issues, comments, pull requests, commits, statuses, and metadata. If `gh` is unavailable or does not support the operation, fall back to the GitHub API or web interface
+10. **Issue titles:** Whenever the user asks to generate an issue title, provide it in English regardless of the wording of the request; do not start it with `Fix`, and describe the observed behavior directly instead
+11. **LD246:** When accessing `ld246.com`, set the HTTP `User-Agent` header to `SiYuan-Coding-Agent`
 
 ---
 

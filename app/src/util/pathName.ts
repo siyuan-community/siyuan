@@ -17,6 +17,7 @@ import {matchHotKey} from "../protyle/util/hotKey";
 import {Menu} from "../plugin/Menu";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
 import {mergePathSegments} from "./mergePathSegments";
+import {expandFileTree} from "../layout/dock/fileTreeAnimation";
 
 export const useShell = (cmd: "showItemInFolder" | "openPath", filePath: string) => {
     /// #if !BROWSER
@@ -59,10 +60,20 @@ export const parseSiYuanUriInfo = (uri: URL | string | null | undefined): ISiYua
             return null;
         }
         if (uriObj.hostname === "blocks" && /^\/\d{14}-\w{7}/.test(uriObj.pathname)) {
+            const avItemID = uriObj.searchParams.get("avItemID") || undefined;
+            const avViewID = uriObj.searchParams.get("avViewID") || undefined;
+            const avGroupID = uriObj.searchParams.get("avGroupID") || undefined;
+            const isNodeID = (id?: string) => !id || /^\d{14}-\w{7}$/.test(id);
+            if (!isNodeID(avItemID) || !isNodeID(avViewID) || !isNodeID(avGroupID)) {
+                return null;
+            }
             return {
                 id: uriObj.pathname.substring(1, 1 + 22),
                 focus: uriObj.searchParams.get("focus") === "1",
                 fullscreen: uriObj.searchParams.get("fullscreen") === "1",
+                avItemID,
+                avViewID,
+                avGroupID,
             };
         }
         return null;
@@ -705,15 +716,8 @@ const getLeaf = (liElement: HTMLElement, flashcard: boolean) => {
             return;
         }
         toggleElement.classList.add("b3-list-item__arrow--open");
-        liElement.insertAdjacentHTML("afterend", `<ul class="file-tree__sliderDown">${fileHTML}</ul>`);
-        const nextElement = liElement.nextElementSibling;
-        setTimeout(() => {
-            nextElement.setAttribute("style", `height:${nextElement.childElementCount * liElement.clientHeight}px;`);
-            setTimeout(() => {
-                nextElement.classList.remove("file-tree__sliderDown");
-                nextElement.removeAttribute("style");
-            }, 120);
-        }, 2);
+        liElement.insertAdjacentHTML("afterend", `<ul>${fileHTML}</ul>`);
+        expandFileTree(liElement.nextElementSibling as HTMLElement);
     });
 };
 
@@ -764,6 +768,7 @@ export const setNoteBook = (cb?: (notebook: INotebook[]) => void, flashcard = fa
     }, (response) => {
         if (!flashcard) {
             window.siyuan.notebooks = response.data.notebooks;
+            window.siyuan.config.fileTree.boxDocEnabled = response.data.boxDocEnabled;
         }
         if (cb) {
             cb(response.data.notebooks);

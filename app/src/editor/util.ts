@@ -1,7 +1,7 @@
 import {Tab} from "../layout/Tab";
 import {Editor} from "./index";
 import {Wnd} from "../layout/Wnd";
-import {getInstanceById, getWndByLayout, pdfIsLoading, setPanelFocus} from "../layout/util";
+import {getInstanceById, getWndByLayout, newModelByInitData, pdfIsLoading, setPanelFocus} from "../layout/util";
 import {getDockByType} from "../layout/tabUtil";
 import {getAllModels, getAllTabs} from "../layout/getAll";
 import {highlightById, scrollCenter} from "../util/highlightById";
@@ -30,11 +30,20 @@ import {objEquals} from "../util/functions";
 import {resize} from "../protyle/util/resize";
 import {Search} from "../search";
 import {App} from "../index";
-import {newCardModel} from "../card/newCardTab";
 import {preventScroll} from "../protyle/scroll/preventScroll";
 import {clearOBG} from "../layout/dock/util";
 import {Model} from "../layout/Model";
 import {hideElements} from "../protyle/ui/hideElements";
+
+const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => {
+    if (!options.custom || (options.custom.id && options.custom.id !== type)) {
+        return false;
+    }
+    if (type === "siyuan-database-row") {
+        return data?.avID === options.custom.data?.avID && data?.itemID === options.custom.data?.itemID;
+    }
+    return objEquals(data, options.custom.data);
+};
 
 export const openFileById = async (options: {
     app: App,
@@ -125,8 +134,8 @@ export const openFile = async (options: IOpenFileOptions) => {
         }
     } else if (options.custom) {
         clearOBG();
-        const custom = allModels.custom.find((item) => {
-            if (objEquals(item.data, options.custom.data) && (!options.custom.id || options.custom.id === item.type)) {
+        const custom = !options.openNewTab && allModels.custom.find((item) => {
+            if (isSameCustomTab(item.type, item.data, options)) {
                 if (!pdfIsLoading(item.parent.parent.element)) {
                     item.parent.parent.switchTab(item.parent.headElement);
                     item.parent.parent.showHeading();
@@ -140,7 +149,7 @@ export const openFile = async (options: IOpenFileOptions) => {
             }
             return custom.parent;
         }
-        const hasModel = getUnInitTab(options);
+        const hasModel = !options.openNewTab && getUnInitTab(options);
         if (hasModel) {
             if (options.afterOpen) {
                 options.afterOpen(hasModel.model);
@@ -263,14 +272,14 @@ export const openFile = async (options: IOpenFileOptions) => {
                     return;
                 }
                 // 在右侧/下侧打开已有页签将进行页签切换 https://github.com/siyuan-note/siyuan/issues/5366
-                let hasEditor = targetWnd.children.find(item => {
+                let hasEditor = !options.openNewTab && targetWnd.children.find(item => {
                     if (item.model && item.model instanceof Editor && item.model.editor.protyle.block.rootID === options.rootID) {
                         switchEditor(item.model, options, allModels);
                         return true;
                     }
                 });
                 if (!hasEditor) {
-                    hasEditor = getUnInitTab(options);
+                    hasEditor = !options.openNewTab && getUnInitTab(options);
                     createdTab = hasEditor;
                 }
                 if (!hasEditor) {
@@ -345,7 +354,7 @@ const getUnInitTab = (options: IOpenFileOptions) => {
                 item.headElement.setAttribute("data-initdata", JSON.stringify(initObj));
                 item.parent.switchTab(item.headElement);
                 return true;
-            } else if (initObj.instance === "Custom" && options.custom && objEquals(initObj.customModelData, options.custom.data)) {
+            } else if (initObj.instance === "Custom" && isSameCustomTab(initObj.customModelType, initObj.customModelData, options)) {
                 item.parent.switchTab(item.headElement);
                 return true;
             }
@@ -480,22 +489,13 @@ const newTab = (options: IOpenFileOptions) => {
             title: options.custom.title,
             callback(tab) {
                 if (options.custom.id) {
-                    if (options.custom.id === "siyuan-card") {
-                        tab.addModel(newCardModel({
-                            app: options.app,
-                            tab,
-                            data: options.custom.data
-                        }));
-                    } else {
-                        options.app.plugins.find(p => {
-                            if (p.models[options.custom.id]) {
-                                tab.addModel(p.models[options.custom.id]({
-                                    tab,
-                                    data: options.custom.data
-                                }));
-                                return true;
-                            }
-                        });
+                    const model = newModelByInitData(options.app, tab, {
+                        instance: "Custom",
+                        customModelType: options.custom.id,
+                        customModelData: options.custom.data,
+                    });
+                    if (model) {
+                        tab.addModel(model);
                     }
                 } else {
                     // plugin 0.8.3 历史兼容

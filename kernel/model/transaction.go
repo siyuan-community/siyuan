@@ -20,8 +20,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,7 +58,7 @@ func IsMoveOutlineHeading(transactions *[]*Transaction) bool {
 
 func FlushTxQueue() {
 	time.Sleep(time.Duration(50) * time.Millisecond)
-	for 0 < len(txQueue) || isFlushing {
+	for 0 < txQueueSize() || isFlushing.Load() {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
@@ -71,9 +73,9 @@ func PerformTxSync(tx *Transaction) (err error) {
 		tx.m = &sync.Mutex{}
 	}
 	flushLock.Lock()
-	isFlushing = true
+	isFlushing.Store(true)
 	defer func() {
-		isFlushing = false
+		isFlushing.Store(false)
 		flushLock.Unlock()
 	}()
 	if txErr := performTx(tx); nil != txErr {
@@ -83,9 +85,10 @@ func PerformTxSync(tx *Transaction) (err error) {
 }
 
 var (
-	txQueue    = make(chan *Transaction, 7)
-	flushLock  = sync.Mutex{}
-	isFlushing = false
+	txQueue     []*Transaction
+	txQueueLock sync.Mutex
+	flushLock   sync.Mutex
+	isFlushing  atomic.Bool
 )
 
 func init() {
@@ -93,22 +96,22 @@ func init() {
 }
 
 func flushQueue() {
-	for {
-		select {
-		case tx := <-txQueue:
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		flushLock.Lock()
+		isFlushing.Store(true)
+		transactions := takeQueuedTransactions()
+		for _, tx := range transactions {
 			flushTx(tx)
 		}
+		isFlushing.Store(false)
+		flushLock.Unlock()
 	}
 }
 
 func flushTx(tx *Transaction) {
 	defer logging.Recover()
-	flushLock.Lock()
-	isFlushing = true
-	defer func() {
-		isFlushing = false
-		flushLock.Unlock()
-	}()
 
 	start := time.Now()
 	if txErr := performTx(tx); nil != txErr {
@@ -149,10 +152,29 @@ func flushTx(tx *Transaction) {
 }
 
 func PerformTransactions(transactions *[]*Transaction) {
+	txQueueLock.Lock()
+	defer txQueueLock.Unlock()
 	for _, tx := range *transactions {
 		tx.m = &sync.Mutex{}
-		txQueue <- tx
+		txQueue = append(txQueue, tx)
 	}
+	sort.SliceStable(txQueue, func(i, j int) bool {
+		return txQueue[i].Timestamp < txQueue[j].Timestamp
+	})
+}
+
+func takeQueuedTransactions() (ret []*Transaction) {
+	txQueueLock.Lock()
+	defer txQueueLock.Unlock()
+	ret = txQueue
+	txQueue = nil
+	return
+}
+
+func txQueueSize() int {
+	txQueueLock.Lock()
+	defer txQueueLock.Unlock()
+	return len(txQueue)
 }
 
 const (
@@ -208,10 +230,11 @@ func performTx(tx *Transaction) (ret *TxErr) {
 			msg := fmt.Sprintf("PANIC RECOVERED: %v\n\t%s\n", e, logging.ShortStack())
 			logging.LogError(msg)
 
-			if 1 == tx.state.Load() {
+			state := tx.state.Load()
+			if 1 == state {
 				tx.rollback()
-				return
 			}
+			ret = txErrFromPanic(state, e)
 		}
 	}()
 
@@ -225,6 +248,10 @@ func performTx(tx *Transaction) (ret *TxErr) {
 			switch op.Action {
 			case "create":
 				ret = tx.doCreate(op)
+			case "restoreCreatedDoc":
+				ret = tx.doRestoreCreatedDoc(op)
+			case "removeCreatedDoc":
+				ret = tx.doRemoveCreatedDoc(op)
 			case "update":
 				ret = tx.doUpdate(op)
 			case "insert":
@@ -255,6 +282,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				ret = tx.doRemoveFlashcards(op)
 			case "setAttrViewName":
 				ret = tx.doSetAttrViewName(op)
+			case "setAttrViewNewItemTemplates":
+				ret = tx.doSetAttrViewNewItemTemplates(op)
 			case "setAttrViewFilters":
 				ret = tx.doSetAttrViewFilters(op)
 			case "setAttrViewSorts":
@@ -263,6 +292,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				ret = tx.doSetAttrViewPageSize(op)
 			case "setAttrViewColWidth":
 				ret = tx.doSetAttrViewColumnWidth(op)
+			case "setAttrViewColAlign":
+				ret = tx.doSetAttrViewColumnAlign(op)
 			case "setAttrViewColWrap":
 				ret = tx.doSetAttrViewColumnWrap(op)
 			case "setAttrViewColHidden":
@@ -386,9 +417,19 @@ func performTx(tx *Transaction) (ret *TxErr) {
 
 	if cr := tx.commit(); nil != cr {
 		logging.LogErrorf("commit tx failed: %s", cr)
+		if 1 == tx.state.Load() {
+			tx.rollback()
+		}
 		return &TxErr{code: TxErrCodePushMsg, msg: cr.Error()}
 	}
 	return
+}
+
+func txErrFromPanic(state int32, recovered any) *TxErr {
+	if 2 == state {
+		return nil
+	}
+	return &TxErr{code: TxErrCodePushMsg, msg: fmt.Sprintf("transaction panic: %v", recovered)}
 }
 
 func (tx *Transaction) processLargeDelete() bool {
@@ -1501,16 +1542,24 @@ func (tx *Transaction) processGlobalAssets(tree *parse.Tree) {
 
 func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 	id := operation.ID
+	updateData, ok := operation.Data.(string)
+	if !ok || "" == updateData {
+		msg := "update data is invalid"
+		logging.LogError(msg)
+		return &TxErr{code: TxErrCodePushMsg, msg: msg, id: id}
+	}
+
 	tree, err := tx.loadTree(id)
 	if err != nil {
 		logging.LogErrorf("load tree [%s] failed: %s", id, err)
 		return &TxErr{code: TxErrCodeBlockNotFound, id: id}
 	}
 
-	data := strings.ReplaceAll(operation.Data.(string), editor.FrontEndCaret, "")
+	data := strings.ReplaceAll(updateData, editor.FrontEndCaret, "")
 	if "" == data {
-		logging.LogErrorf("update data is nil")
-		return &TxErr{code: TxErrCodeBlockNotFound, id: id}
+		msg := "update data is invalid"
+		logging.LogError(msg)
+		return &TxErr{code: TxErrCodePushMsg, msg: msg, id: id}
 	}
 
 	subTree := tx.luteEngine.BlockDOM2Tree(data)
@@ -1895,6 +1944,41 @@ func (tx *Transaction) doCreate(operation *Operation) (ret *TxErr) {
 	return
 }
 
+// doRestoreCreatedDoc 在首次执行时登记已创建文档，在重做时从快照恢复该文档。
+func (tx *Transaction) doRestoreCreatedDoc(operation *Operation) (ret *TxErr) {
+	tree := operation.Tree
+	if nil == tree || nil == tree.Root || operation.ID != tree.Root.ID {
+		return &TxErr{code: TxErrCodePushMsg, msg: "invalid created doc snapshot", id: operation.ID}
+	}
+	if existing, err := LoadTreeByBlockID(tree.Root.ID); nil == err && nil != existing {
+		if tx.isReplay || existing.Box != tree.Box || existing.Path != tree.Path {
+			return &TxErr{code: TxErrCodePushMsg, msg: "created doc already exists", id: operation.ID}
+		}
+		tx.writeTree(existing)
+		return
+	}
+	if ret = tx.doCreate(&Operation{Action: "create", Data: tree}); nil == ret {
+		tx.restoredCreatedDocs = append(tx.restoredCreatedDocs, tree)
+	}
+	return
+}
+
+// doRemoveCreatedDoc 将本次新增条目生成的文档登记为提交阶段删除，删除前会进入文档历史。
+func (tx *Transaction) doRemoveCreatedDoc(operation *Operation) (ret *TxErr) {
+	if nil == operation.Tree || nil == operation.Tree.Root || operation.ID != operation.Tree.Root.ID {
+		return &TxErr{code: TxErrCodePushMsg, msg: "invalid created doc snapshot", id: operation.ID}
+	}
+	tree, err := LoadTreeByBlockID(operation.ID)
+	if nil != err {
+		if errors.Is(err, ErrBlockNotFound) {
+			return
+		}
+		return &TxErr{code: TxErrCodeBlockNotFound, msg: err.Error(), id: operation.ID}
+	}
+	tx.removedCreatedDocs = append(tx.removedCreatedDocs, tree)
+	return
+}
+
 func (tx *Transaction) doSetAttrs(operation *Operation) (ret *TxErr) {
 	id := operation.ID
 	tree, err := tx.loadTree(id)
@@ -1913,6 +1997,14 @@ func (tx *Transaction) doSetAttrs(operation *Operation) (ret *TxErr) {
 	if err = gulu.JSON.UnmarshalJSON([]byte(operation.Data.(string)), &attrs); err != nil {
 		logging.LogErrorf("unmarshal attrs failed: %s", err)
 		return &TxErr{code: TxErrCodeBlockNotFound, id: id}
+	}
+	if IsBoxDoc(tree.Box, tree.ID) {
+		attrs[DocHiddenAttr] = "true"
+		if icon, ok := attrs["icon"]; ok {
+			icon = filterBoxIcon(icon)
+			attrs["icon"] = icon
+			tx.boxIcons[tree.Box] = icon
+		}
 	}
 
 	if _, setErr := setNodeAttrs0(node, attrs, tree.Box); nil != setErr {
@@ -1937,7 +2029,8 @@ type Operation struct {
 	BlockIDs   []string `json:"blockIDs"`
 	BlockID    string   `json:"blockID"`
 
-	DeckID string `json:"deckID"` // 用于添加/删除闪卡
+	DeckID string      `json:"deckID"` // 用于添加/删除闪卡
+	Tree   *parse.Tree `json:"-"`      // 仅用于内核事务重放，不发送到前端
 
 	AvID              string           `json:"avID"`              // 属性视图 ID
 	SrcIDs            []string         `json:"srcIDs"`            // 用于从属性视图中删除行
@@ -1969,10 +2062,13 @@ type Transaction struct {
 	nodes          map[string]*ast.Node   // 事务中变更的节点
 	relatedAvIDs   []string               // 事务中变更的属性视图 ID
 	changedRootIDs []string               // 变更的树 ID 列表（包含了变更定义块后影响的动态锚文本所在的树）
+	boxIcons       map[string]string      // 事务提交后需要同步的笔记本图标
 
-	isGlobalAssetsInit bool   // 是否初始化过全局资源判断
-	isGlobalAssets     bool   // 是否属于全局资源
-	assetsDir          string // 资源目录路径
+	isGlobalAssetsInit  bool   // 是否初始化过全局资源判断
+	isGlobalAssets      bool   // 是否属于全局资源
+	assetsDir           string // 资源目录路径
+	removedCreatedDocs  []*parse.Tree
+	restoredCreatedDocs []*parse.Tree
 
 	fromAPI  bool // 是否来自 /api/transactions HTTP 入口（用于撤销日志捕获判别）
 	isReplay bool // 是否为 undo/redo 重放构造的事务（重放不再进入撤销日志）
@@ -2027,6 +2123,9 @@ func (tx *Transaction) WaitForCommit() {
 func (tx *Transaction) begin() (err error) {
 	tx.trees = map[string]*parse.Tree{}
 	tx.nodes = map[string]*ast.Node{}
+	tx.boxIcons = map[string]string{}
+	tx.removedCreatedDocs = nil
+	tx.restoredCreatedDocs = nil
 	tx.luteEngine = util.NewLute()
 	tx.m.Lock()
 	tx.state.Store(1)
@@ -2045,6 +2144,17 @@ func (tx *Transaction) commit() (err error) {
 
 		checkUpsertInUserGuide(tree)
 	}
+	for boxID, icon := range tx.boxIcons {
+		box := &Box{ID: boxID}
+		boxConf := box.GetConf()
+		boxConf.Icon = icon
+		if err = box.SaveConf(boxConf); err != nil {
+			return
+		}
+	}
+	if 0 < len(tx.boxIcons) {
+		ReloadFiletree()
+	}
 	tx.changedRootIDs = refreshDynamicRefTexts(tx.nodes, tx.trees)
 
 	tx.relatedAvIDs = gulu.Str.RemoveDuplicatedElem(tx.relatedAvIDs)
@@ -2058,6 +2168,25 @@ func (tx *Transaction) commit() (err error) {
 		av.SaveAttributeView(destAv)
 		ReloadAttrView(avID)
 	}
+	for _, tree := range tx.removedCreatedDocs {
+		box := Conf.Box(tree.Box)
+		if nil == box {
+			return ErrBoxNotFound
+		}
+		removedTree, err := removeDoc(box, tree.Path, util.NewLute())
+		if nil != err {
+			return err
+		}
+		refreshBoxDocInfo(removedTree)
+	}
+	for _, tree := range tx.restoredCreatedDocs {
+		box := Conf.Box(tree.Box)
+		if nil == box {
+			return ErrBoxNotFound
+		}
+		box.setSortByConf(path.Dir(tree.Path), tree.ID)
+		PushCreate(box, tree.Path, nil)
+	}
 
 	IncSync()
 	tx.state.Store(2)
@@ -2068,7 +2197,7 @@ func (tx *Transaction) commit() (err error) {
 }
 
 func (tx *Transaction) rollback() {
-	tx.trees, tx.nodes = nil, nil
+	tx.trees, tx.nodes, tx.boxIcons, tx.removedCreatedDocs, tx.restoredCreatedDocs = nil, nil, nil, nil, nil
 	tx.state.Store(3)
 	tx.m.Unlock()
 	return

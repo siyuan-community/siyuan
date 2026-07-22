@@ -26,6 +26,7 @@ export abstract class Constants {
     // drop 事件
     public static readonly SIYUAN_DROP_FILE: string = "application/siyuan-file";
     public static readonly SIYUAN_DROP_GUTTER: string = "application/siyuan-gutter";
+    public static readonly SIYUAN_DROP_BLOCK_REF: string = "application/siyuan-block-ref";
     public static readonly SIYUAN_DROP_TAB: string = "application/siyuan-tab";
     public static readonly SIYUAN_DROP_EDITOR: string = "application/siyuan-editor";
 
@@ -38,6 +39,7 @@ export abstract class Constants {
 
     public static readonly SIYUAN_CONFIG_TRAY: string = "siyuan-config-tray";
     public static readonly SIYUAN_QUIT: string = "siyuan-quit";
+    public static readonly SIYUAN_INSTALL_UPDATE: string = "siyuan-install-update";
     public static readonly SIYUAN_HOTKEY: string = "siyuan-hotkey";
     public static readonly SIYUAN_INIT: string = "siyuan-init";
     public static readonly SIYUAN_READY_TO_SHOW: string = "siyuan-ready-to-show";
@@ -71,6 +73,7 @@ export abstract class Constants {
     public static readonly ATTRIBUTE_EDITING = "data-editing";
     public static readonly ATTRIBUTE_V_SCROLL = "data-v-scroll";
     public static readonly ATTRIBUTE_DOCK_WIDTH = "data-dock-width";
+    public static readonly ATTRIBUTE_MENU_KEYMAP = "data-menu-keymap";
 
     // size
     public static readonly SIZE_DATABASE_MAZ_SIZE: number = 102400;
@@ -487,6 +490,9 @@ export abstract class Constants {
             recentClosed: {default: "⇧⌘T", custom: "⇧⌘T"},
             move: {default: "", custom: ""},
             selectOpen1: {default: "", custom: ""},
+            switchLeftDock: {default: "", custom: ""},
+            switchRightDock: {default: "", custom: ""},
+            switchBottomDock: {default: "", custom: ""},
             toggleDock: {default: "", custom: ""},
             splitLR: {default: "", custom: ""},
             splitMoveR: {default: "", custom: ""},

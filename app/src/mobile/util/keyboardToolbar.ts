@@ -19,6 +19,7 @@ import {isNotEditBlock} from "../../protyle/wysiwyg/getBlock";
 import {getMirror} from "../../protyle/undo/globalUndo";
 
 let renderKeyboardToolbarTimeout: number;
+let scrollSelectionIntoViewTimeout: number;
 let showUtil = false;
 
 const getSlashItem = (value: string, icon: string, text: string, focus = "false") => {
@@ -234,8 +235,9 @@ const renderSlashMenu = (protyle: IProtyle, toolbarElement: Element) => {
 </div>
 <div class="keyboard__slash-title"></div>
 <div class="keyboard__slash-block">
-    ${getSlashItem(Constants.ZWSP + 3, "iconDownload", window.siyuan.languages.insertAsset + '<input class="b3-form__upload" type="file"' + (protyle.options.upload.accept ? (' multiple="' + protyle.options.upload.accept + '"') : "") + "/>", "true")}
+    ${isInAndroid() ? getSlashItem(Constants.ZWSP + 3, "iconImage", window.siyuan.languages.insertImage + '<input class="b3-form__upload" type="file" multiple="multiple" accept="image/*,application/x-siyuan-image-picker"/>', "true") : ""}
     ${isInAndroid() ? getSlashItem(Constants.ZWSP + 3, "iconCamera", window.siyuan.languages.insertPhoto + '<input class="b3-form__upload" capture="user" type="file"' + (protyle.options.upload.accept ? (' multiple="' + protyle.options.upload.accept + '"') : "") + "/>", "true") : ""}
+    ${getSlashItem(Constants.ZWSP + 3, "iconDownload", window.siyuan.languages.insertAsset + '<input class="b3-form__upload" type="file"' + (protyle.options.upload.accept ? (' multiple="' + protyle.options.upload.accept + '"') : "") + "/>", "true")}
     ${getSlashItem('<iframe sandbox="allow-forms allow-presentation allow-same-origin allow-scripts allow-modals allow-popups allow-storage-access-by-user-activation" src="" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>', "iconGlobe", window.siyuan.languages.insertIframeURL, "true")}
     ${getSlashItem("![]()", "iconImage", window.siyuan.languages.insertImgURL, "true")}
     ${getSlashItem('<video controls="controls" src=""></video>', "iconVideo", window.siyuan.languages.insertVideoURL, "true")}
@@ -425,6 +427,7 @@ export const showKeyboardToolbar = () => {
         hideKeyboardToolbarUtil();
     }
     const toolbarElement = document.getElementById("keyboardToolbar");
+    window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: true}));
     if (!toolbarElement.classList.contains("fn__none") || getSelection().rangeCount === 0) {
         return;
     }
@@ -444,7 +447,11 @@ export const showKeyboardToolbar = () => {
             item.eventBus.emit("mobile-keyboard-show");
         });
     }
-    setTimeout(() => {
+    clearTimeout(scrollSelectionIntoViewTimeout);
+    scrollSelectionIntoViewTimeout = window.setTimeout(() => {
+        if (editor?.protyle.toolbar.isMultiSelectMode()) {
+            return;
+        }
         const contentElement = hasClosestByClassName(range.startContainer, "protyle-content", true);
         if (contentElement) {
             let cursorTop = getSelectionPosition(contentElement).top;
@@ -473,21 +480,24 @@ export const showKeyboardToolbar = () => {
 };
 
 export const hideKeyboardToolbar = () => {
+    clearTimeout(renderKeyboardToolbarTimeout);
+    clearTimeout(scrollSelectionIntoViewTimeout);
+    window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: false}));
     if (showUtil) {
         return;
     }
     const toolbarElement = document.getElementById("keyboardToolbar");
-    if (toolbarElement.classList.contains("fn__none")) {
-        return;
-    }
+    const toolbarHidden = toolbarElement.classList.contains("fn__none");
     toolbarElement.classList.add("fn__none");
     toolbarElement.style.height = "";
     const editor = getCurrentEditor();
     if (editor) {
         editor.protyle.element.parentElement.style.paddingBottom = "";
-        editor.protyle.app.plugins.forEach(item => {
-            item.eventBus.emit("mobile-keyboard-hide");
-        });
+        if (!toolbarHidden) {
+            editor.protyle.app.plugins.forEach(item => {
+                item.eventBus.emit("mobile-keyboard-hide");
+            });
+        }
     }
     const modelElement = document.getElementById("model");
     if (modelElement.style.transform === "translateY(0px)") {

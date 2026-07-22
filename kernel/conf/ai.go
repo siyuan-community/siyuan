@@ -26,20 +26,24 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/util"
 
 	"github.com/88250/lute/ast"
+	"github.com/google/uuid"
 )
 
 type AI struct {
-	MCP       *MCP        `json:"mcp"`
-	Embedding *Embedding  `json:"embedding"`
-	Rerank    *Rerank     `json:"rerank"`
-	Agent     *Agent      `json:"agent"`
-	Editing   *Editing    `json:"editing"`
-	Providers []*Provider `json:"providers"`
+	MCP             *MCP             `json:"mcp"`
+	Embedding       *Embedding       `json:"embedding"`
+	Rerank          *Rerank          `json:"rerank"`
+	Agent           *Agent           `json:"agent"`
+	Editing         *Editing         `json:"editing"`
+	Vision          *Vision          `json:"vision"`
+	ImageGeneration *ImageGeneration `json:"imageGeneration"`
+	Providers       []*Provider      `json:"providers"`
 }
 
 type Agent struct {
 	ModelID             string  `json:"modelId"`
 	SessionTimeout      int     `json:"sessionTimeout"`
+	StreamIdleTimeout   int     `json:"streamIdleTimeout"`
 	ConfirmTimeout      int     `json:"confirmTimeout"`
 	MaxRetries          int     `json:"maxRetries"`
 	Temperature         float64 `json:"temperature"`
@@ -55,6 +59,24 @@ type Editing struct {
 	MaxHistoryMessages  int     `json:"maxHistoryMessages"`  // Max number of prior turns kept as context
 	Temperature         float64 `json:"temperature"`         // Alignment with Agent.Temperature
 	MaxCompletionTokens int     `json:"maxCompletionTokens"` // Alignment with Agent.MaxCompletionTokens
+}
+
+// Vision 配置图片理解场景及发送到模型前的资源限制。
+type Vision struct {
+	ModelID        string `json:"modelId"`
+	RequestTimeout int    `json:"requestTimeout"`
+	MaxImageBytes  int    `json:"maxImageBytes"`
+	MaxPixels      int    `json:"maxPixels"`
+	MaxEdge        int    `json:"maxEdge"`
+}
+
+// ImageGeneration 配置图片生成场景的模型和默认输出参数。
+type ImageGeneration struct {
+	ModelID        string `json:"modelId"`
+	RequestTimeout int    `json:"requestTimeout"`
+	Size           string `json:"size"`
+	Quality        string `json:"quality"`
+	OutputFormat   string `json:"outputFormat"`
 }
 
 type Embedding struct {
@@ -86,6 +108,7 @@ type Provider struct {
 	Enabled        bool     `json:"enabled"`
 	APIKey         string   `json:"apiKey"`
 	BaseURL        string   `json:"baseURL"`
+	Protocol       string   `json:"protocol,omitempty"`
 	RequestTimeout int      `json:"requestTimeout"`
 	Models         []*Model `json:"models"`
 }
@@ -105,14 +128,16 @@ type MCP struct {
 }
 
 type MCPServer struct {
-	Name    string            `json:"name"`
-	Enabled bool              `json:"enabled"`
-	Type    string            `json:"type"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	Timeout int               `json:"timeout"`
+	ID                   string            `json:"id"`
+	Name                 string            `json:"name"`
+	Enabled              bool              `json:"enabled"`
+	Type                 string            `json:"type"`
+	Command              string            `json:"command"`
+	Args                 []string          `json:"args"`
+	URL                  string            `json:"url"`
+	Headers              map[string]string `json:"headers"`
+	Timeout              int               `json:"timeout"`
+	TrustToolAnnotations bool              `json:"trustToolAnnotations"`
 }
 
 func defaultEmbedding() *Embedding {
@@ -126,6 +151,7 @@ func defaultRerank() *Rerank {
 func defaultAgent() *Agent {
 	return &Agent{
 		SessionTimeout:      600,
+		StreamIdleTimeout:   120,
 		ConfirmTimeout:      120,
 		MaxRetries:          3,
 		Temperature:         1.0,
@@ -142,24 +168,34 @@ func defaultEditing() *Editing {
 	}
 }
 
+func defaultVision() *Vision {
+	return &Vision{RequestTimeout: 300, MaxImageBytes: 20 * 1024 * 1024, MaxPixels: 40 * 1000 * 1000, MaxEdge: 2048}
+}
+
+func defaultImageGeneration() *ImageGeneration {
+	return &ImageGeneration{RequestTimeout: 300, Size: "1024x1024", Quality: "auto", OutputFormat: "png"}
+}
+
 func NewAI() *AI {
 	ai := &AI{
-		Providers: []*Provider{},
-		MCP:       &MCP{Servers: []MCPServer{}},
-		Embedding: defaultEmbedding(),
-		Rerank:    defaultRerank(),
-		Agent:     defaultAgent(),
-		Editing:   defaultEditing(),
+		Providers:       []*Provider{},
+		MCP:             &MCP{Servers: []MCPServer{}},
+		Embedding:       defaultEmbedding(),
+		Rerank:          defaultRerank(),
+		Agent:           defaultAgent(),
+		Editing:         defaultEditing(),
+		Vision:          defaultVision(),
+		ImageGeneration: defaultImageGeneration(),
 	}
 
 	apiKey := os.Getenv("SIYUAN_OPENAI_API_KEY")
 	apiModel := os.Getenv("SIYUAN_OPENAI_API_MODEL")
 	apiBaseURL := os.Getenv("SIYUAN_OPENAI_API_BASE_URL")
 
-	if apiKey != "" && apiModel != "" && apiBaseURL != "" {
+	if apiModel != "" && apiBaseURL != "" {
 		provider := &Provider{
 			BaseURL:        apiBaseURL,
-			RequestTimeout: 30,
+			RequestTimeout: 120,
 			Enabled:        true,
 			APIKey:         apiKey,
 		}
@@ -196,6 +232,11 @@ func NewAI() *AI {
 	if agentTimeout := os.Getenv("SIYUAN_OPENAI_AGENT_TIMEOUT"); "" != agentTimeout {
 		if v, err := strconv.Atoi(agentTimeout); err == nil {
 			ai.Agent.SessionTimeout = v
+		}
+	}
+	if agentStreamIdleTimeout := os.Getenv("SIYUAN_OPENAI_AGENT_STREAM_IDLE_TIMEOUT"); "" != agentStreamIdleTimeout {
+		if v, err := strconv.Atoi(agentStreamIdleTimeout); err == nil {
+			ai.Agent.StreamIdleTimeout = v
 		}
 	}
 	if agentConfirmTimeout := os.Getenv("SIYUAN_OPENAI_AGENT_CONFIRM_TIMEOUT"); "" != agentConfirmTimeout {
@@ -236,27 +277,14 @@ func NewAI() *AI {
 		}
 	}
 
-	rerankKey := os.Getenv("SIYUAN_OPENAI_RERANK_API_KEY")
-	rerankEndpoint := os.Getenv("SIYUAN_OPENAI_RERANK_ENDPOINT")
-	rerankModel := os.Getenv("SIYUAN_OPENAI_RERANK_MODEL")
-	if "" != rerankKey && "" != rerankEndpoint && "" != rerankModel {
-		ai.Rerank = &Rerank{
-			APIKey:         rerankKey,
-			Endpoint:       rerankEndpoint,
-			Name:           rerankModel,
-			Timeout:        30,
-			CandidateCount: 30,
-		}
-	}
-
 	return ai
 }
 
 func (ai *AI) HasAnyProvider() bool {
 	for _, p := range ai.Providers {
-		if p != nil && len(p.APIKey) > 0 && p.Enabled {
+		if p != nil && p.Enabled {
 			for _, m := range p.Models {
-				if m.Name != "" && m.Enabled {
+				if m != nil && m.Name != "" && m.Enabled {
 					return true
 				}
 			}
@@ -271,33 +299,33 @@ func (ai *AI) GetModel(id string) (*Provider, *Model) {
 	}
 
 	for _, p := range ai.Providers {
-		if p == nil || len(p.APIKey) == 0 || !p.Enabled {
+		if p == nil || !p.Enabled {
 			continue
 		}
 		for _, m := range p.Models {
-			if m.ID == id && m.Enabled {
+			if m != nil && m.ID == id && m.Enabled {
 				return p, m
 			}
 		}
 	}
 
 	for _, p := range ai.Providers {
-		if p == nil || len(p.APIKey) == 0 || !p.Enabled {
+		if p == nil || !p.Enabled {
 			continue
 		}
 		for _, m := range p.Models {
-			if m.DisplayName == id && m.Enabled {
+			if m != nil && m.DisplayName == id && m.Enabled {
 				return p, m
 			}
 		}
 	}
 
 	for _, p := range ai.Providers {
-		if p == nil || len(p.APIKey) == 0 || !p.Enabled {
+		if p == nil || !p.Enabled {
 			continue
 		}
 		for _, m := range p.Models {
-			if m.Name == id && m.Enabled {
+			if m != nil && m.Name == id && m.Enabled {
 				return p, m
 			}
 		}
@@ -320,6 +348,20 @@ func (ai *AI) GetAgentModel() (*Provider, *Model) {
 	return ai.GetModel(ai.Agent.ModelID)
 }
 
+func (ai *AI) GetVisionModel() (*Provider, *Model) {
+	if ai.Vision == nil || ai.Vision.ModelID == "" {
+		return nil, nil
+	}
+	return ai.GetModel(ai.Vision.ModelID)
+}
+
+func (ai *AI) GetImageGenerationModel() (*Provider, *Model) {
+	if ai.ImageGeneration == nil || ai.ImageGeneration.ModelID == "" {
+		return nil, nil
+	}
+	return ai.GetModel(ai.ImageGeneration.ModelID)
+}
+
 func (ai *AI) Normalize() {
 	if ai.Providers == nil {
 		ai.Providers = []*Provider{}
@@ -329,8 +371,31 @@ func (ai *AI) Normalize() {
 	} else if ai.MCP.Servers == nil {
 		ai.MCP.Servers = []MCPServer{}
 	}
+	serverIDs := map[string]bool{}
+	for i := range ai.MCP.Servers {
+		if ai.MCP.Servers[i].ID == "" || serverIDs[ai.MCP.Servers[i].ID] {
+			ai.MCP.Servers[i].ID = uuid.New().String()
+		}
+		serverIDs[ai.MCP.Servers[i].ID] = true
+	}
 	if ai.Agent == nil {
 		ai.Agent = defaultAgent()
+	} else {
+		if ai.Agent.SessionTimeout < 0 {
+			ai.Agent.SessionTimeout = 0
+		} else if ai.Agent.SessionTimeout > 3600 {
+			ai.Agent.SessionTimeout = 3600
+		}
+		if ai.Agent.StreamIdleTimeout < 1 {
+			ai.Agent.StreamIdleTimeout = 120
+		} else if ai.Agent.StreamIdleTimeout > 600 {
+			ai.Agent.StreamIdleTimeout = 600
+		}
+		if ai.Agent.MaxRetries < 0 {
+			ai.Agent.MaxRetries = 0
+		} else if ai.Agent.MaxRetries > 10 {
+			ai.Agent.MaxRetries = 10
+		}
 	}
 	if ai.Editing == nil {
 		ai.Editing = defaultEditing()
@@ -349,6 +414,49 @@ func (ai *AI) Normalize() {
 			ai.Editing.MaxHistoryMessages = 64
 		}
 	}
+	if ai.Vision == nil {
+		ai.Vision = defaultVision()
+	}
+	if ai.Vision.RequestTimeout < 1 {
+		ai.Vision.RequestTimeout = 300
+	} else if ai.Vision.RequestTimeout > 600 {
+		ai.Vision.RequestTimeout = 600
+	}
+	if ai.Vision.MaxImageBytes < 1024*1024 {
+		ai.Vision.MaxImageBytes = 20 * 1024 * 1024
+	} else if ai.Vision.MaxImageBytes > 100*1024*1024 {
+		ai.Vision.MaxImageBytes = 100 * 1024 * 1024
+	}
+	if ai.Vision.MaxPixels < 1000*1000 {
+		ai.Vision.MaxPixels = 40 * 1000 * 1000
+	} else if ai.Vision.MaxPixels > 100*1000*1000 {
+		ai.Vision.MaxPixels = 100 * 1000 * 1000
+	}
+	if ai.Vision.MaxEdge < 512 {
+		ai.Vision.MaxEdge = 2048
+	} else if ai.Vision.MaxEdge > 4096 {
+		ai.Vision.MaxEdge = 4096
+	}
+	if ai.ImageGeneration == nil {
+		ai.ImageGeneration = defaultImageGeneration()
+	}
+	if ai.ImageGeneration.RequestTimeout < 1 {
+		ai.ImageGeneration.RequestTimeout = 300
+	} else if ai.ImageGeneration.RequestTimeout > 600 {
+		ai.ImageGeneration.RequestTimeout = 600
+	}
+	ai.ImageGeneration.Size = strings.TrimSpace(ai.ImageGeneration.Size)
+	if ai.ImageGeneration.Size == "" {
+		ai.ImageGeneration.Size = "1024x1024"
+	}
+	ai.ImageGeneration.Quality = strings.TrimSpace(ai.ImageGeneration.Quality)
+	if ai.ImageGeneration.Quality == "" {
+		ai.ImageGeneration.Quality = "auto"
+	}
+	ai.ImageGeneration.OutputFormat = strings.ToLower(strings.TrimSpace(ai.ImageGeneration.OutputFormat))
+	if ai.ImageGeneration.OutputFormat != "jpeg" && ai.ImageGeneration.OutputFormat != "webp" {
+		ai.ImageGeneration.OutputFormat = "png"
+	}
 	providers := make([]*Provider, 0, len(ai.Providers))
 	for _, p := range ai.Providers {
 		if p == nil {
@@ -360,8 +468,12 @@ func (ai *AI) Normalize() {
 		}
 		p.DisplayName = strings.TrimSpace(p.DisplayName)
 		p.APIKey = strings.TrimSpace(p.APIKey)
+		p.Protocol = strings.ToLower(strings.TrimSpace(p.Protocol))
+		if p.Protocol == "" {
+			p.Protocol = "openai"
+		}
 		if 1 > p.RequestTimeout {
-			p.RequestTimeout = 30
+			p.RequestTimeout = 120
 		} else if 600 < p.RequestTimeout {
 			p.RequestTimeout = 600
 		}
@@ -555,7 +667,7 @@ func assignDefaultModelIDs(ai *AI) {
 	}
 	var m *Model
 	for _, p := range ai.Providers {
-		if p == nil || len(p.APIKey) == 0 || !p.Enabled {
+		if p == nil || !p.Enabled {
 			continue
 		}
 		for _, model := range p.Models {
@@ -609,14 +721,16 @@ func migrateMCP(raw map[string]any) *MCP {
 			continue
 		}
 		mcp.Servers = append(mcp.Servers, MCPServer{
-			Name:    getString(sm, "name"),
-			Enabled: getBool(sm, "enabled"),
-			Type:    getString(sm, "type"),
-			Command: getString(sm, "command"),
-			Args:    getStringSlice(sm, "args"),
-			URL:     getString(sm, "url"),
-			Headers: getStringMap(sm, "headers"),
-			Timeout: getInt(sm, "timeout"),
+			ID:                   getString(sm, "id"),
+			Name:                 getString(sm, "name"),
+			Enabled:              getBool(sm, "enabled"),
+			Type:                 getString(sm, "type"),
+			Command:              getString(sm, "command"),
+			Args:                 getStringSlice(sm, "args"),
+			URL:                  getString(sm, "url"),
+			Headers:              getStringMap(sm, "headers"),
+			Timeout:              getInt(sm, "timeout"),
+			TrustToolAnnotations: getBool(sm, "trustToolAnnotations"),
 		})
 	}
 	return mcp

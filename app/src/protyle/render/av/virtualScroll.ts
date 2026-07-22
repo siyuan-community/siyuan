@@ -6,6 +6,7 @@ const BUFFER_RATIO = 1;
 interface IBodyState {
     renderedStart: number;
     renderedEnd: number;
+    dataOffset: number;
     view: IAVView;
     topSpacerHeight: number;
     pinIndex?: number;
@@ -63,6 +64,8 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
             return;
         }
         const dataRows = type === "table" ? (state.view as IAVTable).rows : (state.view as IAVKanban).cards;
+        const dataStart = state.dataOffset;
+        const dataEnd = dataStart + dataRows.length - 1;
         let currentRows;
         let bottomElement;
         if (type === "table") {
@@ -78,14 +81,15 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         // 数据行数不超过 trim 有效范围（视口 + 上下 buffer）时不 trim（如看板中较短的分组），
         // 全部渲染即可，避免短列因 trim 导致 spacer 抖动或全部移除后无法回填
         const trimRange = viewportHeight + buffer * 2;
-        if (dataRows.length <= Math.ceil(trimRange / Math.max(state.rowHeight || currentRows[0].offsetHeight, 1))) {
+        if (bodyEl.dataset.avLocateWindow !== "true" &&
+            dataRows.length <= Math.ceil(trimRange / Math.max(state.rowHeight || currentRows[0].offsetHeight, 1))) {
             // 清理可能残留的 spacer 和状态，恢复全部渲染
             const spacerEl = bodyEl.querySelector(".av__spacer") as HTMLElement;
             if (spacerEl) {
                 spacerEl.remove();
                 state.topSpacerHeight = 0;
-                state.renderedStart = 0;
-                state.renderedEnd = dataRows.length - 1;
+                state.renderedStart = dataStart;
+                state.renderedEnd = dataEnd;
                 bodyStates.set(bodyEl, state);
             }
             return;
@@ -138,13 +142,13 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
             if (renderedStartTop - viewportStartTop > rowHeight * rowsPerViewport) {
                 currentRows.forEach(row => row.remove());
                 spacerElement.remove();
-                const newEnd = Math.min(rowsPerViewport - 1, dataRows.length - 1);
+                const newEnd = Math.min(dataStart + rowsPerViewport - 1, dataEnd);
                 let rowsHTML = "";
                 const viewType = blockElement.getAttribute("data-av-type") as TAVView;
-                for (let i = 0; i <= newEnd; i++) {
+                for (let i = dataStart; i <= newEnd; i++) {
                     rowsHTML += getRowHTML({
                         data: state.view,
-                        row: dataRows[i],
+                        row: dataRows[i - dataStart],
                         rowIndex: i,
                         pinIndex: state.pinIndex,
                         type: viewType
@@ -154,7 +158,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                     bottomElement.insertAdjacentHTML("beforebegin", rowsHTML);
                 }
                 restoreSelect();
-                state.renderedStart = 0;
+                state.renderedStart = dataStart;
                 state.renderedEnd = newEnd;
                 state.topSpacerHeight = 0;
                 return;
@@ -188,7 +192,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                 }
             }
             if (i === currentRows.length - 1 && !isScrollingUp && rect.bottom < bottomLimit) {
-                lastVisibleIndex = Math.min(state.renderedEnd + Math.ceil((bottomLimit - rect.bottom) / rowHeight) * galleryColumn, dataRows.length - 1);
+                lastVisibleIndex = Math.min(state.renderedEnd + Math.ceil((bottomLimit - rect.bottom) / rowHeight) * galleryColumn, dataEnd);
             }
         }
         // gallery 多列布局需按视觉行整体移除，不能拆分同一行的卡片，否则 grid 重排导致列跳动。
@@ -206,7 +210,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         }
         // 需等待 galleryColumn 计算完成
         if (isScrollingUp && firstTop > topLimit) {
-            firstVisibleIndex = Math.max(0, state.renderedStart - Math.ceil((firstTop - topLimit) / rowHeight) * galleryColumn);
+            firstVisibleIndex = Math.max(dataStart, state.renderedStart - Math.ceil((firstTop - topLimit) / rowHeight) * galleryColumn);
         }
         if (!isScrollingUp) {
             if (toRemoveAbove.length > 0) {
@@ -258,7 +262,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                 for (let i = state.renderedEnd + 1; i <= lastVisibleIndex; i++) {
                     rowsHTML += getRowHTML({
                         data: state.view,
-                        row: dataRows[i],
+                        row: dataRows[i - dataStart],
                         rowIndex: i,
                         pinIndex: state.pinIndex,
                         type: viewType
@@ -282,7 +286,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                 for (let i = firstVisibleIndex; i < state.renderedStart; i++) {
                     rowsHTML += getRowHTML({
                         data: state.view,
-                        row: dataRows[i],
+                        row: dataRows[i - dataStart],
                         rowIndex: i,
                         pinIndex: state.pinIndex,
                         type: viewType
@@ -460,6 +464,11 @@ export const initVirtualScroll = (options: {
     });
 
     options.blockElement.querySelectorAll(".av__body").forEach((item: HTMLElement) => {
+        const dataOffset = item.dataset.avLocateWindow === "true" ? options.data.target?.offset || 0 : 0;
+        const view = getBodyData(item);
+        if (!view) {
+            return;
+        }
         // 从现存 DOM 初始化选中行 ID 快照，重渲后保留选中态
         const selectedRowIds = new Set<string>();
         item.querySelectorAll(options.data.viewType === "table" ? ".av__row--select" : ".av__gallery-item--select").forEach((row: HTMLElement) => {
@@ -469,19 +478,37 @@ export const initVirtualScroll = (options: {
             }
         });
         if (options.data.viewType === "table") {
+            const firstRow = item.querySelector(".av__row[data-id]") as HTMLElement;
+            let lastRow = item.querySelector(".av__row--util")?.previousElementSibling as HTMLElement;
+            while (lastRow && !lastRow.dataset.index) {
+                lastRow = lastRow.previousElementSibling as HTMLElement;
+            }
+            if (!firstRow || !lastRow) {
+                return;
+            }
             bodyStates.set(item, {
-                renderedStart: parseInt(item.querySelectorAll(".av__row")[1].getAttribute("data-index")),
+                renderedStart: parseInt(firstRow.dataset.index),
                 pinIndex: parseInt(item.querySelector(".av__row--header > .block__icons")?.getAttribute("data-pinindex")),
-                renderedEnd: parseInt(item.querySelector(".av__row--util").previousElementSibling.getAttribute("data-index")),
-                view: getBodyData(item),
+                renderedEnd: parseInt(lastRow.dataset.index),
+                dataOffset,
+                view,
                 topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
                 selectedRowIds,
             });
         } else {
+            const firstItem = item.querySelector(".av__gallery-item") as HTMLElement;
+            let lastItem = item.querySelector(".av__gallery-add")?.previousElementSibling as HTMLElement;
+            while (lastItem && !lastItem.dataset.index) {
+                lastItem = lastItem.previousElementSibling as HTMLElement;
+            }
+            if (!firstItem || !lastItem) {
+                return;
+            }
             bodyStates.set(item, {
-                renderedStart: parseInt(item.querySelector(".av__gallery-item").getAttribute("data-index")),
-                renderedEnd: parseInt(item.querySelector(".av__gallery-add").previousElementSibling.getAttribute("data-index")),
-                view: getBodyData(item),
+                renderedStart: parseInt(firstItem.dataset.index),
+                renderedEnd: parseInt(lastItem.dataset.index),
+                dataOffset,
+                view,
                 topSpacerHeight: item.querySelector(".av__spacer")?.clientHeight || 0,
                 selectedRowIds,
             });

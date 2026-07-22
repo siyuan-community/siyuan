@@ -46,6 +46,8 @@ import (
 	"github.com/88250/lute/render"
 	util2 "github.com/88250/lute/util"
 	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
@@ -113,6 +115,27 @@ func HTML2Tree(htmlStr string, luteEngine *lute.Lute, boxID string) (tree *parse
 }
 
 func ImportSY(zipPath, boxID, toPath string) (err error) {
+	_, err = importSY(zipPath, boxID, toPath, false, false)
+	return
+}
+
+func ImportSYNotebook(zipPath string) (boxID string, err error) {
+	return importSY(zipPath, "", "/", true, false)
+}
+
+var ErrSYTargetNotebookRequired = errors.New("target notebook required")
+
+func ImportSYAuto(zipPath, boxID, toPath string) (createdBoxID string, notebook bool, err error) {
+	createdBoxID, err = importSY(zipPath, boxID, toPath, false, true)
+	notebook = err == nil && createdBoxID != boxID
+	return
+}
+
+func isSYNotebookExport(hasBoxConf, hasBoxDocMeta bool) bool {
+	return hasBoxConf || hasBoxDocMeta
+}
+
+func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (createdBoxID string, err error) {
 	util.PushEndlessProgress(Conf.Language(73))
 	defer util.ClearPushProgress(100)
 
@@ -148,20 +171,124 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 		logging.LogErrorf("read unzip dir [%s] failed: %s", unzipPath, err)
 		return
 	}
-	if 1 != len(entries) {
+	if 1 != len(entries) || !entries[0].IsDir() || len(syPaths) < 1 {
 		logging.LogErrorf("invalid .sy.zip [%v]", entries)
-		return errors.New(Conf.Language(199))
+		err = errors.New(Conf.Language(199))
+		return
 	}
 	unzipRootPath := filepath.Join(unzipPath, entries[0].Name())
 	name := filepath.Base(unzipRootPath)
 	if strings.HasPrefix(name, "data-20") && len("data-20230321175442") == len(name) {
 		logging.LogErrorf("invalid .sy.zip [unzipRootPath=%s, baseName=%s]", unzipRootPath, name)
-		return errors.New(Conf.Language(199))
+		err = errors.New(Conf.Language(199))
+		return
 	}
+	var importedBoxConf *conf.BoxConf
+	importedConfPath := filepath.Join(unzipRootPath, ".siyuan", "conf.json")
+	hasImportedBoxConf := filelock.IsExist(importedConfPath)
+	var importedMetadataErr error
+	if hasImportedBoxConf {
+		confData, readErr := filelock.ReadFile(importedConfPath)
+		if readErr == nil {
+			importedBoxConf = conf.NewBoxConf()
+			if unmarshalErr := gulu.JSON.UnmarshalJSON(confData, importedBoxConf); unmarshalErr != nil {
+				logging.LogWarnf("parse imported notebook conf failed: %s", unmarshalErr)
+				importedBoxConf = nil
+				importedMetadataErr = unmarshalErr
+			}
+		} else {
+			logging.LogWarnf("read imported notebook conf failed: %s", readErr)
+			importedMetadataErr = readErr
+		}
+		if removeErr := filelock.Remove(importedConfPath); removeErr != nil {
+			err = removeErr
+			return
+		}
+	}
+	var importedBoxDocID string
+	importedBoxDocPath := filepath.Join(unzipRootPath, ".siyuan", boxDocMetaName)
+	hasImportedBoxDocMeta := filelock.IsExist(importedBoxDocPath)
+	if hasImportedBoxDocMeta {
+		metaData, readErr := filelock.ReadFile(importedBoxDocPath)
+		if readErr == nil {
+			meta := &boxDocMeta{}
+			if unmarshalErr := gulu.JSON.UnmarshalJSON(metaData, meta); unmarshalErr != nil {
+				logging.LogWarnf("parse imported notebook document metadata failed: %s", unmarshalErr)
+				importedMetadataErr = unmarshalErr
+			} else if meta.Spec != boxDocMetaSpec || !ast.IsNodeIDPattern(meta.BoxDocID) {
+				logging.LogWarnf("invalid imported notebook document metadata [spec=%d, id=%s]", meta.Spec, meta.BoxDocID)
+				importedMetadataErr = errors.New("invalid imported notebook document metadata")
+			} else {
+				importedBoxDocID = meta.BoxDocID
+			}
+		} else {
+			logging.LogWarnf("read imported notebook document metadata failed: %s", readErr)
+			importedMetadataErr = readErr
+		}
+		if removeErr := filelock.Remove(importedBoxDocPath); removeErr != nil {
+			err = removeErr
+			return
+		}
+	}
+	if autoDetect {
+		if importedMetadataErr != nil {
+			err = errors.New(Conf.Language(199))
+			return
+		}
+		createNotebook = isSYNotebookExport(hasImportedBoxConf, hasImportedBoxDocMeta)
+	}
+	if autoDetect && !createNotebook && boxID == "" {
+		err = ErrSYTargetNotebookRequired
+		return
+	}
+	if !createNotebook && nil == Conf.Box(boxID) {
+		err = errors.New(Conf.Language(0))
+		return
+	}
+	if createNotebook {
+		if importedBoxConf != nil && importedBoxConf.Name != "" {
+			name = importedBoxConf.Name
+		}
+		boxID, err = CreateBox(util.RemoveInvalid(name))
+		if err != nil {
+			return "", err
+		}
+		createdBoxID = boxID
+		defer func() {
+			if err == nil {
+				return
+			}
+			treenode.RemoveBlockTreesByBoxID(boxID)
+			sql.DeleteBoxQueue(boxID)
+			if removeErr := filelock.Remove(filepath.Join(util.DataDir, boxID)); removeErr != nil {
+				logging.LogErrorf("remove notebook [%s] after import failed: %s", boxID, removeErr)
+			}
+		}()
+		if importedBoxConf != nil {
+			box := &Box{ID: boxID}
+			boxConf := box.GetConf()
+			boxConf.Icon = importedBoxConf.Icon
+			if strings.Contains(boxConf.Icon, ".") {
+				boxConf.Icon = util.FilterUploadEmojiFileName(boxConf.Icon)
+			}
+			boxConf.RefCreateSavePath = importedBoxConf.RefCreateSavePath
+			boxConf.DocCreateSavePath = importedBoxConf.DocCreateSavePath
+			boxConf.DailyNoteSavePath = importedBoxConf.DailyNoteSavePath
+			boxConf.DailyNoteTemplatePath = importedBoxConf.DailyNoteTemplatePath
+			boxConf.SortMode = importedBoxConf.SortMode
+			if err = box.SaveConf(boxConf); err != nil {
+				return createdBoxID, err
+			}
+		}
+	} else {
+		createdBoxID = boxID
+	}
+	toPath = normalizeBoxDocTarget(boxID, toPath)
 
 	luteEngine := util.NewLute()
 	blockIDs := map[string]string{}
 	trees := map[string]*parse.Tree{}
+	importedBoxDoc := false
 
 	// 重新生成块 ID
 	for i, syPath := range syPaths {
@@ -177,6 +304,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 			err = parseErr
 			return
 		}
+		oldRootID := tree.Root.ID
 		ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 			if !entering || "" == n.ID {
 				return ast.WalkContinue
@@ -185,6 +313,9 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 			// 新 ID 保留时间部分，仅修改随机值，避免时间变化导致更新时间早于创建时间
 			// Keep original creation time when importing .sy.zip https://github.com/siyuan-note/siyuan/issues/9923
 			newNodeID := util.TimeFromID(n.ID) + "-" + util.RandString(7)
+			if createNotebook && oldRootID == importedBoxDocID && n.ID == importedBoxDocID {
+				newNodeID = boxID
+			}
 			blockIDs[n.ID] = newNodeID
 			n.ID = newNodeID
 			n.SetIALAttr("id", newNodeID)
@@ -199,8 +330,19 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 		})
 		tree.ID = tree.Root.ID
 		tree.Path = filepath.ToSlash(strings.TrimPrefix(syPath, unzipRootPath))
+		if createNotebook && oldRootID == importedBoxDocID {
+			importedBoxDoc = true
+			tree.Root.SetIALAttr(DocHiddenAttr, "true")
+		} else if oldRootID == importedBoxDocID {
+			removeBoxDocHiddenAttr(tree)
+		}
 		trees[tree.ID] = tree
 		util.PushEndlessProgress(Conf.language(73) + " " + fmt.Sprintf(Conf.language(70), fmt.Sprintf("%d/%d", i+1, len(syPaths))))
+	}
+	if importedBoxDoc {
+		if err = writeBoxDocID(boxID); err != nil {
+			return
+		}
 	}
 
 	// 引用和嵌入指向重新生成的块 ID
@@ -280,7 +422,8 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 			data, readErr := os.ReadFile(oldPath)
 			if nil != readErr {
 				logging.LogErrorf("read av file [%s] failed: %s", oldPath, readErr)
-				return nil
+				err = readErr
+				return
 			}
 
 			// 将数据库文件中的 ID 替换为新的 ID
@@ -292,7 +435,8 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 			if !bytes.Equal(data, newData) {
 				if writeErr := os.WriteFile(oldPath, newData, 0644); nil != writeErr {
 					logging.LogErrorf("write av file [%s] failed: %s", oldPath, writeErr)
-					return nil
+					err = writeErr
+					return
 				}
 			}
 
@@ -343,9 +487,6 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 				return ast.WalkContinue
 			})
 
-			// 关联数据库和块
-			avNodes := tree.Root.ChildrenByType(ast.NodeAttributeView)
-			av.BatchUpsertBlockRel(avNodes)
 		}
 
 		// 如果数据库中绑定的块不在导入的文档中，则需要单独更新这些绑定块的属性
@@ -551,7 +692,8 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 		newPath := renamePaths[oldPath]
 		if err = filelock.Rename(oldPath, newPath); err != nil {
 			logging.LogErrorf("rename path from [%s] to [%s] failed: %s", oldPath, renamePaths[oldPath], err)
-			return errors.New("rename path failed")
+			err = errors.New("rename path failed")
+			return
 		}
 
 		delete(renamePaths, oldPath)
@@ -697,7 +839,7 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 		block := treenode.GetBlockTreeRootByPath(boxID, toPath)
 		if nil == block {
 			logging.LogErrorf("not found block by path [%s]", toPath)
-			return nil
+			return createdBoxID, nil
 		}
 		baseTargetPath = strings.TrimSuffix(block.Path, ".sy")
 	}
@@ -739,10 +881,16 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	}
 
 	boxAbsPath := filepath.Join(util.DataDir, boxID)
+	importedAvIDs := map[string]struct{}{}
+	for _, importedAvID := range avIDs {
+		importedAvIDs[importedAvID] = struct{}{}
+	}
 	for _, treePath := range treePaths {
 		absPath := filepath.Join(targetDir, treePath)
 		p := strings.TrimPrefix(absPath, boxAbsPath)
 		p = filepath.ToSlash(p)
+		cache.RemoveTreeDataInBox(util.GetTreeID(p), boxID)
+		cache.RemoveDocIALInBox(p, boxID)
 		tree, err := filesys.LoadTree(boxID, p, luteEngine)
 		if err != nil {
 			logging.LogErrorf("load tree [%s] failed: %s", treePath, err)
@@ -756,6 +904,14 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 		}
 
 		treenode.IndexBlockTree(tree)
+		cache.PutDocIALInBox(tree.Path, tree.Box, parse.IAL2Map(tree.Root.KramdownIAL))
+		var avNodes []*ast.Node
+		for _, avNode := range tree.Root.ChildrenByType(ast.NodeAttributeView) {
+			if _, ok := importedAvIDs[avNode.AttributeViewID]; ok {
+				avNodes = append(avNodes, avNode)
+			}
+		}
+		av.BatchUpsertBlockRel(avNodes)
 		sql.IndexTreeQueue(tree)
 		util.PushEndlessProgress(Conf.language(73) + " " + fmt.Sprintf(Conf.language(70), tree.Root.IALAttr("title")))
 	}
@@ -920,6 +1076,7 @@ func ImportData(zipPath string) (err error) {
 }
 
 func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
+	toPath = normalizeBoxDocTarget(boxID, toPath)
 	util.PushEndlessProgress(Conf.Language(73))
 	defer func() {
 		util.PushClearProgress()

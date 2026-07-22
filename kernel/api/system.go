@@ -353,8 +353,27 @@ func exportConf(c *gin.Context) {
 	clonedConf.Stat = nil
 	clonedConf.Api = nil
 	clonedConf.Repo = nil
+	clonedConf.Secrets = nil
+	clonedConf.NotebookCrypto = nil
+	clonedConf.Onboarding = nil
 	clonedConf.Publish = nil
+	clonedConf.CookieKey = ""
+	clonedConf.MCPOAuth = ""
 	clonedConf.CloudRegion = 0
+	if nil != clonedConf.AI {
+		for _, provider := range clonedConf.AI.Providers {
+			if nil != provider {
+				provider.APIKey = ""
+			}
+		}
+		if nil != clonedConf.AI.Embedding {
+			clonedConf.AI.Embedding.APIKey = ""
+		}
+		if nil != clonedConf.AI.Rerank {
+			clonedConf.AI.Rerank.APIKey = ""
+		}
+		clonedConf.AI.MCP = nil
+	}
 
 	data, err = gulu.JSON.MarshalIndentJSON(clonedConf, "", "  ")
 	if err != nil {
@@ -518,6 +537,7 @@ func importConf(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	preserveImportedAISecrets(importedConf.AI, model.Conf.AI)
 
 	model.Conf.FileTree = importedConf.FileTree
 	model.Conf.Tag = importedConf.Tag
@@ -534,6 +554,41 @@ func importConf(c *gin.Context) {
 	model.Conf.Save()
 
 	logging.LogInfof("imported conf")
+}
+
+func preserveImportedAISecrets(imported, current *conf.AI) {
+	if imported == nil || current == nil {
+		return
+	}
+
+	currentProviders := map[string]*conf.Provider{}
+	for _, provider := range current.Providers {
+		if provider != nil && provider.ID != "" && provider.APIKey != "" {
+			currentProviders[provider.ID] = provider
+		}
+	}
+	for _, provider := range imported.Providers {
+		if provider != nil && provider.APIKey == "" {
+			if currentProvider := currentProviders[provider.ID]; currentProvider != nil &&
+				currentProvider.BaseURL == provider.BaseURL && currentProvider.Protocol == provider.Protocol {
+				provider.APIKey = currentProvider.APIKey
+			}
+		}
+	}
+
+	if imported.Embedding != nil && current.Embedding != nil && imported.Embedding.APIKey == "" &&
+		imported.Embedding.ID != "" && imported.Embedding.ID == current.Embedding.ID &&
+		imported.Embedding.BaseURL == current.Embedding.BaseURL {
+		imported.Embedding.APIKey = current.Embedding.APIKey
+	}
+	if imported.Rerank != nil && current.Rerank != nil && imported.Rerank.APIKey == "" &&
+		imported.Rerank.ID != "" && imported.Rerank.ID == current.Rerank.ID &&
+		imported.Rerank.Endpoint == current.Rerank.Endpoint {
+		imported.Rerank.APIKey = current.Rerank.APIKey
+	}
+	if imported.MCP == nil {
+		imported.MCP = current.MCP
+	}
 }
 
 func getConf(c *gin.Context) {
@@ -585,6 +640,33 @@ func getConf(c *gin.Context) {
 		"start":     !util.IsUILoaded,
 		"isPublish": isPublish,
 	}
+}
+
+func ensureOnboarding(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	onboarding, notebookCreated, err := model.EnsureOnboarding()
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	if notebookCreated {
+		box := model.Conf.Box(onboarding.NotebookID)
+		if nil != box {
+			evt := util.NewCmdResult("createnotebook", 0, util.PushModeBroadcast)
+			evt.Data = map[string]any{"box": box, "existed": false}
+			util.PushEvent(evt)
+		}
+	}
+	ret.Data = onboarding
+}
+
+func dismissOnboarding(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	ret.Data = model.DismissOnboarding()
 }
 
 func setUILayout(c *gin.Context) {
@@ -1060,7 +1142,7 @@ func exit(c *gin.Context) {
 		force = forceArg.(bool)
 	}
 
-	execInstallPkgArg := arg["execInstallPkg"] // 0：默认检查新版本，1：不执行新版本安装，2：执行新版本安装
+	execInstallPkgArg := arg["execInstallPkg"] // 0：默认检查新版本，1：不返回安装包，2：返回安装包路径并退出
 	execInstallPkg := 0
 	if nil != execInstallPkgArg {
 		execInstallPkg = int(execInstallPkgArg.(float64))
@@ -1072,15 +1154,18 @@ func exit(c *gin.Context) {
 		setCurrentWorkspace = setCurrentWorkspaceArg.(bool)
 	}
 
-	exitCode := model.Close(force, setCurrentWorkspace, execInstallPkg)
+	exitCode, installPkgPath := model.Close(force, setCurrentWorkspace, execInstallPkg)
 	ret.Code = exitCode
+	data := map[string]any{"closeTimeout": 0}
+	if "" != installPkgPath {
+		data["installPkgPath"] = installPkgPath
+	}
+	ret.Data = data
 	switch exitCode {
 	case 0:
 	case 1: // 同步执行失败
 		ret.Msg = model.Conf.Language(96) + "<div class=\"fn__space\"></div><button class=\"b3-button b3-button--white\">" + model.Conf.Language(97) + "</button>"
-		ret.Data = map[string]any{"closeTimeout": 0}
 	case 2: // 提示新安装包
 		ret.Msg = model.Conf.Language(61)
-		ret.Data = map[string]any{"closeTimeout": 0}
 	}
 }

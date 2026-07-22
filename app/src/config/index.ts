@@ -10,8 +10,9 @@ import {bazaar, renderReadme} from "./bazaar";
 import {fetchSyncPost} from "../util/fetch";
 import {getFrontend} from "../util/functions";
 import {showMessage} from "../dialog/message";
+import {escapeHtml} from "../util/escape";
 /// #endif
-import {getSettingTabDefs} from "./setting/tabs";
+import {getSettingTabDefs, settingTabToMenuId} from "./setting/tabs";
 import {clearAccessTabElement} from "./tabs/accessRuntime";
 import {clearSyncTabElement} from "./tabs/syncRuntime";
 import type {TSettingTab} from "./setting/tabs";
@@ -49,7 +50,7 @@ const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
         ${tabPanels.join("")}
     </div>
 </div>`,
-        width: "70vw",
+        width: "max(70vw, min(90vw, 900px))",
         height: "90vh",
         destroyCallback() {
             clearSyncTabElement();
@@ -80,6 +81,11 @@ const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
 export const openSetting = (app: App, tab?: TSettingTab) => {
     /// #if MOBILE
     popMenu();
+    if (tab) {
+        window.setTimeout(() => {
+            document.getElementById(settingTabToMenuId(tab))?.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+        }, 200);
+    }
     /// #else
     return openSettingDialog(app, tab);
     /// #endif
@@ -123,7 +129,7 @@ export const openBazaarReadme = async (app: App, bazaarType: TBazaarType, itemNa
 
     const resource = (response.data.packages as IBazaarItem[]).find((item: IBazaarItem) => item.name === itemName);
     if (!resource) {
-        showMessage(`Package not found: ${itemName}`);
+        showMessage(`Package not found: ${escapeHtml(itemName)}`);
         return;
     }
 

@@ -1,5 +1,96 @@
 .custom-attr {
 
+  &__avbacklinks {
+    border-bottom: 1px solid var(--b3-border-color);
+    padding: 4px 8px 8px 36px;
+
+    &[data-expanded="false"] .custom-attr__avbacklinks-body {
+      display: none;
+    }
+  }
+
+  &__avbacklinks-toggle,
+  &__avbacklink {
+    align-items: center;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    box-sizing: border-box;
+    color: var(--b3-theme-on-surface);
+    display: flex;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+
+    &:hover {
+      background-color: var(--b3-theme-surface-light);
+    }
+  }
+
+  &__avbacklinks-toggle {
+    cursor: pointer;
+    gap: 8px;
+    min-height: 34px;
+    padding: 4px 8px;
+
+    svg {
+      height: 14px;
+      width: 14px;
+    }
+  }
+
+  &__avbacklinks-body {
+    padding-top: 4px;
+  }
+
+  &__avbacklink {
+    cursor: pointer;
+    gap: 8px;
+    min-height: 42px;
+    padding: 4px 8px 4px 30px;
+
+    & > .fn__flex-1 {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+  }
+
+  &__avbacklinkicon,
+  &__avbacklinkopen {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    height: 16px;
+    justify-content: center;
+    width: 16px;
+
+    img,
+    svg {
+      height: 16px;
+      width: 16px;
+    }
+  }
+
+  &__avbacklinkopen {
+    color: var(--b3-theme-on-surface-light);
+    opacity: 0;
+  }
+
+  &__avbacklink:hover &__avbacklinkopen {
+    opacity: 1;
+  }
+
+  &__avbacklinktitle,
+  &__avbacklinkpath {
+    display: block;
+  }
+
+  &__avbacklinkpath {
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+  }
+
   &__avvalue {
     cursor: pointer;
     transition: var(--b3-background-transition);
@@ -140,5 +231,124 @@
 
   .av__row.dragover__top::after {
     top: -1.5px;
+  }
+}
+
+.protyle-db-attr {
+  margin: 8px 16px 8px 24px;
+  border-radius: var(--b3-border-radius);
+
+  &__header {
+    align-items: center;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    box-sizing: border-box;
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+    font: inherit;
+    min-height: 34px;
+    padding: 0 8px;
+    text-align: left;
+    transition: var(--b3-background-transition);
+    width: 100%;
+
+    &:hover {
+      background-color: var(--b3-theme-surface-light);
+    }
+
+    .block__logo {
+      min-height: 34px;
+      font-weight: 500;
+    }
+  }
+
+  &--collapsed &__body {
+    display: none;
+  }
+
+  &__body > [data-type="NodeAttributeView"] > .fn__hr--b {
+    display: none;
+  }
+
+  .custom-attr__avheader {
+    padding-left: 40px;
+  }
+}
+
+.av__row-actions {
+  align-items: center;
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 1px;
+  margin: 0;
+  padding-left: 6px;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease-in-out;
+  background-color: transparent;
+  border-radius: var(--b3-border-radius);
+
+  .av__row-action {
+    align-items: center;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+    display: inline-flex;
+    height: calc(1.625em - 4px);
+    justify-content: center;
+    padding: 0;
+    width: calc(1.625em - 4px);
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--b3-list-hover);
+      color: var(--b3-theme-on-background);
+      outline: none;
+    }
+
+    svg {
+      height: calc(1em - 2px);
+      pointer-events: none;
+      width: calc(1em - 2px);
+    }
+  }
+}
+
+.av__cell[data-dtype="block"]:hover .av__row-actions,
+.av__cell[data-dtype="block"]:focus-within .av__row-actions,
+.av__gallery-item:hover .av__row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.protyle-db-row {
+  background-color: var(--b3-theme-background);
+  max-height: 100%;
+  overflow-x: hidden;
+  position: relative;
+
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 24px 32px 8px;
+    font-size: 24px;
+    font-weight: 600;
+
+    svg {
+      width: 24px;
+      height: 24px;
+    }
+  }
+
+  &__body {
+    margin: 8px 24px;
   }
 }

@@ -9,6 +9,7 @@ import {getPageSize} from "../groups";
 import {renderKanban} from "../kanban/render";
 import {getBodyVirtualData, initVirtualScroll} from "../virtualScroll";
 import {getRowHTML, updateHeader} from "../row";
+import {beginAVRender, finishAVLocate, getAVLocateParams, isCurrentAVRender, prepareAVLocate} from "../locate";
 
 interface IIds {
     groupId: string,
@@ -37,19 +38,23 @@ interface ITableOptions {
 const getGalleryHTML = (data: IAVGallery, e: HTMLElement, virtualData: IAVVirtualData) => {
     let galleryHTML = "";
     // body
-    data.cards.forEach((item: IAVGalleryItem, rowIndex: number) => {
-        if (virtualData && virtualData.renderedEnd) {
+    data.cards.find((item: IAVGalleryItem, rowIndex: number) => {
+        if (virtualData && typeof virtualData.renderedEnd === "number") {
             if (rowIndex === 0) {
                 e.setAttribute(Constants.ATTRIBUTE_V_SCROLL, "true");
             }
-            if (rowIndex > virtualData.renderedEnd || rowIndex < virtualData.renderedStart) {
+            if (rowIndex > virtualData.renderedEnd) {
+                return true;
+            }
+            if (rowIndex < virtualData.renderedStart) {
                 return;
             }
         } else if (data.pageSize > 100 && rowIndex > 99) {
             e.setAttribute(Constants.ATTRIBUTE_V_SCROLL, "true");
             return true;
         }
-        galleryHTML += getRowHTML({data, row: item, rowIndex, type: "gallery"});
+        galleryHTML += getRowHTML({data, row: item, rowIndex: rowIndex + (virtualData?.rowOffset || 0), type: "gallery"});
+        return false;
     });
     galleryHTML += `<div class="av__gallery-add" data-type="av-add-bottom"><svg class="svg"><use xlink:href="#iconAdd"></use></svg><span class="fn__space"></span>${window.siyuan.languages.newRow}</div>`;
     return `<div class="av__gallery${data.cardSize === 0 ? " av__gallery--small" : (data.cardSize === 2 ? " av__gallery--big" : "")}">
@@ -73,7 +78,7 @@ const renderGroupGallery = (options: ITableOptions) => {
     options.data.view.groups.forEach((group: IAVGallery) => {
         if (group.groupHidden === 0) {
             avBodyHTML += `${getGroupTitleHTML(group, group.cardCount)}
-<div data-group-id="${group.id}" data-page-size="${group.pageSize}" data-dtype="${group.groupKey.type}" data-content="${Lute.EscapeHTMLStr(group.groupValue.text?.content || "")}" class="av__body${group.groupFolded ? " fn__none" : ""}">${getGalleryHTML(group, options.blockElement, options.resetData.virtualData[group.id])}</div>`;
+<div data-group-id="${group.id}" data-page-size="${group.pageSize}" data-dtype="${group.groupKey.type}" data-content="${Lute.EscapeHTMLStr(group.groupValue.text?.content || "")}"${options.resetData.virtualData[group.id]?.locate ? ' data-av-locate-window="true"' : ""} class="av__body${group.groupFolded ? " fn__none" : ""}">${getGalleryHTML(group, options.blockElement, options.resetData.virtualData[group.id])}</div>`;
         }
     });
     if (options.renderAll) {
@@ -154,6 +159,7 @@ export const afterRenderGallery = (options: ITableOptions) => {
         options.cb(options.data);
     }
     if (!options.renderAll) {
+        finishAVLocate(options.blockElement, options.protyle, options.data);
         return;
     }
     bindAvSearch({
@@ -163,6 +169,7 @@ export const afterRenderGallery = (options: ITableOptions) => {
         onChange: () => updateSearch(options.blockElement, options.protyle),
     });
     initVirtualScroll(options);
+    finishAVLocate(options.blockElement, options.protyle, options.data);
 };
 
 export const renderGallery = async (options: {
@@ -172,6 +179,7 @@ export const renderGallery = async (options: {
     renderAll: boolean,
     data?: IAV,
 }) => {
+    const renderToken = beginAVRender(options.blockElement);
     const searchInputElement = options.blockElement.querySelector('[data-type="av-search"]');
     const editIds: IIds[] = [];
     options.blockElement.querySelectorAll(".av__gallery-fields--edit").forEach(item => {
@@ -194,6 +202,9 @@ export const renderGallery = async (options: {
     const virtualData: { [key: string]: IAVVirtualData } = {};
     options.blockElement.querySelectorAll(".av__body").forEach((item: HTMLElement) => {
         pageSizes[item.dataset.groupId || "unGroup"] = item.dataset.pageSize;
+        if (item.dataset.avLocateWindow === "true") {
+            return;
+        }
         if (!item.querySelector(".av__gallery-item") || options.blockElement.getAttribute(Constants.ATTRIBUTE_V_SCROLL) !== "true") {
             return;
         }
@@ -230,17 +241,25 @@ export const renderGallery = async (options: {
     let data: IAV = options.data;
     if (!data) {
         const avPageSize = getPageSize(options.blockElement);
+        const locateParams = getAVLocateParams(options.blockElement, !created && !snapshot);
         const response = await fetchSyncPost(created ? "/api/av/renderHistoryAttributeView" : (snapshot ? "/api/av/renderSnapshotAttributeView" : "/api/av/renderAttributeView"), {
             id: options.blockElement.getAttribute("data-av-id"),
             created,
             snapshot,
             pageSize: avPageSize.unGroupPageSize,
             groupPaging: avPageSize.groupPageSize,
-            viewID: options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "",
-            query: resetData.query.trim()
+            viewID: locateParams?.viewID || options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "",
+            query: resetData.query.trim(),
+            blockID: options.blockElement.getAttribute("data-node-id"),
+            targetItemID: locateParams?.targetItemID || "",
+            targetGroupID: locateParams?.targetGroupID || "",
         });
         data = response.data;
     }
+    if (!isCurrentAVRender(options.blockElement, renderToken)) {
+        return;
+    }
+    prepareAVLocate(options.blockElement, data, resetData);
     if (data.viewType === "table") {
         options.blockElement.setAttribute("data-av-type", data.viewType);
         avRender(options.blockElement, options.protyle, options.cb, options.renderAll, data);
@@ -274,7 +293,7 @@ export const renderGallery = async (options: {
         options.blockElement.firstElementChild.outerHTML = `<div class="av__container fn__block">
     ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, !options.protyle.disabled)}
     <div>
-        <div class="av__body" data-group-id="" data-page-size="${view.pageSize}">
+        <div class="av__body" data-group-id="" data-page-size="${view.pageSize}"${virtualData.all?.locate ? ' data-av-locate-window="true"' : ""}>
             ${bodyHTML}
         </div>
     </div>
@@ -284,6 +303,11 @@ export const renderGallery = async (options: {
         const bodyElement = options.blockElement.querySelector(".av__body") as HTMLElement;
         bodyElement.innerHTML = bodyHTML;
         bodyElement.dataset.pageSize = view.pageSize.toString();
+        if (virtualData.all?.locate) {
+            bodyElement.dataset.avLocateWindow = "true";
+        } else {
+            bodyElement.removeAttribute("data-av-locate-window");
+        }
     }
     afterRenderGallery({
         resetData,

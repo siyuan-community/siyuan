@@ -5,11 +5,12 @@ import {escapeHtml} from "../../../util/escape";
 import {fetchPost} from "../../../util/fetch";
 import {hintRef} from "../../../protyle/hint/extend";
 import {genEmptyElement} from "../../../block/util";
+import {blockRender} from "../../../protyle/render/blockRender";
 
 interface ComposerHandle {
     focus: () => void;
     destroy: () => void;
-    getSendData: () => { text: string; references: { id: string; title: string }[] };
+    getSendData: () => { text: string; blockHTML: string; references: { id: string; title: string }[] };
     clear: () => void;
     pushHistory: (text: string) => void;
     getHistory: () => string[];
@@ -17,9 +18,22 @@ interface ComposerHandle {
     restoreHistory: (h: string[]) => void;
     insertMention: (id: string, label: string) => void;
     insertMentions: (mentions: Array<{ id: string; label: string }>) => void;
+    renderBlockHTML: (element: HTMLElement, onEmbedRender: () => void) => void;
 }
 
 type OnChangeCallback = () => void;
+
+const resetEmbedBlocks = (element: HTMLElement) => {
+    element.querySelectorAll<HTMLElement>('[data-type="NodeBlockQueryEmbed"]').forEach((embedElement) => {
+        embedElement.removeAttribute("data-render");
+        embedElement.style.height = "";
+        Array.from(embedElement.children).forEach((child) => {
+            if (child.classList.contains("protyle-wysiwyg__embed")) {
+                child.remove();
+            }
+        });
+    });
+};
 
 // / 技能菜单：异步拉取 lsSkills，选中后把技能名作为纯文本插入（value 即技能名）。
 // 返回 [] 占位，数据在 fetch 回调里通过 protyle.hint.genHTML 填充（与 hintRef 异步模式一致）。
@@ -168,12 +182,14 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
     };
     updatePlaceholder();
 
-    wysiwyg.element.addEventListener("input", () => {
+    // Protyle 的粘贴、块删除和程序化插入会直接修改 DOM，不一定派发 input，需以实际 DOM 变化为准刷新状态。
+    const contentObserver = new MutationObserver(() => {
         updatePlaceholder();
         if (onChange) {
             onChange();
         }
     });
+    contentObserver.observe(wysiwyg.element, {childList: true, characterData: true, subtree: true});
 
     // capture 阶段拦截 hint 选择、Enter 发送、历史翻页；undo/redo 交给 protyle 的 keydown（调 LocalUndo）。
     wysiwyg.element.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -205,7 +221,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
                 event.stopPropagation();
                 const target = history.isBrowsing() ?
                     history.navigateUp() : history.beginBrowsing(wysiwyg.element.innerHTML);
-                wysiwyg.element.innerHTML = p.lute.SpinBlockDOM(target);
+                wysiwyg.element.innerHTML = p.lute.Md2BlockDOM(target);
                 return;
             }
         }
@@ -215,7 +231,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
             event.stopPropagation();
             const target = history.navigateDown();
             if (history.isBrowsing()) {
-                p.wysiwyg.element.innerHTML = p.lute.SpinBlockDOM(target);
+                p.wysiwyg.element.innerHTML = p.lute.Md2BlockDOM(target);
             } else {
                 wysiwyg.element.innerHTML = target;
             }
@@ -228,13 +244,22 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
         }
     }, true);
 
-    const getPlainText = (): string => {
-        return (wysiwyg.element.textContent || "").replace(new RegExp(Constants.ZWSP, "g"), "").trim();
+    const getMarkdown = (): string => {
+        return p.lute.BlockDOM2StdMd(wysiwyg.element.innerHTML).trim();
+    };
+
+    const getBlockHTML = (): string => {
+        const clone = wysiwyg.element.cloneNode(true) as HTMLElement;
+        resetEmbedBlocks(clone);
+        return clone.innerHTML;
     };
 
     return {
         focus: () => protyle.focus(),
-        destroy: () => protyle.destroy(),
+        destroy: () => {
+            contentObserver.disconnect();
+            protyle.destroy();
+        },
         getSendData: () => {
             const references: { id: string; title: string }[] = [];
             wysiwyg.element.querySelectorAll('[data-type~="block-ref"]').forEach((ref) => {
@@ -243,7 +268,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
                     title: ref.textContent || "",
                 });
             });
-            return {text: getPlainText(), references};
+            return {text: getMarkdown(), blockHTML: getBlockHTML(), references};
         },
         clear: () => {
             wysiwyg.element.innerHTML = "";
@@ -271,6 +296,10 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
             if (html) {
                 protyle.insert(html);
             }
+        },
+        renderBlockHTML: (element, onEmbedRender) => {
+            resetEmbedBlocks(element);
+            blockRender(p, element, undefined, onEmbedRender);
         },
     };
 }

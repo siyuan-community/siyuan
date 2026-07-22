@@ -1,6 +1,6 @@
 import {fetchPost} from "../../util/fetch";
 import {Dialog} from "../../dialog";
-import {objEquals} from "../../util/functions";
+import {isMobile, objEquals} from "../../util/functions";
 import {confirmDialog} from "../../dialog/confirmDialog";
 import {Constants} from "../../constants";
 
@@ -56,9 +56,9 @@ export const openSnippets = () => {
             }
         });
         const dialog = new Dialog({
-            width: "70vw",
-            height: "80vh",
-            content: `<div class="layout-tab-bar fn__flex fn__flex-shrink" style="border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
+            width: isMobile() ? "100vw" : "50vw",
+            height: isMobile() ? "100vh" : "80vh",
+            content: `<div class="layout-tab-bar fn__flex fn__flex-shrink" style="${isMobile() ? "padding-right: 38px;" : ""}border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
     <div data-type="css" class="item item--full item--focus"><span class="fn__flex-1"></span><span class="item__text">CSS</span><span class="fn__flex-1"></span></div>
     <div data-type="js" class="item item--full"><span class="fn__flex-1"></span><span class="item__text">JS</span><span class="fn__flex-1"></span></div>
 </div>
@@ -189,15 +189,14 @@ const filterSnippet = (dialog: Dialog, inputItem: HTMLInputElement) => {
 const genSnippet = (options: ISnippet) => {
     return `<div data-id="${options.id || ""}" data-type="${options.type}">
     <div class="fn__hr--b"></div>
-    <div class="fn__flex">
-        <input type="text" class="fn__size200 b3-text-field" placeholder="${window.siyuan.languages.title}">
+    <label class="fn__flex${window.siyuan.config.publish.enable ? "" : " fn__none"}">
+        <input data-type="disabledInPublish" type="checkbox" class="b3-switch fn__flex-center" ${options.disabledInPublish ? "" : " checked"}>
         <div class="fn__space"></div>
-        <label class="fn__flex${window.siyuan.config.publish.enable ? "" : " fn__none"}">
-            <input data-type="disabledInPublish" type="checkbox" class="b3-switch fn__flex-center" ${options.disabledInPublish ? "" : " checked"}>
-            <div class="fn__space"></div>
-            <span class="fn__flex-center">${window.siyuan.languages.publishService}</span>
-        </label>
-        <div class="fn__flex-1"></div>
+        <span class="fn__flex-center">${window.siyuan.languages.publishService}</span>
+    </label>
+    <div class="fn__hr"></div>
+    <div class="fn__flex">
+        <input type="text" class="fn__flex-1 b3-text-field" placeholder="${window.siyuan.languages.title}">
         <div class="fn__space"></div>
         <span aria-label="${window.siyuan.languages.remove}" data-action="remove" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
             <svg><use xlink:href="#iconTrashcan"></use></svg>

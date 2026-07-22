@@ -6,6 +6,14 @@ import {Constants} from "../../constants";
 import {isMobile} from "../../util/functions";
 import {fetchPost} from "../../util/fetch";
 import {aiConfigApi} from "./aiRuntime";
+import {openByMobile} from "../../editor/openLink";
+import {Menu} from "../../plugin/Menu";
+import {upDownHint} from "../../util/upDownHint";
+/// #if !BROWSER
+import {shell} from "electron";
+/// #endif
+
+type ModelPickerGroup = "editing" | "agent" | "vision" | "imageGeneration";
 
 export const getProvidersBlockKeywords = (): string[] => [
     window.siyuan.languages.apiProvider,
@@ -525,7 +533,7 @@ const openProviderDialog = (root: HTMLElement, providerId: string | null) => {
         id: "",
         apiKey: "",
         baseURL: "",
-        requestTimeout: 30,
+        requestTimeout: 120,
         enabled: true,
         models: [],
     } : existingProvider;
@@ -607,10 +615,10 @@ const saveProviders = (root: HTMLElement, providers: Config.IProvider[]) => {
     });
 };
 
-// 提供商/模型变更后，将 editing 与 agent 两组模型选择器与配置对齐，并在必要时修正已保存的 modelId
+// 提供商或模型变更后，将各场景模型选择器与配置对齐，并在必要时修正已保存的 modelId
 const syncModelPickerSelects = (root: HTMLElement) => {
     const enabledProviders = getEnabledProviders();
-    (["editing", "agent"] as const).forEach((group) => {
+    (["editing", "agent", "vision", "imageGeneration"] as const).forEach((group) => {
         const blockEl = root.querySelector<HTMLElement>(`#${CSS.escape(`aiModelPickerBlock-${group}`)}`);
         if (!blockEl) {
             return;
@@ -666,7 +674,10 @@ const getEnabledProviders = () =>
 
 const getEnabledModels = (providerId: string): Config.IModel[] => {
     const provider = findProvider(providerId);
-    return provider ? provider.models.filter((model) => model.enabled) : [];
+    if (!provider) {
+        return [];
+    }
+    return provider.models.filter((model) => model.enabled);
 };
 
 const buildProviderOptionsHtml = (enabledProviders: Config.IProvider[], providerId: string): string =>
@@ -702,6 +713,104 @@ const pickModelId = (enabledModels: Config.IModel[], preferredModelIds: string[]
         }
     }
     return enabledModels[0].id ?? "";
+};
+
+const openAvailableModelMenu = (modelInput: HTMLInputElement, models: string[]) => {
+    const menu = new Menu();
+    menu.addItem({
+        iconHTML: "",
+        type: "empty",
+        label: `<div class="fn__flex-column b3-menu__filter">
+    <input class="b3-text-field fn__block" placeholder="${window.siyuan.languages.search}">
+    <div class="fn__hr"></div>
+    <div class="b3-list fn__flex-1 b3-list--background">
+        ${models.map((model) => `<div class="b3-list-item b3-list-item--narrow" data-model="${Lute.EscapeHTMLStr(model)}">
+    <span class="b3-list-item__text">${Lute.EscapeHTMLStr(model)}</span>
+    ${model === modelInput.value ? '<svg class="b3-menu__checked"><use xlink:href="#iconSelect"></use></svg>' : ""}
+</div>`).join("")}
+        <div class="b3-list--empty fn__none" data-type="empty">${window.siyuan.languages.emptyContent}</div>
+    </div>
+</div>`,
+        bind(element) {
+            const listElement = element.querySelector<HTMLElement>(".b3-list");
+            const searchInput = element.querySelector<HTMLInputElement>("input");
+            const emptyElement = element.querySelector<HTMLElement>("[data-type='empty']");
+            const selectModel = (item: HTMLElement) => {
+                modelInput.value = item.dataset.model;
+                menu.close();
+                modelInput.focus();
+            };
+            const filterModels = () => {
+                const keyword = searchInput.value.toLowerCase().trim();
+                let firstVisibleItem: HTMLElement;
+                listElement.querySelectorAll<HTMLElement>(".b3-list-item").forEach((item) => {
+                    item.classList.remove("b3-list-item--focus");
+                    const hidden = !item.dataset.model.toLowerCase().includes(keyword);
+                    item.classList.toggle("fn__none", hidden);
+                    if (!hidden && !firstVisibleItem) {
+                        firstVisibleItem = item;
+                    }
+                });
+                firstVisibleItem?.classList.add("b3-list-item--focus");
+                emptyElement.classList.toggle("fn__none", !!firstVisibleItem);
+            };
+            filterModels();
+            searchInput.addEventListener("keydown", (event: KeyboardEvent) => {
+                event.stopPropagation();
+                if (event.isComposing) {
+                    return;
+                }
+                upDownHint(listElement, event);
+                if (event.key === "Enter") {
+                    const item = listElement.querySelector<HTMLElement>(".b3-list-item--focus");
+                    if (item) {
+                        selectModel(item);
+                    }
+                    event.preventDefault();
+                } else if (event.key === "Escape") {
+                    menu.close();
+                    modelInput.focus();
+                    event.preventDefault();
+                }
+            });
+            searchInput.addEventListener("input", (event: InputEvent) => {
+                if (!event.isComposing) {
+                    filterModels();
+                }
+            });
+            searchInput.addEventListener("compositionend", filterModels);
+            listElement.addEventListener("click", (event) => {
+                const item = (event.target as HTMLElement).closest<HTMLElement>(".b3-list-item");
+                if (item) {
+                    selectModel(item);
+                }
+            });
+        },
+    });
+    const rect = modelInput.getBoundingClientRect();
+    menu.open({x: rect.left, y: rect.bottom, h: rect.height, w: rect.width});
+    menu.element.querySelector(".b3-menu__items").setAttribute("style", "overflow: initial");
+    menu.element.querySelector<HTMLInputElement>("input").focus();
+};
+
+const replaceModelInputWithPicker = (inputElement: HTMLElement, models: string[], current: string) => {
+    const modelInput = document.createElement("input");
+    modelInput.className = "b3-select fn__flex-1";
+    modelInput.id = "aiModelName";
+    modelInput.type = "text";
+    modelInput.spellcheck = false;
+    modelInput.readOnly = true;
+    modelInput.placeholder = window.siyuan.languages.selectModel;
+    modelInput.value = current && models.includes(current) ? current : "";
+    const openMenu = () => openAvailableModelMenu(modelInput, models);
+    modelInput.addEventListener("click", openMenu);
+    modelInput.addEventListener("keydown", (event) => {
+        if (["Enter", " ", "ArrowDown"].includes(event.key)) {
+            event.preventDefault();
+            openMenu();
+        }
+    });
+    inputElement.replaceWith(modelInput);
 };
 
 const openModelDialog = (root: HTMLElement, providerId: string, modelId: string | null) => {
@@ -777,18 +886,10 @@ const openModelDialog = (root: HTMLElement, providerId: string, modelId: string 
                 showMessage(`${window.siyuan.languages.fetchAvailableModelsFail}${data.msg ? "：" + data.msg : ""}`, undefined, "error");
                 return;
             }
-            // 用下拉框替换原文本框，保留当前已填值
+            // 用可搜索选择器替换原文本框，保留当前已填值
             const current = getModelName();
             const inputEl = dialog.element.querySelector<HTMLElement>("#aiModelName");
-            const selectEl = document.createElement("select");
-            selectEl.className = "b3-select fn__flex-1";
-            selectEl.id = "aiModelName";
-            selectEl.innerHTML = `<option value="">${window.siyuan.languages.selectModel}</option>` +
-                models.map((m) => `<option value="${Lute.EscapeHTMLStr(m)}"${m === current ? " selected" : ""}>${Lute.EscapeHTMLStr(m)}</option>`).join("");
-            if (current && models.includes(current)) {
-                selectEl.value = current;
-            }
-            inputEl.replaceWith(selectEl);
+            replaceModelInputWithPicker(inputEl, models, current);
             showMessage(window.siyuan.languages.fetchAvailableModelsSuccess, undefined, "info");
         });
     });
@@ -858,7 +959,7 @@ const openModelDialog = (root: HTMLElement, providerId: string, modelId: string 
     });
 };
 
-export const getModelPickerKeywords = (group: "editing" | "agent"): string[] => {
+export const getModelPickerKeywords = (group: ModelPickerGroup): string[] => {
     const keywords = [
         window.siyuan.languages.defaultModel,
         window.siyuan.languages.apiProvider,
@@ -870,16 +971,20 @@ export const getModelPickerKeywords = (group: "editing" | "agent"): string[] => 
         keywords.push(
             window.siyuan.languages.aiEditingModelPickerTip
         );
-    } else {
+    } else if (group === "agent") {
         keywords.push(
             window.siyuan.languages.aiAgentModelPickerTip,
             window.siyuan.languages.agentChat,
         );
+    } else if (group === "vision") {
+        keywords.push(window.siyuan.languages.aiImageUnderstanding, window.siyuan.languages.aiImageUnderstandingTip);
+    } else {
+        keywords.push(window.siyuan.languages.aiImageGeneration, window.siyuan.languages.aiImageGenerationTip);
     }
     return keywords;
 };
 
-export const genModelPickerHtml = (group: "editing" | "agent"): string => {
+export const genModelPickerHtml = (group: ModelPickerGroup): string => {
     const savedModelId = window.siyuan.config.ai[group].modelId;
     const {providerId, modelId: storedModelId} = lookupModelOwner(savedModelId);
     const enabledProviders = getEnabledProviders();
@@ -890,6 +995,10 @@ export const genModelPickerHtml = (group: "editing" | "agent"): string => {
         desc = window.siyuan.languages.aiEditingModelPickerTip;
     } else if (group === "agent") {
         desc = window.siyuan.languages.aiAgentModelPickerTip;
+    } else if (group === "vision") {
+        desc = window.siyuan.languages.aiImageUnderstandingTip;
+    } else {
+        desc = window.siyuan.languages.aiImageGenerationTip;
     }
 
     return `<div class="b3-label config-item" id="aiModelPickerBlock-${group}" data-type="aiModelPicker" data-name="${group}">
@@ -910,7 +1019,7 @@ export const genModelPickerHtml = (group: "editing" | "agent"): string => {
 </div>`;
 };
 
-export const mountModelPickerBlock = (root: HTMLElement, group: "editing" | "agent") => {
+export const mountModelPickerBlock = (root: HTMLElement, group: ModelPickerGroup) => {
     const blockEl = root.querySelector(`#${CSS.escape(`aiModelPickerBlock-${group}`)}`);
     if (!blockEl) {
         return;
@@ -947,6 +1056,8 @@ export const mountModelPickerBlock = (root: HTMLElement, group: "editing" | "age
 export const getMcpServersBlockKeywords = (): string[] => [
     window.siyuan.languages.mcpStatusConnected,
     window.siyuan.languages.mcpStatusConnecting,
+    window.siyuan.languages.mcpStatusAuthorizing,
+    window.siyuan.languages.mcpStatusAuthorizationRequired,
     window.siyuan.languages.mcpStatusFailed,
     window.siyuan.languages.mcpStatusDisabled,
     window.siyuan.languages.mcpStatusTools,
@@ -966,7 +1077,11 @@ export const getMcpServersBlockKeywords = (): string[] => [
     window.siyuan.languages.aiMcpUrlTip,
     window.siyuan.languages.aiMcpHttpHeaders,
     window.siyuan.languages.apiTimeout,
+    window.siyuan.languages.mcpAuthorize,
+    window.siyuan.languages.mcpDisconnectAuthorization,
 ];
+
+const openedMcpOAuthURLs = new Map<string, string>();
 
 export const genMcpServersBlockHtml = (): string => `<div class="b3-label config-item" id="aiMcpServersBlock">
     <div class="fn__flex" style="align-items:center;">
@@ -995,13 +1110,23 @@ export const mountMcpServersBlock = (root: HTMLElement) => {
     // 轮询 MCP 连接状态，刷新每个 server 名称旁的状态圆点颜色、tooltip，以及标题右侧的汇总。
     const renderMcpStatus = () => {
         fetchPost("/api/ai/mcpStatus", {}, (response) => {
-            const items = response.data as Array<{name: string; status: string; tools: number}>;
+            const items = response.data as Array<{
+                id: string;
+                name: string;
+                status: string;
+                tools: number;
+                error?: string;
+                authorizationURL?: string;
+                authorized: boolean;
+            }>;
             if (!items) {
                 return;
             }
             const colorMap: Record<string, string> = {
                 connected: "#65b84f",
                 connecting: "#d97706",
+                authorizing: "#d97706",
+                authorization_required: "#d97706",
                 failed: "#d23f31",
                 disabled: "var(--b3-theme-on-surface-light)",
             };
@@ -1012,7 +1137,20 @@ export const mountMcpServersBlock = (root: HTMLElement) => {
                     connectedCount++;
                     totalTools += item.tools;
                 }
-                const dotWrap = block.querySelector<HTMLElement>(`[data-mcp-status-name="${CSS.escape(item.name)}"]`);
+                if (item.authorizationURL && openedMcpOAuthURLs.get(item.id) !== item.authorizationURL) {
+                    openedMcpOAuthURLs.set(item.id, item.authorizationURL);
+                    /// #if !BROWSER
+                    void shell.openExternal(item.authorizationURL).catch((error: Error) => {
+                        if (openedMcpOAuthURLs.get(item.id) === item.authorizationURL) {
+                            openedMcpOAuthURLs.delete(item.id);
+                        }
+                        showMessage(error.message);
+                    });
+                    /// #else
+                    openByMobile(item.authorizationURL);
+                    /// #endif
+                }
+                const dotWrap = block.querySelector<HTMLElement>(`[data-mcp-status-id="${CSS.escape(item.id)}"]`);
                 if (!dotWrap) {
                     continue;
                 }
@@ -1021,7 +1159,7 @@ export const mountMcpServersBlock = (root: HTMLElement) => {
                     dot.style.backgroundColor = colorMap[item.status] || colorMap.disabled;
                 }
                 // 每个 server 行上显示其工具数（仅已连接且有工具时）。
-                const toolsEl = block.querySelector<HTMLElement>(`[data-mcp-tools-count="${CSS.escape(item.name)}"]`);
+                const toolsEl = block.querySelector<HTMLElement>(`[data-mcp-tools-count="${CSS.escape(item.id)}"]`);
                 if (toolsEl) {
                     toolsEl.textContent = item.status === "connected" && item.tools > 0 ? window.siyuan.languages.mcpStatusTools.replace("${x}", String(item.tools)) : "";
                 }
@@ -1033,13 +1171,27 @@ export const mountMcpServersBlock = (root: HTMLElement) => {
                     case "connecting":
                         label = window.siyuan.languages.mcpStatusConnecting;
                         break;
+                    case "authorizing":
+                        label = window.siyuan.languages.mcpStatusAuthorizing;
+                        break;
+                    case "authorization_required":
+                        label = window.siyuan.languages.mcpStatusAuthorizationRequired;
+                        break;
                     case "failed":
                         label = window.siyuan.languages.mcpStatusFailed;
                         break;
                     default:
                         label = window.siyuan.languages.mcpStatusDisabled;
                 }
-                dotWrap.setAttribute("aria-label", label);
+                dotWrap.setAttribute("aria-label", item.error ? `${label}: ${item.error}` : label);
+                block.querySelector<HTMLElement>(`[data-mcp-authorize-id="${CSS.escape(item.id)}"]`)?.classList.toggle("fn__none", item.status !== "authorization_required");
+                block.querySelector<HTMLElement>(`[data-mcp-disconnect-oauth-id="${CSS.escape(item.id)}"]`)?.classList.toggle("fn__none", !item.authorized);
+            }
+            const configuredServerIDs = new Set(items.map((item) => item.id));
+            for (const serverID of openedMcpOAuthURLs.keys()) {
+                if (!configuredServerIDs.has(serverID)) {
+                    openedMcpOAuthURLs.delete(serverID);
+                }
             }
             // 标题右侧汇总：已连接 server 数 + 总工具数。
             const summaryEl = block.querySelector<HTMLElement>("#aiMcpStatusSummary");
@@ -1067,6 +1219,9 @@ export const mountMcpServersBlock = (root: HTMLElement) => {
 
     const getMcpServerName = (el: HTMLElement): string | undefined => {
         return el.closest<HTMLElement>("[data-mcp-server-name]")?.dataset.mcpServerName;
+    };
+    const getMcpServerID = (el: HTMLElement): string | undefined => {
+        return el.closest<HTMLElement>("[data-mcp-server-id]")?.dataset.mcpServerId;
     };
     block.addEventListener("click", (event) => {
         const target = event.target as HTMLElement;
@@ -1103,6 +1258,35 @@ export const mountMcpServersBlock = (root: HTMLElement) => {
             });
             return;
         }
+        if (type === "authorizeAiMcpServer") {
+            const serverID = getMcpServerID(actionEl);
+            if (serverID) {
+                fetchPost("/api/ai/mcpOAuthAuthorize", {id: serverID}, (response) => {
+                    if (response.code !== 0) {
+                        showMessage(response.msg);
+                    }
+                });
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+        if (type === "disconnectAiMcpOAuth") {
+            const serverID = getMcpServerID(actionEl);
+            if (serverID) {
+                confirmDialog(window.siyuan.languages.mcpDisconnectAuthorization,
+                    window.siyuan.languages.mcpDisconnectAuthorizationConfirm, () => {
+                        fetchPost("/api/ai/mcpOAuthDisconnect", {id: serverID}, (response) => {
+                            if (response.code !== 0) {
+                                showMessage(response.msg);
+                            }
+                        });
+                    });
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
     });
 
     block.addEventListener("change", (event) => {
@@ -1136,10 +1320,16 @@ const renderMcpServerList = (root: HTMLElement) => {
         return;
     }
     const serversHtml = servers.map((server) => {
-        return `<div class="b3-list-item b3-list-item--narrow${hideActionClass}" data-type="aiMcpServer" data-mcp-server-name="${Lute.EscapeHTMLStr(server.name)}">
-    <span class="mcp-status-dot b3-tooltips b3-tooltips__n" data-mcp-status-name="${Lute.EscapeHTMLStr(server.name)}" aria-label="${server.enabled ? window.siyuan.languages.mcpStatusConnecting : window.siyuan.languages.mcpStatusDisabled}" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;margin-right:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:${server.enabled ? "#d97706" : "var(--b3-theme-on-surface-light)"};"></span></span>
+        return `<div class="b3-list-item b3-list-item--narrow${hideActionClass}" data-type="aiMcpServer" data-mcp-server-id="${Lute.EscapeHTMLStr(server.id)}" data-mcp-server-name="${Lute.EscapeHTMLStr(server.name)}">
+    <span class="mcp-status-dot b3-tooltips b3-tooltips__n" data-mcp-status-id="${Lute.EscapeHTMLStr(server.id)}" aria-label="${server.enabled ? window.siyuan.languages.mcpStatusConnecting : window.siyuan.languages.mcpStatusDisabled}" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;margin-right:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:${server.enabled ? "#d97706" : "var(--b3-theme-on-surface-light)"};"></span></span>
     <span class="b3-list-item__text">${Lute.EscapeHTMLStr(server.name)}</span>
-    <span class="ft__on-surface fn__flex-center" data-mcp-tools-count="${Lute.EscapeHTMLStr(server.name)}" style="font-size:12px;margin-right:8px;"></span>
+    <span class="ft__on-surface fn__flex-center" data-mcp-tools-count="${Lute.EscapeHTMLStr(server.id)}" style="font-size:12px;margin-right:8px;"></span>
+    <span data-type="authorizeAiMcpServer" data-mcp-authorize-id="${Lute.EscapeHTMLStr(server.id)}" class="fn__none b3-list-item__action b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.mcpAuthorize}">
+        <svg><use xlink:href="#iconKey"></use></svg>
+    </span>
+    <span data-type="disconnectAiMcpOAuth" data-mcp-disconnect-oauth-id="${Lute.EscapeHTMLStr(server.id)}" class="fn__none b3-list-item__action b3-list-item__action--warning b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.mcpDisconnectAuthorization}">
+        <svg><use xlink:href="#iconLinkOff"></use></svg>
+    </span>
     <span data-type="deleteAiMcpServer" class="b3-list-item__action b3-list-item__action--warning b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.delete}">
         <svg><use xlink:href="#iconTrashcan"></use></svg>
     </span>
@@ -1160,6 +1350,7 @@ const openMcpServerDialog = (root: HTMLElement, serverName: string | null) => {
         return;
     }
     const initialServer: Config.IMCPServer = isNew ? {
+        id: "",
         name: "",
         enabled: true,
         type: "stdio",
@@ -1168,6 +1359,7 @@ const openMcpServerDialog = (root: HTMLElement, serverName: string | null) => {
         url: "",
         headers: {},
         timeout: 30,
+        trustToolAnnotations: false,
     } : existingServer;
     const mcpTypeHidden = (fieldType: string) => initialServer.type !== fieldType ? " fn__none" : "";
     const argsText = (initialServer.args ?? []).join("\n");
@@ -1227,6 +1419,14 @@ const openMcpServerDialog = (root: HTMLElement, serverName: string | null) => {
             <span class="ft__on-surface fn__flex-center">s</span>
         </div>
     </div>
+    <div class="b3-label b3-label--inner fn__flex">
+        <div class="fn__flex-1">
+            <div class="config-name">${window.siyuan.languages.aiMcpTrustToolAnnotations}</div>
+            <div class="b3-label__text">${window.siyuan.languages.aiMcpTrustToolAnnotationsTip}</div>
+        </div>
+        <span class="fn__space"></span>
+        <input class="b3-switch fn__flex-center" id="aiMcpTrustToolAnnotations" type="checkbox"${initialServer.trustToolAnnotations ? " checked" : ""}/>
+    </div>
 </div>
 <div class="b3-dialog__action">
     <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
@@ -1263,6 +1463,7 @@ const openMcpServerDialog = (root: HTMLElement, serverName: string | null) => {
             url: dialog.element.querySelector<HTMLInputElement>("#aiMcpServerUrl").value,
             headers,
             timeout: dialog.element.querySelector<HTMLInputElement>("#aiMcpServerTimeout").valueAsNumber,
+            trustToolAnnotations: dialog.element.querySelector<HTMLInputElement>("#aiMcpTrustToolAnnotations").checked,
         };
         if (!nextServer.name) {
             showMessage(window.siyuan.languages.aiMcpServerNameRequired);

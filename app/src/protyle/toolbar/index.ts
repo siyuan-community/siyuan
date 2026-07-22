@@ -53,10 +53,28 @@ import {escapeHtml} from "../../util/escape";
 import {resizeSide} from "../../history/resizeSide";
 import {activeBlur} from "../../mobile/util/keyboardToolbar";
 
+const filterPluginToolbar = (toolbar: Array<string | IMenuItem>, lite: boolean) => {
+    if (!lite) {
+        return toolbar;
+    }
+    const filtered = toolbar.filter(item => typeof item === "string" ||
+        Constants.INLINE_TYPE.concat("|").includes(item.name) || item.showInLite);
+    return filtered.filter((item, index) => {
+        const name = typeof item === "string" ? item : item.name;
+        if (name !== "|") {
+            return true;
+        }
+        const previous = filtered[index - 1];
+        const next = filtered[index + 1];
+        return previous && next && (typeof previous === "string" ? previous : previous.name) !== "|";
+    });
+};
+
 export class Toolbar {
     public element: HTMLElement;
     public subElement: HTMLElement;
     public subElementCloseCB: () => void;
+    public subElementResizeCB: () => void;
     public range: Range;
     public toolbarHeight: number;
     private readonly LINE_HEIGHT = 32;
@@ -75,7 +93,7 @@ export class Toolbar {
         this.toolbarHeight = 29;
         const inlineToolbarElement = document.querySelector('#keyboardToolbar .keyboard__action[data-type="inline-memo"]')?.parentElement;
         protyle.app.plugins.forEach(item => {
-            const pluginToolbar = item.updateProtyleToolbar(options.toolbar);
+            const pluginToolbar = filterPluginToolbar(item.updateProtyleToolbar(options.toolbar), protyle.lite);
             pluginToolbar.forEach(toolbarItem => {
                 if (typeof toolbarItem === "string" || Constants.INLINE_TYPE.concat("|").includes(toolbarItem.name)) {
                     return;
@@ -143,7 +161,7 @@ export class Toolbar {
             "inline-memo",
         ]);
         protyle.app.plugins.forEach(item => {
-            const pluginToolbar = item.updateProtyleToolbar(protyle.options.toolbar);
+            const pluginToolbar = filterPluginToolbar(item.updateProtyleToolbar(protyle.options.toolbar), protyle.lite);
             pluginToolbar.forEach(toolbarItem => {
                 if (typeof toolbarItem === "string" || Constants.INLINE_TYPE.concat("|").includes(toolbarItem.name)) {
                     return;
@@ -986,7 +1004,7 @@ export class Toolbar {
     <span class="fn__space"></span>
     <button data-type="close" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw" aria-label="${window.siyuan.languages.close}"><svg><use xlink:href="#iconClose"></use></svg></button>
 </div>
-<div class="protyle-util__scroll"><div class="fn__flex"><div class="protyle-linenumber__rows"></div><textarea ${protyle.disabled ? " readonly" : ""} spellcheck="false" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${placeholder}" style="resize:none;font-family: var(--b3-font-family-code);"></textarea></div></div></div>
+<div class="protyle-util__scroll"><div class="fn__flex"><div class="protyle-linenumber__rows"></div><textarea ${protyle.disabled ? " readonly" : ""} spellcheck="false" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${placeholder}" style="overflow:hidden;resize:none;font-family: var(--b3-font-family-code);"></textarea></div></div></div>
 <div class="resize__rd"></div><div class="resize__ld"></div><div class="resize__lt"></div><div class="resize__rt"></div><div class="resize__r"></div><div class="resize__d"></div><div class="resize__t"></div><div class="resize__l"></div>`;
         const gutter = this.subElement.querySelector(".protyle-linenumber__rows") as HTMLElement;
         const renderTextareaLineNumber = () => {
@@ -1009,9 +1027,9 @@ export class Toolbar {
             mirror.style.fontVariantLigatures = textCs.fontVariantLigatures;
             mirror.style.letterSpacing = textCs.letterSpacing;
             // 宽度需与 textarea 文本区一致：clientWidth 减去左右内边距
-            mirror.style.width = textElement.clientWidth - parseInt(textCs.paddingLeft) - parseInt(textCs.paddingRight) + "px";
+            mirror.style.width = textElement.getBoundingClientRect().width + "px";
             mirror.style.boxSizing = "border-box";
-            mirror.style.padding = "0";
+            mirror.style.padding = "4px 8px";
             mirror.innerHTML = lineList.map(line => `<div>${line.trim() ? escapeHtml(line) : "&nbsp;"}</div>`).join("");
             // 挂到行号栏所在容器，保证字体上下文一致
             (gutter.parentElement || document.body).appendChild(mirror);
@@ -1186,12 +1204,8 @@ export class Toolbar {
                 return;
             }
         });
-        const resizeObserver = new ResizeObserver(() => {
-            renderTextareaLineNumber();
-        });
-        resizeObserver.observe(this.subElement);
+        this.subElementResizeCB = renderTextareaLineNumber;
         this.subElementCloseCB = () => {
-            resizeObserver.disconnect();
             const noChange = !renderElement.parentElement || protyle.disabled ||
                 (textElement.value && oldTextValue === textElement.value);
             let inlineLastNode: Element;
@@ -1447,7 +1461,6 @@ export class Toolbar {
         });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
-        this.subElementCloseCB = undefined;
         /// #if !MOBILE
         const nodeRect = languageElements[0].getBoundingClientRect();
         setPosition(this.subElement, nodeRect.left, nodeRect.bottom, nodeRect.height);
@@ -1476,7 +1489,6 @@ export class Toolbar {
 </div>`;
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
-        this.subElementCloseCB = undefined;
         this.subElement.firstElementChild.addEventListener("click", (event) => {
             let target = event.target as HTMLElement;
             while (target && target !== this.subElement) {
@@ -1679,7 +1691,6 @@ export class Toolbar {
         });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
-        this.subElementCloseCB = undefined;
         this.element.classList.add("fn__none");
         inputElement.select();
         genList();
@@ -1757,7 +1768,6 @@ export class Toolbar {
         });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
-        this.subElementCloseCB = undefined;
         this.element.classList.add("fn__none");
         inputElement.select();
         genList(true);
@@ -1852,7 +1862,6 @@ export class Toolbar {
         });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
-        this.subElementCloseCB = undefined;
         this.element.classList.add("fn__none");
         const rangePosition = getSelectionPosition(nodeElement, range);
         setPosition(this.subElement, rangePosition.left, rangePosition.top - 48, this.LINE_HEIGHT);
@@ -1990,5 +1999,7 @@ export class Toolbar {
 
     private clearSubElement() {
         this.subElement.removeAttribute("style");
+        this.subElementCloseCB = null;
+        this.subElementResizeCB = null;
     }
 }

@@ -1,4 +1,4 @@
-import {hasClosestBlock, hasClosestByClassName, hasTopClosestByAttribute, isInEmbedBlock} from "../../util/hasClosest";
+import {hasClosestBlock, hasClosestByClassName, hasTopClosestByAttribute} from "../../util/hasClosest";
 import {focusBlock} from "../../util/selection";
 import {Menu} from "../../../plugin/Menu";
 import {transaction} from "../../wysiwyg/transaction";
@@ -21,6 +21,7 @@ import {unicode2Emoji} from "../../../emoji";
 import {escapeAttr} from "../../../util/escape";
 import {getCompressURL} from "../../../util/image";
 import {getAVSelectStat, getAvBodyData, resetAVRowSelect, updateAVRowSelect} from "./virtualScroll";
+import {getCardCoverImageHTML} from "./cover";
 
 export const getRowHTML = (options: {
     data: IAVView
@@ -37,11 +38,7 @@ export const getRowHTML = (options: {
         if (kanbanData.coverFrom !== 0) {
             const coverClass = "av__gallery-cover av__gallery-cover--" + kanbanData.cardAspectRatio;
             if (galleryRow.coverURL) {
-                if (galleryRow.coverURL.startsWith("background")) {
-                    html += `<div class="${coverClass}"><img class="av__gallery-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" style="${galleryRow.coverURL}"></div>`;
-                } else {
-                    html += `<div class="${coverClass}"><img loading="lazy" class="av__gallery-img${kanbanData.fitImage ? " av__gallery-img--fit" : ""}" src="${getCompressURL(galleryRow.coverURL)}"></div>`;
-                }
+                html += `<div class="${coverClass}">${getCardCoverImageHTML(galleryRow.coverURL, getCompressURL(galleryRow.coverURL), kanbanData.fitImage)}</div>`;
             } else if (galleryRow.coverContent) {
                 html += `<div class="${coverClass}"><div class="av__gallery-content">${galleryRow.coverContent}</div><div></div></div>`;
             } else {
@@ -109,11 +106,7 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.ro
         if (kanbanData.coverFrom !== 0) {
             const coverClass = "av__gallery-cover av__gallery-cover--" + kanbanData.cardAspectRatio;
             if (kanbanRow.coverURL) {
-                if (kanbanRow.coverURL.startsWith("background")) {
-                    html += `<div class="${coverClass}"><img class="av__gallery-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" style="${kanbanRow.coverURL}"></div>`;
-                } else {
-                    html += `<div class="${coverClass}"><img loading="lazy" class="av__gallery-img${kanbanData.fitImage ? " av__gallery-img--fit" : ""}" src="${getCompressURL(kanbanRow.coverURL)}"></div>`;
-                }
+                html += `<div class="${coverClass}">${getCardCoverImageHTML(kanbanRow.coverURL, getCompressURL(kanbanRow.coverURL), kanbanData.fitImage)}</div>`;
             } else if (kanbanRow.coverContent.trim()) {
                 html += `<div class="${coverClass}"><div class="av__gallery-content">${kanbanRow.coverContent}</div><div></div></div>`;
             }
@@ -195,9 +188,9 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.ro
         html += `<div class="av__cell${checkClass}" data-id="${cell.id}" data-col-id="${column.id}" 
 data-wrap="${column.wrap}" 
 data-dtype="${column.type}" 
+data-align="${column.align || ""}"
 ${cell.value?.isDetached ? ' data-detached="true"' : ""} 
 style="width: ${column.width || "200px"};
-${cell.valueType === "number" ? "text-align: right;" : ""}
 ${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
 ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, tableData.showIcon)}</div>`;
 
@@ -382,7 +375,8 @@ export const insertAttrViewBlockAnimation = (options: {
         cellsHTML += `<div class="av__cell${colType === "checkbox" ? " av__cell-uncheck" : ""}" data-col-id="${item.dataset.colId}" 
 data-wrap="${item.dataset.wrap}" 
 data-dtype="${item.dataset.dtype}" 
-style="width: ${item.style.width};${item.dataset.dtype === "number" ? "text-align: right;" : ""}" 
+data-align="${item.dataset.align || ""}"
+style="width: ${item.style.width};"
 ${colType === "block" ? ' data-detached="true"' : ""}>${renderCell(genCellValue(colType, null), lineNumber)}</div>`;
         if (pinIndex === index) {
             cellsHTML += "</div>";

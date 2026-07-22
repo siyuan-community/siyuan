@@ -7,6 +7,10 @@ import type {SettingTabBuilder} from "../setting/builder";
 import {controlNumber, controlSelect, controlString} from "../setting/control";
 import {genConfigItemName} from "../render/fragments";
 import {genButtonHtml, genNumberInputHtml} from "../render/render";
+import {setNoteBook} from "../../util/pathName";
+/// #if !MOBILE
+import {getAllModels} from "../../layout/getAll";
+/// #endif
 
 const isMobileKernelContainer = () =>
     ["android", "ios", "harmony"].includes(window.siyuan.config.system.container);
@@ -29,9 +33,23 @@ const genNotebookSavePathHtml = (
 </div>`;
 
 /// #if !MOBILE
-const registerFileTabsGroup = (tab: SettingTabBuilder) => {
-    const group = tab.group("tabs", window.siyuan.languages.configGroupTabs);
+const registerFileTreeBehaviorGroup = (tab: SettingTabBuilder) => {
+    const group = tab.group("behavior", window.siyuan.languages.configGroupBehavior);
 
+    group.switch("fileTree.docIconClickExpand", {
+        title: window.siyuan.languages.docIconClickExpand,
+        desc: window.siyuan.languages.docIconClickExpandTip,
+        save: (value) => fileConfigApi.patch("docIconClickExpand", value, () => {
+            getAllModels().files.forEach((files) => files.updateDocActions());
+        }),
+    });
+    group.switch("fileTree.parentDocClickExpand", {
+        title: window.siyuan.languages.parentDocClickExpand,
+        desc: window.siyuan.languages.parentDocClickExpandTip,
+        save: (value) => fileConfigApi.patch("parentDocClickExpand", value, () => {
+            getAllModels().files.forEach((files) => files.updateDocActions());
+        }),
+    });
     group.switch("fileTree.alwaysSelectOpenedFile", {
         title: window.siyuan.languages.selectOpen,
         desc: window.siyuan.languages.fileTree2,
@@ -249,6 +267,19 @@ const registerFileManagementGroup = (tab: SettingTabBuilder) => {
 const registerFileOthersGroup = (tab: SettingTabBuilder) => {
     const group = tab.group("others", window.siyuan.languages.configGroupOthers);
 
+    group.switch("fileTree.boxDocEnabled", {
+        title: window.siyuan.languages.boxDocEnabled,
+        desc: window.siyuan.languages.boxDocEnabledTip,
+        save: (value) => fileConfigApi.patch("boxDocEnabled", value, () => {
+            setNoteBook(() => {
+                /// #if MOBILE
+                window.siyuan.mobile.docks.file?.init(false);
+                /// #else
+                getAllModels().files.forEach((files) => files.init(false));
+                /// #endif
+            });
+        }),
+    });
     group.number("fileTree.recentDocsMaxListCount", {
         title: window.siyuan.languages.recentDocsMaxListCount,
         desc: window.siyuan.languages.recentDocsMaxListCountTip,
@@ -259,7 +290,7 @@ const registerFileOthersGroup = (tab: SettingTabBuilder) => {
 
 export const registerFileTab = (tab: SettingTabBuilder) => {
     /// #if !MOBILE
-    registerFileTabsGroup(tab);
+    registerFileTreeBehaviorGroup(tab);
     /// #endif
     registerFileNewDocumentGroup(tab);
     registerFileManagementGroup(tab);

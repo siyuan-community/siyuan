@@ -4,6 +4,7 @@ import {hasClosestByClassName} from "../protyle/util/hasClosest";
 import {isMobile} from "../util/functions";
 import {Constants} from "../constants";
 import {getTopBarHeight} from "../layout/getTopBarHeight";
+import {electronUndo} from "../protyle/undo";
 
 export class Menu {
     public element: HTMLElement;
@@ -42,7 +43,12 @@ export class Menu {
             if (itemElement.classList.contains("b3-menu__item--readonly")) {
                 return;
             }
-            const subMenuElement = itemElement.querySelector(".b3-menu__submenu") as HTMLElement;
+            const subMenuElement = itemElement.querySelector(":scope > .b3-menu__submenu") as HTMLElement;
+            // 子菜单容器的 mouseover 会向上匹配到所属菜单项，无需重新定位已打开的子菜单
+            if (subMenuElement?.contains(target)) {
+                return;
+            }
+            const isSubMenuShown = itemElement.classList.contains("b3-menu__item--show");
             this.element.querySelectorAll(".b3-menu__item--show").forEach((item) => {
                 if (!item.contains(itemElement) && item !== itemElement && !itemElement.contains(item)) {
                     item.classList.remove("b3-menu__item--show");
@@ -56,7 +62,7 @@ export class Menu {
                 return;
             }
             itemElement.classList.add("b3-menu__item--show");
-            if (!this.element.classList.contains("b3-menu--fullscreen")) {
+            if (!isSubMenuShown && !this.element.classList.contains("b3-menu--fullscreen")) {
                 this.showSubMenu(subMenuElement);
             }
         });
@@ -71,6 +77,21 @@ export class Menu {
         }
         const itemRect = subMenuElement.parentElement.getBoundingClientRect();
         const subMenuRect = subMenuElement.getBoundingClientRect();
+        if (subMenuElement.dataset.anchor === "action" && !this.element.classList.contains("b3-menu--fullscreen")) {
+            const actionElement = subMenuElement.parentElement.querySelector(":scope > .b3-menu__action") as HTMLElement;
+            if (actionElement) {
+                const actionRect = actionElement.getBoundingClientRect();
+                if (actionRect.right + subMenuRect.width <= window.innerWidth) {
+                    subMenuElement.style.left = `${actionRect.right}px`;
+                    subMenuElement.style.top = `${Math.max(getTopBarHeight(), Math.min(actionRect.top - 9, window.innerHeight - subMenuRect.height - 1))}px`;
+                } else {
+                    subMenuElement.style.left = `${Math.max(0, Math.min(actionRect.right - subMenuRect.width, window.innerWidth - subMenuRect.width))}px`;
+                    const below = actionRect.bottom;
+                    subMenuElement.style.top = `${below + subMenuRect.height <= window.innerHeight ? below : Math.max(getTopBarHeight(), actionRect.top - subMenuRect.height)}px`;
+                }
+                return;
+            }
+        }
 
         // 垂直方向位置调整
         // 减 9px 是为了尽量对齐菜单选项（b3-menu__submenu 的默认 padding-top 加上子菜单首个 b3-menu__item 的默认 margin-top）
@@ -340,15 +361,38 @@ const getActionMenu = (element: Element, next: boolean) => {
 };
 
 export const bindMenuKeydown = (event: KeyboardEvent) => {
-    if (window.siyuan.menus.menu.element.classList.contains("fn__none")
-        || event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) {
+    if (window.siyuan.menus.menu.element.classList.contains("fn__none") || event.isComposing) {
         return false;
     }
     const target = event.target as HTMLElement;
+    const eventCode = Constants.KEYCODELIST[event.keyCode];
     if (window.siyuan.menus.menu.element.contains(target) && ["INPUT", "TEXTAREA"].includes(target.tagName)) {
+        if (target.getAttribute(Constants.ATTRIBUTE_MENU_KEYMAP)) {
+            const currentElement = window.siyuan.menus.menu.element.querySelector(".b3-menu__item--current");
+            const inputItemElement = Array.from(target.closest(".b3-menu__items")?.children || []).find((item) => item.contains(target));
+            if (!currentElement || currentElement === inputItemElement) {
+                if (eventCode === "↩") {
+                    window.siyuan.menus.menu.remove();
+                    return true;
+                }
+                if (eventCode === "→" || eventCode === "←") {
+                    return false;
+                }
+            }
+            if (!currentElement) {
+                inputItemElement?.classList.add("b3-menu__item--current");
+            }
+            if (["INPUT", "TEXTAREA"].includes(target.tagName)) {
+                electronUndo(event);
+            }
+        } else {
+            return false;
+        }
+    }
+    // 支持输入框中的 undo & redo
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
         return false;
     }
-    const eventCode = Constants.KEYCODELIST[event.keyCode];
     if (eventCode === "↓" || eventCode === "↑") {
         const currentElement = window.siyuan.menus.menu.element.querySelector(".b3-menu__item--current");
         let actionMenuElement;
@@ -373,10 +417,11 @@ export const bindMenuKeydown = (event: KeyboardEvent) => {
             }
         }
         if (actionMenuElement) {
-            if (actionMenuElement.classList.contains("b3-menu__item")) {
+            const keymapInputElement = actionMenuElement.querySelector(`[${Constants.ATTRIBUTE_MENU_KEYMAP}]`) as HTMLInputElement;
+            if (actionMenuElement.classList.contains("b3-menu__item") || keymapInputElement) {
                 actionMenuElement.classList.add("b3-menu__item--current");
             }
-            const inputElement = actionMenuElement.querySelector(":scope > .b3-text-field") as HTMLInputElement;
+            const inputElement = actionMenuElement.querySelector(":scope > .b3-text-field") as HTMLInputElement || keymapInputElement;
             if (inputElement) {
                 inputElement.focus();
             }

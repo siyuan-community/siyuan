@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/88250/lute/ast"
+	"github.com/siyuan-note/logging"
+	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 type managedEncryptedExport struct {
@@ -49,7 +51,7 @@ func newManagedEncryptedExportID() (string, error) {
 }
 
 // registerManagedEncryptedExport 登记一个加密笔记本的导出产物，返回相对路径作为下载令牌。
-// kind 标识产物来源（resources/sy/markdown），仅影响注册 key 的分段，解析与撤销均按 boxID 前缀匹配。
+// kind 标识产物来源（resources/sy/markdown/repo），仅影响注册 key 的分段，解析与撤销均按 boxID 前缀匹配。
 func registerManagedEncryptedExport(boxID, kind, artifact string) string {
 	relativePath := path.Join(boxID, kind, filepath.Base(artifact))
 	managedEncryptedExports.Lock()
@@ -95,6 +97,33 @@ func RevokeManagedEncryptedExportsForBox(boxID string) {
 	for relativePath, job := range managedEncryptedExports.jobs {
 		if job.boxID == boxID {
 			delete(managedEncryptedExports.jobs, relativePath)
+		}
+	}
+}
+
+// clearEncryptedExportTempOnBoot 清理异常退出后残留的加密笔记本明文导出目录。
+// 加密导出的第一层目录固定为 boxID，普通导出和插件临时目录不使用该命名形式。
+func clearEncryptedExportTempOnBoot() {
+	if strings.TrimSpace(util.TempDir) == "" {
+		logging.LogWarnf("skip clearing stale encrypted export temp: temp dir is not initialized")
+		return
+	}
+	exportDir := filepath.Join(util.TempDir, "export")
+	entries, err := os.ReadDir(exportDir)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		logging.LogWarnf("read export temp dir [%s] failed: %s", exportDir, err)
+		return
+	}
+	for _, entry := range entries {
+		if !ast.IsNodeIDPattern(entry.Name()) {
+			continue
+		}
+		entryPath := filepath.Join(exportDir, entry.Name())
+		if err = os.RemoveAll(entryPath); err != nil {
+			logging.LogWarnf("remove stale encrypted export temp [%s] failed: %s", entryPath, err)
 		}
 	}
 }

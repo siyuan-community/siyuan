@@ -244,6 +244,7 @@ const setHTML = (options: {
     highlightRender(protyle.wysiwyg.element);
     avRender(protyle.wysiwyg.element, protyle);
     blockRender(protyle, protyle.wysiwyg.element);
+    protyle.databaseAttributePanel?.render();
     if (options.action.includes(Constants.CB_GET_HISTORY)) {
         return;
     }
@@ -379,6 +380,31 @@ export const disabledForeverProtyle = (protyle: IProtyle) => {
     protyle.element.setAttribute("disabled-forever", "true");
 };
 
+export const disabledWYSIWYG = (element: HTMLElement) => {
+    element.querySelectorAll(".protyle-icons--show").forEach(item => {
+        item.classList.remove("protyle-icons--show");
+    });
+    element.querySelectorAll(".av__gallery-fields--edit").forEach(item => {
+        item.classList.remove("av__gallery-fields--edit");
+    });
+    element.querySelectorAll(".render-node .protyle-action__edit").forEach(item => {
+        item.classList.add("fn__none");
+        if (item.classList.contains("protyle-icon--first")) {
+            item.nextElementSibling?.classList.add("protyle-icon--first");
+        }
+    });
+    element.style.userSelect = "text";
+    element.setAttribute("contenteditable", "false");
+    // 用于区分移动端样式
+    element.setAttribute("data-readonly", "true");
+    element.querySelectorAll('[contenteditable="true"][spellcheck]').forEach(item => {
+        item.setAttribute("contenteditable", "false");
+    });
+    element.querySelectorAll('.protyle-action[draggable="true"]').forEach(item => {
+        item.setAttribute("draggable", "false");
+    });
+};
+
 /** 禁用编辑器 */
 export const disabledProtyle = (protyle: IProtyle) => {
     window.siyuan.menus.menu.remove();
@@ -395,28 +421,7 @@ export const disabledProtyle = (protyle: IProtyle) => {
         protyle.background.element.classList.remove("protyle-background--enable");
         protyle.background.element.classList.remove("protyle-background--mobileshow");
     }
-    protyle.wysiwyg.element.querySelectorAll(".protyle-icons--show").forEach(item => {
-        item.classList.remove("protyle-icons--show");
-    });
-    protyle.wysiwyg.element.querySelectorAll(".av__gallery-fields--edit").forEach(item => {
-        item.classList.remove("av__gallery-fields--edit");
-    });
-    protyle.wysiwyg.element.querySelectorAll(".render-node .protyle-action__edit").forEach(item => {
-        item.classList.add("fn__none");
-        if (item.classList.contains("protyle-icon--first")) {
-            item.nextElementSibling?.classList.add("protyle-icon--first");
-        }
-    });
-    protyle.wysiwyg.element.style.userSelect = "text";
-    protyle.wysiwyg.element.setAttribute("contenteditable", "false");
-    // 用于区分移动端样式
-    protyle.wysiwyg.element.setAttribute("data-readonly", "true");
-    protyle.wysiwyg.element.querySelectorAll('[contenteditable="true"][spellcheck]').forEach(item => {
-        item.setAttribute("contenteditable", "false");
-    });
-    protyle.wysiwyg.element.querySelectorAll('.protyle-action[draggable="true"]').forEach(item => {
-        item.setAttribute("draggable", "false");
-    });
+    disabledWYSIWYG(protyle.wysiwyg.element);
     if (protyle.breadcrumb) {
         const readonlyButton = protyle.breadcrumb.element.parentElement.querySelector('[data-type="readonly"]');
         readonlyButton.querySelector("use").setAttribute("xlink:href", "#iconLock");
@@ -502,7 +507,8 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
             }
         });
     }
-    if (!focusElement && protyle.block.id === protyle.block.rootID && protyle.title?.editElement) {
+    if (!focusElement && protyle.title?.editElement &&
+        (protyle.block.id === protyle.block.rootID || scrollAttr?.focusId === protyle.block.rootID)) {
         focusElement = protyle.title.editElement;
     }
     if (protyle.block.mode === 4) {
@@ -547,9 +553,21 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
     // 使用 AbortController 监听用户手势（滚轮/触摸/方向键），一旦用户主动滚动即停止强制定位，否则顶部为数据库等异步渲染块撑高内容时会反复重置滚动位置
     const userScrollAbort = new AbortController();
     const onUserScroll = () => userScrollAbort.abort();
-    protyle.contentElement.addEventListener("wheel", onUserScroll, {capture: true, passive: true, signal: userScrollAbort.signal});
-    protyle.contentElement.addEventListener("touchstart", onUserScroll, {capture: true, passive: true, signal: userScrollAbort.signal});
-    protyle.contentElement.addEventListener("touchmove", onUserScroll, {capture: true, passive: true, signal: userScrollAbort.signal});
+    protyle.contentElement.addEventListener("wheel", onUserScroll, {
+        capture: true,
+        passive: true,
+        signal: userScrollAbort.signal
+    });
+    protyle.contentElement.addEventListener("touchstart", onUserScroll, {
+        capture: true,
+        passive: true,
+        signal: userScrollAbort.signal
+    });
+    protyle.contentElement.addEventListener("touchmove", onUserScroll, {
+        capture: true,
+        passive: true,
+        signal: userScrollAbort.signal
+    });
     protyle.contentElement.addEventListener("keydown", (event: KeyboardEvent) => {
         // 仅拦截会触发滚动的按键，避免影响正常编辑输入
         if (["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(event.key)) {

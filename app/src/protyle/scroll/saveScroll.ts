@@ -6,9 +6,11 @@ import {Constants} from "../../constants";
 import {setStorageVal} from "../util/compatibility";
 import {isSupportCSSHL} from "../render/searchMarkRender";
 import {isEncryptedBox} from "../../util/pathName";
+import {getContenteditableElement} from "../wysiwyg/getBlock";
 
 export const saveScroll = (protyle: IProtyle, getObject = false) => {
-    if (!protyle.wysiwyg.element.firstElementChild || window.siyuan.config.readonly) {
+    if (!protyle.wysiwyg.element.firstElementChild || window.siyuan.config.readonly ||
+        (protyle.element.dataset.databaseRowId && !getObject)) {
         // 报错或者空白页面
         return undefined;
     }
@@ -35,7 +37,7 @@ export const saveScroll = (protyle: IProtyle, getObject = false) => {
         if (range && protyle.wysiwyg.element.contains(range.startContainer)) {
             const blockElement = hasClosestBlock(range.startContainer);
             if (blockElement) {
-                const position = getSelectionOffset(blockElement, undefined, range);
+                const position = getSelectionOffset(getContenteditableElement(blockElement) || blockElement, undefined, range);
                 attr.focusId = blockElement.getAttribute("data-node-id");
                 attr.focusStart = position.start;
                 attr.focusEnd = position.end;

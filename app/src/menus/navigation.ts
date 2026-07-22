@@ -19,6 +19,9 @@ import {Constants} from "../constants";
 import {newFileInTree} from "../util/newFile";
 import {hasClosestByTag, hasTopClosestByTag} from "../protyle/util/hasClosest";
 import {deleteFiles} from "../editor/deleteFile";
+/// #if !MOBILE
+import {openFileById} from "../editor/util";
+/// #endif
 import {getDockByType} from "../layout/tabUtil";
 import {Files} from "../layout/dock/Files";
 import {openCardByData} from "../card/openCard";
@@ -32,6 +35,7 @@ import {emitOpenMenu} from "../plugin/EventBus";
 import {saveExportFile} from "../protyle/util/compatibility";
 import {exportMarkdownZip} from "../protyle/export/exportMd";
 import {addFilesToDatabase} from "../protyle/render/av/addToDatabase";
+import {openEmojiPanel} from "../emoji";
 
 const confirmEncryptedExport = (notebookId: string, callback: () => void) => {
     if (!isEncryptedBox(notebookId)) {
@@ -219,7 +223,43 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
     window.siyuan.menus.menu.element.setAttribute("data-from", Constants.MENU_FROM_DOC_TREE_MORE_NOTEBOOK);
     const notebookId = liElement.parentElement.getAttribute("data-url");
     const name = getNotebookName(notebookId);
+    /// #if !MOBILE
+    const boxDocID = liElement.getAttribute("data-node-id");
+    if (boxDocID && window.siyuan.config.fileTree.parentDocClickExpand &&
+        Number(liElement.getAttribute("data-count")) > 0) {
+        window.siyuan.menus.menu.append(new MenuItem({
+            id: "openDocument",
+            label: window.siyuan.languages.openDocument,
+            icon: "iconOpen",
+            click: () => {
+                openFileById({
+                    app,
+                    id: boxDocID,
+                    action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                });
+            }
+        }).element);
+    }
+    /// #endif
     if (!window.siyuan.config.readonly) {
+        window.siyuan.menus.menu.append(new MenuItem({
+            id: "changeIcon",
+            label: window.siyuan.languages.changeIcon,
+            icon: "iconEmoji",
+            click: () => {
+                const iconElement = liElement.querySelector<HTMLElement>(".b3-list-item__icon");
+                if (!iconElement) {
+                    return;
+                }
+                const rect = iconElement.getBoundingClientRect();
+                openEmojiPanel(notebookId, "notebook", {
+                    x: rect.left,
+                    y: rect.bottom,
+                    h: rect.height,
+                    w: rect.width,
+                }, undefined, iconElement.querySelector<HTMLElement>("img"));
+            }
+        }).element);
         window.siyuan.menus.menu.append(renameMenu({
             path: "/",
             notebookId,
@@ -448,6 +488,22 @@ export const initFileMenu = (app: App, notebookId: string, pathString: string, l
     const id = liElement.getAttribute("data-node-id");
     let name = liElement.getAttribute("data-name");
     name = getDisplayName(name, false, true);
+    /// #if !MOBILE
+    if (window.siyuan.config.fileTree.parentDocClickExpand && Number(liElement.getAttribute("data-count")) > 0) {
+        window.siyuan.menus.menu.append(new MenuItem({
+            id: "openDocument",
+            label: window.siyuan.languages.openDocument,
+            icon: "iconOpen",
+            click: () => {
+                openFileById({
+                    app,
+                    id,
+                    action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                });
+            }
+        }).element);
+    }
+    /// #endif
     if (!window.siyuan.config.readonly) {
         const topElement = hasTopClosestByTag(liElement, "UL");
         if (window.siyuan.config.fileTree.sort === 6 || (topElement && topElement.dataset.sortmode === "6")) {

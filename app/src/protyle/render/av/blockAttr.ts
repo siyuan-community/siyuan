@@ -17,6 +17,15 @@ import {webUtils} from "electron";
 import {isBrowser} from "../../../util/functions";
 import {Constants} from "../../../constants";
 import {getCompressURL, removeCompressURL} from "../../../util/image";
+import {openDatabaseRowByData} from "./openDatabaseRow";
+
+export const getAVTemplateHTML = (content: string) => {
+    if (window.siyuan.config.editor.allowHTMLBLockScript) {
+        return content;
+    }
+    // 默认过滤危险标签和事件属性，避免数据库模板字段中的代码直接执行
+    return window.DOMPurify.sanitize(content);
+};
 
 const genAVRollupHTML = (value: IAVCellValue) => {
     let html = "";
@@ -126,7 +135,7 @@ export const genAVValueHTML = (value: IAVCellValue) => {
             html = `<svg class="av__checkbox"><use xlink:href="#icon${value.checkbox.checked ? "Check" : "Uncheck"}"></use></svg>`;
             break;
         case "template":
-            html = `<div class="fn__flex-1" placeholder="${window.siyuan.languages.empty}">${window.DOMPurify.sanitize(value.template.content)}</div>`;
+            html = `<div class="fn__flex-1" placeholder="${window.siyuan.languages.empty}">${getAVTemplateHTML(value.template.content)}</div>`;
             break;
         case "email":
             html = `<input value="${escapeAttr(value.email.content)}" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${window.siyuan.languages.empty}">
@@ -164,10 +173,19 @@ export const genAVValueHTML = (value: IAVCellValue) => {
     return html;
 };
 
-export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IProtyle, cb?: (element: HTMLElement) => void) => {
-    fetchPost("/api/av/getAttributeViewKeys", {id}, (response) => {
+let attributeViewRenderID = 0;
+
+export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IProtyle, cb?: (element: HTMLElement) => void,
+                                  row?: { avID: string, itemID: string, valueID: string }) => {
+    const renderID = (++attributeViewRenderID).toString();
+    element.dataset.avAttributeRenderId = renderID;
+    fetchPost("/api/av/getAttributeViewKeys", row ? {id, avID: row.avID, itemID: row.itemID, valueID: row.valueID} : {id}, (response) => {
+        if (element.dataset.avAttributeRenderId !== renderID) {
+            return;
+        }
         let html = "";
-        response.data.forEach((table: {
+        const tables = Array.isArray(response.data) ? response.data : [];
+        tables.forEach((table: {
             keyValues: {
                 key: {
                     type: TAVCol,
@@ -184,6 +202,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                     keyID: string,
                     id: string,
                     blockID: string,
+                    isDetached?: boolean,
                     type: TAVCol & IAVCellValue
                 }  []
             }[],
@@ -206,7 +225,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
         ${item.key.icon ? unicode2Emoji(item.key.icon, "block__logoicon", true) : `<svg class="block__logoicon"><use xlink:href="#${getColIconByType(item.key.type)}"></use></svg>`}
         <span>${escapeHtml(item.key.name)}</span>
     </div>
-    <div data-av-id="${table.avID}" data-col-id="${item.values[0].keyID}" data-row-id="${item.values[0].blockID}" data-id="${item.values[0].id}" data-type="${item.values[0].type}" 
+    <div data-av-id="${table.avID}" data-col-id="${item.values[0].keyID}" data-row-id="${item.values[0].blockID}" data-id="${item.values[0].id}" data-type="${item.values[0].type}"${item.values[0].isDetached ? ' data-detached="true"' : ""}
 data-options="${item.key?.options ? escapeAttr(JSON.stringify(item.key.options)) : "[]"}" 
 ${["text", "number", "date", "url", "phone", "template", "email"].includes(item.values[0].type) ? "" : `placeholder="${window.siyuan.languages.empty}"`}  
 class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"].includes(item.values[0].type) ? "" : " custom-attr__avvalue"}${["created", "updated"].includes(item.values[0].type) ? " custom-attr__avvalue--readonly" : ""}">${genAVValueHTML(item.values[0])}</div>
@@ -219,7 +238,12 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
 
             if (element.innerHTML) {
                 // 防止 blockElement 找不到
-                element.querySelector(`[data-node-id="${id}"][data-av-id="${table.avID}"]`).innerHTML = innerHTML;
+                const blockElement = element.querySelector(`[data-node-id="${id}"][data-av-id="${table.avID}"]`);
+                if (blockElement) {
+                    blockElement.innerHTML = innerHTML;
+                } else {
+                    element.insertAdjacentHTML("beforeend", `<div data-av-id="${table.avID}" data-av-type="table" data-node-id="${id}" data-type="NodeAttributeView">${innerHTML}</div>`);
+                }
             }
         });
         if (element.innerHTML === "") {
@@ -364,6 +388,33 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                 }
             });
             element.addEventListener("click", (event) => {
+                const backlinkToggleElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "av-backlinks-toggle");
+                if (backlinkToggleElement) {
+                    const backlinksElement = hasClosestByClassName(backlinkToggleElement, "custom-attr__avbacklinks");
+                    if (backlinksElement) {
+                        const expanded = backlinksElement.dataset.expanded !== "true";
+                        backlinksElement.dataset.expanded = expanded.toString();
+                        backlinkToggleElement.setAttribute("aria-expanded", expanded.toString());
+                        backlinkToggleElement.querySelector("use").setAttribute("xlink:href", expanded ? "#iconDown" : "#iconRight");
+                        event.stopPropagation();
+                        return;
+                    }
+                }
+                const backlinkOpenElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "av-backlink-open");
+                if (backlinkOpenElement) {
+                    openDatabaseRowByData(protyle, {
+                        avID: backlinkOpenElement.dataset.avId,
+                        databaseBlockID: backlinkOpenElement.dataset.databaseBlockId,
+                        notebookID: backlinkOpenElement.dataset.boxId,
+                        itemID: backlinkOpenElement.dataset.itemId,
+                        valueID: backlinkOpenElement.dataset.valueId,
+                        title: backlinkOpenElement.dataset.title,
+                        boundBlockID: backlinkOpenElement.dataset.boundBlockId,
+                        isDetached: backlinkOpenElement.dataset.detached === "true",
+                    });
+                    event.stopPropagation();
+                    return;
+                }
                 const removeElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "remove");
                 if (removeElement) {
                     const blockElement = hasClosestBlock(removeElement);
@@ -435,9 +486,9 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                     value = {
                         block: {
                             content: item.value,
-                            id: item.dataset.id,
+                            id: item.parentElement.dataset.detached === "true" ? "" : item.dataset.id,
                         },
-                        isDetached: false
+                        isDetached: item.parentElement.dataset.detached === "true"
                     };
                 }
                 fetchPost("/api/av/setAttributeViewBlockAttr", {
@@ -454,9 +505,70 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                 });
             });
         });
-        if (cb) {
-            cb(element);
+        renderAttributeViewBacklinks(element, id, renderID, row, cb);
+    });
+};
+
+const renderAttributeViewBacklinks = (element: HTMLElement, id: string, renderID: string,
+                                      row?: { avID: string, itemID: string, valueID: string },
+                                      cb?: (element: HTMLElement) => void) => {
+    const oldBacklinksElement = element.querySelector<HTMLElement>(".custom-attr__avbacklinks");
+    const expanded = oldBacklinksElement?.dataset.expanded === "true";
+    fetchPost("/api/av/getAttributeViewBacklinks", row ? {
+        id,
+        avID: row.avID,
+        itemID: row.itemID,
+        valueID: row.valueID,
+    } : {id}, (response) => {
+        if (element.dataset.avAttributeRenderId !== renderID) {
+            return;
         }
+        const currentBacklinksElement = element.querySelector<HTMLElement>(".custom-attr__avbacklinks");
+        const currentExpanded = currentBacklinksElement ? currentBacklinksElement.dataset.expanded === "true" : expanded;
+        currentBacklinksElement?.remove();
+        const data = response.data as {
+            total: number,
+            items: {
+                avID: string,
+                avName: string,
+                databaseBlockID: string,
+                boxID: string,
+                databasePath: string,
+                itemID: string,
+                valueID: string,
+                title: string,
+                icon: string,
+                boundBlockID: string,
+                isDetached: boolean,
+            }[]
+        };
+        if (data?.total > 0) {
+            const countLabel = window.siyuan.languages.avBacklinks.replace("${count}", data.total.toString());
+            let itemsHTML = "";
+            data.items.forEach((item) => {
+                const title = item.title || window.siyuan.languages.untitled;
+                const databasePath = item.databasePath ? `${item.databasePath} / ${item.avName}` : item.avName;
+                itemsHTML += `<button type="button" class="custom-attr__avbacklink" data-type="av-backlink-open" data-av-id="${escapeAttr(item.avID)}" data-database-block-id="${escapeAttr(item.databaseBlockID)}" data-box-id="${escapeAttr(item.boxID)}" data-item-id="${escapeAttr(item.itemID)}" data-value-id="${escapeAttr(item.valueID)}" data-title="${escapeAttr(title)}" data-bound-block-id="${escapeAttr(item.boundBlockID)}" data-detached="${item.isDetached}">
+    ${item.icon ? `<span class="custom-attr__avbacklinkicon">${unicode2Emoji(item.icon, "", true)}</span>` : ""}
+    <span class="fn__flex-1 fn__ellipsis">
+        <span class="custom-attr__avbacklinktitle fn__ellipsis">${escapeHtml(title)}</span>
+        <span class="custom-attr__avbacklinkpath fn__ellipsis">${escapeHtml(databasePath || window.siyuan.languages.database)}</span>
+    </span>
+    <span class="custom-attr__avbacklinkopen b3-tooltips b3-tooltips__w" aria-label="${escapeAttr(window.siyuan.languages.openBy)}"><svg><use xlink:href="#iconOpen"></use></svg></span>
+</button>`;
+            });
+            element.insertAdjacentHTML("afterbegin", `<div class="custom-attr__avbacklinks" data-expanded="${currentExpanded}">
+    <button type="button" class="custom-attr__avbacklinks-toggle" data-type="av-backlinks-toggle" aria-expanded="${currentExpanded}">
+        <svg><use xlink:href="${currentExpanded ? "#iconDown" : "#iconRight"}"></use></svg>
+        <svg><use xlink:href="#iconLink"></use></svg>
+        <span class="fn__flex-1">${escapeHtml(countLabel)}</span>
+    </button>
+    <div class="custom-attr__avbacklinks-body">
+        ${itemsHTML}
+    </div>
+</div>`);
+        }
+        cb?.(element);
     });
 };
 
@@ -504,7 +616,7 @@ const openEdit = (protyle: IProtyle, element: HTMLElement, event: MouseEvent) =>
                 if (target.tagName === "IMG") {
                     previewImages([removeCompressURL(target.getAttribute("src"))]);
                 } else {
-                    openLink(protyle, target.dataset.url, event, event.ctrlKey || event.metaKey);
+                    openLink(protyle.app, target.dataset.url, event, event.ctrlKey || event.metaKey);
                 }
             }
             event.stopPropagation();

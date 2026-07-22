@@ -132,13 +132,19 @@ body {
   &.body--toolbar-hide {
 
     #dockLeft, #dockRight {
-      padding-top: 42px;
+      height: calc(100% - 42px);
+      margin-top: 42px;
     }
 
     .toolbar {
       height: 42px;
       position: absolute;
       width: 100%;
+
+      & > :not(#drag) {
+        position: relative;
+        z-index: 1;
+      }
     }
 
     .layout__dockl:not(.layout--float),

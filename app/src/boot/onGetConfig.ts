@@ -1,6 +1,9 @@
 import {adjustLayout, exportLayout, JSONToLayout, resetLayout, resizeTopBar} from "../layout/util";
 import {resizeTabs, setTabPosition} from "../layout/tabUtil";
-import {initNativeDialogOverride, isWindows, setStorageVal} from "../protyle/util/compatibility";
+import {initWindowOpenOverride, isWindows, setStorageVal} from "../protyle/util/compatibility";
+/// #if !BROWSER
+import {initNativeDialogOverride} from "../protyle/util/compatibility";
+/// #endif
 /// #if !BROWSER
 import {ipcRenderer, webFrame} from "electron";
 import * as fs from "fs";
@@ -29,9 +32,11 @@ import {correctHotkey} from "./globalEvent/commonHotkey";
 import {recordBeforeResizeTop} from "../protyle/util/resize";
 import {processSiYuanUri} from "../util/uri";
 import {getAllEditor} from "../layout/getAll";
+import {openDesktopOnboarding} from "../onboarding";
 
 export const onGetConfig = (isStart: boolean, app: App) => {
     correctHotkey(app);
+    document.body.classList.toggle("body--windows", isWindows());
     /// #if !BROWSER
     ipcRenderer.invoke(Constants.SIYUAN_INIT, {
         languages: window.siyuan.languages["_trayMenu"],
@@ -67,10 +72,12 @@ export const onGetConfig = (isStart: boolean, app: App) => {
         } catch (e) {
             resetLayout();
         }
+        openDesktopOnboarding(app);
     });
     initBar(app);
     initStatus();
     initWindow(app);
+    initWindowOpenOverride(app);
     /// #if !BROWSER
     initNativeDialogOverride();
     /// #endif
@@ -296,6 +303,7 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
             cmd: "isAlwaysOnTop",
         });
         document.body.insertAdjacentHTML("beforeend", `<div class="toolbar__window">
+<div class="toolbar__window-drag"></div>
 <div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages[isAlwaysOnTop ? "unpin" : "pin"]}" id="pinWindow">
     <svg>
         <use xlink:href="#icon${isAlwaysOnTop ? "Unpin" : "Pin"}"></use>

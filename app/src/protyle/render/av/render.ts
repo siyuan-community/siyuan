@@ -20,6 +20,7 @@ import {showMessage} from "../../../dialog/message";
 import {renderKanban} from "./kanban/render";
 import {bindAvSearch} from "./search";
 import {getBodyVirtualData, initVirtualScroll} from "./virtualScroll";
+import {beginAVRender, finishAVLocate, getAVLocateParams, isCurrentAVRender, prepareAVLocate, setAVLocateRequest} from "./locate";
 
 interface IIds {
     groupId: string,
@@ -80,7 +81,10 @@ export const genTabHeaderHTML = (data: IAV, showSearch: boolean, editable: boole
             viewData = item;
         }
     });
-    return `<div class="av__header">
+    const defaultTemplate = data.newItemTemplates?.find(item => item.id === data.defaultTemplateID);
+    const defaultTemplateID = defaultTemplate && (defaultTemplate.targetType !== "detached" ||
+        defaultTemplate.primaryKeyTemplate || Object.keys(defaultTemplate.fieldValues || {}).length) ? defaultTemplate.id : "";
+    return `<div class="av__header" data-default-template-id="${defaultTemplateID}">
         <div class="fn__flex av__views${showSearch ? " av__views--show" : ""}">
             <div class="layout-tab-bar fn__flex">
                 ${tabHTML}
@@ -116,12 +120,13 @@ export const genTabHeaderHTML = (data: IAV, showSearch: boolean, editable: boole
                 <svg><use xlink:href="#iconSettings"></use></svg>
             </span>
             <div class="fn__space"></div>
-            <span data-type="av-add-more" class="block__icon ariaLabel" data-position="8south" aria-label="${window.siyuan.languages.newRow}">
-                <svg><use xlink:href="#iconAdd"></use></svg>
-            </span>
-            <div class="fn__space"></div>
-            ${data.isMirror ? ` <span data-av-id="${data.id}" data-popover-url="/api/av/getMirrorDatabaseBlocks" class="popover__block block__icon block__icon--show ariaLabel" data-position="8south" aria-label="${window.siyuan.languages.mirrorTip}">
-    <svg><use xlink:href="#iconSplitLR"></use></svg></span><div class="fn__space"></div>` : ""}
+            ${data.isMirror ? `<span data-av-id="${data.id}" data-popover-url="/api/av/getMirrorDatabaseBlocks" class="popover__block block__icon block__icon--show ariaLabel" data-position="8south" aria-label="${window.siyuan.languages.mirrorTip}">
+                <svg><use xlink:href="#iconSplitLR"></use></svg>
+            </span><div class="fn__space"></div>` : ""}
+            ${editable ? `<div class="av__new fn__flex">
+                <button data-type="av-add-more" class="b3-button">${window.siyuan.languages.new}</button>
+                <button data-type="av-add-template" class="b3-button ariaLabel" data-position="8south" aria-label="${window.siyuan.languages.template}"><svg><use xlink:href="#iconDown"></use></svg></button>
+            </div>` : ""}
         </div>
         <div contenteditable="${editable}" spellcheck="${window.siyuan.config.editor.spellcheck.toString()}" class="av__title${viewData.hideAttrViewName ? " fn__none" : ""}" data-title="${Lute.EscapeHTMLStr(data.name || "")}" data-tip="${window.siyuan.languages._kernel[267]}">${Lute.EscapeHTMLStr(data.name || "")}</div>
         <div class="av__counter fn__none"></div>
@@ -161,7 +166,7 @@ const getTableHTMLs = (data: IAVTable, e: HTMLElement, virtualData: IAVVirtualDa
         }
         contentHTML += `<div class="av__cell av__cell--header" data-col-id="${column.id}"  draggable="true" 
 data-icon="${column.icon}" data-dtype="${column.type}" data-wrap="${column.wrap}" data-pin="${column.pin}" 
-data-desc="${escapeAttr(column.desc)}" data-position="north" 
+data-desc="${escapeAttr(column.desc)}" data-align="${column.align || ""}" data-position="north"
 style="width: ${column.width || "200px"};">
     ${column.icon ? unicode2Emoji(column.icon, "av__cellheadericon", true) : `<svg class="av__cellheadericon"><use xlink:href="#${getColIconByType(column.type)}"></use></svg>`}
     <span class="av__celltext fn__flex-1">${escapeHtml(column.name)}</span>
@@ -197,18 +202,21 @@ style="width: ${column.width || "200px"}">${getCalcValue(column) || `<svg><use x
     }
     // body
     data.rows.find((row: IAVRow, rowIndex: number) => {
-        if (virtualData && virtualData.renderedEnd) {
+        if (virtualData && typeof virtualData.renderedEnd === "number") {
             if (rowIndex === 0) {
                 e.setAttribute(Constants.ATTRIBUTE_V_SCROLL, "true");
             }
-            if (rowIndex > virtualData.renderedEnd || rowIndex < virtualData.renderedStart) {
+            if (rowIndex > virtualData.renderedEnd) {
+                return true;
+            }
+            if (rowIndex < virtualData.renderedStart) {
                 return;
             }
         } else if (data.pageSize > 100 && rowIndex > 99) {
             e.setAttribute(Constants.ATTRIBUTE_V_SCROLL, "true");
             return true;
         }
-        contentHTML += getRowHTML({data, row, rowIndex, pinIndex, type: "table"});
+        contentHTML += getRowHTML({data, row, rowIndex: rowIndex + (virtualData?.rowOffset || 0), pinIndex, type: "table"});
     });
     return `${contentHTML}<div class="av__row--util${data.rowCount > data.rows.length ? " av__readonly--show" : ""}">
     <div class="av__colsticky">
@@ -259,7 +267,7 @@ const renderGroupTable = (options: ITableOptions) => {
     options.data.view.groups.forEach((group: IAVTable) => {
         if (group.groupHidden === 0) {
             avBodyHTML += `${getGroupTitleHTML(group, group.rowCount)}
-<div data-group-id="${group.id}" data-page-size="${group.pageSize}" data-dtype="${group.groupKey.type}" data-content="${Lute.EscapeHTMLStr(group.groupValue.text?.content || "")}" style="float: left" class="av__body${group.groupFolded ? " fn__none" : ""}">${getTableHTMLs(group, options.blockElement, options.resetData.virtualData[group.id])}</div>`;
+<div data-group-id="${group.id}" data-page-size="${group.pageSize}" data-dtype="${group.groupKey.type}" data-content="${Lute.EscapeHTMLStr(group.groupValue.text?.content || "")}"${options.resetData.virtualData[group.id]?.locate ? ' data-av-locate-window="true"' : ""} style="float: left" class="av__body${group.groupFolded ? " fn__none" : ""}">${getTableHTMLs(group, options.blockElement, options.resetData.virtualData[group.id])}</div>`;
         }
     });
     if (options.renderAll) {
@@ -378,6 +386,7 @@ const afterRenderTable = (options: ITableOptions) => {
         options.cb(options.data);
     }
     if (!options.renderAll) {
+        finishAVLocate(options.blockElement, options.protyle, options.data);
         return;
     }
     bindAvSearch({
@@ -387,6 +396,7 @@ const afterRenderTable = (options: ITableOptions) => {
         onChange: () => updateSearch(options.blockElement, options.protyle),
     });
     initVirtualScroll(options);
+    finishAVLocate(options.blockElement, options.protyle, options.data);
 };
 
 export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: IAV) => void, renderAll = true, avData?: IAV) => {
@@ -408,6 +418,7 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
         if (isMobile() || isInMobileApp()) {
             e.classList.add("av--touch");
         }
+        const renderToken = beginAVRender(e);
 
         if (e.getAttribute("data-av-type") === "gallery") {
             await renderGallery({blockElement: e, protyle, cb, renderAll});
@@ -459,6 +470,9 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
         const virtualData: { [key: string]: IAVVirtualData } = {};
         e.querySelectorAll(".av__body").forEach((item: HTMLElement) => {
             pageSizes[item.dataset.groupId || "unGroup"] = item.dataset.pageSize;
+            if (item.dataset.avLocateWindow === "true") {
+                return;
+            }
             // 守卫只保证至少 1 个 .av__row，但首行索引取的是 [1]（首个数据行，[0] 为表头）。
             // 虚拟滚动 trim 后某分组可能只剩表头，[1] 不存在时需跳过，避免解引用 undefined.getAttribute
             const secondRow = item.querySelectorAll(".av__row")[1] as HTMLElement;
@@ -505,25 +519,32 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
             e.firstElementChild.innerHTML = html;
         }
         const avPageSize = getPageSize(e);
+        const created = protyle.options.history?.created;
+        const snapshot = protyle.options.history?.snapshot;
+        const locateParams = getAVLocateParams(e, !created && !snapshot);
         let data: IAV;
         if (!avData) {
-            const created = protyle.options.history?.created;
-            const snapshot = protyle.options.history?.snapshot;
             const response = await fetchSyncPost(created ? "/api/av/renderHistoryAttributeView" : (snapshot ? "/api/av/renderSnapshotAttributeView" : "/api/av/renderAttributeView"), {
                 id: e.getAttribute("data-av-id"),
                 created,
                 snapshot,
                 pageSize: avPageSize.unGroupPageSize,
                 groupPaging: avPageSize.groupPageSize,
-                viewID: e.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "",
+                viewID: locateParams?.viewID || e.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "",
                 query: resetData.query.trim(),
                 blockID: e.getAttribute("data-node-id"),
                 createIfNotExist: !protyle.block.action?.includes(Constants.CB_GET_AV_NO_CREATE),
+                targetItemID: locateParams?.targetItemID || "",
+                targetGroupID: locateParams?.targetGroupID || "",
             });
             data = response.data;
         } else {
             data = avData;
         }
+        if (!isCurrentAVRender(e, renderToken)) {
+            continue;
+        }
+        prepareAVLocate(e, data, resetData);
         if (data.viewType === "gallery") {
             e.setAttribute("data-av-type", data.viewType);
             await renderGallery({blockElement: e, protyle, cb, renderAll, data});
@@ -539,7 +560,7 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
             renderGroupTable({blockElement: e, protyle, cb, renderAll, data, resetData});
             continue;
         }
-        const avBodyHTML = `<div class="av__body" data-group-id="" data-page-size="${view.pageSize}" style="float: left">
+        const avBodyHTML = `<div class="av__body" data-group-id="" data-page-size="${view.pageSize}"${resetData.virtualData.all?.locate ? ' data-av-locate-window="true"' : ""} style="float: left">
     ${getTableHTMLs(view, e, resetData.virtualData.all)}
 </div>`;
         if (renderAll) {
@@ -607,6 +628,84 @@ const isItemInData = (data: IAV, itemID: string): boolean => {
     return items?.some((item: IAVRow | IAVGalleryItem) => item.id === itemID);
 };
 
+const addingFocusTokens = new Map<string, symbol>();
+
+const scrollAddingCellIntoView = (protyle: IProtyle, blockElement: HTMLElement, cellElement: HTMLElement) => {
+    const rowElement = hasClosestByClassName(cellElement, "av__row");
+    const bodyElement = hasClosestByClassName(cellElement, "av__body");
+    if (rowElement && rowElement.dataset.index === "0" && bodyElement && !bodyElement.dataset.groupId) {
+        const contentRect = protyle.contentElement.getBoundingClientRect();
+        const blockRect = blockElement.getBoundingClientRect();
+        protyle.contentElement.scrollTop += blockRect.top - contentRect.top;
+        return;
+    }
+    cellScrollIntoView(blockElement, cellElement, false);
+};
+
+const getAddingCellElement = (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    itemID: string;
+    groupID?: string;
+}) => {
+    const blockElement = Array.from(options.protyle.wysiwyg.element.querySelectorAll(`.av[data-av-id="${options.avID}"]`)).find((item: HTMLElement) => {
+        return item.dataset.nodeId === options.blockID;
+    }) as HTMLElement;
+    if (!blockElement) {
+        return;
+    }
+    const groupQuery = options.groupID ? `[data-group-id="${options.groupID}"]` : "";
+    let cellElement = blockElement.querySelector(`.av__body${groupQuery} [data-id="${options.itemID}"] .av__cell[data-dtype="block"]`) as HTMLElement;
+    if (!cellElement) {
+        const cellElements = blockElement.querySelectorAll(`.av__body [data-id="${options.itemID}"] .av__cell[data-dtype="block"]`);
+        if (cellElements.length === 1) {
+            cellElement = cellElements[0] as HTMLElement;
+        }
+    }
+    if (!cellElement) {
+        return;
+    }
+    return {blockElement, cellElement};
+};
+
+const waitForAddingCellPosition = async (options: {
+    protyle: IProtyle;
+    avID: string;
+    blockID: string;
+    itemID: string;
+    groupID?: string;
+}) => {
+    let previousRect: DOMRect;
+    let previousScrollTop: number;
+    let stableFrames = 0;
+    for (let i = 0; i < 120; i++) {
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+        });
+        const result = getAddingCellElement(options);
+        if (!result || result.cellElement.getBoundingClientRect().height === 0) {
+            stableFrames = 0;
+            continue;
+        }
+        const rect = result.cellElement.getBoundingClientRect();
+        const scrollTop = options.protyle.contentElement.scrollTop;
+        if (!options.protyle.wysiwyg.element.hasAttribute("data-top") && previousRect &&
+            Math.abs(previousRect.top - rect.top) < 0.5 && Math.abs(previousRect.left - rect.left) < 0.5 &&
+            Math.abs(previousRect.width - rect.width) < 0.5 && Math.abs(previousRect.height - rect.height) < 0.5 &&
+            previousScrollTop === scrollTop) {
+            stableFrames++;
+            if (stableFrames === 2) {
+                return result;
+            }
+        } else {
+            stableFrames = 0;
+        }
+        previousRect = rect;
+        previousScrollTop = scrollTop;
+    }
+};
+
 export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
     if (operation.action === "setAttrViewName") {
         getAVElements(protyle, operation.id).forEach((item) => {
@@ -627,6 +726,14 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
             }
             item.querySelectorAll(".av__row").forEach(rowItem => {
                 (rowItem.querySelector(`[data-col-id="${operation.id}"]`) as HTMLElement).style.width = operation.data;
+            });
+        });
+        return;
+    }
+    if (operation.action === "setAttrViewColAlign") {
+        getAVElements(protyle, operation.avID, operation.viewID).forEach((item) => {
+            item.querySelectorAll(`.av__cell[data-col-id="${operation.id}"]`).forEach((cellElement: HTMLElement) => {
+                cellElement.dataset.align = operation.data;
             });
         });
         return;
@@ -768,6 +875,13 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
         });
         return;
     }
+    const addingFocusKey = `${protyle.id}-${operation.avID}`;
+    const addingFocusToken = Symbol();
+    if (operation.action === "insertAttrViewBlock") {
+        addingFocusTokens.set(addingFocusKey, addingFocusToken);
+    } else {
+        addingFocusTokens.delete(addingFocusKey);
+    }
     // 只能 setTimeout，以前方案快速输入后最后一次修改会被忽略；必须为每一个 protyle 单独设置，否则有多个 protyle 时，其余无法被执行
     clearTimeout(refreshTimeouts[protyle.id]);
     refreshTimeouts[protyle.id] = window.setTimeout(() => {
@@ -781,6 +895,14 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
         }
         getAVElements(protyle, avID).forEach((item) => {
             item.removeAttribute("data-render");
+            if (operation.action === "replaceAttrViewBlock" && operation.retData?.duplicate &&
+                (!operation.blockID || operation.blockID === item.dataset.nodeId) &&
+                (!operation.context?.protyleID || operation.context.protyleID === protyle.id)) {
+                setAVLocateRequest(item, {
+                    itemID: operation.retData.targetItemID,
+                    select: true,
+                });
+            }
             if (operation.action === "sortAttrViewRow") {
                 clearSelect(["cell"], item);
             } else if (operation.action === "sortAttrViewCol") {
@@ -827,6 +949,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                                 }
                             });
                         }
+                        let isAddingFocusPending = false;
                         if (operation.srcs.length === 1) {
                             let popCellElement = item.querySelector(`.av__body${groupQuery} [data-id="${operation.srcs[0].itemID}"] .av__cell[data-dtype="block"]`) as HTMLElement;
                             if (!popCellElement) {
@@ -838,13 +961,43 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                             if (popCellElement && popCellElement.getAttribute("data-detached") === "true" &&
                                 popCellElement.querySelector(".av__celltext").textContent === "" &&
                                 popCellElement.getBoundingClientRect().height !== 0 && hasGhost) {
-                                popTextCell(protyle, [popCellElement], "block");
+                                if (item.getAttribute("data-av-type") !== "table") {
+                                    if (addingFocusTokens.get(addingFocusKey) === addingFocusToken) {
+                                        addingFocusTokens.delete(addingFocusKey);
+                                        popTextCell(protyle, [popCellElement], "block");
+                                    }
+                                } else {
+                                    isAddingFocusPending = true;
+                                    const addingCellOptions = {
+                                        protyle,
+                                        avID,
+                                        blockID: item.dataset.nodeId,
+                                        itemID: operation.srcs[0].itemID,
+                                        groupID: operation.groupID,
+                                    };
+                                    scrollAddingCellIntoView(protyle, item, popCellElement);
+                                    waitForAddingCellPosition(addingCellOptions).then((result) => {
+                                        if (addingFocusTokens.get(addingFocusKey) !== addingFocusToken) {
+                                            return;
+                                        }
+                                        addingFocusTokens.delete(addingFocusKey);
+                                        if (!result || result.cellElement.getAttribute("data-detached") !== "true" ||
+                                            result.cellElement.querySelector(".av__celltext").textContent !== "") {
+                                            return;
+                                        }
+                                        popTextCell(protyle, [result.cellElement], "block", {scrollIntoView: false});
+                                    });
+                                }
                             }
+                        }
+                        if (hasGhost && !isAddingFocusPending &&
+                            addingFocusTokens.get(addingFocusKey) === addingFocusToken) {
+                            addingFocusTokens.delete(addingFocusKey);
                         }
                         operation.srcs.find((srcItem) => {
                             // 虚拟滚动/分页下条目可能不在 DOM 中，需通过渲染数据判断是否被过滤
                             if (!isItemInData(data, srcItem.itemID)) {
-                                showMessage(window.siyuan.languages.insertRowTip);
+                                showMessage(window.siyuan.languages.databaseItemFiltered);
                                 return true;
                             }
                         });

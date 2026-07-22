@@ -583,13 +583,20 @@ func ExportSYs(ids []string) (zipPath string) {
 		docPaths = append(docPaths, bt.Path)
 
 		if Conf.Export.IncludeSubDocs {
-			docFiles := box.ListFiles(strings.TrimSuffix(bt.Path, ".sy"))
+			listPath := strings.TrimSuffix(bt.Path, ".sy")
+			if IsBoxDoc(bt.BoxID, bt.RootID) {
+				listPath = "/"
+			}
+			docFiles := box.ListFiles(listPath)
 			for _, docFile := range docFiles {
+				if docFile.path == bt.Path {
+					continue
+				}
 				docPaths = append(docPaths, docFile.path)
 			}
 		}
 	}
-	zipPath = exportSYZip(block.BoxID, path.Dir(block.Path), baseFolderName, docPaths)
+	zipPath = exportSYZip(block.BoxID, path.Dir(block.Path), baseFolderName, docPaths, false)
 	return
 }
 
@@ -982,10 +989,17 @@ func ExportDocx(id, savePath string, removeAssets, merge bool) (fullPath string,
 		}
 
 		tmpDir := filepath.Join(util.TempDir, "export", gulu.Rand.String(7))
+		if bt := treenode.GetBlockTree(id); bt != nil && IsEncryptedBox(bt.BoxID) {
+			exportID, idErr := newManagedEncryptedExportID()
+			if idErr != nil {
+				return idErr
+			}
+			tmpDir = filepath.Join(util.TempDir, "export", bt.BoxID, "docx", exportID)
+		}
 		if mkdirErr := os.MkdirAll(tmpDir, 0755); mkdirErr != nil {
 			return mkdirErr
 		}
-		defer os.Remove(tmpDir)
+		defer os.RemoveAll(tmpDir)
 		name, content := ExportMarkdownHTML(id, tmpDir, true, merge)
 		content = strings.ReplaceAll(content, "  \n", "<br>\n")
 
@@ -2143,8 +2157,15 @@ func ExportPandocConvertZip(ids []string, pandocTo, ext string) (name, zipPath s
 		docPaths = append(docPaths, bt.Path)
 
 		if Conf.Export.IncludeSubDocs {
-			docFiles := box.ListFiles(strings.TrimSuffix(bt.Path, ".sy"))
+			listPath := strings.TrimSuffix(bt.Path, ".sy")
+			if IsBoxDoc(bt.BoxID, bt.RootID) {
+				listPath = "/"
+			}
+			docFiles := box.ListFiles(listPath)
 			for _, docFile := range docFiles {
+				if docFile.path == bt.Path {
+					continue
+				}
 				docPaths = append(docPaths, docFile.path)
 			}
 		}
@@ -2279,11 +2300,11 @@ func exportBoxSYZip(boxID string) (zipPath string) {
 	for _, docFile := range docFiles {
 		docPaths = append(docPaths, docFile.path)
 	}
-	zipPath = exportSYZip(boxID, "/", baseFolderName, docPaths)
+	zipPath = exportSYZip(boxID, "/", baseFolderName, docPaths, true)
 	return
 }
 
-func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string) (zipPath string) {
+func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, includeBoxConf bool) (zipPath string) {
 	defer util.ClearPushProgress(100)
 
 	dir, name := path.Split(baseFolderName)
@@ -2321,6 +2342,36 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string) (
 	if err := os.MkdirAll(exportDir, 0755); err != nil {
 		logging.LogErrorf("create export temp folder failed: %s", err)
 		return
+	}
+	if includeBoxConf {
+		boxConf := box.GetConf()
+		boxConf.Sort = 0
+		boxConf.Closed = true
+		boxConf.RefCreateSaveBox = ""
+		boxConf.DocCreateSaveBox = ""
+		boxConf.Encrypted = false
+		boxConf.BoxCrypt = nil
+		confData, marshalErr := gulu.JSON.MarshalIndentJSON(boxConf, "", "  ")
+		if marshalErr != nil {
+			logging.LogErrorf("marshal export notebook conf failed: %s", marshalErr)
+			return
+		}
+		confDir := filepath.Join(exportDir, ".siyuan")
+		if mkdirErr := os.MkdirAll(confDir, 0755); mkdirErr != nil {
+			logging.LogErrorf("create export notebook conf dir failed: %s", mkdirErr)
+			return
+		}
+		if writeErr := os.WriteFile(filepath.Join(confDir, "conf.json"), confData, 0644); writeErr != nil {
+			logging.LogErrorf("write export notebook conf failed: %s", writeErr)
+			return
+		}
+		sourceBoxDocMetaPath := boxDocMetaPath(boxID)
+		if filelock.IsExist(sourceBoxDocMetaPath) {
+			if copyErr := filelock.Copy(sourceBoxDocMetaPath, filepath.Join(confDir, boxDocMetaName)); copyErr != nil {
+				logging.LogErrorf("copy export notebook document metadata failed: %s", copyErr)
+				return
+			}
+		}
 	}
 
 	trees := map[string]*parse.Tree{}
@@ -2625,6 +2676,10 @@ func exportAv(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap
 		return
 	}
 	if avData != nil {
+		if mkdirErr := os.MkdirAll(exportStorageAvDir, 0755); mkdirErr != nil {
+			logging.LogErrorf("create export av folder [%s] failed: %s", exportStorageAvDir, mkdirErr)
+			return
+		}
 		if writeErr := os.WriteFile(filepath.Join(exportStorageAvDir, avID+".json"), avData, 0644); writeErr != nil {
 			logging.LogErrorf("write av json failed: %s", writeErr)
 		}
@@ -3274,10 +3329,7 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 		av.Filter(table, attrView, rollupFurtherCollections, cachedAttrViews)
 		av.Sort(table, attrView)
 
-		var aligns []int
-		for range table.Columns {
-			aligns = append(aligns, 0)
-		}
+		aligns := getAttrViewTableAligns(table, avHiddenCol)
 		mdTable := &ast.Node{Type: ast.NodeTable, TableAligns: aligns}
 		mdTableHead := &ast.Node{Type: ast.NodeTableHead}
 		mdTable.AppendChild(mdTableHead)
@@ -4294,6 +4346,26 @@ func getAttrViewTable(attrView *av.AttributeView, view *av.View, query string) (
 
 	depth := 1
 	ret = sql.RenderAttributeViewTable(attrView, view, query, &depth, map[string]*av.AttributeView{}, false)
+	return
+}
+
+func getAttrViewTableAligns(table *av.Table, hiddenCol bool) (ret []int) {
+	for _, column := range table.Columns {
+		if hiddenCol && column.Hidden {
+			continue
+		}
+
+		align := 0
+		switch column.Align {
+		case av.TableColumnAlignLeft:
+			align = 1
+		case av.TableColumnAlignCenter:
+			align = 2
+		case av.TableColumnAlignRight:
+			align = 3
+		}
+		ret = append(ret, align)
+	}
 	return
 }
 

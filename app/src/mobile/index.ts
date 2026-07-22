@@ -12,6 +12,7 @@ import {Model} from "../layout/Model";
 import "../assets/scss/mobile.scss";
 import {Menus} from "../menus";
 import {addBaseURL, parseSiYuanUriInfo, setNoteBook} from "../util/pathName";
+import {activateQueuedAVLocate, queueAVLocateRequest} from "../protyle/render/av/locate";
 import {handleTouchEnd, handleTouchMove, handleTouchStart, handleTouchUp} from "./util/touch";
 import {fetchGet, fetchPost} from "../util/fetch";
 import {initFramework} from "./util/initFramework";
@@ -20,8 +21,16 @@ import {bootSync, lockScreen} from "../dialog/processSystem";
 import {initMessage, showMessage} from "../dialog/message";
 import {goBack} from "./util/MobileBackFoward";
 import {activeBlur, hideKeyboardToolbar, showKeyboardToolbar} from "./util/keyboardToolbar";
-import {getLocalStorage, isChromeBrowser, isInMobileApp, writeText} from "../protyle/util/compatibility";
+import {
+    getLocalStorage,
+    initWindowOpenOverride,
+    isChromeBrowser,
+    isInIOS,
+    isInMobileApp,
+    writeText
+} from "../protyle/util/compatibility";
 import {getCurrentEditor, openMobileFileById} from "./editor";
+import {ensureOnboarding} from "../onboarding";
 import {checkPublishServiceClosed} from "../util/processMessage";
 import {initRightMenu} from "./menu";
 import {openChangelog} from "../boot/openChangelog";
@@ -39,6 +48,7 @@ import {armKeyboardLock, callMobileAppShowKeyboard, canInput, setWebViewFocusabl
 import {hideAllElements} from "../protyle/ui/hideElements";
 import {initTouchDragBridge} from "../util/touchDragBridge";
 import {appearanceConfigApi} from "../config/tabs/appearanceRuntime";
+import {openByMobile} from "../editor/openLink";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -167,13 +177,19 @@ class App {
                     if (!isInMobileApp()) {
                         if (isChromeBrowser()) {
                             document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-content, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
-                        } else if (!window.siyuan.config.readonly && !window.siyuan.isPublish
-                            && window.siyuan.config.appearance.notifications?.browserCompatibility !== false) {
-                            showMessage(window.siyuan.languages.useChrome, 0, "error");
+                        } else {
+                            document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-visual, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
+                            if (!window.siyuan.config.readonly && !window.siyuan.isPublish
+                                && window.siyuan.config.appearance.notifications?.browserCompatibility !== false) {
+                                showMessage(window.siyuan.languages.useChrome, 0, "error");
+                            }
                         }
+                    } else if (!isInIOS()) {
+                        document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-visual, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
                     }
-                    fetchPost("/api/setting/getCloudUser", {}, userResponse => {
+                    fetchPost("/api/setting/getCloudUser", {}, async userResponse => {
                         window.siyuan.user = userResponse.data;
+                        await ensureOnboarding();
                         fetchPost("/api/system/getEmojiConf", {}, emojiResponse => {
                             window.siyuan.emojis = emojiResponse.data as IEmoji[];
                             setNoteBook(() => {
@@ -225,6 +241,7 @@ class App {
 
 const siyuanApp = new App();
 
+initWindowOpenOverride(siyuanApp, openByMobile);
 // https://github.com/siyuan-note/siyuan/issues/8441
 window.reconnectWebSocket = () => {
     // 后台唤醒时任一 socket 可能仍在 CONNECTING，调用 send 会抛 InvalidStateError，
@@ -257,8 +274,16 @@ window.hideKeyboardToolbar = hideKeyboardToolbar;
 window.openFileByURL = (openURL) => {
     const blockInfo = parseSiYuanUriInfo(openURL);
     if (blockInfo != null) {
-        openMobileFileById(siyuanApp, blockInfo.id,
-            blockInfo.focus ? [Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
+        if (blockInfo.avItemID) {
+            queueAVLocateRequest(blockInfo.id, {
+                itemID: blockInfo.avItemID,
+                viewID: blockInfo.avViewID,
+                groupID: blockInfo.avGroupID,
+            });
+        }
+        openMobileFileById(siyuanApp, blockInfo.id, blockInfo.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
+            (blockInfo.focus ? [Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
+        undefined, undefined, blockInfo.avItemID ? (protyle) => activateQueuedAVLocate(protyle, blockInfo.id) : undefined);
         return true;
     }
     return false;

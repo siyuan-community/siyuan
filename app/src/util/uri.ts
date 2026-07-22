@@ -9,13 +9,22 @@ import {openFile, openFileById} from "../editor/util";
 import {fetchPost} from "./fetch";
 import {checkFold} from "./noRelyPCFunction";
 import {openMobileFileById} from "../mobile/editor";
+import {isValidBazaarPackageName} from "./bazaarPackage";
 
 import type {App} from "../index";
+import {activateQueuedAVLocate, queueAVLocateRequest} from "../protyle/render/av/locate";
 
 const processSiYuanUriBlocks = (app: App, uriObj: URL): boolean => {
     const blockInfo = parseSiYuanUriInfo(uriObj);
     if (blockInfo != null) {
         const {id, focus} = blockInfo;
+        if (blockInfo.avItemID) {
+            queueAVLocateRequest(id, {
+                itemID: blockInfo.avItemID,
+                viewID: blockInfo.avViewID,
+                groupID: blockInfo.avGroupID,
+            });
+        }
         window.siyuan.editorIsFullscreen = blockInfo.fullscreen;
         fetchPost("/api/block/checkBlockExist", { id }, existResponse => {
             if (existResponse.data) {
@@ -24,11 +33,20 @@ const processSiYuanUriBlocks = (app: App, uriObj: URL): boolean => {
                     openFileById({
                         app,
                         id,
-                        action: (zoomIn || focus) ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL],
-                        zoomIn: zoomIn || focus
+                        action: blockInfo.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
+                            ((zoomIn || focus) ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
+                        zoomIn: blockInfo.avItemID ? false : zoomIn || focus,
+                        afterOpen: (model) => {
+                            const protyle = (model as { editor?: { protyle?: IProtyle } })?.editor?.protyle;
+                            if (protyle) {
+                                activateQueuedAVLocate(protyle, id);
+                            }
+                        },
                     });
                     /// #else
-                    openMobileFileById(app, id, (zoomIn || focus) ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
+                    openMobileFileById(app, id, blockInfo.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
+                        ((zoomIn || focus) ? [Constants.CB_GET_FOCUS, Constants.CB_GET_HL, Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
+                    undefined, undefined, blockInfo.avItemID ? (protyle) => activateQueuedAVLocate(protyle, id) : undefined);
                     /// #endif
                 });
                 /// #if !BROWSER
@@ -71,6 +89,9 @@ const processSiYuanUriPlugins = (app: App, uriObj: URL): boolean => {
         // siyuan://plugins/plugin-name/foo?bar=baz
         plugin.eventBus.emit("open-siyuan-url-plugin", { url: uriObj.href });
     } else {
+        if (!app.plugins.some(item => item.models[pluginNameOrTabType])) {
+            return false;
+        }
         // siyuan://plugins/plugin-samplecustom_tab?title=自定义页签&icon=iconFace&data={"text": "This is the custom plugin tab I opened via protocol."}
         /// #if !MOBILE
         // https://github.com/siyuan-note/siyuan/pull/9256
@@ -82,7 +103,6 @@ const processSiYuanUriPlugins = (app: App, uriObj: URL): boolean => {
                 return undefined;
             }
         })();
-        // id 不存在时无副作用
         let icon = uriObj.searchParams.get("icon");
         if (icon && !/^[a-zA-Z0-9]+$/.test(icon)) {
             icon = null; // 拒绝非法 icon 值，使用默认图标
@@ -110,6 +130,9 @@ const processSiYuanUriBazaar = (app: App, uriObj: URL): boolean => {
     try {
         resourceName = decodeURIComponent(_name);
     } catch {
+        return false;
+    }
+    if (!isValidBazaarPackageName(resourceName)) {
         return false;
     }
     switch (target) {

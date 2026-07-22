@@ -1,6 +1,12 @@
-import {focusByWbr, getEditorRange} from "../protyle/util/selection";
+import {focusByWbr, getEditorRange, getUndoFocusContext} from "../protyle/util/selection";
 import {hasClosestBlock, hasClosestByClassName} from "../protyle/util/hasClosest";
-import {getContenteditableElement, getParentBlock, getTopAloneElement} from "../protyle/wysiwyg/getBlock";
+import {
+    getContenteditableElement,
+    getEmbedChildOperationParentID,
+    getParentBlock,
+    getPreviousBlockSibling,
+    getTopAloneElement
+} from "../protyle/wysiwyg/getBlock";
 import {genListItemElement, updateListOrder} from "../protyle/wysiwyg/list";
 import {transaction, turnsIntoOneTransaction, updateTransaction} from "../protyle/wysiwyg/transaction";
 import {scrollCenter} from "../util/highlightById";
@@ -15,7 +21,7 @@ import {mathRender} from "../protyle/render/mathRender";
 export const cancelSB = async (protyle: IProtyle, nodeElement: Element, range?: Range) => {
     const doOperations: IOperation[] = [];
     const undoOperations: IOperation[] = [];
-    let previousId = nodeElement.previousElementSibling ? nodeElement.previousElementSibling.getAttribute("data-node-id") : undefined;
+    let previousId = getPreviousBlockSibling(nodeElement)?.getAttribute("data-node-id");
     nodeElement.classList.remove("protyle-wysiwyg--select");
     nodeElement.removeAttribute("select-start");
     nodeElement.removeAttribute("select-end");
@@ -24,11 +30,14 @@ export const cancelSB = async (protyle: IProtyle, nodeElement: Element, range?: 
     nodeElement.querySelectorAll(".sb__resize").forEach(handle => handle.remove());
     const sbElement = nodeElement.cloneNode() as HTMLElement;
     sbElement.innerHTML = nodeElement.lastElementChild.outerHTML;
-    let parentID = getParentBlock(nodeElement)?.getAttribute("data-node-id");
+    let parentID = getEmbedChildOperationParentID(nodeElement) || getParentBlock(nodeElement)?.getAttribute("data-node-id");
     // 缩放和反链需要接口获取
     if (!previousId && !parentID) {
         if (protyle.block.showAll || protyle.options.backlinkData) {
-            const idData = await fetchSyncPost("/api/block/getBlockSiblingID", {id});
+            const idData = await fetchSyncPost("/api/block/getBlockSiblingID", {
+                id,
+                notebook: protyle.notebookId,
+            });
             previousId = idData.data.previous;
             parentID = idData.data.parent;
         } else {
@@ -67,7 +76,7 @@ export const cancelSB = async (protyle: IProtyle, nodeElement: Element, range?: 
         undoOperations.push({
             action: "move",
             id: item.getAttribute("data-node-id"),
-            previousID: item.previousElementSibling ? item.previousElementSibling.getAttribute("data-node-id") : undefined,
+            previousID: getPreviousBlockSibling(item)?.getAttribute("data-node-id"),
             parentID: id
         });
         previousId = item.getAttribute("data-node-id");
@@ -178,7 +187,10 @@ export const refreshSbAndPersistWidth = (sbElement: Element,
 };
 
 export const jumpToParent = (protyle: IProtyle, nodeElement: Element, type: "parent" | "next" | "previous") => {
-    fetchPost("/api/block/getBlockSiblingID", {id: nodeElement.getAttribute("data-node-id")}, (response) => {
+    fetchPost("/api/block/getBlockSiblingID", {
+        id: nodeElement.getAttribute("data-node-id"),
+        notebook: protyle.notebookId,
+    }, (response) => {
         const targetId = response.data[type];
         if (!targetId) {
             return;
@@ -195,11 +207,13 @@ export const jumpToParent = (protyle: IProtyle, nodeElement: Element, type: "par
     });
 };
 
-export const insertEmptyBlock = async (protyle: IProtyle, position: InsertPosition, id?: string) => {
+export const insertEmptyBlock = async (protyle: IProtyle, position: InsertPosition, target?: string | Element) => {
     const range = getEditorRange(protyle.wysiwyg.element);
     let blockElement: Element;
-    if (id) {
-        blockElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`);
+    if (typeof target === "string") {
+        blockElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${target}"]`);
+    } else if (target) {
+        blockElement = target;
     } else {
         const selectElements = protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select");
         if (selectElements.length > 0) {
@@ -223,16 +237,18 @@ export const insertEmptyBlock = async (protyle: IProtyle, position: InsertPositi
     if (!blockElement) {
         return;
     }
+    const undoFocusContext = getUndoFocusContext(protyle.wysiwyg.element, range);
     protyle.observerLoad?.disconnect();
     let newElement = genEmptyElement(false, true);
     let orderIndex = 1;
+    const previousBlockElement = getPreviousBlockSibling(blockElement);
     if (blockElement.getAttribute("data-type") === "NodeListItem") {
         newElement = genListItemElement(blockElement, 0, true) as HTMLDivElement;
         orderIndex = parseInt(blockElement.parentElement.firstElementChild.getAttribute("data-marker"));
-    } else if (position === "beforebegin" && blockElement.previousElementSibling &&
-        blockElement.previousElementSibling.getAttribute("data-type") === "NodeHeading" &&
-        blockElement.previousElementSibling.getAttribute("fold") === "1") {
-        newElement = genHeadingElement(blockElement.previousElementSibling, false, true) as HTMLDivElement;
+    } else if (position === "beforebegin" &&
+        previousBlockElement?.getAttribute("data-type") === "NodeHeading" &&
+        previousBlockElement.getAttribute("fold") === "1") {
+        newElement = genHeadingElement(previousBlockElement, false, true) as HTMLDivElement;
     } else if (position === "afterend" && blockElement &&
         blockElement.getAttribute("data-type") === "NodeHeading" &&
         blockElement.getAttribute("fold") === "1") {
@@ -245,7 +261,7 @@ export const insertEmptyBlock = async (protyle: IProtyle, position: InsertPositi
     if (blockElement.getAttribute("data-type") === "NodeListItem" && blockElement.getAttribute("data-subtype") === "o" &&
         !newElement.parentElement.classList.contains("protyle-wysiwyg")) {
         updateListOrder(newElement.parentElement, orderIndex);
-        updateTransaction(protyle, newElement.parentElement, parentOldHTML);
+        updateTransaction(protyle, newElement.parentElement, parentOldHTML, undoFocusContext);
     } else {
         let doOperations: IOperation[];
         if (position === "beforebegin") {
@@ -266,6 +282,7 @@ export const insertEmptyBlock = async (protyle: IProtyle, position: InsertPositi
         const undoOperations: IOperation[] = [{
             action: "delete",
             id: newId,
+            context: undoFocusContext,
         }];
         if (blockElement.parentElement.classList.contains("sb") &&
             blockElement.parentElement.getAttribute("data-sb-layout") === "col") {

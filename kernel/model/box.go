@@ -49,12 +49,13 @@ import (
 
 // Box 笔记本。
 type Box struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Icon     string `json:"icon"`
-	Sort     int    `json:"sort"`
-	SortMode int    `json:"sortMode"`
-	Closed   bool   `json:"closed"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Icon         string `json:"icon"`
+	Sort         int    `json:"sort"`
+	SortMode     int    `json:"sortMode"`
+	Closed       bool   `json:"closed"`
+	SubFileCount int    `json:"subFileCount"`
 
 	NewFlashcardCount int `json:"newFlashcardCount"`
 	DueFlashcardCount int `json:"dueFlashcardCount"`
@@ -504,7 +505,9 @@ func (box *Box) GetInfo() (ret *BoxInfo) {
 			continue
 		}
 
-		ret.DocCount++
+		if id != box.ID {
+			ret.DocCount++
+		}
 		ret.Size += uint64(info.Size())
 		docModT := info.ModTime()
 		if docModT.After(docLatestModTime) {
@@ -771,6 +774,9 @@ func ClearTempFiles() {
 }
 
 func clearTempDir(dir string, count *int, size *int64) {
+	if IsObsidianVaultTaskActive() && sameObsidianPath(dir, filepath.Join(util.TempDir, "import", "obsidian")) {
+		return
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -922,15 +928,28 @@ func ChangeBoxSort(boxIDs []string) {
 }
 
 func SetBoxIcon(boxID, icon string) {
-	if strings.Contains(icon, ".") {
-		// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-		icon = util.FilterUploadEmojiFileName(icon)
-	}
+	icon = filterBoxIcon(icon)
 
 	box := &Box{ID: boxID}
 	boxConf := box.GetConf()
 	boxConf.Icon = icon
-	box.SaveConf(boxConf)
+	if err := box.SaveConf(boxConf); err != nil {
+		logging.LogErrorf("save box icon [%s] failed: %s", boxID, err)
+		return
+	}
+	if err := setBoxDocIcon(boxID, icon); err != nil {
+		logging.LogErrorf("set box document icon [%s] failed: %s", boxID, err)
+		return
+	}
+	IncSync()
+}
+
+func filterBoxIcon(icon string) string {
+	if strings.Contains(icon, ".") {
+		// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
+		icon = util.FilterUploadEmojiFileName(icon)
+	}
+	return icon
 }
 
 func (box *Box) UpdateHistoryGenerated() {
@@ -950,6 +969,49 @@ func getBoxesByPaths(paths []string) (ret map[string]*Box) {
 		if nil != bt {
 			ret[bt.Path] = Conf.Box(bt.BoxID)
 		}
+	}
+	return
+}
+
+func getBoxesByPathsStrict(paths []string) (ret map[string]*Box, err error) {
+	if 1 > len(paths) {
+		return nil, ErrBlockNotFound
+	}
+
+	var ids []string
+	for _, p := range paths {
+		id := util.GetTreeID(p)
+		if !ast.IsNodeIDPattern(id) {
+			return nil, ErrBlockNotFound
+		}
+		ids = append(ids, id)
+	}
+
+	ret = map[string]*Box{}
+	bts := treenode.GetBlockTrees(ids)
+	for i, id := range ids {
+		bt := bts[id]
+		if nil == bt || "d" != bt.Type || bt.ID != bt.RootID {
+			return nil, ErrBlockNotFound
+		}
+
+		box := Conf.Box(bt.BoxID)
+		if nil == box {
+			return nil, ErrBoxNotFound
+		}
+
+		p := filepath.ToSlash(paths[i])
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		if _, validateErr := filesys.ValidateBoxRelativePath(bt.BoxID, p); validateErr != nil {
+			return nil, ErrBlockNotFound
+		}
+		p = normalizeBoxDocPath(bt.BoxID, path.Clean(p))
+		if p != path.Clean(bt.Path) {
+			return nil, ErrBlockNotFound
+		}
+		ret[bt.Path] = box
 	}
 	return
 }

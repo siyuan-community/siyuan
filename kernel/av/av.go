@@ -38,15 +38,64 @@ import (
 
 // AttributeView 描述了属性视图的结构。
 type AttributeView struct {
-	Spec      int          `json:"spec"`      // 格式版本
-	ID        string       `json:"id"`        // 属性视图 ID
-	Name      string       `json:"name"`      // 属性视图名称
-	KeyValues []*KeyValues `json:"keyValues"` // 属性视图属性键值
-	KeyIDs    []string     `json:"keyIDs"`    // 属性视图属性键 ID，用于排序
-	ViewID    string       `json:"viewID"`    // 当前视图 ID
-	Views     []*View      `json:"views"`     // 视图
+	Spec              int                `json:"spec"`                        // 格式版本
+	ID                string             `json:"id"`                          // 属性视图 ID
+	Name              string             `json:"name"`                        // 属性视图名称
+	KeyValues         []*KeyValues       `json:"keyValues"`                   // 属性视图属性键值
+	KeyIDs            []string           `json:"keyIDs"`                      // 属性视图属性键 ID，用于排序
+	ViewID            string             `json:"viewID"`                      // 当前视图 ID
+	Views             []*View            `json:"views"`                       // 视图
+	NewItemTemplates  []*NewItemTemplate `json:"newItemTemplates,omitempty"`  // 新增条目模板
+	DefaultTemplateID string             `json:"defaultTemplateID,omitempty"` // 默认新增条目模板 ID
 
 	RenderedViewables map[string]Viewable `json:"-"` // 已经渲染好的视图
+}
+
+// NewItemTargetType 描述新增条目模板创建的目标类型。
+type NewItemTargetType string
+
+const (
+	NewItemTargetDetached NewItemTargetType = "detached"
+	NewItemTargetDocument NewItemTargetType = "document"
+)
+
+// NewItemSaveLocation 描述文档类型模板覆盖全局新建文档位置后的保存位置。
+// nil 表示继承全局配置，非 nil 且 BoxID 为空表示使用当前数据库实例所在笔记本。
+type NewItemSaveLocation struct {
+	BoxID        string `json:"boxID,omitempty"`
+	PathTemplate string `json:"pathTemplate"`
+}
+
+// NewItemFieldValueMode 描述新增条目模板字段默认值的填充方式。
+type NewItemFieldValueMode string
+
+const (
+	NewItemFieldValueStatic      NewItemFieldValueMode = "static"
+	NewItemFieldValueCurrentTime NewItemFieldValueMode = "currentTime"
+)
+
+// NewItemFieldValue 描述新增条目模板中的一个字段默认值。
+type NewItemFieldValue struct {
+	Mode  NewItemFieldValueMode `json:"mode"`
+	Value *Value                `json:"value,omitempty"`
+}
+
+// NewItemTemplate 描述数据库新增条目时使用的模板。
+type NewItemTemplate struct {
+	ID                  string                        `json:"id"`
+	Name                string                        `json:"name"`
+	Icon                string                        `json:"icon,omitempty"`
+	TargetType          NewItemTargetType             `json:"targetType"`
+	PrimaryKeyTemplate  string                        `json:"primaryKeyTemplate,omitempty"`
+	FieldValues         map[string]*NewItemFieldValue `json:"fieldValues,omitempty"`
+	SaveLocation        *NewItemSaveLocation          `json:"saveLocation,omitempty"`
+	ContentTemplatePath string                        `json:"contentTemplatePath,omitempty"`
+}
+
+// NewItemTemplatesConfig 描述一次完整的新增条目模板配置修改。
+type NewItemTemplatesConfig struct {
+	Templates         []*NewItemTemplate `json:"templates"`
+	DefaultTemplateID string             `json:"defaultTemplateID,omitempty"`
 }
 
 // KeyValues 描述了属性视图属性键值列表的结构。
@@ -467,6 +516,15 @@ func GetAttributeViewNameByPath(avJSONPath string) (ret string, err error) {
 	return getAttributeViewNameByPathInBox(avJSONPath, "")
 }
 
+// GetAttributeViewNameInBox 获取指定笔记本中的数据库名称。
+func GetAttributeViewNameInBox(avID, boxID string) (ret string, err error) {
+	avJSONPath, _ := FindAttributeViewPathInBox(avID, boxID)
+	if avJSONPath == "" {
+		return
+	}
+	return getAttributeViewNameByPathInBox(avJSONPath, boxID)
+}
+
 func GetAttributeViewContent(avID string) (content string) {
 	if "" == avID {
 		return
@@ -523,6 +581,11 @@ func IsAttributeViewExist(avID string) bool {
 }
 
 func ParseAttributeView(avID string) (ret *AttributeView, err error) {
+	if !ast.IsNodeIDPattern(avID) {
+		err = ErrInvalidAttributeViewID
+		return
+	}
+
 	// 加密笔记本的 AV 定义存笔记本级路径，通过 fallback 自动查找并解密
 	avJSONPath, boxID := FindAttributeViewPath(avID)
 	if avJSONPath == "" {
@@ -537,6 +600,15 @@ func ParseAttributeView(avID string) (ret *AttributeView, err error) {
 }
 
 func ParseAttributeViewInBox(avID, boxID string) (ret *AttributeView, err error) {
+	if !ast.IsNodeIDPattern(avID) {
+		err = ErrInvalidAttributeViewID
+		return
+	}
+	if boxID != "" && !ast.IsNodeIDPattern(boxID) {
+		err = ErrInvalidBoxID
+		return
+	}
+
 	avJSONPath, avBoxID := FindAttributeViewPathInBox(avID, boxID)
 	if avJSONPath == "" {
 		avJSONPath = attributeViewDataPathByBox(avID, boxID)
@@ -652,8 +724,8 @@ func parseAttributeViewByPathInBox(avJSONPath, boxID string) (ret *AttributeView
 }
 
 func SaveAttributeView(av *AttributeView) (err error) {
-	if "" == av.ID {
-		err = errors.New("av id is empty")
+	if !ast.IsNodeIDPattern(av.ID) {
+		err = ErrInvalidAttributeViewID
 		logging.LogErrorf("save attribute view failed: %s", err)
 		return
 	}
@@ -906,6 +978,16 @@ func (av *AttributeView) Clone() (ret *AttributeView) {
 	}
 
 	ret.ID = ast.NewNodeID()
+	templateIDMap := map[string]string{}
+	for _, itemTemplate := range ret.NewItemTemplates {
+		if nil == itemTemplate {
+			continue
+		}
+		oldID := itemTemplate.ID
+		itemTemplate.ID = ast.NewNodeID()
+		templateIDMap[oldID] = itemTemplate.ID
+	}
+	ret.DefaultTemplateID = templateIDMap[ret.DefaultTemplateID]
 	if 1 > len(ret.Views) {
 		logging.LogErrorf("attribute view [%s] has no views", av.ID)
 		return nil
@@ -913,9 +995,11 @@ func (av *AttributeView) Clone() (ret *AttributeView) {
 
 	var oldKeyIDs []string
 	keyIDMap := map[string]string{}
+	keyTypeMap := map[string]KeyType{}
 	for _, kv := range ret.KeyValues {
 		newID := ast.NewNodeID()
 		keyIDMap[kv.Key.ID] = newID
+		keyTypeMap[kv.Key.ID] = kv.Key.Type
 		oldKeyIDs = append(oldKeyIDs, kv.Key.ID)
 		kv.Key.ID = newID
 		kv.Values = []*Value{}
@@ -925,6 +1009,25 @@ func (av *AttributeView) Clone() (ret *AttributeView) {
 			kv.Key.Relation.IsTwoWay = false
 			kv.Key.Relation.AvID = ""
 			kv.Key.Relation.BackKeyID = ""
+		}
+	}
+
+	for _, itemTemplate := range ret.NewItemTemplates {
+		if nil == itemTemplate {
+			continue
+		}
+		fieldValues := map[string]*NewItemFieldValue{}
+		for oldKeyID, fieldValue := range itemTemplate.FieldValues {
+			newKeyID, ok := keyIDMap[oldKeyID]
+			if !ok || KeyTypeRelation == keyTypeMap[oldKeyID] {
+				continue
+			}
+			fieldValues[newKeyID] = fieldValue
+		}
+		if 0 == len(fieldValues) {
+			itemTemplate.FieldValues = nil
+		} else {
+			itemTemplate.FieldValues = fieldValues
 		}
 	}
 
@@ -979,6 +1082,10 @@ func (av *AttributeView) Clone() (ret *AttributeView) {
 }
 
 func GetAttributeViewDataPath(avID string) (ret string) {
+	if !ast.IsNodeIDPattern(avID) {
+		return
+	}
+
 	av := filepath.Join(util.DataDir, "storage", "av")
 	ret = filepath.Join(av, avID+".json")
 	if !gulu.File.IsDir(av) {
@@ -995,12 +1102,15 @@ func GetAttributeViewI18n(key string) string {
 }
 
 var (
-	ErrAttributeViewNotFound = errors.New("attribute view not found")
-	ErrViewNotFound          = errors.New("view not found")
-	ErrKeyNotFound           = errors.New("key not found")
-	ErrWrongLayoutType       = errors.New("wrong layout type")
-	ErrSpecTooNew            = errors.New("attribute view spec is too new")
-	ErrFilterTooDeep         = errors.New("filter nesting depth exceeds the maximum allowed")
+	ErrAttributeViewNotFound  = errors.New("attribute view not found")
+	ErrInvalidAttributeViewID = errors.New("invalid attribute view id")
+	ErrInvalidBoxID           = errors.New("invalid box id")
+	ErrViewNotFound           = errors.New("view not found")
+	ErrKeyNotFound            = errors.New("key not found")
+	ErrWrongLayoutType        = errors.New("wrong layout type")
+	ErrInvalidColumnAlign     = errors.New("invalid column align")
+	ErrSpecTooNew             = errors.New("attribute view spec is too new")
+	ErrFilterTooDeep          = errors.New("filter nesting depth exceeds the maximum allowed")
 )
 
 const (

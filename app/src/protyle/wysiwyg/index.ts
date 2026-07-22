@@ -108,7 +108,8 @@ import {updateCalloutType} from "./callout";
 import {nbsp2space, removeZWJ} from "../util/normalizeText";
 import {setFold} from "../util/blockFold";
 import {BlockPanel} from "../../block/Panel";
-import {isEncryptedBox} from "../../util/pathName";
+import {isEncryptedBox, parseSiYuanUriInfo} from "../../util/pathName";
+import {processSiYuanUri} from "../../util/uri";
 
 export class WYSIWYG {
     public lastHTMLs: { [key: string]: string } = {};
@@ -116,6 +117,35 @@ export class WYSIWYG {
     public preventKeyup: boolean;
 
     private preventClick: boolean;
+    private preventInput: boolean;
+    private inputTimeout: number;
+    private pendingInputTimeouts = new Map<number, () => void>();
+
+    private scheduleInput(callback: () => void, delay = 0, replace = true) {
+        if (replace && this.inputTimeout) {
+            clearTimeout(this.inputTimeout);
+            this.pendingInputTimeouts.delete(this.inputTimeout);
+        }
+        const timeout = window.setTimeout(() => {
+            this.pendingInputTimeouts.delete(timeout);
+            if (this.inputTimeout === timeout) {
+                this.inputTimeout = undefined;
+            }
+            callback();
+        }, delay);
+        this.pendingInputTimeouts.set(timeout, callback);
+        if (replace) {
+            this.inputTimeout = timeout;
+        }
+    }
+
+    public flushPendingInput() {
+        const callbacks = Array.from(this.pendingInputTimeouts.values());
+        this.pendingInputTimeouts.forEach((callback, timeout) => clearTimeout(timeout));
+        this.pendingInputTimeouts.clear();
+        this.inputTimeout = undefined;
+        callbacks.forEach(callback => callback());
+    }
 
     constructor(protyle: IProtyle) {
         this.element = document.createElement("div");
@@ -344,6 +374,7 @@ export class WYSIWYG {
                             needClipboardWrite = true;
                             const response = await fetchSyncPost("/api/block/getBlockDOM", {
                                 id: item.getAttribute("data-node-id"),
+                                notebook: protyle.notebookId,
                             });
                             itemHTML = response.data.dom;
                         } else {
@@ -565,6 +596,11 @@ export class WYSIWYG {
         });
 
         this.element.addEventListener("mousedown", (event: MouseEvent) => {
+            if (protyle.toolbar.isMultiSelectMode()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             protyle.wysiwyg.element.classList.remove("protyle-wysiwyg--hiderange");
             if (event.button === 2) {
                 // 右键
@@ -1265,6 +1301,7 @@ export class WYSIWYG {
                 // @ts-ignore
                 nodeElement.firstElementChild.style.webkitUserModify = "read-only";
                 nodeElement.style.cursor = "col-resize";
+                protyle.wysiwyg.element.classList.add("protyle-wysiwyg--hiderange");
                 target.removeAttribute("style");
                 const x = event.clientX;
                 const colIndex = parseInt(target.getAttribute("data-col-index"));
@@ -1292,6 +1329,7 @@ export class WYSIWYG {
                     // @ts-ignore
                     nodeElement.firstElementChild.style.webkitUserModify = "";
                     nodeElement.style.cursor = "";
+                    protyle.wysiwyg.element.classList.remove("protyle-wysiwyg--hiderange");
                     documentSelf.onmousemove = null;
                     documentSelf.onmouseup = null;
                     documentSelf.ondragstart = null;
@@ -1769,7 +1807,12 @@ export class WYSIWYG {
                                                 selectCellElements[0].colSpan = colSpan;
                                                 selectCellElements[0].rowSpan = rowSpan;
                                                 focusByWbr(selectCellElements[0], document.createRange());
-                                                document.execCommand("insertHTML", false, "");
+                                                this.preventInput = true;
+                                                try {
+                                                    document.execCommand("insertHTML", false, "");
+                                                } finally {
+                                                    this.preventInput = false;
+                                                }
                                                 updateTransaction(protyle, tableBlockElement, oldHTML);
                                             }
                                         });
@@ -2155,6 +2198,7 @@ export class WYSIWYG {
                         needClipboardWrite = true;
                         const response = await fetchSyncPost("/api/block/getBlockDOM", {
                             id: item.getAttribute("data-node-id"),
+                            notebook: protyle.notebookId,
                         });
                         itemHTML = response.data.dom;
                     } else {
@@ -2273,33 +2317,45 @@ export class WYSIWYG {
                     range.deleteContents();
                     tempElement.append(newSpanElement);
                 } else {
-                    if (selectTableRange) {
-                        // 表格内跨多单元格的文本选区：按网格映射重建合法 table，重新计算 colspan/rowspan。
-                        // 必须在 extractContents 删除原内容前计算，否则 getBoundingClientRect 拿不到原始位置
-                        const tableElement = tableRangeElement.querySelector("table");
-                        const newTableHTML = getTableRangeHTML(tableElement, tableRangeStartCell, tableRangeEndCell);
-                        // 放入 tempElement 以便后续 html = tempElement.innerHTML 取用（裸 table，后续统一包 BlockDOM）
-                        tempElement.innerHTML = newTableHTML;
-                        textPlain = protyle.lute.HTML2Md(newTableHTML);
-                        // 删除选区内容并修复表格 DOM
-                        const wbrElement = document.createElement("wbr");
-                        range.insertNode(wbrElement);
-                        range.setStartAfter(wbrElement);
-                        range.extractContents();
+                    if (selectTableRange || cloneElement.querySelectorAll("td, th").length > 0) {
+                        const tableScrollLeft = nodeElement.firstElementChild.scrollLeft;
+                        const tableScrollTop = nodeElement.firstElementChild.scrollTop;
+                        const contentScrollTop = protyle.contentElement.scrollTop;
+                        if (selectTableRange) {
+                            // 表格内跨多单元格的文本选区：按网格映射重建合法 table，重新计算 colspan/rowspan。
+                            // 必须在 extractContents 删除原内容前计算，否则 getBoundingClientRect 拿不到原始位置
+                            const tableElement = tableRangeElement.querySelector("table");
+                            const newTableHTML = getTableRangeHTML(tableElement, tableRangeStartCell, tableRangeEndCell);
+                            // 放入 tempElement 以便后续 html = tempElement.innerHTML 取用（裸 table，后续统一包 BlockDOM）
+                            tempElement.innerHTML = newTableHTML;
+                            textPlain = protyle.lute.HTML2Md(newTableHTML);
+                            // 删除选区内容并修复表格 DOM
+                            const wbrElement = document.createElement("wbr");
+                            range.insertNode(wbrElement);
+                            range.setStartAfter(wbrElement);
+                            range.extractContents();
+                        } else {
+                            // 表格内多格子 cut https://github.com/siyuan-note/siyuan/issues/564
+                            const wbrElement = document.createElement("wbr");
+                            range.insertNode(wbrElement);
+                            range.setStartAfter(wbrElement);
+                            tempElement.append(range.extractContents());
+                        }
                         nodeElement.outerHTML = protyle.lute.SpinBlockDOM(nodeElement.outerHTML);
                         nodeElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`) as HTMLElement;
                         mathRender(nodeElement);
                         focusByWbr(nodeElement, range);
-                    } else if (cloneElement.querySelectorAll("td, th").length > 0) {
-                        // 表格内多格子 cut https://github.com/siyuan-note/siyuan/issues/564
-                        const wbrElement = document.createElement("wbr");
-                        range.insertNode(wbrElement);
-                        range.setStartAfter(wbrElement);
-                        tempElement.append(range.extractContents());
-                        nodeElement.outerHTML = protyle.lute.SpinBlockDOM(nodeElement.outerHTML);
-                        nodeElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`) as HTMLElement;
-                        mathRender(nodeElement);
-                        focusByWbr(nodeElement, range);
+                        // SpinBlockDOM 替换整张表格后，恢复旧表格的内外层滚动位置
+                        if (tableScrollLeft > 0) {
+                            nodeElement.firstElementChild.scrollLeft = tableScrollLeft;
+                        }
+                        if (tableScrollTop > 0) {
+                            nodeElement.firstElementChild.scrollTop = tableScrollTop;
+                        }
+                        if (contentScrollTop > 0) {
+                            protyle.contentElement.scrollTop = contentScrollTop;
+                            protyle.scroll.lastScrollTop = contentScrollTop - 1;
+                        }
                     } else {
                         const inlineMathElement = hasClosestByAttribute(range.commonAncestorContainer, "data-type", "inline-math");
                         if (inlineMathElement) {
@@ -2807,8 +2863,11 @@ export class WYSIWYG {
             }
         });
 
-        let timeout: number;
         this.element.addEventListener("input", (event: InputEvent) => {
+            if (this.preventInput) {
+                event.stopPropagation();
+                return;
+            }
             const target = event.target as HTMLElement;
             if (target.tagName === "VIDEO" || target.tagName === "AUDIO" || event.inputType === "historyRedo") {
                 return;
@@ -2840,18 +2899,16 @@ export class WYSIWYG {
                 // 百度输入法中文反双引号 https://github.com/siyuan-note/siyuan/issues/9686
                 event.data === "”" ||
                 event.data === "「")) {
-                clearTimeout(timeout);  // https://github.com/siyuan-note/siyuan/issues/9179
-                timeout = window.setTimeout(() => {
+                this.scheduleInput(() => {
                     input(protyle, blockElement, range, true); // 搜狗拼音数字后面句号变为点；Mac 反向双引号无法输入
                 });
             } else {
                 if (isMac() && event.data === "【】") {
-                    setTimeout(() => {
+                    this.scheduleInput(() => {
                         input(protyle, blockElement, range, true, event);
-                    }, Constants.TIMEOUT_INPUT);
+                    }, Constants.TIMEOUT_INPUT, false);
                 } else {
-                    clearTimeout(timeout); // https://github.com/siyuan-note/siyuan/issues/9179
-                    timeout = window.setTimeout(() => {
+                    this.scheduleInput(() => {
                         input(protyle, blockElement, range, true, event);
                     });
                 }
@@ -2937,6 +2994,11 @@ export class WYSIWYG {
         });
 
         this.element.addEventListener("dblclick", (event: MouseEvent) => {
+            if (protyle.toolbar.isMultiSelectMode()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             const target = event.target as HTMLElement;
             // 双击超级块拖拽手柄，均分所有列宽
             if (target.classList.contains("sb__resize")) {
@@ -2979,6 +3041,11 @@ export class WYSIWYG {
         });
         let mobileBlur = false;
         this.element.addEventListener("click", (event: MouseEvent & { target: HTMLElement }) => {
+            if (protyle.toolbar.isMultiSelectMode()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             if (this.preventClick) {
                 this.preventClick = false;
                 return;
@@ -3067,6 +3134,14 @@ export class WYSIWYG {
             }
 
             const blockRefElement = hasClosestByAttribute(event.target, "data-type", "block-ref");
+            const siyuanURIInfo = aLink.startsWith("siyuan://blocks/") ? parseSiYuanUriInfo(aLink) : undefined;
+            if (siyuanURIInfo?.avItemID && (range.toString() === "" || event.shiftKey)) {
+                event.stopPropagation();
+                event.preventDefault();
+                hideElements(["dialog", "toolbar"], protyle);
+                processSiYuanUri(protyle.app, aLink);
+                return;
+            }
             if (blockRefElement || aLink.startsWith("siyuan://blocks/")) {
                 event.stopPropagation();
                 event.preventDefault();
@@ -3167,7 +3242,7 @@ export class WYSIWYG {
             if (fileElement && range.toString() === "") {
                 event.stopPropagation();
                 event.preventDefault();
-                openLink(protyle, fileElement.getAttribute("data-id"), event, ctrlIsPressed);
+                openLink(protyle.app, fileElement.getAttribute("data-id"), event, ctrlIsPressed);
                 return;
             }
 
@@ -3178,7 +3253,7 @@ export class WYSIWYG {
                 aLink) {
                 event.stopPropagation();
                 event.preventDefault();
-                openLink(protyle, aLink, event, ctrlIsPressed);
+                openLink(protyle.app, aLink, event, ctrlIsPressed);
                 return;
             }
 

@@ -6,6 +6,9 @@ import {ipcRenderer} from "electron";
 /// #endif
 import {getDefaultSubType, getDefaultType} from "../../search/getDefault";
 import {hideMessage, showMessage} from "../../dialog/message";
+import {isSiYuanUriProtocol} from "../../util/pathName";
+import {isBrowser} from "../../util/functions";
+import type {App} from "../../index";
 
 export const isPhablet = () => {
     return /Android|webOS|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent) || isIPhone() || isIPad();
@@ -631,6 +634,23 @@ export const setStorageVal = (key: string, val: any, cb?: () => void) => {
             cb();
         }
     });
+};
+
+export const initWindowOpenOverride = (app: App, openExternal?: (url: string) => void) => {
+    const originalOpen = window.open;
+    window.open = function (url?: string | URL, target?: string, features?: string): WindowProxy | null {
+        const urlStr = typeof url === "string" ? url : (url ? String(url) : "");
+        if (isSiYuanUriProtocol(urlStr) && (!isBrowser() || isInMobileApp() || target !== "_blank")) {
+            void import("../../util/uri").then(({processSiYuanUri}) => processSiYuanUri(app, urlStr));
+            return null;
+        }
+        if (isInMobileApp() && urlStr && openExternal) {
+            openExternal(urlStr);
+            return null;
+        }
+        // 浏览器可通过 window.open("siyuan://blocks/20221031001313-rk7sd0e", "_blank") 打开本地客户端
+        return originalOpen.call(window, url, target, features);
+    };
 };
 
 /// #if !BROWSER

@@ -5,6 +5,8 @@ type TDock = "file" | "outline" | "inbox" | "bookmark" | "tag" | "graph" | "glob
 type TTab = "Outline" | "Graph" | "Backlink" | "Asset" | "Editor" | "Search" | "siyuan-card"
 type TOperation =
     "insert"
+    | "restoreCreatedDoc"
+    | "removeCreatedDoc"
     | "update"
     | "delete"
     | "move"
@@ -29,10 +31,12 @@ type TOperation =
     | "setAttrViewColHidden"
     | "setAttrViewColWrap"
     | "setAttrViewColWidth"
+    | "setAttrViewColAlign"
     | "updateAttrViewColOptions"
     | "removeAttrViewColOption"
     | "updateAttrViewColOption"
     | "setAttrViewName"
+    | "setAttrViewNewItemTemplates"
     | "doUpdateUpdated"
     | "duplicateAttrViewKey"
     | "setAttrViewColIcon"
@@ -95,6 +99,7 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "code-language-update" | "code-language-change" |
     "kernel-plugin-state-change"
 type TAVView = "table" | "gallery" | "kanban"
+type TAVAlign = "" | "left" | "center" | "right"
 type TAVCol =
     "text"
     | "date"
@@ -267,8 +272,8 @@ interface Window {
         }
     };
     htmlToImage: {
-        toCanvas: (element: Element, options?: Partial<IObject>) => Promise<HTMLCanvasElement>
-        toBlob: (element: Element, options?: Partial<IObject>) => Promise<Blob>
+        toCanvas: (element: Element, options?: IHtmlToImageOptions) => Promise<HTMLCanvasElement>
+        toBlob: (element: Element, options?: IHtmlToImageOptions) => Promise<Blob>
     };
     siyuan: ISiyuan;
     JSAndroid: {
@@ -352,7 +357,10 @@ interface IClipboardData {
 
 interface IRefDefs {
     refID: string,
-    defIDs?: string[]
+    defIDs?: string[],
+    avItemID?: string,
+    avViewID?: string,
+    avGroupID?: string,
 }
 
 interface IFilesPath {
@@ -513,6 +521,7 @@ interface INotebook {
     closed: boolean;
     icon: string;
     sort: number;
+    subFileCount: number;
     dueFlashcardCount?: string;
     newFlashcardCount?: string;
     flashcardCount?: string;
@@ -678,6 +687,12 @@ interface IObject {
     [key: string]: string | number | boolean;
 }
 
+interface IHtmlToImageOptions {
+    [key: string]: unknown;
+    imagePlaceholder?: string;
+    onImageErrorHandler?: (event: Event) => void;
+}
+
 interface ILayoutJSON extends ILayoutOptions {
     scrollAttr?: IScrollAttr,
     instance?: string,
@@ -693,6 +708,7 @@ interface ILayoutJSON extends ILayoutOptions {
     action?: TProtyleAction
     icon?: string
     rootId?: string
+    databaseRowId?: string
     active?: boolean
     pin?: boolean
     isPreview?: boolean
@@ -969,6 +985,42 @@ interface IAV {
     viewType: TAVView;
     views: IAVView[];
     isMirror?: boolean;
+    newItemTemplates?: IAVNewItemTemplate[];
+    defaultTemplateID?: string;
+    target?: IAVRenderTarget;
+}
+
+interface IAVRenderTarget {
+    status: "visible" | "filtered" | "itemNotFound" | "viewNotFound" | "groupHidden";
+    itemID: string;
+    groupID?: string;
+    index: number;
+    offset: number;
+    pageSize: number;
+}
+
+type TAVNewItemTarget = "detached" | "document";
+type TAVNewItemFieldValueMode = "static" | "currentTime";
+
+interface IAVNewItemSaveLocation {
+    boxID?: string;
+    pathTemplate: string;
+}
+
+interface IAVNewItemFieldValue {
+    mode: TAVNewItemFieldValueMode;
+    value?: IAVCellValue;
+}
+
+interface IAVNewItemTemplate {
+    id: string;
+    name: string;
+    icon?: string;
+    targetType: TAVNewItemTarget;
+    primaryKeyTemplate?: string;
+    fieldValues?: Record<string, IAVNewItemFieldValue>;
+    saveLocation?: IAVNewItemSaveLocation;
+    contentTemplatePath?: string;
 }
 
 interface IAVView {
@@ -1001,6 +1053,8 @@ interface IAVVirtualData {
     renderedStart: number;
     renderedEnd: number;
     topSpacerHeight: number;
+    rowOffset?: number;
+    locate?: boolean;
 }
 
 interface IAVGallery extends IAVView {
@@ -1066,6 +1120,7 @@ interface IAVSort {
 
 interface IAVColumn {
     width: string,
+    align: TAVAlign,
     icon: string,
     id: string,
     name: string,
@@ -1338,4 +1393,7 @@ interface ISiYuanUriBlockInfo {
      * @defaultValue false
      */
     fullscreen: boolean;
+    avItemID?: string;
+    avViewID?: string;
+    avGroupID?: string;
 }

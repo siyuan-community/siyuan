@@ -40,6 +40,58 @@ import {editGalleryItem, openGalleryItemMenu} from "./gallery/util";
 import {clearSelect} from "../../util/clear";
 import {removeCompressURL} from "../../../util/image";
 import {callMobileAppShowKeyboard} from "../../../mobile/util/mobileAppUtil";
+import {createAttributeViewItem, openNewItemTemplateMenu} from "./newItemTemplate";
+import {openDatabaseRowByData} from "./openDatabaseRow";
+
+const isDetachedDatabaseCell = (cellElement: HTMLElement) => {
+    return cellElement.dataset.detached === "true" || !cellElement.querySelector(".av__celltext--ref");
+};
+
+const openDatabaseRow = (protyle: IProtyle, target: HTMLElement, blockElement: HTMLElement) => {
+    const cellElement = hasClosestByClassName(target, "av__cell") as HTMLElement;
+    const rowElement = hasClosestByClassName(target, "av__row") || hasClosestByClassName(target, "av__gallery-item");
+    if (!cellElement || !rowElement) {
+        return;
+    }
+    openDatabaseRowByData(protyle, {
+        avID: blockElement.dataset.avId,
+        databaseBlockID: blockElement.dataset.nodeId,
+        notebookID: protyle.notebookId,
+        itemID: rowElement.getAttribute("data-id"),
+        valueID: cellElement.dataset.id,
+        title: cellElement.querySelector(".av__celltext")?.textContent.trim(),
+        boundBlockID: cellElement.querySelector<HTMLElement>(".av__celltext--ref")?.dataset.id,
+        isDetached: isDetachedDatabaseCell(cellElement),
+    });
+};
+
+const openDatabaseRowMore = (protyle: IProtyle, target: HTMLElement) => {
+    const cellElement = hasClosestByClassName(target, "av__cell") as HTMLElement;
+    if (!cellElement) {
+        return;
+    }
+    const isDetached = isDetachedDatabaseCell(cellElement);
+    const menu = new Menu("av-row-more");
+    menu.addItem({
+        icon: isDetached ? "iconLink" : "iconRefresh",
+        label: isDetached ? window.siyuan.languages.bind : window.siyuan.languages.update,
+        click() {
+            const textElement = cellElement.querySelector<HTMLElement>(".av__celltext");
+            protyle.toolbar.range = document.createRange();
+            protyle.toolbar.range.selectNodeContents(textElement);
+            focusByRange(protyle.toolbar.range);
+            cellElement.classList.add("av__cell--select");
+            addDragFill(cellElement);
+            hintRef(textElement.textContent.trim(), protyle, "av");
+        },
+    });
+    /// #if MOBILE
+    menu.fullscreen("bottom");
+    /// #else
+    const rect = target.getBoundingClientRect();
+    menu.open({x: rect.left, y: rect.bottom, h: rect.height});
+    /// #endif
+};
 
 let foldTimeout: number;
 export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLElement }) => {
@@ -72,13 +124,23 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.stopPropagation();
             return true;
         } else if (type === "av-add-more" && !protyle.disabled) {
-            insertRows({
-                blockElement,
-                protyle,
-                count: 1,
-                previousID: "",
-                groupID: blockElement.querySelector(".av__body")?.getAttribute("data-group-id") || ""
-            });
+            const templateID = blockElement.querySelector<HTMLElement>(".av__header")?.dataset.defaultTemplateId;
+            if (templateID) {
+                createAttributeViewItem({blockElement, protyle, templateID});
+            } else {
+                insertRows({
+                    blockElement,
+                    protyle,
+                    count: 1,
+                    previousID: "",
+                    groupID: blockElement.querySelector(".av__body")?.getAttribute("data-group-id") || "",
+                });
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (type === "av-add-template" && !protyle.disabled) {
+            openNewItemTemplateMenu({protyle, blockElement, target});
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -107,16 +169,13 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.preventDefault();
             event.stopPropagation();
             return true;
-        } else if (type === "block-more" && !protyle.disabled) {
-            window.siyuan.menus.menu.remove();
-            protyle.toolbar.range = document.createRange();
-            protyle.toolbar.range.selectNodeContents(target);
-            focusByRange(protyle.toolbar.range);
-            if (viewType === "table") {
-                target.parentElement.classList.add("av__cell--select");
-                addDragFill(target.parentElement);
-            }
-            hintRef(target.previousElementSibling.textContent.trim(), protyle, "av");
+        } else if (type === "av-row-open") {
+            openDatabaseRow(protyle, target, blockElement);
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (type === "av-row-more" && !protyle.disabled) {
+            openDatabaseRowMore(protyle, target);
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -132,25 +191,27 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             return true;
         } else if (type === "av-add-bottom" && !protyle.disabled) {
             const bodyElement = hasClosestByClassName(target, "av__body");
-            insertRows({
-                blockElement, protyle,
-                count: 1,
-                previousID: (bodyElement && bodyElement.querySelector(".av__row--util")?.previousElementSibling?.getAttribute("data-id")) ||
-                    target.previousElementSibling?.getAttribute("data-id") || undefined,
-                groupID: bodyElement ? bodyElement.getAttribute("data-group-id") : ""
-            });
+            const previousID = (bodyElement && bodyElement.querySelector(".av__row--util")?.previousElementSibling?.getAttribute("data-id")) ||
+                target.previousElementSibling?.getAttribute("data-id") || undefined;
+            const groupID = bodyElement ? bodyElement.getAttribute("data-group-id") : "";
+            const templateID = blockElement.querySelector<HTMLElement>(".av__header")?.dataset.defaultTemplateId;
+            if (templateID) {
+                createAttributeViewItem({blockElement, protyle, templateID, position: {previousID, groupID}});
+            } else {
+                insertRows({blockElement, protyle, count: 1, previousID, groupID});
+            }
             event.preventDefault();
             event.stopPropagation();
             return true;
         } else if (type === "av-add-top" && !protyle.disabled) {
             const titleElement = hasClosestByClassName(target, "av__group-title");
-            insertRows({
-                blockElement,
-                protyle,
-                count: 1,
-                previousID: "",
-                groupID: titleElement ? titleElement.nextElementSibling.getAttribute("data-group-id") : ""
-            });
+            const groupID = titleElement ? titleElement.nextElementSibling.getAttribute("data-group-id") : "";
+            const templateID = blockElement.querySelector<HTMLElement>(".av__header")?.dataset.defaultTemplateId;
+            if (templateID) {
+                createAttributeViewItem({blockElement, protyle, templateID, position: {previousID: "", groupID}});
+            } else {
+                insertRows({blockElement, protyle, count: 1, previousID: "", groupID});
+            }
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -440,6 +501,27 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement, positi
             });
             writeText(text);
         }
+    }, {
+        id: "copyDatabaseItemLink",
+        iconHTML: "",
+        label: window.siyuan.languages.copyDatabaseItemLink,
+        click() {
+            const databaseBlockID = blockElement.dataset.nodeId;
+            const viewID = blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) ||
+                blockElement.querySelector(".layout-tab-bar .item--focus")?.getAttribute("data-id") || "";
+            const links = Array.from(rowElements).map((item: HTMLElement) => {
+                const params = new URLSearchParams({
+                    avViewID: viewID,
+                    avItemID: item.dataset.id,
+                });
+                const groupID = (hasClosestByClassName(item, "av__body") as HTMLElement)?.dataset.groupId;
+                if (groupID) {
+                    params.set("avGroupID", groupID);
+                }
+                return `siyuan://blocks/${databaseBlockID}?${params.toString()}`;
+            });
+            writeText(links.join("\n"));
+        }
     }];
     if (hasBlock) {
         copyMenu.splice(1, 0, {
@@ -644,7 +726,7 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement, positi
                         srcIDs: sourceIds,
                         avID,
                     }]);
-                });
+                }, true, blockElement.getAttribute("data-node-id"));
             }
         });
         if (rowElements.length === 1) {

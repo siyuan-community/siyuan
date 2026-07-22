@@ -9,7 +9,7 @@ import {focusBlock, focusByRange} from "../../util/selection";
 import * as dayjs from "dayjs";
 import {unicode2Emoji} from "../../../emoji";
 import {getColIconByType, getColId} from "./col";
-import {genAVValueHTML} from "./blockAttr";
+import {genAVValueHTML, getAVTemplateHTML} from "./blockAttr";
 import {Constants} from "../../../constants";
 import {hintRef} from "../../hint/extend";
 import {getAssetName, pathPosix} from "../../../util/pathName";
@@ -482,7 +482,9 @@ export const getTypeByCellElement = (cellElement: Element) => {
     return scrollElement.querySelector(".av__row--header").querySelector(`[data-col-id="${cellElement.getAttribute("data-col-id")}"]`).getAttribute("data-dtype") as TAVCol;
 };
 
-export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type?: TAVCol) => {
+export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type?: TAVCol, options?: {
+    scrollIntoView?: boolean;
+}) => {
     if (cellElements.length === 0 || (cellElements.length === 1 && !cellElements[0])) {
         return;
     }
@@ -499,7 +501,7 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
     const viewType = blockElement.getAttribute("data-av-type") as TAVView;
     let cellRect = cellElements[0].getBoundingClientRect();
     const contentElement = hasClosestByClassName(blockElement, "protyle-content", true);
-    if (viewType === "table") {
+    if (viewType === "table" && options?.scrollIntoView !== false) {
         cellScrollIntoView(blockElement, cellElements[0], false);
     }
     cellRect = cellElements[0].getBoundingClientRect();
@@ -956,8 +958,7 @@ export const renderCellAttr = (cellElement: Element, value: IAVCellValue) => {
 export const renderCell = (cellValue: IAVCellValue, rowIndex = 0, showIcon = true, type: TAVView = "table") => {
     let text = "";
     if ("template" === cellValue.type) {
-        // 使用 DOMPurify 过滤危险标签和事件属性，保留安全的 HTML 格式 https://github.com/siyuan-note/siyuan/issues/18169
-        text = `<span class="av__celltext">${cellValue ? window.DOMPurify.sanitize(cellValue.template.content || "") : ""}</span>`;
+        text = `<span class="av__celltext">${cellValue ? getAVTemplateHTML(cellValue.template.content || "") : ""}</span>`;
     } else if ("text" === cellValue.type) {
         text = `<span class="av__celltext">${cellValue ? Lute.EscapeHTMLStr(cellValue.text.content || "") : ""}</span>`;
     } else if (["email", "phone"].includes(cellValue.type)) {
@@ -967,10 +968,11 @@ export const renderCell = (cellValue: IAVCellValue, rowIndex = 0, showIcon = tru
     } else if (cellValue.type === "block") {
         // 不可使用换行 https://github.com/siyuan-note/siyuan/issues/11365
         if (cellValue?.isDetached) {
-            text = `<span class="av__celltext">${Lute.EscapeHTMLStr(cellValue.block.content || "")}</span><span class="b3-chip b3-chip--info b3-chip--small" data-type="block-more">${window.siyuan.languages.more}</span>`;
+            text = `<span class="av__celltext">${Lute.EscapeHTMLStr(cellValue.block.content || "")}</span>`;
         } else {
-            text = `<span class="b3-menu__avemoji${showIcon ? "" : " fn__none"}" data-unicode="${cellValue.block.icon || ""}">${unicode2Emoji(cellValue.block.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file)}</span><span data-type="block-ref" data-id="${cellValue.block.id}" data-subtype="s" class="av__celltext av__celltext--ref">${Lute.EscapeHTMLStr(cellValue.block.content)}</span><span class="b3-chip b3-chip--info b3-chip--small" data-type="block-more">${window.siyuan.languages.update}</span>`;
+            text = `<span class="b3-menu__avemoji${showIcon ? "" : " fn__none"}" data-unicode="${cellValue.block.icon || ""}">${unicode2Emoji(cellValue.block.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file)}</span><span data-type="block-ref" data-id="${cellValue.block.id}" data-subtype="s" class="av__celltext av__celltext--ref">${Lute.EscapeHTMLStr(cellValue.block.content)}</span>`;
         }
+        text += `<span class="av__row-actions"><button class="av__row-action ariaLabel" type="button" data-position="4north" aria-label="${window.siyuan.languages.openBy}" data-type="av-row-open"><svg><use xlink:href="#iconOpen"></use></svg></button><button class="av__row-action ariaLabel" type="button" data-position="4north" aria-label="${window.siyuan.languages.more}" data-type="av-row-more"><svg><use xlink:href="#iconMore"></use></svg></button></span>`;
     } else if (cellValue.type === "number") {
         text = `<span class="av__celltext" data-content="${cellValue?.number.isNotEmpty ? cellValue?.number.content : ""}">${cellValue?.number.formattedContent || cellValue?.number.content || ""}</span>`;
     } else if (cellValue.type === "mSelect" || cellValue.type === "select") {
@@ -1051,7 +1053,7 @@ export const renderCell = (cellValue: IAVCellValue, rowIndex = 0, showIcon = tru
         cellValue.type === "lineNumber" ||
         (cellValue.type === "number" && cellValue.number?.isNotEmpty) ||
         (cellValue.type === "block" && cellValue.block?.content)) {
-        text += `<span ${cellValue.type !== "number" ? "" : 'style="right:auto;left:5px"'} data-type="copy" class="block__icon"><svg><use xlink:href="#iconCopy"></use></svg></span>`;
+        text += '<span data-type="copy" class="block__icon"><svg><use xlink:href="#iconCopy"></use></svg></span>';
     }
     return text;
 };

@@ -206,6 +206,23 @@
   box-sizing: border-box;
 }
 
+.agent-chat__msg--editing .agent-chat__body {
+  width: min(100%, 560px);
+}
+
+.agent-chat__edit-textarea {
+  display: block;
+  min-height: 96px;
+  width: 100%;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.agent-chat__msg--editing .agent-chat__msg-actions {
+  margin-top: 8px;
+  opacity: 1;
+}
+
 .agent-chat__msg-meta {
   font-size: 13px;
   color: var(--b3-theme-on-surface-light);
@@ -256,9 +273,10 @@
   }
 }
 
-// 覆盖 b3-typography 的基础字号：b3-typography 默认用 --b3-font-size-editor（跟随编辑器字号，默认 16px），
+// 覆盖消息排版的基础字号：b3-typography 和 protyle-wysiwyg 默认使用编辑器字号，
 // 在 dock 面板里偏大。压回面板级 14px，与大纲/书签等其他 dock 面板对齐。
-// 排版（行高、段落间距等）仍沿用 b3-typography 全局规范。
+// 行高、段落间距等仍沿用各自的全局排版规范。
+.agent-chat__msg--user .agent-chat__body.protyle-wysiwyg,
 .agent-chat__body.b3-typography,
 .agent-chat__thinking-chat.b3-typography {
   font-size: var(--b3-font-size);
@@ -302,6 +320,10 @@
 
 .agent-chat__body .protyle-icons {
   display: flex;
+}
+
+.agent-chat__msg--user .agent-chat__body .protyle-icons {
+  display: none;
 }
 
 // hover 显隐：对齐原 agent-chat__copy-wrap 行为，opacity 渐显。
@@ -502,6 +524,33 @@
   white-space: nowrap;
 }
 
+.agent-chat__thinking-tool--running::after {
+  content: "...";
+  display: inline-block;
+  width: 1.2em;
+  margin-left: 3px;
+  overflow: hidden;
+  vertical-align: bottom;
+  animation: agent-tool-running 1.2s steps(4, end) infinite;
+}
+
+@keyframes agent-tool-running {
+  0% {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat__thinking-tool--running::after {
+    animation: none;
+    opacity: 0.65;
+  }
+}
+
 .agent-chat__confirm-card {
   font-size: 13px;
 }
@@ -536,6 +585,16 @@
   max-height: 120px;
   overflow-y: auto;
   border-top: 1px solid var(--b3-border-color);
+}
+
+.agent-chat__confirm-effects {
+  margin: 0;
+  padding: 8px 12px 8px 30px;
+  border-top: 1px solid var(--b3-border-color);
+  background: color-mix(in srgb, var(--b3-theme-warning) 10%, transparent);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .agent-chat__confirm-actions {

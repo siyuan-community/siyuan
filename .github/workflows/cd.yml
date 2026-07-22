@@ -6,7 +6,6 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
-# ref https://docs.github.com/zh/actions/learn-github-actions/variables
 env:
   repo_upstream: "siyuan-note/siyuan"
   package_json: "app/package.json"

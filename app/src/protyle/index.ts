@@ -164,6 +164,17 @@ export class Protyle {
                                 item.removeAttribute("data-render");
                                 avRender(item, this.protyle);
                             });
+                            if (this.protyle.databaseAttributePanel?.hasDatabase(data.data.id)) {
+                                this.protyle.databaseAttributePanel.refresh();
+                            }
+                            /// #if !MOBILE
+                            getAllModels().custom.forEach((item) => {
+                                if (item.type === "siyuan-database-row" && (item.data.avID === data.data.id ||
+                                    item.element.querySelector(`[data-av-id="${data.data.id}"]`))) {
+                                    item.update?.();
+                                }
+                            });
+                            /// #endif
                             break;
                         case "addLoading":
                             if (data.data === this.protyle.block.rootID) {
@@ -325,6 +336,7 @@ export class Protyle {
             this.protyle.preview.render(this.protyle);
             return;
         }
+        const hadContent = this.protyle.wysiwyg.element.childElementCount > 0;
         let needCreateAction = "";
         let hasDeleteOp = false;
         data.data[0].doOperations.find((item: IOperation) => {
@@ -369,7 +381,8 @@ export class Protyle {
             });
             return;
         }
-        if (this.protyle.wysiwyg.element.childElementCount === 0 && this.protyle.block.parentID && needCreateAction) {
+        if (this.protyle.element.dataset.loading === "finished" && hadContent &&
+            this.protyle.wysiwyg.element.childElementCount === 0 && this.protyle.block.parentID && needCreateAction) {
             if (needCreateAction === "delete" && this.protyle.block.showAll) {
                 if (this.protyle.options.handleEmptyContent) {
                     this.protyle.options.handleEmptyContent();
