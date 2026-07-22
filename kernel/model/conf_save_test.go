@@ -22,8 +22,8 @@ import (
 	"testing"
 
 	"github.com/88250/gulu"
-	appconf "github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	appconf "github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestSaveUsesEncryptedSnapshot(t *testing.T) {

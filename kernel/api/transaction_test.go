@@ -11,7 +11,7 @@ package api
 import (
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
 
 func TestShouldBroadcastAttrViewTransactions(t *testing.T) {

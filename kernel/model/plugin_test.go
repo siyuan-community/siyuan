@@ -19,8 +19,8 @@ package model
 import (
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestIsPetalsEnabled(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/88250/gulu"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 const testSessionID = "20260715120000-abcdefg"

@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/siyuan-note/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 )
 
 func TestIsReconnectableError(t *testing.T) {

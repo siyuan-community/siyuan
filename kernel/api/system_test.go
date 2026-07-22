@@ -19,7 +19,7 @@ package api
 import (
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 )
 
 func TestPreserveImportedAISecrets(t *testing.T) {

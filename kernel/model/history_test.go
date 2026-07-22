@@ -21,8 +21,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestGetRollbackDocPathTreatsBoxDocAsRoot(t *testing.T) {

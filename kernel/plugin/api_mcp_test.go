@@ -21,8 +21,8 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/eventloop"
-	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
 
 func TestRegisterMcpToolOptionalReadOnly(t *testing.T) {

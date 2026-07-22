@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 )
 
 func TestPreserveMCPServerIDsForOlderFrontend(t *testing.T) {

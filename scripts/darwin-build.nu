@@ -43,6 +43,8 @@ def main [
     $env.CGO_ENABLED = '1'
     $env.GOOS = 'darwin'
 
+    # go test -tags "fts5 sqlcipher" ./...
+
     if $target == 'amd64' or $target == 'all' {
         print ''
         print 'Building Kernel amd64'
