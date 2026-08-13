@@ -11,6 +11,7 @@ import {Constants} from "../../constants";
 import {getSearch, isMobile} from "../../util/functions";
 /// #if !BROWSER
 import {shell} from "electron";
+import {enhanceRichClipboard, hasRichClipboardImages} from "../util/richClipboard";
 /// #endif
 /// #if !MOBILE
 import {openAsset, openBy} from "../../editor/util";
@@ -24,11 +25,14 @@ import {avRender} from "../render/av/render";
 import {getPadding} from "../ui/initUI";
 import {hasTopClosestByAttribute} from "../util/hasClosest";
 import {addScriptSync} from "../util/addScript";
+import {prepareWechatCopy, prepareZhihuCopy} from "./platformCopy";
 
 export class Preview {
     public element: HTMLElement;
     public previewElement: HTMLElement;
     private mdTimeoutId: number;
+    private copyingToX = false;
+    private copyEventHandler?: (event: ClipboardEvent) => void;
 
     constructor(protyle: IProtyle) {
         this.element = document.createElement("div");
@@ -73,6 +77,42 @@ export class Preview {
         actionElement.innerHTML = actionHtml.join("");
         this.element.appendChild(actionElement);
         this.element.appendChild(previewElement);
+
+        /// #if !BROWSER
+        this.copyEventHandler = (event: ClipboardEvent) => {
+            if (this.copyingToX || !event.clipboardData) {
+                return;
+            }
+
+            const selection = window.getSelection();
+            if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+                return;
+            }
+            const range = selection.getRangeAt(0);
+            if (!previewElement.contains(range.startContainer) || !previewElement.contains(range.endContainer)) {
+                return;
+            }
+
+            const copyElement = document.createElement("div");
+            copyElement.appendChild(range.cloneContents());
+            const copiedHTML = copyElement.innerHTML;
+            if (!hasRichClipboardImages(copiedHTML)) {
+                return;
+            }
+
+            const marker = `<!--siyuan-rich-clipboard='${Lute.NewNodeID()}'-->`;
+            const text = selection.toString();
+            const html = marker + copiedHTML;
+            event.preventDefault();
+            event.clipboardData.setData("text/plain", text);
+            event.clipboardData.setData("text/html", html);
+            enhanceRichClipboard(text, html, protyle.notebookId, {
+                marker,
+                removeMarker: true,
+            });
+        };
+        document.addEventListener("copy", this.copyEventHandler);
+        /// #endif
 
         this.element.addEventListener("click", (event) => {
             let target = event.target as HTMLElement;
@@ -126,6 +166,12 @@ export class Preview {
                     break;
                 } else if (target.tagName === "BUTTON") {
                     const type = target.getAttribute("data-type");
+                    if (type !== "mp-wechat" && type !== "zhihu" && type !== "yuque") {
+                        actionElement.querySelectorAll("button").forEach((item) => {
+                            item.classList.remove("protyle-preview__action--current");
+                        });
+                        target.classList.add("protyle-preview__action--current");
+                    }
                     const actionCustom = actions.find((w: IPreviewActionCustom) => w?.key === type) as IPreviewActionCustom;
                     if (actionCustom) {
                         actionCustom.click(type);
@@ -135,19 +181,13 @@ export class Preview {
                         this.copyToX(tempElement, protyle, type);
                     } else if (type === "desktop") {
                         previewElement.style.width = "";
-                        previewElement.style.padding = protyle.wysiwyg.element.style.padding;
+                        this.updatePadding(getPadding(protyle));
                     } else if (type === "tablet") {
                         previewElement.style.width = "1024px";
                         previewElement.style.padding = "8px 16px";
                     } else {
                         previewElement.style.width = "360px";
                         previewElement.style.padding = "8px";
-                    }
-                    if (type !== "mp-wechat" && type !== "zhihu" && type !== "yuque") {
-                        actionElement.querySelectorAll("button").forEach((item) => {
-                            item.classList.remove("protyle-preview__action--current");
-                        });
-                        target.classList.add("protyle-preview__action--current");
                     }
                 }
                 target = target.parentElement;
@@ -183,14 +223,28 @@ export class Preview {
         this.previewElement = previewElement;
     }
 
+    public destroy() {
+        window.clearTimeout(this.mdTimeoutId);
+        /// #if !BROWSER
+        if (this.copyEventHandler) {
+            document.removeEventListener("copy", this.copyEventHandler);
+            this.copyEventHandler = undefined;
+        }
+        /// #endif
+    }
+
+    public updatePadding(padding: { left: number, right: number, bottom: number, top: number }) {
+        if (!this.element.classList.contains("fn__none") &&
+            this.element.querySelector('.protyle-preview__action [data-type="desktop"]')?.classList.contains("protyle-preview__action--current")) {
+            this.previewElement.style.padding = `${padding.top}px ${padding.left}px ${padding.bottom}px ${padding.right}px`;
+        }
+    }
+
     public render(protyle: IProtyle) {
         if (this.element.style.display === "none") {
             return;
         }
-        if (this.element.querySelector('.protyle-preview__action [data-type="desktop"]')?.classList.contains("protyle-preview__action--current")) {
-            const padding = getPadding(protyle);
-            this.previewElement.style.padding = `${padding.top}px ${padding.left}px ${padding.bottom}px ${padding.right}px`;
-        }
+        this.updatePadding(getPadding(protyle));
 
         let loadingElement = this.element.querySelector(".fn__loading");
         if (!loadingElement) {
@@ -205,6 +259,10 @@ export class Preview {
             }, response => {
                 const oldScrollTop = protyle.preview.previewElement.scrollTop;
                 protyle.preview.previewElement.innerHTML = response.data.html;
+                /// #if MOBILE
+                protyle.preview.previewElement.querySelector(`#${CSS.escape(protyle.block.rootID)}`)
+                    ?.classList.add("protyle-preview__title");
+                /// #endif
                 processRender(protyle.preview.previewElement);
                 highlightRender(protyle.preview.previewElement);
                 avRender(protyle.preview.previewElement, protyle);
@@ -242,31 +300,6 @@ export class Preview {
             copyElement.querySelectorAll("mjx-container > svg").forEach((item) => {
                 item.setAttribute("width", (parseInt(item.getAttribute("width")) * 8) + "px");
             });
-            // 列表嵌套 https://github.com/siyuan-note/siyuan/issues/11276
-            copyElement.querySelectorAll("ul, ol").forEach((listItem: HTMLOListElement) => {
-                if (typeof listItem.start === "number") {
-                    listItem.classList.add("list-paddingleft-" + Math.min(listItem.start.toString().length, 3));
-                    listItem.style.listStyleType = "decimal";
-                }
-                Array.from(listItem.children).forEach(liItem => {
-                    const nestedList = liItem.querySelector("ul, ol");
-                    if (nestedList) {
-                        liItem.parentNode.insertBefore(nestedList, liItem.nextSibling);
-                    }
-                });
-            });
-            // 处理任务列表（微信公众号不能显示input[type="checkbox"]）
-            copyElement.querySelectorAll("li.protyle-task").forEach((taskItem: HTMLElement) => {
-                const checkbox = taskItem.querySelector('input[type="checkbox"]') as HTMLInputElement;
-                if (checkbox) {
-                    checkbox.style.opacity = "0";
-                    if (checkbox.checked) {
-                        taskItem.style.setProperty("list-style-type", "'✅'", "important");
-                    } else {
-                        taskItem.style.setProperty("list-style-type", "'▢'", "important");
-                    }
-                }
-            });
             if (typeof window.MathJax === "undefined") {
                 window.MathJax = {
                     svg: {
@@ -281,21 +314,14 @@ export class Preview {
                 node.querySelector("mjx-assistive-mml").remove();
                 mathElement.innerHTML = node.outerHTML;
             });
+            prepareWechatCopy(copyElement, this.previewElement);
         } else if (type === "zhihu") {
             this.link2online(copyElement);
             copyElement.querySelectorAll('[data-subtype="math"]').forEach((item: HTMLElement) => {
                 // https://github.com/siyuan-note/siyuan/issues/10015
                 item.outerHTML = `<img class="Formula-image" data-eeimg="true" src="//www.zhihu.com/equation?tex=" alt="${item.getAttribute("data-content")}" style="${item.tagName === "DIV" ? "display: block; max-width: 100%;" : ""}margin: 0 auto;">`;
             });
-            copyElement.querySelectorAll("blockquote").forEach((item) => {
-                const elements: HTMLElement[] = [];
-                this.processZHBlockquote(item, elements);
-                elements.reverse().forEach(newItem => {
-                    item.insertAdjacentElement("afterend", newItem);
-                });
-                item.remove();
-            });
-            this.processZHTable(copyElement);
+            prepareZhihuCopy(copyElement);
         } else if (type === "yuque") {
             fetchPost("/api/lute/copyStdMarkdown", {
                 id: protyle.block.id || protyle.options.blockId || protyle.block.parentID,
@@ -341,7 +367,12 @@ export class Preview {
             range.setEndAfter(copyElement.lastElementChild);
         }
         focusByRange(range);
-        document.execCommand("copy");
+        this.copyingToX = true;
+        try {
+            document.execCommand("copy");
+        } finally {
+            this.copyingToX = false;
+        }
         this.element.lastElementChild.remove();
         focusByRange(cloneRange);
         if (type) {
@@ -349,35 +380,4 @@ export class Preview {
         }
     }
 
-    private processZHBlockquote(element: HTMLElement, elements: HTMLElement[]) {
-        Array.from(element.children).forEach((item: HTMLElement) => {
-            if (item.tagName === "BLOCKQUOTE") {
-                this.processZHBlockquote(item, elements);
-            } else if (item.tagName !== "P" || item.querySelector("img")) {
-                elements.push(item);
-            } else {
-                const lastElement = elements[elements.length - 1];
-                if (!lastElement || (lastElement && lastElement.tagName !== "BLOCKQUOTE")) {
-                    elements.push(document.createElement("blockquote"));
-                }
-                elements[elements.length - 1].append(item);
-            }
-        });
-    }
-
-    private processZHTable(element: HTMLElement) {
-        element.querySelectorAll("table").forEach(item => {
-            const headElement = item.querySelector("thead");
-            if (!headElement) {
-                return;
-            }
-            const tbodyElement = item.querySelector("tbody");
-            if (tbodyElement) {
-                tbodyElement.insertAdjacentElement("afterbegin", headElement.firstElementChild);
-            } else {
-                item.innerHTML = `<tbody>${headElement.innerHTML}</tbody>`;
-            }
-            headElement.remove();
-        });
-    }
 }

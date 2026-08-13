@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // 本文件为加密笔记本的 AV 定义提供笔记本级存储与 DEK 加解密支持。
@@ -8,6 +8,7 @@
 package av
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,9 +37,30 @@ var AVEncryptedBoxIDs func() []string
 // AVIsEncryptedBox 由 model 层注入，判断 boxID 是否为加密笔记本。
 var AVIsEncryptedBox func(boxID string) bool
 
+// AVIsBoxUnlocked 由 model 层注入，判断加密笔记本是否仍持有 DEK。
+var AVIsBoxUnlocked func(boxID string) bool
+
 // AVGetBlockBoxID 由 model 层注入，返回 blockID 所在的 boxID（查 blocktree）。
 // 用于镜像写入时校验源块与 AV 定义是否处于同一加密边界。
 var AVGetBlockBoxID func(blockID string) string
+
+func holdAVBoxReadLock(boxID string) (release func(), err error) {
+	release = func() {}
+	if boxID == "" || AVIsEncryptedBox == nil || !AVIsEncryptedBox(boxID) {
+		return
+	}
+	if AVLockAcquire == nil || AVLockRelease == nil || AVIsBoxUnlocked == nil {
+		return nil, errors.New("encrypted notebook lock callbacks are not initialized")
+	}
+	AVLockAcquire(boxID)
+	if !AVIsBoxUnlocked(boxID) {
+		AVLockRelease(boxID)
+		return nil, errors.New("encrypted notebook is locked, please unlock it first")
+	}
+	return func() {
+		AVLockRelease(boxID)
+	}, nil
+}
 
 // pendingAVBox 记录首次创建的 AV 归属哪个加密 box。
 // handler 层创建 AV 前调 SetAVBoxID(avID, boxID)，SaveAttributeView 时
@@ -225,6 +247,14 @@ func mirrorBlocksPathByAvID(avID string) string {
 // readMirrorBlocks 按路径读取镜像索引（boxID 为空读全局，非空读加密 box）。
 // 加密笔记本的镜像索引是 DEK 加密的密文，读取后需解密。
 func readMirrorBlocks(boxID string) (ret map[string][]string) {
+	ret, err := readMirrorBlocksWithErr(boxID)
+	if nil != err {
+		logging.LogErrorf("read attribute view blocks failed: %s", err)
+	}
+	return
+}
+
+func readMirrorBlocksWithErr(boxID string) (ret map[string][]string, err error) {
 	ret = map[string][]string{}
 	p := mirrorBlocksPath(boxID)
 	if !filelock.IsExist(p) {
@@ -232,20 +262,18 @@ func readMirrorBlocks(boxID string) (ret map[string][]string) {
 	}
 	data, err := filelock.ReadFile(p)
 	if err != nil {
-		logging.LogErrorf("read attribute view blocks failed: %s", err)
 		return
 	}
 	if boxID != "" {
 		// 加密笔记本的镜像索引是密文，解密后再反序列化
 		dec, decErr := decryptAVData(boxID, "mirror", data)
 		if decErr != nil {
-			logging.LogErrorf("decrypt attribute view blocks failed: %s", decErr)
+			err = decErr
 			return
 		}
 		data = dec
 	}
 	if err = msgpack.Unmarshal(data, &ret); err != nil {
-		logging.LogErrorf("unmarshal attribute view blocks failed: %s", err)
 		return
 	}
 	return
@@ -287,7 +315,8 @@ func avBoxIDFromPath(absPath string) string {
 	}
 	boxID := parts[0]
 	// 全局路径的第一段是 "storage"，加密笔记本路径的第一段是 boxID（节点 ID 格式）
-	if boxID == "storage" {
+	// 历史等路径的第一段不是节点 ID，不视为 boxID，避免以错误身份触发解密
+	if boxID == "storage" || !ast.IsNodeIDPattern(boxID) {
 		return ""
 	}
 	return boxID
@@ -343,11 +372,11 @@ func decryptAVDataLocked(boxID, avID string, data []byte) ([]byte, error) {
 func avAAD(boxID, avID string) string {
 	switch avID {
 	case "mirror":
-		return "siyuan:v1:av-mirror:" + boxID
+		return "siyuan:av-mirror:" + boxID
 	case "relation":
-		return "siyuan:v1:av-relation:" + boxID
+		return "siyuan:av-relation:" + boxID
 	default:
-		return "siyuan:v1:av:" + boxID + ":" + avID
+		return "siyuan:av:" + boxID + ":" + avID
 	}
 }
 

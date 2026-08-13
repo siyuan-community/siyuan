@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -86,4 +86,33 @@ func TestValueRollupCalcCountAll(t *testing.T) {
 			t.Fatalf("expected 2 scalar entries, got %v", rollup.Contents[0].Number.Content)
 		}
 	})
+}
+
+func TestValueRollupBuildContentsFiltersEligibleItems(t *testing.T) {
+	destKey := &Key{ID: "target", Type: KeyTypeText}
+	keyValues := []*KeyValues{{
+		Key: destKey,
+		Values: []*Value{
+			{BlockID: "item-a", Type: KeyTypeText, Text: &ValueText{Content: "A"}},
+			{BlockID: "item-b", Type: KeyTypeText, Text: &ValueText{Content: "B"}},
+			{BlockID: "item-c", Type: KeyTypeText, Text: &ValueText{Content: "C"}},
+		},
+	}}
+	relationValue := &Value{
+		Type: KeyTypeRelation,
+		Relation: &ValueRelation{
+			BlockIDs: []string{"item-a", "item-b", "item-c"},
+		},
+	}
+	rollup := &ValueRollup{}
+
+	rollup.BuildContents(keyValues, destKey, relationValue, &RollupCalc{Operator: CalcOperatorCountAll},
+		&RollupRenderContext{EligibleItemIDs: map[string]bool{"item-b": true, "item-c": true}})
+
+	if 1 != len(rollup.Contents) || nil == rollup.Contents[0].Number {
+		t.Fatalf("unexpected calculation result: %+v", rollup.Contents)
+	}
+	if 2 != rollup.Contents[0].Number.Content {
+		t.Fatalf("expected 2 eligible items, got %v", rollup.Contents[0].Number.Content)
+	}
 }

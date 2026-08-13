@@ -22,6 +22,7 @@ type TOperation =
     | "addFlashcards"
     | "removeFlashcards"
     | "updateAttrViewCell"
+    | "updateAttrViewCells"
     | "updateAttrViewCol"
     | "updateAttrViewColTemplate"
     | "sortAttrViewRow"
@@ -31,6 +32,7 @@ type TOperation =
     | "setAttrViewColHidden"
     | "setAttrViewColWrap"
     | "setAttrViewColWidth"
+    | "setAttrViewColsWidth"
     | "setAttrViewColAlign"
     | "updateAttrViewColOptions"
     | "removeAttrViewColOption"
@@ -41,9 +43,12 @@ type TOperation =
     | "duplicateAttrViewKey"
     | "setAttrViewColIcon"
     | "setAttrViewFilters"
+    | "setAttrViewColRelationFilters"
+    | "setAttrViewColRollupFilters"
     | "setAttrViewSorts"
     | "setAttrViewColCalc"
     | "updateAttrViewColNumberFormat"
+    | "setAttrViewColDateFormat"
     | "replaceAttrViewBlock"
     | "addAttrViewView"
     | "setAttrViewViewName"
@@ -51,6 +56,7 @@ type TOperation =
     | "setAttrViewViewIcon"
     | "duplicateAttrViewView"
     | "duplicateAttrViewRow"
+    | "setAttrViewBlockVisibleViews"
     | "sortAttrViewView"
     | "setAttrViewPageSize"
     | "updateAttrViewColRelation"
@@ -58,9 +64,14 @@ type TOperation =
     | "updateAttrViewColRollup"
     | "hideAttrViewName"
     | "setAttrViewCardSize"
+    | "setAttrViewCardWidth"
     | "setAttrViewCardAspectRatio"
+    | "setAttrViewCardAspectRatioValue"
+    | "setAttrViewCardLayout"
+    | "setAttrViewColFullRow"
     | "setAttrViewCoverFrom"
     | "setAttrViewCoverFromAssetKeyID"
+    | "setAttrViewCardCoverPosition"
     | "setAttrViewFitImage"
     | "setAttrViewShowIcon"
     | "setAttrViewWrapField"
@@ -76,11 +87,14 @@ type TOperation =
     | "hideAttrViewGroup"
     | "sortAttrViewGroup"
     | "foldAttrViewGroup"
+    | "foldAttrViewGroups"
     | "setAttrViewDisplayFieldName"
+    | "setAttrViewDisplayEmptyFields"
     | "setAttrViewFillColBackgroundColor"
     | "setAttrViewUpdatedIncludeTime"
     | "setAttrViewCreatedIncludeTime"
 type TBazaarType = "templates" | "icons" | "widgets" | "themes" | "plugins"
+type TBazaarPackageInvalidReason = "missing-manifest" | "invalid-manifest" | "name-mismatch"
 type TCardType = "doc" | "notebook" | "all"
 type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "click-blockicon" | "click-editorcontent" | "click-pdf" | "click-editortitleicon" | "click-flashcard-action" |
@@ -100,6 +114,7 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "kernel-plugin-state-change"
 type TAVView = "table" | "gallery" | "kanban"
 type TAVAlign = "" | "left" | "center" | "right"
+type TAVDateFormat = "" | "full" | "month-day-year" | "day-month-year" | "year-month-day"
 type TAVCol =
     "text"
     | "date"
@@ -127,6 +142,8 @@ type TAVFilterOperator =
     | "<="
     | "Contains"
     | "Does not contains"
+    | "Contains any item"
+    | "Does not contain any item"
     | "Is empty"
     | "Is not empty"
     | "Starts with"
@@ -180,6 +197,8 @@ interface CSSStyleDeclarationElectron extends CSSStyleDeclaration {
 }
 
 interface Window {
+    handleOIDCCallback?: (callbackURL: string) => void;
+    handleOIDCAuthError?: (message: string) => void;
     DOMPurify: {
         sanitize(dirty: string, options?: any): string;
     };
@@ -236,10 +255,12 @@ interface Window {
         }): string;
     };
     zenuml: object,
+    mermaidTidyTree: object[],
     mermaid: {
         initialize(options: any): void,
-        render(id: string, text: string): { svg: string },
-        registerExternalDiagrams(ex: object[]): void,
+        render(id: string, text: string): Promise<{ svg: string }>,
+        registerExternalDiagrams(ex: object[]): Promise<void>,
+        registerLayoutLoaders(layouts: object[]): void,
         registerIconPacks(options: {
             name: string,
             loader(): Promise<Response>
@@ -253,7 +274,9 @@ interface Window {
         nativeCallbacks: { [key: string]: (id: number) => void },
         messageHandlers: {
             saveExportFile: { postMessage: (url: string) => void }
+            saveExportFileV2?: { postMessage: (data: {uri: string, requestID: string}) => void }
             openLink: { postMessage: (url: string) => void }
+            openAuthURL: { postMessage: (url: string) => void }
             startKernelFast: { postMessage: (url: string) => void }
             changeStatusBar: { postMessage: (url: string) => void }
             setClipboard: { postMessage: (url: string) => void }
@@ -269,6 +292,7 @@ interface Window {
                 }) => number
             }
             cancelNotification: { postMessage: (id: number) => void }
+            vibrate?: { postMessage: (text: string) => void }
         }
     };
     htmlToImage: {
@@ -277,10 +301,12 @@ interface Window {
     };
     siyuan: ISiyuan;
     JSAndroid: {
+        openAuthURL(url: string): void
         returnDesktop(): void
         openExternal(url: string): void
         exportByDefault(url: string): void
         saveExportFile(url: string): void
+        saveExportFileV2?(url: string, requestID: string): void
         changeStatusBarColor(color: string, mode: number): void
         writeClipboard(text: string): void
         writeHTMLClipboard(text: string, html: string): void
@@ -298,13 +324,16 @@ interface Window {
         setWebViewFocusable(enable: boolean): void
         sendNotification(channel: string, title: string, body: string, delayInSeconds: number): number
         cancelNotification(id: number): void
+        logInputEvent?(details: string): void
     };
     JSHarmony: {
+        openAuthURL(url: string): void
         showKeyboard(): void
         hideKeyboard(): void
         openExternal(url: string): void
         exportByDefault(url: string): void
         saveExportFile(url: string): void
+        saveExportFileV2?(url: string, requestID: string): void
         changeStatusBarColor(color: string, mode: number): void
         writeClipboard(text: string): void
         writeHTMLClipboard(text: string, html: string): void
@@ -317,9 +346,11 @@ interface Window {
         getScreenWidthPx(): number
         exit(): void
         setWebViewFocusable(enable: boolean): void
+        setNativeTextSelectionMenuDisabled(disabled: boolean): void
         sendNotification(channel: string, title: string, body: string, delayInSeconds: number): number
         cancelNotification(id: number): void
     };
+    handleSaveExportFileResult(requestID: string, resultJSON: string): void
 
     Protyle: import("../protyle/method").default;
 
@@ -351,7 +382,7 @@ interface IClipboardData {
     textHTML?: string,
     textPlain?: string,
     siyuanHTML?: string,
-    files?: File[],
+    files?: FileList | DataTransferItemList | File[],
     localFiles?: ILocalFiles[],
 }
 
@@ -373,7 +404,8 @@ interface IPosition {
     y: number,
     w?: number,
     h?: number,
-    isLeft?: boolean
+    isLeft?: boolean,
+    target?: HTMLElement
 }
 
 interface ISaveLayout {
@@ -467,7 +499,7 @@ interface IInbox {
 interface IPdfAnno {
     pages?: {
         index: number
-        positions: number[]
+        positions: number[][]
     }[]
     index?: number,
     color: string,
@@ -475,7 +507,7 @@ interface IPdfAnno {
     content: string,    // rect, text
     mode: string,
     id?: string,
-    coords?: number[]
+    coords?: number[][]
     ids?: string[]
 }
 
@@ -487,6 +519,7 @@ interface IBackStack {
         endId: string
         path: string
         notebookId: string
+        rootID: string
     },
     scrollTop?: number,
     callback?: TProtyleAction[],
@@ -527,10 +560,13 @@ interface INotebook {
     flashcardCount?: string;
     sortMode: number;
     encrypted?: boolean;
+    unlocked?: boolean;
+    state?: "Locked" | "Unlocking" | "Unlocked" | "Locking" | "Error";
 }
 
 interface ISiyuan {
     zIndex: number
+    isReady?: boolean
     storage?: {
         [key: string]: any
     },
@@ -558,6 +594,12 @@ interface ISiyuan {
         }
         editor?: import("../protyle").Protyle
         popEditor?: import("../protyle").Protyle
+        tabs?: import("../mobile/tabs/MobileTabs").MobileTabs
+        agentChat?: import("../layout/dock/agent/AgentChat").AgentChat
+        agentChatController?: {
+            handleBack: () => boolean
+            refreshStatus: () => void
+        }
         docks?: {
             outline: import("../mobile/dock/MobileOutline").MobileOutline | null,
             file: import("../mobile/dock/MobileFiles").MobileFiles | null,
@@ -608,6 +650,7 @@ interface ISiyuan {
     },
     dragElement?: HTMLElement,
     dragTitle?: string,
+    dragTab?: ITabDragData,
     currentDragOverTabHeadersElement?: HTMLElement
     touchDragActive?: boolean,
     touchDragGhost?: HTMLElement | null,
@@ -653,9 +696,14 @@ interface IOperation {
     isTwoWay?: boolean, // 是否双向关联
     backRelationKeyID?: string, // 双向关联的目标关联列 ID
     avID?: string,  // av
-    format?: string // updateAttrViewColNumberFormat 专享
+    format?: string // 属性视图字段格式化
     keyID?: string // updateAttrViewCell 专享
     rowID?: string // updateAttrViewCell 专享
+    cellUpdates?: Array<{
+        keyID: string,
+        rowID: string,
+        data: IAVCellValue,
+    }> // updateAttrViewCells 专享
     data?: any, // updateAttr 时为  { old: IObject, new: IObject }, updateAttrViewCell 时为 {TAVCol: {content: string}}
     parentID?: string
     previousID?: string
@@ -666,6 +714,7 @@ interface IOperation {
     srcs?: IOperationSrcs[] // insertAttrViewBlock 专享
     ignoreDefaultFill?: boolean // insertAttrViewBlock 专享
     viewID?: string // 多个属性视图操作使用，用于推送时不影响其他视图
+    viewIDs?: string[] // setAttrViewColHidden 批量指定数据库视图
     name?: string // addAttrViewCol 专享
     type?: TAVCol // addAttrViewCol 专享
     deckID?: string // add/removeFlashcards 专享
@@ -676,11 +725,21 @@ interface IOperation {
     targetGroupID?: string // sortAttrViewRow 专享
 }
 
+interface IAVFilterOperation {
+    action: "setAttrViewColRelationFilters" | "setAttrViewColRollupFilters";
+    keyID: string;
+}
+
 interface IOperationSrcs {
     itemID: string,
     id: string,
     content?: string,
     isDetached: boolean
+}
+
+interface IInsertAttrViewBlockRetData {
+    insertedItemIDs: string[];
+    existingItemIDs: string[];
 }
 
 interface IObject {
@@ -704,6 +763,7 @@ interface ILayoutJSON extends ILayoutOptions {
     page?: string
     path?: string
     blockId?: string
+    notebookId?: string
     mode?: TEditorMode
     action?: TProtyleAction
     icon?: string
@@ -782,6 +842,7 @@ interface IOpenFileOptions {
     zoomIn?: boolean // 是否缩放
     removeCurrentTab?: boolean // 在当前页签打开时需移除原有页签
     openNewTab?: boolean // 使用新页签打开
+    keepAVPanel?: boolean // 打开时保留数据库面板
     afterOpen?: (model?: import("../layout/Model").Model) => void // 打开后回调
 }
 
@@ -799,6 +860,15 @@ interface ITab {
     title?: string;
     panel?: string;
     callback?: (tab: import("../layout/Tab").Tab) => void;
+}
+
+interface ITabDragData {
+    title?: string;
+    icon?: string;
+    docIcon?: string;
+    pin: boolean;
+    focus: boolean;
+    unupdate: boolean;
 }
 
 interface IWebSocketData {
@@ -864,6 +934,8 @@ interface IFile {
 
 interface IBlockTree {
     box: string,
+    revision?: string,
+    number?: string,
     nodeType: string,
     hPath: string,
     subType: string,
@@ -888,6 +960,7 @@ interface IBlock {
     rootID?: string;
     type?: string;
     content?: string;
+    number?: string;
     def?: IBlock;
     defID?: string
     defPath?: string
@@ -930,8 +1003,10 @@ interface IMenu {
     type?: "separator" | "submenu" | "readonly" | "empty",
     accelerator?: string,
     action?: string,
+    actionLabel?: string,
     id?: string,
     submenu?: IMenu[]
+    loadSubmenu?: () => Promise<IMenu[]>
     disabled?: boolean
     icon?: string
     iconHTML?: string
@@ -943,20 +1018,32 @@ interface IMenu {
     warning?: boolean
 }
 
+interface IBazaarFunding {
+    openCollective?: string;
+    patreon?: string;
+    github?: string;
+    custom?: string[];
+}
+
 interface IBazaarItem {
     preferredName: string;
     minAppVersion: string;
+    disabledInPublish: boolean;
+    kernels: string[];
+    backends: string[];
+    frontends: string[];
+    keywords: string[];
     preferredDesc: string;
     preferredReadme: string;
     iconURL: string;
-    stars: string;
+    stars: number;
     author: string;
     updated: string;
-    downloads: string;
+    downloads: number;
     disallowInstall: boolean;
-    current: false;
-    installed: false;
-    outdated: false;
+    current: boolean;
+    installed: boolean;
+    outdated: boolean;
     name: string;
     previewURL: string;
     repoHash: string;
@@ -966,15 +1053,29 @@ interface IBazaarItem {
     version: string;
     hSize: string;
     hInstallSize: string;
+    installTime: number;
+    updateTime: number;
     hInstallDate: string;
     hUpdated: string;
+    funding?: IBazaarFunding;
     preferredFunding: string;
     disallowUpdate: boolean;
     updateRequiredMinAppVer?: string;
-    installedIncompatible?: boolean; // 仅 plugin
-    bazaarIncompatible?: boolean; // 仅 plugin
+    invalidReason?: TBazaarPackageInvalidReason;
+    installedIncompatible?: boolean; // 仅插件/主题
+    bazaarIncompatible?: boolean; // 仅插件/主题
     enabled?: boolean; // 仅 plugin
     modes?: string[]; // 仅 theme
+}
+
+interface IUpdatedBazaarItem {
+    installed: IBazaarItem;
+    available: IBazaarItem;
+}
+
+interface IBazaarPackageDetail {
+    installed?: IBazaarItem;
+    available?: IBazaarItem;
 }
 
 interface IAV {
@@ -991,7 +1092,7 @@ interface IAV {
 }
 
 interface IAVRenderTarget {
-    status: "visible" | "filtered" | "itemNotFound" | "viewNotFound" | "groupHidden";
+    status: "visible" | "filtered" | "itemNotFound" | "groupHidden";
     itemID: string;
     groupID?: string;
     index: number;
@@ -1021,6 +1122,7 @@ interface IAVNewItemTemplate {
     fieldValues?: Record<string, IAVNewItemFieldValue>;
     saveLocation?: IAVNewItemSaveLocation;
     contentTemplatePath?: string;
+    hideInFileTree?: boolean;
 }
 
 interface IAVView {
@@ -1043,6 +1145,14 @@ interface IAVView {
     groupValue: IAVCellValue
 }
 
+interface IAVFieldView {
+    id: string;
+    name: string;
+    icon: string;
+    type: TAVView;
+    hidden: boolean;
+}
+
 interface IAVTable extends IAVView {
     columns: IAVColumn[],
     rows: IAVRow[],
@@ -1061,8 +1171,12 @@ interface IAVGallery extends IAVView {
     coverFrom: number;    // 0：无，1：内容图，2：资源字段，3：内容块
     coverFromAssetKeyID?: string;
     cardSize: number;   // 0：小卡片，1：中卡片，2：大卡片
+    cardWidth: number;
+    cardLayout: number;   // 0：列表，1：紧凑
     cardAspectRatio: number;
+    cardAspectRatioValue: number;
     displayFieldName: boolean;
+    displayEmptyFields: boolean;
     fitImage: boolean;
     cards: IAVGalleryItem[],
     desc: string
@@ -1074,8 +1188,12 @@ interface IAVKanban extends IAVView {
     coverFrom: number;    // 0：无，1：内容图，2：资源字段，3：内容块
     coverFromAssetKeyID?: string;
     cardSize: number;   // 0：小卡片，1：中卡片，2：大卡片
+    cardWidth: number;
+    cardLayout: number;   // 0：列表，1：紧凑
     cardAspectRatio: number;
+    cardAspectRatioValue: number;
     displayFieldName: boolean;
+    displayEmptyFields: boolean;
     fitImage: boolean;
     cards: IAVGalleryItem[],
     desc: string
@@ -1091,6 +1209,7 @@ interface IAVFilter {
     value?: IAVCellValue,                             // 叶子节点：过滤值
     relativeDate?: IAVRelativeDate,                   // 叶子节点：相对时间
     relativeDate2?: IAVRelativeDate,                  // 叶子节点：第二个相对时间
+    dateEndpoint?: "start" | "end",                   // 叶子节点：日期端点，默认为开始时间
     combination?: "and" | "or",                       // 分组节点：子条件组合方式
     filters?: IAVFilter[],                            // 分组节点：子节点（递归）
 }
@@ -1115,7 +1234,8 @@ interface IAVGroup {
 
 interface IAVSort {
     column: string,
-    order: "ASC" | "DESC"
+    order: "ASC" | "DESC",
+    dateEndpoint?: "start" | "end"
 }
 
 interface IAVColumn {
@@ -1128,8 +1248,10 @@ interface IAVColumn {
     wrap: boolean,
     pin: boolean,
     hidden: boolean,
+    fullRow?: boolean,
     type: TAVCol,
     numberFormat: string,
+    dateFormat?: TAVDateFormat,
     template: string,
     calc: IAVCalc,
     updated?: {
@@ -1160,8 +1282,15 @@ interface IAVRow {
 interface IAVGalleryItem {
     coverURL?: string;
     coverContent?: string;
+    coverPosition?: IAVCardCoverPosition;
     id: string;
     values: IAVCell[];
+}
+
+interface IAVCardCoverPosition {
+    image: string;
+    x: number;
+    y: number;
 }
 
 interface IAVCell {
@@ -1249,12 +1378,14 @@ interface IAVColumnRelation {
     avID?: string;
     backKeyID?: string;
     isTwoWay?: boolean;
+    candidateFilters?: IAVFilter[];
 }
 
 interface IAVCellRollupValue {
     relationKeyID?: string;  // 关联列 ID
     keyID?: string;
     calc?: IAVCalc;
+    filters?: IAVFilter[];
 }
 
 interface IAVCalc {

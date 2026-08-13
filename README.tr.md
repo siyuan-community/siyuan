@@ -1,7 +1,7 @@
 <p align="center">
 <img alt="SiYuan" src="https://b3log.org/images/brand/siyuan-128.png">
 <br>
-<em>Düşünceni Yeniden Şekillendir</em>
+<em>Düşünceden içgörüye, ajanlarla birlikte</em>
 <br><br>
 <a title="Derleme Durumu" target="_blank" href="https://github.com/siyuan-note/siyuan/actions/workflows/cd.yml"><img src="https://img.shields.io/github/actions/workflow/status/siyuan-note/siyuan/cd.yml?style=flat-square"></a>
 <a title="Sürümler" target="_blank" href="https://github.com/siyuan-note/siyuan/releases"><img src="https://img.shields.io/github/release/siyuan-note/siyuan.svg?style=flat-square&color=9CF"></a>
@@ -18,8 +18,7 @@
 <a title="GitHub Commit'leri" target="_blank" href="https://github.com/siyuan-note/siyuan/commits/master"><img src="https://img.shields.io/github/commit-activity/m/siyuan-note/siyuan.svg?style=flat-square"></a>
 <a title="Son Commit" target="_blank" href="https://github.com/siyuan-note/siyuan/commits/master"><img src="https://img.shields.io/github/last-commit/siyuan-note/siyuan.svg?style=flat-square&color=FF9900"></a>
 <br><br>
-<a title="Twitter" target="_blank" href="https://twitter.com/b3logos"><img alt="Twitter Takip" src="https://img.shields.io/twitter/follow/b3logos?label=Takip%20Et&style=social"></a>
-<a title="Discord" target="_blank" href="https://discord.gg/dmMbCqVX7G"><img alt="Discord'da Sohbet Et" src="https://img.shields.io/discord/808152298789666826?label=Discord&logo=Discord&style=social"></a>
+<a title="X" target="_blank" href="https://x.com/b3logos"><img alt="X Takip" src="https://img.shields.io/twitter/follow/b3logos?label=Takip%20Et&style=social"></a>
 <br><br>
 <a href="https://trendshift.io/repositories/3949" target="_blank"><img src="https://trendshift.io/api/badge/repositories/3949" alt="siyuan-note%2Fsiyuan | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
@@ -46,7 +45,7 @@
   - [Docker Barındırma](#docker-barındırma)
   - [Unraid Barındırma](#unraid-barındırma)
   - [TrueNAS Barındırma](#truenas-barındırma)
-  - [Erken Önizleme (Insider Preview)](#erken-önizleme-insider-preview)
+  - [Test Kanalları](#test-kanalları)
 - [⌨️ Komut Satırı Arayüzü](#-komut-satırı-arayüzü)
 - [🏘️ Topluluk](#️-topluluk)
 - [🛠️ Geliştirme Rehberi](#️-geliştirme-rehberi)
@@ -68,13 +67,11 @@
 SiYuan, gizliliği ön planda tutan kişisel bir bilgi yönetim sistemidir.  
 Blok düzeyinde referansları ve Markdown WYSIWYG düzenlemeyi destekler.
 
-Daha fazla bilgi için [SiYuan İngilizce Tartışma Forumu](https://liuyun.io)’na katılabilirsin.
+![feature0.png](screenshots/feature0.png)
 
-Çevrimiçi kullanıcı rehberi: [English](https://siyuan-en.b3log.org/)
+![feature5-1.png](screenshots/feature5-1.png)
 
-![feature0.png](https://b3logfile.com/file/2025/11/feature0-GfbhEqf.png)
-
-![feature51.png](https://b3logfile.com/file/2025/11/feature5-1-7DJSfEP.png)
+Daha fazla bilgi için [çevrimiçi kullanıcı rehberini](https://siyuan-en.b3log.org/) inceleyebilir veya [SiYuan İngilizce Tartışma Forumu](https://liuyun.io)’na katılabilirsin.
 
 ## 🔮 Özellikler
 
@@ -116,7 +113,7 @@ Bazı özellikler yalnızca ücretli üyeler için geçerlidir. Detaylar için [
 
 ## 🏗️ Mimari ve Ekosistem
 
-![SiYuan Arch](https://b3logfile.com/file/2023/05/SiYuan_Arch-Sgu8vXT.png "SiYuan Arch")
+![SiYuan Arch](screenshots/SiYuan_Arch.png "SiYuan Arch")
 
 | Proje                                                    | Açıklama              | Çatallama (Forks)                                                              | Yıldız (Stars)                                                                     |
 |----------------------------------------------------------|-----------------------|--------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
@@ -355,9 +352,9 @@ services:
 
 </details>
 
-### Erken Önizleme (Insider Preview)
+### Test Kanalları
 
-Büyük güncellemelerden önce erken erişim (Insider Preview) sürümlerini yayınlıyoruz. Lütfen [https://github.com/siyuan-note/insider](https://github.com/siyuan-note/insider) adresini ziyaret edin.
+Ön sürümleri almak için `Ayarlar - Hakkında - Güncelleme kanalı` altında Beta veya Alpha seçeneğini belirleyin. Beta kanalı kararlı, RC ve Beta sürümlerini; Alpha kanalı ise tüm sürümleri alır. Test kanalları GitHub erişimi gerektirir.
 
 ## ⌨️ Komut Satırı Arayüzü
 

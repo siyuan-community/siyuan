@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -31,9 +31,9 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
-	"github.com/siyuan-note/logging"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
 
 func MoveLocalShorthands(boxID string) (retIDs []string, err error) {
@@ -74,7 +74,7 @@ func MoveLocalShorthands(boxID string) (retIDs []string, err error) {
 	hPath := Conf.FileTree.ShorthandSavePath
 	if "" != hPath {
 		var renderErr error
-		hPath, renderErr = RenderGoTemplate(hPath)
+		hPath, renderErr = RenderGoTemplateInBox(hPath, boxID)
 		if nil != renderErr {
 			logging.LogErrorf("render shorthand save path failed: %s", renderErr)
 			hPath = ""

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -20,6 +20,7 @@ import (
 	"errors"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -49,6 +50,7 @@ func setupFileOperationTest(t *testing.T) *fileOperationTestFixture {
 	Conf = NewAppConf()
 	Conf.FileTree = conf.NewFileTree()
 	Conf.NotebookCrypto = conf.NewNotebookCrypto()
+	Conf.Sync = conf.NewSync()
 
 	box := &Box{ID: "20260718000000-abcdefg"}
 	boxConf := conf.NewBoxConf()
@@ -101,6 +103,137 @@ func TestRemoveDocRejectsInvalidPath(t *testing.T) {
 	}
 }
 
+func TestValidateCreateDocDoesNotWrite(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	newID := "20260718000003-abcdefg"
+
+	rootPath := "/" + newID + ".sy"
+	if err := ValidateCreateDoc(fixture.box.ID, rootPath, "Root document"); err != nil {
+		t.Fatalf("validate root document failed: %v", err)
+	}
+	if fixture.box.Exist(rootPath) {
+		t.Fatalf("validation created root document [%s]", rootPath)
+	}
+
+	childPath := path.Join(strings.TrimSuffix(fixture.targetPath, ".sy"), newID+".sy")
+	if err := ValidateCreateDoc(fixture.box.ID, childPath, "Child document"); err != nil {
+		t.Fatalf("validate child document failed: %v", err)
+	}
+	if fixture.box.Exist(childPath) {
+		t.Fatalf("validation created child document [%s]", childPath)
+	}
+
+	invalidChildPath := path.Join(fixture.targetPath, newID+".sy")
+	if err := ValidateCreateDoc(fixture.box.ID, invalidChildPath, "Invalid child"); !errors.Is(err, ErrBlockNotFound) {
+		t.Fatalf("expected parent path with .sy suffix to return ErrBlockNotFound, got [%v]", err)
+	}
+
+	wrongParentPath := path.Join(strings.TrimSuffix(fixture.sourcePath, ".sy"), strings.TrimSuffix(fixture.targetPath, ".sy"), newID+".sy")
+	if err := ValidateCreateDoc(fixture.box.ID, wrongParentPath, "Wrong parent"); !errors.Is(err, ErrBlockNotFound) {
+		t.Fatalf("expected mismatched parent path to return ErrBlockNotFound, got [%v]", err)
+	}
+
+	otherBox := &Box{ID: "20260718000004-abcdefg"}
+	otherBoxConf := conf.NewBoxConf()
+	otherBoxConf.Name = "Other file operation test"
+	otherBoxConf.Closed = false
+	if err := otherBox.SaveConf(otherBoxConf); err != nil {
+		t.Fatalf("save other test notebook conf failed: %v", err)
+	}
+	crossBoxPath := path.Join(strings.TrimSuffix(fixture.targetPath, ".sy"), newID+".sy")
+	if err := ValidateCreateDoc(otherBox.ID, crossBoxPath, "Cross notebook"); !errors.Is(err, ErrBlockNotFound) {
+		t.Fatalf("expected cross-notebook parent to return ErrBlockNotFound, got [%v]", err)
+	}
+}
+
+func TestValidateCreateDocReportsClosedNotebook(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	boxConf := fixture.box.GetConf()
+	boxConf.Closed = true
+	if err := fixture.box.SaveConf(boxConf); err != nil {
+		t.Fatalf("close test notebook failed: %v", err)
+	}
+
+	err := ValidateCreateDoc(fixture.box.ID, "/20260718000003-abcdefg.sy", "Closed notebook document")
+	if !errors.Is(err, ErrBoxClosed) {
+		t.Fatalf("expected closed notebook to return ErrBoxClosed, got [%v]", err)
+	}
+}
+
+func TestCreateDocsByHPathUsesBoxDocAsLogicalRoot(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	boxDocTree := treenode.NewTree(
+		fixture.box.ID,
+		"/"+fixture.box.ID+".sy",
+		"/File operation test",
+		"File operation test",
+	)
+	if _, err := filesys.WriteTree(boxDocTree); err != nil {
+		t.Fatalf("write notebook document failed: %v", err)
+	}
+	treenode.UpsertBlockTree(boxDocTree)
+	t.Cleanup(func() {
+		for _, hPath := range []string{"/Direct reference", "/2026", "/2026/202608", "/2026/202608/Reference"} {
+			if tree := treenode.GetBlockTreeRootByHPath(fixture.box.ID, hPath); nil != tree {
+				cache.RemoveTreeData(tree.ID)
+				cache.RemoveDocIAL(tree.Path)
+			}
+		}
+		cache.RemoveTreeData(boxDocTree.ID)
+		cache.RemoveDocIAL(boxDocTree.Path)
+	})
+
+	directDocID := "20260718000003-abcdefg"
+	createdID, err := createDocsByHPath(
+		fixture.box.ID,
+		"/Direct reference",
+		"",
+		fixture.box.ID,
+		directDocID,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("create direct document from notebook document failed: %v", err)
+	}
+	if directDocID != createdID {
+		t.Fatalf("unexpected direct document ID: got %s, want %s", createdID, directDocID)
+	}
+	directTree := treenode.GetBlockTree(directDocID)
+	if nil == directTree {
+		t.Fatalf("created direct document block tree [%s] not found", directDocID)
+	}
+	if "/Direct reference" != directTree.HPath || "/"+directDocID+".sy" != directTree.Path {
+		t.Fatalf("unexpected direct document location: %+v", directTree)
+	}
+
+	docID := "20260718000004-abcdefg"
+	createdID, err = createDocsByHPath(
+		fixture.box.ID,
+		"/2026/202608/Reference",
+		"",
+		fixture.box.ID,
+		docID,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("create document from notebook document failed: %v", err)
+	}
+	if docID != createdID {
+		t.Fatalf("unexpected created document ID: got %s, want %s", createdID, docID)
+	}
+
+	createdTree := treenode.GetBlockTree(docID)
+	if nil == createdTree {
+		t.Fatalf("created document block tree [%s] not found", docID)
+	}
+	if "/2026/202608/Reference" != createdTree.HPath {
+		t.Fatalf("unexpected created document path: got %s", createdTree.HPath)
+	}
+	if "/"+docID+".sy" == createdTree.Path {
+		t.Fatalf("configured parent path was discarded: %s", createdTree.Path)
+	}
+}
+
 func TestGetBoxesByPathsStrictRejectsInvalidPaths(t *testing.T) {
 	fixture := setupFileOperationTest(t)
 	tests := []struct {
@@ -127,6 +260,81 @@ func TestGetBoxesByPathsStrictRejectsInvalidPaths(t *testing.T) {
 	}
 }
 
+func TestBlockTransactionRejectsDocumentMove(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	before := treenode.GetBlockTree(fixture.sourceID)
+	if nil == before {
+		t.Fatalf("source document block tree [%s] not found", fixture.sourceID)
+	}
+
+	tx := &Transaction{DoOperations: []*Operation{{
+		Action:   "move",
+		ID:       fixture.sourceID,
+		ParentID: strings.TrimSuffix(path.Base(fixture.targetPath), ".sy"),
+	}}}
+	err := PerformTxSync(tx)
+	if nil == err {
+		t.Fatal("expected document move transaction to be rejected")
+	}
+	var txErr *TxErr
+	if !errors.As(err, &txErr) {
+		t.Fatalf("expected transaction error, got [%T] %v", err, err)
+	}
+	if TxErrCodePushMsg != txErr.Code() {
+		t.Fatalf("unexpected transaction error code: got %d, want %d", txErr.Code(), TxErrCodePushMsg)
+	}
+
+	after := treenode.GetBlockTree(fixture.sourceID)
+	if nil == after {
+		t.Fatalf("source document block tree [%s] was removed", fixture.sourceID)
+	}
+	if before.RootID != after.RootID || before.ParentID != after.ParentID || before.BoxID != after.BoxID ||
+		before.Path != after.Path || before.HPath != after.HPath || before.Type != after.Type {
+		t.Fatalf("source document block tree changed: before [%+v], after [%+v]", before, after)
+	}
+	if !fixture.box.Exist(fixture.sourcePath) || !fixture.box.Exist(fixture.targetPath) {
+		t.Fatal("document move transaction changed files on disk")
+	}
+}
+
+func TestBlockTransactionRejectsDocumentPreviousSibling(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	before := treenode.GetBlockTree(fixture.childID)
+	if nil == before {
+		t.Fatalf("source block tree [%s] not found", fixture.childID)
+	}
+
+	tx := &Transaction{DoOperations: []*Operation{{
+		Action:     "move",
+		ID:         fixture.childID,
+		ParentID:   fixture.sourceID,
+		PreviousID: strings.TrimSuffix(path.Base(fixture.targetPath), ".sy"),
+	}}}
+	err := PerformTxSync(tx)
+	if nil == err {
+		t.Fatal("expected document previous sibling to be rejected")
+	}
+	var txErr *TxErr
+	if !errors.As(err, &txErr) {
+		t.Fatalf("expected transaction error, got [%T] %v", err, err)
+	}
+	if TxErrCodePushMsg != txErr.Code() {
+		t.Fatalf("unexpected transaction error code: got %d, want %d", txErr.Code(), TxErrCodePushMsg)
+	}
+
+	after := treenode.GetBlockTree(fixture.childID)
+	if nil == after {
+		t.Fatalf("source block tree [%s] was removed", fixture.childID)
+	}
+	if before.RootID != after.RootID || before.ParentID != after.ParentID || before.BoxID != after.BoxID ||
+		before.Path != after.Path || before.HPath != after.HPath || before.Type != after.Type {
+		t.Fatalf("source block tree changed: before [%+v], after [%+v]", before, after)
+	}
+	if !fixture.box.Exist(fixture.sourcePath) || !fixture.box.Exist(fixture.targetPath) {
+		t.Fatal("document previous sibling transaction changed files on disk")
+	}
+}
+
 func TestMoveDocsRejectsInvalidPathsBeforeMoving(t *testing.T) {
 	fixture := setupFileOperationTest(t)
 	newPath := path.Join(strings.TrimSuffix(fixture.targetPath, ".sy"), fixture.sourceID+".sy")
@@ -149,6 +357,156 @@ func TestMoveDocsRejectsInvalidPathsBeforeMoving(t *testing.T) {
 				t.Fatalf("target document was created for invalid source paths [%v]", test.fromPaths)
 			}
 		})
+	}
+}
+
+func TestMoveDocsRefreshDeduplicatesParentsAndNotebooks(t *testing.T) {
+	refresh := newMoveDocsRefresh()
+	parent1 := &parse.Tree{Box: "20260718000000-abcdefg", ID: "20260718000001-abcdefg"}
+	parent2 := &parse.Tree{Box: "20260718000002-abcdefg", ID: "20260718000001-abcdefg"}
+
+	refresh.addParent(parent1)
+	refresh.addParent(parent1)
+	refresh.addParent(parent2)
+	refresh.addNotebook(parent1.Box)
+	refresh.addNotebook(parent1.Box)
+	refresh.addNotebook(parent2.Box)
+
+	parentCalls := map[moveDocsRefreshKey]int{}
+	notebookCalls := map[string]int{}
+	refresh.flushWith(func(tree *parse.Tree) {
+		key := moveDocsRefreshKey{boxID: tree.Box, rootID: tree.ID}
+		parentCalls[key]++
+	}, func(boxID string) {
+		notebookCalls[boxID]++
+	})
+
+	if 2 != len(parentCalls) {
+		t.Fatalf("unexpected refreshed parent count: got %d, want 2", len(parentCalls))
+	}
+	for key, count := range parentCalls {
+		if 1 != count {
+			t.Fatalf("parent [%+v] refreshed %d times, want 1", key, count)
+		}
+	}
+	if 2 != len(notebookCalls) {
+		t.Fatalf("unexpected refreshed notebook count: got %d, want 2", len(notebookCalls))
+	}
+	for boxID, count := range notebookCalls {
+		if 1 != count {
+			t.Fatalf("notebook [%s] refreshed %d times, want 1", boxID, count)
+		}
+	}
+}
+
+func TestOrderMoveDocPathsPreservesInputOrder(t *testing.T) {
+	box := &Box{ID: "20260810000000-abcdefg"}
+	firstPath := "/20260810000001-abcdefg.sy"
+	secondPath := "/20260810000002-abcdefg.sy"
+	pathsBoxes := map[string]*Box{
+		firstPath:  box,
+		secondPath: box,
+	}
+
+	got := orderMoveDocPaths([]string{
+		strings.TrimPrefix(secondPath, "/"),
+		firstPath,
+		secondPath,
+	}, pathsBoxes)
+	want := []string{secondPath, firstPath}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected ordered paths: got %v, want %v", got, want)
+	}
+}
+
+func TestSetFileTreeSort(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+
+	result, err := SetFileTreeSort(
+		[]*SortItem{{ID: fixture.box.ID, Sort: -10}},
+		[]*SortItem{{ID: fixture.sourceID, Sort: -8}},
+	)
+	if err != nil {
+		t.Fatalf("set file tree sort failed: %v", err)
+	}
+	if len(result.NotebookIDs) != 1 || result.NotebookIDs[0] != fixture.box.ID {
+		t.Fatalf("unexpected changed notebook IDs: %v", result.NotebookIDs)
+	}
+	if len(result.DocIDs) != 1 || result.DocIDs[0] != fixture.sourceID {
+		t.Fatalf("unexpected changed document IDs: %v", result.DocIDs)
+	}
+	if sortVal := fixture.box.GetConf().Sort; sortVal != -10 {
+		t.Fatalf("unexpected notebook sort: got %d, want -10", sortVal)
+	}
+	sortConfPath := filepath.Join(util.DataDir, fixture.box.ID, ".siyuan", "sort.json")
+	sortValues, err := readSortConfMap(sortConfPath)
+	if err != nil {
+		t.Fatalf("read sort conf failed: %v", err)
+	}
+	if sortVal := sortValues[fixture.sourceID]; sortVal != -8 {
+		t.Fatalf("unexpected document sort: got %d, want -8", sortVal)
+	}
+
+	result, err = SetFileTreeSort(
+		[]*SortItem{{ID: fixture.box.ID, Sort: -10}},
+		[]*SortItem{{ID: fixture.sourceID, Sort: -8}},
+	)
+	if err != nil {
+		t.Fatalf("repeat file tree sort failed: %v", err)
+	}
+	if 0 != len(result.NotebookIDs) || 0 != len(result.DocIDs) {
+		t.Fatalf("unchanged sorts reported changes: %+v", result)
+	}
+}
+
+func TestSetFileTreeSortValidatesBeforeWriting(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+
+	if _, err := SetFileTreeSort(
+		[]*SortItem{{ID: fixture.box.ID, Sort: -10}},
+		[]*SortItem{{ID: fixture.childID, Sort: -8}},
+	); err == nil {
+		t.Fatal("expected a child block ID to be rejected")
+	}
+	if sortVal := fixture.box.GetConf().Sort; sortVal != 0 {
+		t.Fatalf("notebook sort changed before request validation completed: %d", sortVal)
+	}
+}
+
+func TestSetFileTreeSortRejectsNotebookRootDocument(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	boxDocPath := "/" + fixture.box.ID + ".sy"
+	boxDocTree := treenode.NewTree(fixture.box.ID, boxDocPath, "/File operation test", "File operation test")
+	if _, err := filesys.WriteTree(boxDocTree); err != nil {
+		t.Fatalf("write notebook root document failed: %v", err)
+	}
+	treenode.UpsertBlockTree(boxDocTree)
+	t.Cleanup(func() {
+		cache.RemoveTreeData(boxDocTree.ID)
+		cache.RemoveDocIAL(boxDocTree.Path)
+	})
+
+	if _, err := SetFileTreeSort(
+		[]*SortItem{{ID: fixture.box.ID, Sort: -10}},
+		[]*SortItem{{ID: fixture.box.ID, Sort: -8}},
+	); err == nil {
+		t.Fatal("expected a notebook root document ID to be rejected")
+	}
+	if sortVal := fixture.box.GetConf().Sort; sortVal != 0 {
+		t.Fatalf("notebook sort changed before notebook root document validation completed: %d", sortVal)
+	}
+}
+
+func TestSetFileTreeSortRejectsDocumentInClosedNotebook(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	boxConf := fixture.box.GetConf()
+	boxConf.Closed = true
+	if err := fixture.box.SaveConf(boxConf); err != nil {
+		t.Fatalf("close test notebook failed: %v", err)
+	}
+
+	if _, err := SetFileTreeSort(nil, []*SortItem{{ID: fixture.sourceID, Sort: -8}}); err == nil {
+		t.Fatal("expected a document in a closed notebook to be rejected")
 	}
 }
 

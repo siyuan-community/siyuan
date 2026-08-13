@@ -13,6 +13,8 @@ import {getRangeByPoint} from "../../protyle/util/selection";
 import {getCurrentEditor} from "../editor";
 import {Constants} from "../../constants";
 import {getEmbedChildOperationContext} from "../../protyle/wysiwyg/getBlock";
+import {backModel} from "../menu/model";
+import {hasVisibleSelectionText, shouldRestoreLongPressSelection} from "./touchSelection";
 
 let clientX: number;
 let clientY: number;
@@ -26,6 +28,8 @@ let scrollBlock: boolean;
 let isFirstMove = true;
 // 长按进入多选的定时器
 let longPressTimer: number;
+let longPressBlockElement: HTMLElement;
+let longPressTouchRange: Range;
 
 const popSide = (render = true) => {
     if (render) {
@@ -44,9 +48,68 @@ const clearLongPress = () => {
     }
 };
 
+const clearInvisibleEditorSelection = () => {
+    const editor = getCurrentEditor();
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) {
+        return false;
+    }
+    const range = selection.getRangeAt(0);
+    if (range.collapsed || hasVisibleSelectionText(range.toString()) ||
+        !editor.protyle.wysiwyg.element.contains(range.startContainer) ||
+        !editor.protyle.wysiwyg.element.contains(range.endContainer)) {
+        return false;
+    }
+    selection.removeAllRanges();
+    activeBlur();
+    return true;
+};
+
+const restoreInvisibleLongPressSelection = () => {
+    const editor = getCurrentEditor();
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0 || !longPressBlockElement ||
+        !longPressTouchRange?.startContainer.isConnected ||
+        !longPressBlockElement.contains(longPressTouchRange.startContainer)) {
+        return false;
+    }
+    const range = selection.getRangeAt(0);
+    if (!editor.protyle.wysiwyg.element.contains(range.startContainer) ||
+        !editor.protyle.wysiwyg.element.contains(range.endContainer)) {
+        return false;
+    }
+    const startBlockElement = hasClosestBlock(range.startContainer);
+    const endBlockElement = hasClosestBlock(range.endContainer);
+    if (!shouldRestoreLongPressSelection(
+        range.collapsed,
+        range.toString(),
+        startBlockElement ? startBlockElement.getAttribute("data-node-id") : undefined,
+        endBlockElement ? endBlockElement.getAttribute("data-node-id") : undefined,
+        longPressBlockElement.getAttribute("data-node-id"),
+    )) {
+        return false;
+    }
+    const restoredRange = longPressTouchRange.cloneRange();
+    selection.removeAllRanges();
+    selection.addRange(restoredRange);
+    window.siyuan.mobile.touchRange = restoredRange.cloneRange();
+    return true;
+};
+
 export const handleTouchUp = () => {
     if (Date.now() - time < Constants.TIMEOUT_MULTIPLE_SELECT) {
         clearLongPress();
+    }
+    if (!restoreInvisibleLongPressSelection()) {
+        clearInvisibleEditorSelection();
+    }
+    longPressBlockElement = undefined;
+    longPressTouchRange = undefined;
+};
+
+export const handleTouchSelectionChange = () => {
+    if (longPressBlockElement && !restoreInvisibleLongPressSelection()) {
+        clearInvisibleEditorSelection();
     }
 };
 
@@ -134,6 +197,21 @@ export const handleTouchEnd = (event: TouchEvent) => {
     clientX = null;
     // 有些事件不经过 touchmove
 
+    const isXScroll = Math.abs(xDiff) > Math.abs(yDiff);
+    const modelElement = hasClosestByAttribute(target, "id", "model", true);
+    if (modelElement) {
+        // 面板内横向滚动内容（如数据快照操作按钮行）时不触发关闭面板
+        if (!scrollBlock && isXScroll && firstDirection === "toRight" && !lastClientX &&
+            !hasClosestByClassName(target, "protyle-wysiwyg", true) &&
+            // 划选文字时不触发关闭面板
+            (getSelection().rangeCount === 0 || getSelection().toString() === "")) {
+            if (!backModel()) {
+                closeModel();
+            }
+        }
+        return;
+    }
+
     if (scrollBlock) {
         closePanel();
         return;
@@ -146,16 +224,6 @@ export const handleTouchEnd = (event: TouchEvent) => {
         scrollEnable = true;
     }
 
-    const isXScroll = Math.abs(xDiff) > Math.abs(yDiff);
-    const modelElement = hasClosestByAttribute(target, "id", "model", true);
-    if (modelElement) {
-        if (isXScroll && firstDirection === "toRight" && !lastClientX && !hasClosestByClassName(target, "protyle-wysiwyg", true) &&
-            // 划选文字时不触发关闭面板
-            (getSelection().rangeCount === 0 || getSelection().toString() === "")) {
-            closeModel();
-        }
-        return;
-    }
     const menuElement = hasClosestByAttribute(target, "id", "menu");
     if (menuElement) {
         if (isXScroll) {
@@ -220,6 +288,8 @@ export const handleTouchEnd = (event: TouchEvent) => {
 
 export const handleTouchStart = (event: TouchEvent) => {
     time = Date.now();
+    longPressBlockElement = undefined;
+    longPressTouchRange = undefined;
     const target = event.touches[0].target as HTMLElement;
     if (0 < event.touches.length && (target.tagName === "VIDEO" || target.tagName === "AUDIO")) {
         // https://github.com/siyuan-note/siyuan/issues/14569
@@ -265,7 +335,27 @@ export const handleTouchStart = (event: TouchEvent) => {
     if (clientX && clientY && editor && !editor.protyle.toolbar.isMultiSelectMode()) {
         const blockElement = hasClosestBlock(target);
         if (blockElement && editor.protyle.wysiwyg.element.contains(blockElement)) {
+            longPressBlockElement = blockElement;
+            const touchRange = getRangeByPoint(event.touches[0].clientX, event.touches[0].clientY);
+            const touchRangeElement = touchRange.startContainer.nodeType === Node.ELEMENT_NODE ?
+                touchRange.startContainer as Element : touchRange.startContainer.parentElement;
+            const editableElement = touchRangeElement?.closest('[contenteditable="true"]');
+            if (editableElement && blockElement.contains(editableElement)) {
+                longPressTouchRange = touchRange.cloneRange();
+                longPressTouchRange.collapse(true);
+            }
             longPressTimer = window.setTimeout(() => {
+                clearInvisibleEditorSelection();
+                const selection = window.getSelection();
+                if (selection?.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    if (!range.collapsed && hasVisibleSelectionText(range.toString()) &&
+                        editor.protyle.wysiwyg.element.contains(range.startContainer) &&
+                        editor.protyle.wysiwyg.element.contains(range.endContainer)) {
+                        longPressTimer = undefined;
+                        return;
+                    }
+                }
                 window.getSelection()?.removeAllRanges();
                 editor.protyle.toolbar.showMultiSelectMode(editor.protyle, blockElement);
                 if (editor.protyle.options.render.gutter) {
@@ -278,12 +368,30 @@ export const handleTouchStart = (event: TouchEvent) => {
 
 let previousClientX: number;
 const sideMaskElement = document.querySelector(".side-mask") as HTMLElement;
+
+const isHorizontalScrollable = (target: HTMLElement, xDiff: number) => {
+    let element: HTMLElement = target;
+    while (element && element.id !== "model") {
+        if (element.scrollWidth > element.clientWidth + 1 &&
+            ["auto", "scroll", "overlay"].includes(getComputedStyle(element).overflowX)) {
+            // 按拖动方向仍可继续滚动时视为内容横向滚动，否则继续向上查找外层滚动容器
+            if ((xDiff < 0 && element.scrollLeft > 1) ||
+                (xDiff > 0 && Math.ceil(element.clientWidth + element.scrollLeft) < element.scrollWidth)) {
+                return true;
+            }
+        }
+        element = element.parentElement;
+    }
+    return false;
+};
+
 export const handleTouchMove = (event: TouchEvent) => {
     const target = event.target as HTMLElement;
     // 位移超过阈值说明是滑动而非长按，取消进入多选的定时器
     if (clientX && clientY &&
         (Math.abs(clientX - event.touches[0].clientX) >= 5 || Math.abs(clientY - event.touches[0].clientY) >= 5)) {
         clearLongPress();
+        longPressTouchRange = undefined;
     }
     if (!clientX || !clientY ||
         target.tagName === "AUDIO" ||
@@ -349,6 +457,10 @@ export const handleTouchMove = (event: TouchEvent) => {
     previousClientX = event.touches[0].clientX;
     if (Math.abs(xDiff) > Math.abs(yDiff)) {
         if (hasClosestByAttribute(target, "id", "model", true)) {
+            // 面板内可横向滚动的元素（如数据快照操作按钮行）由原生滚动处理，避免误触发返回手势
+            if (isHorizontalScrollable(target, xDiff)) {
+                scrollBlock = true;
+            }
             return;
         }
         if (sideMaskElement.classList.contains("fn__none")) {

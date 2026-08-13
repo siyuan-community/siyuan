@@ -98,10 +98,6 @@ body {
       }
     }
 
-    &.body--blur .layout-tab-bar {
-      opacity: .38;
-    }
-
     .layout__center {
       border-radius: 0;
     }
@@ -143,7 +139,7 @@ body {
 
       & > :not(#drag) {
         position: relative;
-        z-index: 1;
+        z-index: 7;
       }
     }
 
@@ -347,10 +343,6 @@ svg {
 
 line, circle {
   transition: fill .15s ease-in-out;
-}
-
-circle {
-  cursor: pointer;
 }
 
 blockquote {

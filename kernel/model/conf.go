@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,10 +18,12 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
@@ -38,7 +40,6 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
-	"github.com/siyuan-note/eventbus"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 	"golang.org/x/mod/semver"
@@ -65,6 +66,7 @@ type AppConf struct {
 	ReadOnly       bool                 `json:"readonly"`       // 是否是以只读模式运行
 	ServerAddrs    []string             `json:"serverAddrs"`    // 本地服务器地址列表
 	AccessAuthCode string               `json:"accessAuthCode"` // 锁屏密码
+	OIDC           *conf.OIDC           `json:"oidc"`           // OpenID Connect 登录
 	System         *conf.System         `json:"system"`         // 系统配置
 	Keymap         *conf.Keymap         `json:"keymap"`         // 快捷键配置
 	Sync           *conf.Sync           `json:"sync"`           // 同步配置
@@ -97,8 +99,48 @@ type AppConf struct {
 func NewAppConf() *AppConf {
 	return &AppConf{
 		LogLevel: "debug",
+		OIDC:     conf.NewOIDC(),
 		m:        &sync.RWMutex{},
 		userLock: &sync.RWMutex{},
+	}
+}
+
+func applyOIDCEnvironment(config *conf.OIDC) {
+	if config == nil {
+		return
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_ENABLED"); ok {
+		config.Enabled, _ = strconv.ParseBool(value)
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_PROVIDER"); ok {
+		config.Provider = value
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_ISSUER_URL"); ok {
+		config.IssuerURL = value
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_CLIENT_ID"); ok {
+		config.ClientID = value
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_CLIENT_SECRET"); ok {
+		config.ClientSecret = value
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_SCOPES"); ok {
+		config.Scopes = strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' })
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_REDIRECT_URL"); ok {
+		config.RedirectURL = value
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_ALLOW_ALL"); ok {
+		config.AllowAll, _ = strconv.ParseBool(value)
+	}
+	if value, ok := os.LookupEnv("SIYUAN_OIDC_CLAIM_RULES"); ok {
+		rules := []*conf.OIDCClaimRule{}
+		if err := gulu.JSON.UnmarshalJSON([]byte(value), &rules); err != nil {
+			config.ClaimRules = nil
+			logging.LogErrorf("parse SIYUAN_OIDC_CLAIM_RULES failed: %s", err)
+		} else {
+			config.ClaimRules = rules
+		}
 	}
 }
 
@@ -113,6 +155,56 @@ func (conf *AppConf) SetMCPOAuth(value string) {
 	conf.MCPOAuth = value
 	conf.m.Unlock()
 	conf.Save()
+}
+
+func (appConf *AppConf) GetOIDC() *conf.OIDC {
+	appConf.m.RLock()
+	defer appConf.m.RUnlock()
+	if appConf.OIDC == nil {
+		return conf.NewOIDC()
+	}
+	ret := *appConf.OIDC
+	ret.Scopes = append([]string{}, appConf.OIDC.Scopes...)
+	ret.ClaimRules = make([]*conf.OIDCClaimRule, 0, len(appConf.OIDC.ClaimRules))
+	for _, rule := range appConf.OIDC.ClaimRules {
+		if rule == nil {
+			ret.ClaimRules = append(ret.ClaimRules, nil)
+			continue
+		}
+		clonedRule := *rule
+		clonedRule.Values = append([]string{}, rule.Values...)
+		ret.ClaimRules = append(ret.ClaimRules, &clonedRule)
+	}
+	return &ret
+}
+
+func (appConf *AppConf) SetOIDC(config *conf.OIDC) {
+	appConf.m.Lock()
+	appConf.OIDC = config
+	appConf.m.Unlock()
+	appConf.Save()
+}
+
+// CompareAndSetOIDC 仅在当前配置版本仍与预期一致时写入 OIDC 配置。
+func (appConf *AppConf) CompareAndSetOIDC(expectedVersion string, config *conf.OIDC) (changed, swapped bool) {
+	appConf.m.Lock()
+	current := appConf.OIDC
+	if current == nil {
+		current = conf.NewOIDC()
+	}
+	if oidcConfigurationVersionWithKey(appConf.CookieKey, current) != expectedVersion {
+		appConf.m.Unlock()
+		return false, false
+	}
+	changed = !reflect.DeepEqual(current, config)
+	if changed {
+		appConf.OIDC = config
+	}
+	appConf.m.Unlock()
+	if changed {
+		appConf.Save()
+	}
+	return changed, true
 }
 
 func (conf *AppConf) SetAI(ai *conf.AI) {
@@ -152,10 +244,13 @@ func InitConf() {
 	Conf = NewAppConf()
 	clearEncryptedExportTempOnBoot()
 	confPath := filepath.Join(util.ConfDir, "conf.json")
-	if gulu.File.IsExist(confPath) {
+	confFileExists := gulu.File.IsExist(confPath)
+	entryVisibilityConfigured := false
+	if confFileExists {
 		if data, err := os.ReadFile(confPath); err != nil {
 			logging.LogErrorf("load conf [%s] failed: %s", confPath, err)
 		} else {
+			entryVisibilityConfigured = bytes.Contains(data, []byte(`"entryVisibility"`))
 			// 解析失败时保留已成功写入的字段；未导出字段（m、userLock）与未触及的导出字段保持 NewAppConf() 初值。
 			if err = gulu.JSON.UnmarshalJSON(data, Conf); err != nil {
 				logging.LogWarnf("parse conf failed, parsed fields retained: %s", err)
@@ -170,24 +265,6 @@ func InitConf() {
 				Conf.AI = conf.MigrateAI(data)
 				Conf.Save()
 				logging.LogInfof("migrated AI config [%s]", confPath)
-			}
-
-			// 重启后加密笔记本的 DEK 丢失（仅内存），必须重新解锁。
-			// 强制把所有加密笔记本标记为已关闭，避免启动索引读到无法解密的密文 .sy。
-			// 使用 IsEncryptedBox 统一判定（含 backup fallback）。
-			changed := false
-			for _, box := range Conf.GetBoxes() {
-				if IsEncryptedBox(box.ID) && !box.Closed {
-					boxConf := box.GetConf()
-					boxConf.Closed = true
-					if err := box.SaveConf(boxConf); err != nil {
-						logging.LogErrorf("close encrypted notebook on boot [%s] failed: %s", box.ID, err)
-					}
-					changed = true
-				}
-			}
-			if changed {
-				logging.LogInfof("closed encrypted notebooks on boot (DEK not in memory)")
 			}
 		}
 	}
@@ -258,6 +335,14 @@ func InitConf() {
 	if nil == Conf.Appearance {
 		Conf.Appearance = conf.NewAppearance()
 	}
+	entryVisibilityFallback := conf.EntryVisibilityProfileSimple
+	if confFileExists {
+		entryVisibilityFallback = conf.EntryVisibilityProfileFull
+	}
+	if confFileExists && !entryVisibilityConfigured {
+		Conf.Appearance.EntryVisibility = nil
+	}
+	Conf.Appearance.EntryVisibility = conf.NormalizeEntryVisibility(Conf.Appearance.EntryVisibility, entryVisibilityFallback)
 	var langOK bool
 	for _, l := range Conf.Langs {
 		if Conf.Lang == l.Name {
@@ -326,7 +411,18 @@ func InitConf() {
 	if 32 < Conf.FileTree.MaxOpenTabCount {
 		Conf.FileTree.MaxOpenTabCount = 32
 	}
+	if nil == Conf.FileTree.TabStartupMode {
+		Conf.FileTree.TabStartupMode = new(int)
+		if Conf.FileTree.CloseTabsOnStart {
+			*Conf.FileTree.TabStartupMode = 2
+		}
+	}
+	if 0 > *Conf.FileTree.TabStartupMode || 2 < *Conf.FileTree.TabStartupMode {
+		*Conf.FileTree.TabStartupMode = 0
+	}
+	Conf.FileTree.CloseTabsOnStart = 2 == *Conf.FileTree.TabStartupMode
 	Conf.FileTree.DocCreateSavePath = util.TrimSpaceInPath(Conf.FileTree.DocCreateSavePath)
+	Conf.FileTree.DocCreateTemplatePath = util.NormalizeTemplatePath(Conf.FileTree.DocCreateTemplatePath)
 	Conf.FileTree.RefCreateSavePath = util.TrimSpaceInPath(Conf.FileTree.RefCreateSavePath)
 	Conf.FileTree.ShorthandSavePath = util.TrimSpaceInPath(Conf.FileTree.ShorthandSavePath)
 	util.UseSingleLineSave = Conf.FileTree.UseSingleLineSave
@@ -335,11 +431,11 @@ func InitConf() {
 	}
 	util.LargeFileWarningSize = Conf.FileTree.LargeFileWarningSize
 	if nil == Conf.FileTree.CreateDocAtTop { // v3.4.0 之前的版本没有该字段，设置默认值为 true，即在顶部创建新文档，不改变用户习惯
-		Conf.FileTree.CreateDocAtTop = func() *bool { b := true; return &b }()
+		Conf.FileTree.CreateDocAtTop = new(true)
 	}
 	if nil == Conf.FileTree.BoxDocEnabled {
-		// 历史工作空间默认关闭顶层笔记本文档，新工作空间使用 NewFileTree 中的默认值。
-		Conf.FileTree.BoxDocEnabled = func() *bool { b := false; return &b }()
+		// 配置缺失时默认关闭顶层笔记本文档。
+		Conf.FileTree.BoxDocEnabled = new(bool)
 	}
 
 	if conf.MinFileTreeRecentDocsListCount > Conf.FileTree.RecentDocsMaxListCount {
@@ -367,16 +463,13 @@ func InitConf() {
 	if nil == Conf.Editor.BackmentionSort {
 		Conf.Editor.BackmentionSort = defaultEditor.BackmentionSort
 	}
-	if 1 > len(Conf.Editor.Emoji) {
-		Conf.Editor.Emoji = []string{}
+	if nil == Conf.Editor.DatabaseAttrShow {
+		Conf.Editor.DatabaseAttrShow = defaultEditor.DatabaseAttrShow
 	}
-	for i, emoji := range Conf.Editor.Emoji {
-		if strings.Contains(emoji, ".") {
-			// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-			emoji = util.FilterUploadEmojiFileName(emoji)
-			Conf.Editor.Emoji[i] = emoji
-		}
+	if nil == Conf.Editor.DatabaseAttrUseTabs {
+		Conf.Editor.DatabaseAttrUseTabs = defaultEditor.DatabaseAttrUseTabs
 	}
+	Conf.Editor.Emoji = util.FilterRecentIconValues(Conf.Editor.Emoji)
 	if 9 > Conf.Editor.FontSize || 72 < Conf.Editor.FontSize {
 		Conf.Editor.FontSize = 16
 	}
@@ -399,8 +492,7 @@ func InitConf() {
 		Conf.Editor.HistoryRetentionDays = 3650
 	}
 	if nil == Conf.Editor.FloatWindowDelay {
-		v := 620
-		Conf.Editor.FloatWindowDelay = &v
+		Conf.Editor.FloatWindowDelay = new(620)
 	} else {
 		*Conf.Editor.FloatWindowDelay = max(0, min(2000, *Conf.Editor.FloatWindowDelay))
 	}
@@ -410,14 +502,16 @@ func InitConf() {
 	if 1 > len(Conf.Editor.SpellcheckLanguages) {
 		Conf.Editor.SpellcheckLanguages = []string{"en-US"}
 	}
-	if 0 > Conf.Editor.BacklinkExpandCount {
-		Conf.Editor.BacklinkExpandCount = 0
-	}
-	if -1 > Conf.Editor.BackmentionExpandCount {
-		Conf.Editor.BackmentionExpandCount = -1
+	Conf.Editor.BacklinkExpandCount = conf.NormalizeBacklinkExpandCount(Conf.Editor.BacklinkExpandCount)
+	Conf.Editor.BackmentionExpandCount = conf.NormalizeBacklinkExpandCount(Conf.Editor.BackmentionExpandCount)
+	if "" == Conf.Editor.HeadingNumberFormat {
+		Conf.Editor.HeadingNumberFormat = conf.DefaultHeadingNumberFormat
 	}
 	if nil == Conf.Editor.Markdown {
 		Conf.Editor.Markdown = &util.Markdown{}
+	}
+	if nil == Conf.Editor.Markdown.CodeBlockMiddleDot {
+		Conf.Editor.Markdown.CodeBlockMiddleDot = defaultEditor.Markdown.CodeBlockMiddleDot
 	}
 	util.MarkdownSettings = Conf.Editor.Markdown
 
@@ -429,12 +523,10 @@ func InitConf() {
 		// 锚点哈希模式和脚注模式合并 https://github.com/siyuan-note/siyuan/issues/13331
 		Conf.Export.BlockRefMode = 4 // 改为脚注+锚点哈希
 	}
-	if "" == Conf.Export.PandocBin {
-		Conf.Export.PandocBin = util.PandocBinPath
-	}
-
 	if nil == Conf.Graph || nil == Conf.Graph.Local || nil == Conf.Graph.Global {
 		Conf.Graph = conf.NewGraph()
+	} else {
+		Conf.Graph.NormalizeMaxBlocks()
 	}
 
 	isNewWorkspace := nil == Conf.System
@@ -450,8 +542,8 @@ func InitConf() {
 		}
 
 		Conf.System.KernelVersion = util.Ver
-		Conf.System.IsInsider = util.IsInsider
 	}
+	Conf.System.UpdateChannel = loadGlobalUpdateChannel()
 	if nil == Conf.Onboarding {
 		Conf.Onboarding = &conf.Onboarding{State: conf.OnboardingCompleted}
 	}
@@ -502,6 +594,9 @@ func InitConf() {
 		Conf.Export.DocxTemplate = ""
 		Conf.Save()
 	}
+	if migratePandocConfig(Conf.Export) {
+		Conf.Save()
+	}
 
 	if nil == Conf.Snippet {
 		Conf.Snippet = conf.NewSnpt()
@@ -544,6 +639,15 @@ func InitConf() {
 	Conf.Sync.Local.Endpoint = util.NormalizeLocalPath(Conf.Sync.Local.Endpoint)
 	Conf.Sync.Local.Timeout = util.NormalizeTimeout(Conf.Sync.Local.Timeout)
 	Conf.Sync.Local.ConcurrentReqs = util.NormalizeConcurrentReqs(Conf.Sync.Local.ConcurrentReqs, conf.ProviderLocal)
+	if nil == Conf.Sync.LAN {
+		Conf.Sync.LAN = &conf.LANSync{MaxConcurrentReqs: 16}
+	}
+	if 1 > Conf.Sync.LAN.MaxConcurrentReqs {
+		Conf.Sync.LAN.MaxConcurrentReqs = 16
+	}
+	if 128 < Conf.Sync.LAN.MaxConcurrentReqs {
+		Conf.Sync.LAN.MaxConcurrentReqs = 128
+	}
 
 	if util.ContainerDocker == util.Container {
 		Conf.Sync.Perception = false
@@ -665,6 +769,15 @@ func InitConf() {
 		Conf.AI.DecryptAPIKeys()
 	}
 	Conf.AI.Normalize()
+	Conf.AI.ReconcileModelIDs()
+
+	if nil == Conf.OIDC {
+		Conf.OIDC = conf.NewOIDC()
+	} else {
+		Conf.OIDC.DecryptClientSecret()
+	}
+	applyOIDCEnvironment(Conf.OIDC)
+	Conf.OIDC.Normalize()
 
 	if nil == Conf.Secrets {
 		Conf.Secrets = conf.NewSecrets()
@@ -736,6 +849,15 @@ func InitConf() {
 		writeCookieKey(Conf.CookieKey)
 	}
 
+	if util.ContainerDocker == util.Container && Conf.AccessAuthCode == "" && !util.SiYuanAccessAuthCodeBypass {
+		if err := ValidateOIDCConfigurationChange(context.Background(), Conf.OIDC, true, false, false); err != nil {
+			fmt.Println("the access authorization code or a valid OIDC configuration must be set when deploying via Docker")
+			fmt.Println("set SIYUAN_ACCESS_AUTH_CODE, configure OIDC, or explicitly set SIYUAN_ACCESS_AUTH_CODE_BYPASS=true")
+			logging.LogErrorf("Docker access authentication configuration is invalid: %s", err)
+			os.Exit(logging.ExitCodeSecurityRisk)
+		}
+	}
+
 	Conf.Save()
 
 	// 安全模式：渲染进程崩溃恢复后由桌面端主进程通过 --safe-mode 注入。
@@ -763,7 +885,7 @@ func InitConf() {
 
 	util.SetNetworkProxy(Conf.System.NetworkProxy.String())
 
-	go util.InitPandoc()
+	go util.InitPandoc(Conf.Export.PandocBin)
 	go util.InitTesseract()
 }
 
@@ -885,6 +1007,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int, i
 	defer exitLock.Unlock()
 
 	logging.LogInfof("exiting kernel [force=%v, setCurrentWorkspace=%v, execInstallPkg=%d]", force, setCurrentWorkspace, execInstallPkg)
+	defer stopLANSyncManager()
 
 	util.PushMsg(Conf.Language(95), 10000*60)
 	FlushTxQueue()
@@ -1042,12 +1165,17 @@ func (conf *AppConf) Save() {
 	if snapshot.AI != nil {
 		snapshot.AI.EncryptAPIKeys()
 	}
+	if snapshot.OIDC != nil {
+		snapshot.OIDC.EncryptClientSecret()
+	}
 	if snapshot.Secrets != nil {
 		snapshot.Secrets.Encrypt()
 	}
 	// safeMode 是纯运行时状态（由 --safe-mode 注入），不随 conf.json 持久化，避免跨启动残留。
 	if snapshot.System != nil {
 		snapshot.System.SafeMode = false
+		// 更新通道由用户目录下的全局配置持久化，不写入工作空间配置。
+		snapshot.System.UpdateChannel = ""
 	}
 
 	newData, err := gulu.JSON.MarshalIndentJSON(snapshot, "", "  ")
@@ -1236,6 +1364,7 @@ func GetMaskedConf() (ret *AppConf, err error) {
 
 	ret.UserData = MaskedUserData
 	ret.MCPOAuth = ""
+	ret.CookieKey = ""
 	if "" != ret.AccessAuthCode {
 		ret.AccessAuthCode = MaskedAccessAuthCode
 	}
@@ -1246,8 +1375,13 @@ func GetMaskedConf() (ret *AppConf, err error) {
 // REF: https://github.com/siyuan-note/siyuan/issues/11364
 func HideConfSecret(c *AppConf) {
 	c.AI = &conf.AI{}
+	c.OIDC = &conf.OIDC{}
 	c.MCPOAuth = ""
+	c.CookieKey = ""
 	c.Api = &conf.API{}
+	if nil != c.Export {
+		c.Export.PandocBin = ""
+	}
 	c.Flashcard = &conf.Flashcard{}
 	c.ServerAddrs = []string{}
 	c.Publish = &conf.Publish{}
@@ -1255,12 +1389,27 @@ func HideConfSecret(c *AppConf) {
 	c.Sync = &conf.Sync{}
 	c.Secrets = &conf.Secrets{}
 	c.Variables = &conf.Variables{}
+	if nil != c.NotebookCrypto {
+		enabled := c.NotebookCrypto.Enabled && notebookCryptoConfigurationComplete(c.NotebookCrypto)
+		c.NotebookCrypto = &conf.NotebookCrypto{
+			Enabled:         enabled,
+			AutoLockMinutes: c.NotebookCrypto.AutoLockMinutes,
+		}
+	}
 	c.System.AppDir = ""
 	c.System.ConfDir = ""
 	c.System.DataDir = ""
 	c.System.HomeDir = ""
+	c.System.WorkspaceDir = ""
 	c.System.Name = ""
 	c.System.NetworkProxy = &conf.NetworkProxy{}
+}
+
+// HideBoxConfSecret 隐藏笔记本配置中的密钥材料。
+func HideBoxConfSecret(c *conf.BoxConf) {
+	if nil != c {
+		c.BoxCrypt = nil
+	}
 }
 
 func clearPortJSON() {
@@ -1326,7 +1475,9 @@ func clearWorkspaceTemp(preserveInstallPkgs bool) {
 	os.RemoveAll(filepath.Join(util.TempDir, "export"))
 	os.RemoveAll(filepath.Join(util.TempDir, "import"))
 	os.RemoveAll(filepath.Join(util.TempDir, "convert"))
+	os.RemoveAll(filepath.Join(util.TempDir, "pandoc"))
 	os.RemoveAll(filepath.Join(util.TempDir, "repo"))
+	ClearRichClipboard()
 	os.RemoveAll(filepath.Join(util.TempDir, "os"))
 	os.RemoveAll(filepath.Join(util.TempDir, "base64"))
 	os.RemoveAll(filepath.Join(util.TempDir, "ai"))
@@ -1468,31 +1619,13 @@ func closeUserGuide() {
 	}
 }
 
-func init() {
-	subscribeConfEvents()
-}
-
-func subscribeConfEvents() {
-	eventbus.Subscribe(util.EvtConfPandocInitialized, func() {
-		logging.LogInfof("pandoc initialized, set pandoc bin to [%s]", util.PandocBinPath)
-		Conf.Export.PandocBin = util.PandocBinPath
-
-		params := util.RemoveInvalid(Conf.Export.PandocParams)
-		if !strings.Contains(params, "--reference-doc") && "" != util.PandocTemplatePath && !Conf.System.IsMicrosoftStore {
-			params += " --reference-doc"
-			params += " \"" + util.PandocTemplatePath + "\""
-			Conf.Export.PandocParams = strings.TrimSpace(params)
-		}
-
-		logging.LogInfof("pandoc params set to [%s]", Conf.Export.PandocParams)
-		logging.LogInfof("pandoc resources [%s, %s]", util.PandocTemplatePath, util.PandocColorFilterPath)
-		Conf.Save()
-	})
-}
-
-// NotebookCryptoEnabled 返回加密笔记本功能是否已启用（线程安全）。
+// NotebookCryptoEnabled 返回加密笔记本功能是否处于可用的启用状态（线程安全）。
 func NotebookCryptoEnabled() bool {
 	Conf.m.RLock()
 	defer Conf.m.RUnlock()
-	return Conf.NotebookCrypto.Enabled
+	if nil == Conf.NotebookCrypto {
+		return false
+	}
+	notebookCrypto := *Conf.NotebookCrypto
+	return notebookCrypto.Enabled && notebookCryptoConfigurationComplete(&notebookCrypto)
 }

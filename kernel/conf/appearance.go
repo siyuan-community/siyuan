@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -38,6 +38,7 @@ type Appearance struct {
 	HideStatusBar       bool                `json:"hideStatusBar"`       // 是否隐藏底部状态栏
 	StatusBar           *util.StatusBar     `json:"statusBar"`           // 底部状态栏配置
 	Notifications       *util.Notifications `json:"notifications"`       // 外观通知开关配置
+	EntryVisibility     *EntryVisibility    `json:"entryVisibility"`     // 桌面端入口可见性配置
 }
 
 func NewAppearance() *Appearance {
@@ -55,12 +56,85 @@ func NewAppearance() *Appearance {
 		HideStatusBar:       false,
 		StatusBar:           &util.StatusBar{},
 		Notifications:       util.NewNotifications(),
+		EntryVisibility:     NewEntryVisibility(EntryVisibilityProfileSimple),
 	}
 }
 
+const (
+	EntryVisibilityVersion       = 2
+	EntryVisibilityProfileSimple = "simple"
+	EntryVisibilityProfileFull   = "full"
+)
+
+type EntryVisibility struct {
+	Version  int                       `json:"version"`
+	Active   string                    `json:"active"`
+	Profiles []*EntryVisibilityProfile `json:"profiles"`
+}
+
+type EntryVisibilityProfile struct {
+	ID      string              `json:"id"`
+	Name    string              `json:"name"`
+	Base    string              `json:"base"`
+	Entries map[string]bool     `json:"entries"`
+	Orders  map[string][]string `json:"orders"`
+}
+
+func NewEntryVisibility(active string) *EntryVisibility {
+	if active != EntryVisibilityProfileSimple && active != EntryVisibilityProfileFull {
+		active = EntryVisibilityProfileFull
+	}
+	return &EntryVisibility{
+		Version:  EntryVisibilityVersion,
+		Active:   active,
+		Profiles: []*EntryVisibilityProfile{},
+	}
+}
+
+func NormalizeEntryVisibility(entryVisibility *EntryVisibility, fallback string) *EntryVisibility {
+	if nil == entryVisibility {
+		return NewEntryVisibility(fallback)
+	}
+	entryVisibility.Version = EntryVisibilityVersion
+	if nil == entryVisibility.Profiles {
+		entryVisibility.Profiles = []*EntryVisibilityProfile{}
+	}
+
+	profileIDs := map[string]bool{}
+	profiles := make([]*EntryVisibilityProfile, 0, len(entryVisibility.Profiles))
+	for _, profile := range entryVisibility.Profiles {
+		if nil == profile || "" == profile.ID || "" == profile.Name || profile.ID == EntryVisibilityProfileSimple ||
+			profile.ID == EntryVisibilityProfileFull || profileIDs[profile.ID] {
+			continue
+		}
+		if profile.Base != EntryVisibilityProfileSimple && profile.Base != EntryVisibilityProfileFull {
+			profile.Base = EntryVisibilityProfileFull
+		}
+		if nil == profile.Entries {
+			profile.Entries = map[string]bool{}
+		}
+		if nil == profile.Orders {
+			profile.Orders = map[string][]string{}
+		}
+		profileIDs[profile.ID] = true
+		profiles = append(profiles, profile)
+	}
+	entryVisibility.Profiles = profiles
+	if entryVisibility.Active != EntryVisibilityProfileSimple && entryVisibility.Active != EntryVisibilityProfileFull &&
+		!profileIDs[entryVisibility.Active] {
+		entryVisibility.Active = fallback
+	}
+	if entryVisibility.Active != EntryVisibilityProfileSimple && entryVisibility.Active != EntryVisibilityProfileFull &&
+		!profileIDs[entryVisibility.Active] {
+		entryVisibility.Active = EntryVisibilityProfileFull
+	}
+	return entryVisibility
+}
+
 type AppearanceTheme struct {
-	Name  string `json:"name"`  // daylight
-	Label string `json:"label"` // i18n display name
+	Name      string   `json:"name"`                // daylight
+	Label     string   `json:"label"`               // i18n display name
+	Frontends []string `json:"frontends,omitempty"` // 支持的前端
 }
 
 type AppearanceIcon struct {

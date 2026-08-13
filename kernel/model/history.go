@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -160,16 +161,8 @@ func ClearWorkspaceHistory() (err error) {
 }
 
 func GetDocHistoryContent(historyPath, keyword string, highlight bool) (id, rootID, content string, isLargeDoc bool, err error) {
-	historyPath = filepath.Join(util.WorkspaceDir, historyPath)
-	if !util.IsAbsPathInWorkspace(historyPath) {
-		msg := "Path [" + historyPath + "] is not in workspace"
-		logging.LogError(msg)
-		err = errors.New(msg)
-		return
-	}
-
-	if !gulu.File.IsExist(historyPath) {
-		logging.LogWarnf("doc history [%s] not exist", historyPath)
+	historyPath, err = validateHistoryPath(historyPath)
+	if err != nil {
 		return
 	}
 
@@ -183,29 +176,32 @@ func GetDocHistoryContent(historyPath, keyword string, highlight bool) (id, root
 	relPath := strings.TrimPrefix(filepath.ToSlash(historyPath), filepath.ToSlash(util.HistoryDir))
 	relPath = strings.TrimPrefix(relPath, "/")
 	pathParts := strings.SplitN(relPath, "/", 3)
-	if len(pathParts) >= 2 {
-		histBoxID := pathParts[1]
-		if IsEncryptedBox(histBoxID) {
-			HoldBoxReadLock(histBoxID)
-			defer ReleaseBoxReadLock(histBoxID)
-			dek, dekErr := GetDEKIfUnlocked(histBoxID)
-			if dekErr != nil {
-				err = errors.New(Conf.Language(314))
-				return
-			}
-			var decErr error
-			// 历史路径格式：<historyDir>/<datePrefix>/<boxID>/<relativePath>
-			filePath := ""
-			if len(pathParts) >= 3 {
-				filePath = pathParts[2]
-			}
-			data, decErr = DecryptFile(histBoxID, filePath, dek, data)
-			if decErr != nil {
-				logging.LogErrorf("decrypt history [%s] failed: %s", historyPath, decErr)
-				err = decErr
-				return
-			}
+	ciphertext := util.IsCiphertext(data)
+	if ciphertext {
+		if len(pathParts) < 3 || !ast.IsNodeIDPattern(pathParts[1]) {
+			err = errors.New("encrypted document history is missing notebook context")
+			return
 		}
+		histBoxID := pathParts[1]
+		if !IsEncryptedBox(histBoxID) {
+			err = fmt.Errorf("encrypted document history has no matching notebook [%s]", histBoxID)
+			return
+		}
+		HoldBoxReadLock(histBoxID)
+		defer ReleaseBoxReadLock(histBoxID)
+		dek, dekErr := GetDEKIfUnlocked(histBoxID)
+		if dekErr != nil {
+			err = errors.New(Conf.Language(314))
+			return
+		}
+		data, err = DecryptFile(histBoxID, pathParts[2], dek, data)
+		if err != nil {
+			logging.LogErrorf("decrypt history [%s] failed: %s", historyPath, err)
+			return
+		}
+	} else if len(pathParts) >= 2 && IsEncryptedBox(pathParts[1]) {
+		err = fmt.Errorf("encrypted notebook document history is plaintext [%s]", pathParts[1])
+		return
 	}
 	isLargeDoc = 1024*1024*1 <= len(data)
 
@@ -282,7 +278,7 @@ func RollbackDocHistory(historyPath string) (err error) {
 	parts := strings.SplitN(relPath, "/", 3)
 	if len(parts) < 3 {
 		logging.LogWarnf("invalid history path [%s]", historyPath)
-		return
+		return fmt.Errorf("history path is missing notebook context [%s]", historyPath)
 	}
 	boxID := parts[1]
 	origBoxID := boxID // 保留原始 boxID 用于解密（getRollbackBox 可能返回不同的 box）
@@ -322,7 +318,14 @@ func RollbackDocHistory(historyPath string) (err error) {
 	srcData, srcReadErr := filelock.ReadFile(srcPath)
 	if srcReadErr != nil {
 		logging.LogErrorf("read history [%s] failed: %s", srcPath, srcReadErr)
-		return
+		return srcReadErr
+	}
+	ciphertext := util.IsCiphertext(srcData)
+	if ciphertext && !IsEncryptedBox(origBoxID) {
+		return fmt.Errorf("encrypted document history has no matching notebook [%s]", origBoxID)
+	}
+	if !ciphertext && IsEncryptedBox(origBoxID) {
+		return fmt.Errorf("encrypted notebook document history is plaintext [%s]", origBoxID)
 	}
 	if IsEncryptedBox(origBoxID) {
 		HoldBoxReadLock(origBoxID)
@@ -343,7 +346,13 @@ func RollbackDocHistory(historyPath string) (err error) {
 			return
 		}
 	}
-	tree, _ := loadTreeByData0(srcData)
+	tree, parseErr := loadTreeByData0(srcData)
+	if parseErr != nil {
+		return fmt.Errorf("parse document history failed: %w", parseErr)
+	}
+	if tree == nil {
+		return errors.New("parse document history failed")
+	}
 	if nil != tree {
 		historyDir := filepath.Join(util.HistoryDir, parts[0])
 
@@ -355,9 +364,10 @@ func RollbackDocHistory(historyPath string) (err error) {
 			if IsEncryptedBox(boxID) {
 				// 历史目录里 AV 也可能在 boxID 子目录下
 				boxSrcAvPath := filepath.Join(historyDir, boxID, "storage", "av", avNode.AttributeViewID+".json")
-				if gulu.File.IsExist(boxSrcAvPath) {
-					srcAvPath = boxSrcAvPath
+				if !gulu.File.IsExist(boxSrcAvPath) {
+					return fmt.Errorf("encrypted attribute view history is missing notebook context [%s]", avNode.AttributeViewID)
 				}
+				srcAvPath = boxSrcAvPath
 				destAvPath = filepath.Join(util.DataDir, boxID, "storage", "av", avNode.AttributeViewID+".json")
 			}
 			if gulu.File.IsExist(destAvPath) {
@@ -516,8 +526,19 @@ func RollbackAssetsHistory(historyPath string) (err error) {
 	relPath := strings.TrimPrefix(filepath.ToSlash(historyPath), filepath.ToSlash(util.HistoryDir))
 	relPath = strings.TrimPrefix(relPath, "/")
 	pathParts := strings.SplitN(relPath, "/", 3)
+	data, readErr := filelock.ReadFile(from)
+	if readErr != nil {
+		return readErr
+	}
+	encrypted := bytes.HasPrefix(data, encryptedAssetMagic)
+	if encrypted && (len(pathParts) < 3 || !ast.IsNodeIDPattern(pathParts[1]) || !IsEncryptedBox(pathParts[1])) {
+		return errors.New("encrypted asset history is missing valid notebook context")
+	}
 	to := filepath.Join(util.DataDir, "assets", filepath.Base(historyPath))
 	if len(pathParts) >= 2 && IsEncryptedBox(pathParts[1]) {
+		if !encrypted {
+			return fmt.Errorf("encrypted notebook asset history is plaintext [%s]", pathParts[1])
+		}
 		// 加密笔记本的资源回滚到笔记本级 assets 目录
 		to = filepath.Join(util.DataDir, pathParts[1], "assets", filepath.Base(historyPath))
 		if err = os.MkdirAll(filepath.Dir(to), 0755); err != nil {
@@ -551,23 +572,73 @@ func validateHistoryPath(historyPath string) (string, error) {
 	return p, nil
 }
 
+// IsEncryptedHistoryPath 判断历史路径是否明确属于加密笔记本。
+func IsEncryptedHistoryPath(absPath string) bool {
+	boxID := ExtractBoxIDFromHistoryPath(absPath)
+	if boxID == "" {
+		return false
+	}
+	if IsEncryptedBox(boxID) {
+		return true
+	}
+	rel, err := filepath.Rel(util.HistoryDir, absPath)
+	if err != nil {
+		return false
+	}
+	parts := strings.SplitN(filepath.ToSlash(rel), "/", 3)
+	if len(parts) < 2 || parts[1] != boxID {
+		return false
+	}
+	encrypted, err := isEncryptedHistoryBoxDir(filepath.Join(util.HistoryDir, parts[0], boxID))
+	if err != nil {
+		logging.LogErrorf("inspect encrypted history path [%s] failed: %s", absPath, err)
+		return true
+	}
+	return encrypted
+}
+
 func RollbackNotebookHistory(historyPath string) (err error) {
 	historyPath, err = validateHistoryPath(historyPath)
 	if err != nil {
 		return
 	}
+	boxID, err := validateNotebookHistoryPath(historyPath)
+	if err != nil {
+		return
+	}
+	if _, loaded := boxLock.LoadOrStore(boxID, true); loaded {
+		return errors.New(Conf.Language(239))
+	}
+	defer boxLock.Delete(boxID)
 
 	from := historyPath
-	to := filepath.Join(util.DataDir, filepath.Base(historyPath))
+	to := filepath.Join(util.DataDir, boxID)
+	if filelock.IsExist(to) {
+		return errors.New(Conf.Language(371))
+	}
 
 	if err = filelock.CopyNewtimes(from, to); err != nil {
 		logging.LogErrorf("copy file [%s] to [%s] failed: %s", from, to, err)
 		return
 	}
 
-	FullReindex(true)
 	IncSync()
+	ReloadFiletree()
+	util.PushMsg(Conf.Language(372), 3000)
 	return nil
+}
+
+func validateNotebookHistoryPath(historyPath string) (boxID string, err error) {
+	rel, err := filepath.Rel(util.HistoryDir, historyPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid notebook history path [%s]", historyPath)
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) != 2 || !strings.HasSuffix(parts[0], "-"+HistoryOpDelete) || !ast.IsNodeIDPattern(parts[1]) ||
+		!gulu.File.IsDir(historyPath) || !filelock.IsExist(filepath.Join(historyPath, ".siyuan", "conf.json")) {
+		return "", fmt.Errorf("invalid notebook history path [%s]", historyPath)
+	}
+	return parts[1], nil
 }
 
 func RollbackAttributeViewHistory(historyPath string) (err error) {
@@ -585,8 +656,19 @@ func RollbackAttributeViewHistory(historyPath string) (err error) {
 	relPath := strings.TrimPrefix(filepath.ToSlash(historyPath), filepath.ToSlash(util.HistoryDir))
 	relPath = strings.TrimPrefix(relPath, "/")
 	pathParts := strings.SplitN(relPath, "/", 3)
+	data, readErr := filelock.ReadFile(from)
+	if readErr != nil {
+		return readErr
+	}
+	ciphertext := util.IsCiphertext(data)
+	if ciphertext && (len(pathParts) < 3 || !ast.IsNodeIDPattern(pathParts[1]) || !IsEncryptedBox(pathParts[1])) {
+		return errors.New("encrypted attribute view history is missing valid notebook context")
+	}
 	to := filepath.Join(util.DataDir, "storage", "av", filepath.Base(historyPath))
 	if len(pathParts) >= 2 && IsEncryptedBox(pathParts[1]) {
+		if !ciphertext {
+			return fmt.Errorf("encrypted notebook attribute view history is plaintext [%s]", pathParts[1])
+		}
 		// 加密笔记本的 AV 定义回滚到笔记本级目录
 		to = filepath.Join(util.DataDir, pathParts[1], "storage", "av", filepath.Base(historyPath))
 		if err = os.MkdirAll(filepath.Dir(to), 0755); err != nil {
@@ -610,6 +692,7 @@ type History struct {
 }
 
 type HistoryItem struct {
+	ID       string `json:"id"`
 	Title    string `json:"title"`
 	Path     string `json:"path"`
 	Op       string `json:"op"`
@@ -774,23 +857,54 @@ func generateAssetsHistory() {
 	if 1 > len(assets) {
 		return
 	}
+	if err := createAssetsHistory(assets); err != nil {
+		logging.LogErrorf("generate assets history failed: %s", err)
+	}
+}
 
+// CreateAssetHistory 为指定资源文件创建历史快照。
+func CreateAssetHistory(assetPath string) (err error) {
+	assetPath = strings.TrimPrefix(filepath.ToSlash(filepath.Clean(filepath.FromSlash(assetPath))), "/")
+	if !strings.HasPrefix(assetPath, "assets/") {
+		return errors.New("asset path must be under assets")
+	}
+
+	assetAbsPath := filepath.Join(util.DataDir, filepath.FromSlash(assetPath))
+	assetsDir := filepath.Join(util.DataDir, "assets")
+	if !gulu.File.IsSubPath(assetsDir, assetAbsPath) {
+		return errors.New("asset path must be under assets")
+	}
+	info, statErr := os.Stat(assetAbsPath)
+	if statErr != nil {
+		return statErr
+	}
+	if info.IsDir() {
+		return errors.New("asset path must be a file")
+	}
+	return createAssetsHistory([]string{assetAbsPath})
+}
+
+func createAssetsHistory(assets []string) (err error) {
 	historyDir, err := getHistoryDir(HistoryOpUpdate)
 	if err != nil {
-		logging.LogErrorf("get history dir failed: %s", err)
-		return
+		return fmt.Errorf("get history directory failed: %w", err)
 	}
 
 	for _, file := range assets {
-		historyPath := filepath.Join(historyDir, "assets", strings.TrimPrefix(file, filepath.Join(util.DataDir, "assets")))
+		assetRelPath, relErr := filepath.Rel(filepath.Join(util.DataDir, "assets"), file)
+		if relErr != nil || assetRelPath == "." || strings.HasPrefix(assetRelPath, ".."+string(filepath.Separator)) {
+			return errors.New("asset path must be under assets")
+		}
+		historyPath := filepath.Join(historyDir, "assets", assetRelPath)
 		if err = os.MkdirAll(filepath.Dir(historyPath), 0755); err != nil {
-			logging.LogErrorf("generate history failed: %s", err)
-			return
+			return fmt.Errorf("create history directory [%s] failed: %w", filepath.Dir(historyPath), err)
 		}
 
 		if err = filelock.Copy(file, historyPath); err != nil {
-			logging.LogErrorf("copy file [%s] to [%s] failed: %s", file, historyPath, err)
-			return
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("copy asset [%s] to [%s] failed: %w", file, historyPath, err)
 		}
 	}
 
@@ -812,39 +926,51 @@ func (box *Box) generateDocHistory0() {
 
 	luteEngine := util.NewLute()
 	for _, file := range files {
-		historyPath := filepath.Join(historyDir, box.ID, strings.TrimPrefix(file, filepath.Join(util.DataDir, box.ID)))
-		if err = os.MkdirAll(filepath.Dir(historyPath), 0755); err != nil {
+		if err = generateDocHistoryFile(box.ID, file, historyDir, luteEngine); err != nil {
 			logging.LogErrorf("generate history failed: %s", err)
 			return
-		}
-
-		var data []byte
-		if data, err = filelock.ReadFile(file); err != nil {
-			logging.LogErrorf("generate history failed: %s", err)
-			return
-		}
-
-		if err = gulu.File.WriteFileSafer(historyPath, data, 0644); err != nil {
-			logging.LogErrorf("generate history failed: %s", err)
-			return
-		}
-
-		if strings.HasSuffix(file, ".sy") {
-			tree, loadErr := loadTree(file, luteEngine)
-			if nil != loadErr {
-				logging.LogErrorf("load tree [%s] failed: %s", file, loadErr)
-			} else {
-				// loadTree 不设置 tree.Box，这里补上：generateAvHistoryInTree 依据 tree.Box 判定是否
-				// 加密笔记本并据此选择历史目标路径（<boxID>/storage/av vs 全局 storage/av），
-				// tree.Box 为空会把加密笔记本的密文 AV 错误拷到全局历史路径
-				tree.Box = box.ID
-				generateAvHistoryInTree(tree, historyDir)
-			}
 		}
 	}
 
 	indexHistoryDir(filepath.Base(historyDir), util.NewLute())
 	return
+}
+
+func generateDocHistoryFile(boxID, file, historyDir string, luteEngine *lute.Lute) error {
+	data, err := filelock.ReadFile(file)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read document [%s] failed: %w", file, err)
+	}
+
+	return generateDocHistoryFromData(boxID, file, historyDir, data, luteEngine)
+}
+
+func generateDocHistoryFromData(boxID, file, historyDir string, data []byte, luteEngine *lute.Lute) error {
+	historyPath := filepath.Join(historyDir, boxID, strings.TrimPrefix(file, filepath.Join(util.DataDir, boxID)))
+	if err := os.MkdirAll(filepath.Dir(historyPath), 0755); err != nil {
+		return err
+	}
+	if err := gulu.File.WriteFileSafer(historyPath, data, 0644); err != nil {
+		return err
+	}
+	if !strings.HasSuffix(file, ".sy") {
+		return nil
+	}
+
+	tree, err := loadTreeByData(file, data, luteEngine)
+	if err != nil {
+		logging.LogErrorf("load tree [%s] failed: %s", file, err)
+		return nil
+	}
+	// loadTreeByData 不设置 tree.Box，这里补上：generateAvHistoryInTree 依据 tree.Box 判定是否
+	// 加密笔记本并据此选择历史目标路径（<boxID>/storage/av vs 全局 storage/av），
+	// tree.Box 为空会把加密笔记本的密文 AV 错误拷到全局历史路径
+	tree.Box = boxID
+	generateAvHistoryInTree(tree, historyDir)
+	return nil
 }
 
 func ClearOutdatedHistoryDirJob() {
@@ -1107,6 +1233,7 @@ func indexHistoryDir(name string, luteEngine *lute.Lute) {
 	})
 
 	var histories []*sql.History
+	encryptedHistoryBoxes := map[string]bool{}
 	for _, doc := range docs {
 		relDoc := strings.TrimPrefix(doc, entryPath+string(os.PathSeparator))
 		relDoc = filepath.ToSlash(relDoc)
@@ -1118,7 +1245,22 @@ func indexHistoryDir(name string, luteEngine *lute.Lute) {
 		p := strings.TrimPrefix(doc, util.HistoryDir)
 		p = filepath.ToSlash(p[1:])
 
-		if histBoxID != "" && IsEncryptedBox(histBoxID) {
+		isEncrypted := IsEncryptedBox(histBoxID)
+		if histBoxID != "" && !isEncrypted {
+			if cached, ok := encryptedHistoryBoxes[histBoxID]; ok {
+				isEncrypted = cached
+			} else {
+				boxConfData, readErr := os.ReadFile(filepath.Join(entryPath, histBoxID, ".siyuan", "conf.json"))
+				if readErr == nil {
+					boxConf := &conf.BoxConf{}
+					if json.Unmarshal(boxConfData, boxConf) == nil {
+						isEncrypted = boxConf.Encrypted
+					}
+				}
+				encryptedHistoryBoxes[histBoxID] = isEncrypted
+			}
+		}
+		if isEncrypted {
 			// 加密笔记本：content 留空，只存路径用于文件列表展示
 			docID := strings.TrimSuffix(filepath.Base(doc), ".sy")
 			histories = append(histories, &sql.History{
@@ -1222,6 +1364,7 @@ func fromSQLHistories(sqlHistories []*sql.History) (ret []*HistoryItem) {
 
 	for _, sqlHistory := range sqlHistories {
 		item := &HistoryItem{
+			ID:    sqlHistory.ID,
 			Title: sqlHistory.Title,
 			Path:  filepath.ToSlash(strings.TrimPrefix(filepath.Join(util.HistoryDir, sqlHistory.Path), util.WorkspaceDir)),
 			Op:    sqlHistory.Op,

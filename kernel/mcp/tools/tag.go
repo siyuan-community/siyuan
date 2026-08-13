@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -86,6 +86,7 @@ func tagRename(args map[string]any) (CallToolResult, error) {
 	if err := model.RenameTag(oldLabel, newLabel); err != nil {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "rename tag failed: " + err.Error()}}, IsError: true}, nil
 	}
+	model.ReloadTag()
 
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "tag renamed: #" + oldLabel + " -> #" + newLabel}}}, nil
 }
@@ -99,6 +100,7 @@ func tagRemove(args map[string]any) (CallToolResult, error) {
 	if err := model.RemoveTag(label); err != nil {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "remove tag failed: " + err.Error()}}, IsError: true}, nil
 	}
+	model.ReloadTag()
 
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "tag removed: #" + label}}}, nil
 }

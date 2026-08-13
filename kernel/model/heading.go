@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -34,6 +34,63 @@ import (
 	"github.com/siyuan-note/logging"
 )
 
+// GetHeadingFoldTransaction 生成直接子标题或同级标题的批量折叠事务。
+func GetHeadingFoldTransaction(id, scope string) (transaction *Transaction, err error) {
+	tree, err := LoadTreeByBlockID(id)
+	if err != nil {
+		return
+	}
+
+	heading := treenode.GetNodeInTree(tree, id)
+	transaction = &Transaction{}
+	if nil == heading || ast.NodeHeading != heading.Type {
+		return
+	}
+
+	var headings []*ast.Node
+	switch scope {
+	case "children":
+		if treenode.IsSelfFolded(heading) {
+			headings = []*ast.Node{heading}
+		} else {
+			headings = treenode.HeadingDirectChildren(heading)
+		}
+	case "siblings":
+		headings = treenode.HeadingSiblings(heading)
+	default:
+		err = errors.New("invalid heading fold scope")
+		return
+	}
+	transaction = buildHeadingFoldTransaction(headings)
+	return
+}
+
+func buildHeadingFoldTransaction(headings []*ast.Node) (transaction *Transaction) {
+	transaction = &Transaction{}
+	foldAll := false
+	for _, heading := range headings {
+		if !treenode.IsSelfFolded(heading) {
+			foldAll = true
+			break
+		}
+	}
+
+	for i := len(headings) - 1; 0 <= i; i-- {
+		heading := headings[i]
+		if treenode.IsSelfFolded(heading) == foldAll {
+			continue
+		}
+
+		action, undoAction := "unfoldHeading", "foldHeading"
+		if foldAll {
+			action, undoAction = undoAction, action
+		}
+		transaction.DoOperations = append(transaction.DoOperations, &Operation{Action: action, ID: heading.ID})
+		transaction.UndoOperations = append(transaction.UndoOperations, &Operation{Action: undoAction, ID: heading.ID})
+	}
+	return
+}
+
 func (tx *Transaction) doFoldHeading(operation *Operation) (ret *TxErr) {
 	headingID := operation.ID
 	tree, err := tx.loadTree(headingID)
@@ -50,24 +107,12 @@ func (tx *Transaction) doFoldHeading(operation *Operation) (ret *TxErr) {
 	children := treenode.HeadingChildren(heading)
 	for _, child := range children {
 		childrenIDs = append(childrenIDs, child.ID)
-		ast.Walk(child, func(n *ast.Node, entering bool) ast.WalkStatus {
-			if !entering || !n.IsBlock() {
-				return ast.WalkContinue
-			}
-
-			n.SetIALAttr("fold", "1")
-			n.SetIALAttr("heading-fold", "1")
-			return ast.WalkContinue
-		})
 	}
-	heading.SetIALAttr("fold", "1")
+	treenode.SetSelfFolded(heading, true)
 
 	tx.writeTree(tree)
 	IncSync()
 	cache.PutBlockIALInBox(headingID, tree.Box, parse.IAL2Map(heading.KramdownIAL))
-	for _, child := range children {
-		cache.PutBlockIALInBox(child.ID, tree.Box, parse.IAL2Map(child.KramdownIAL))
-	}
 	sql.UpsertTreeQueue(tree)
 	operation.RetData = childrenIDs
 	return
@@ -86,58 +131,44 @@ func (tx *Transaction) doUnfoldHeading(operation *Operation) (ret *TxErr) {
 		return &TxErr{code: TxErrCodeBlockNotFound, id: headingID}
 	}
 
-	luteEngine := NewLute()
-	parentFoldedHeading := treenode.GetParentFoldedHeading(heading)
-	if nil != parentFoldedHeading {
-		// 如果当前标题在上方某个折叠的标题下方，则展开上方那个折叠标题以保持一致性
-		children := treenode.HeadingChildren(parentFoldedHeading)
-		for _, child := range children {
-			ast.Walk(child, func(n *ast.Node, entering bool) ast.WalkStatus {
-				if !entering || !n.IsBlock() {
-					return ast.WalkContinue
-				}
-
-				n.RemoveIALAttr("heading-fold")
-				n.RemoveIALAttr("fold")
-				return ast.WalkContinue
-			})
-		}
-		parentFoldedHeading.RemoveIALAttr("fold")
-		parentFoldedHeading.RemoveIALAttr("heading-fold")
-		go func() {
-			tx.WaitForCommit()
-			ReloadProtyle(tree.ID)
-		}()
-	}
-
 	children := treenode.HeadingChildren(heading)
+	legacyNodes := map[string]*ast.Node{}
 	for _, child := range children {
 		ast.Walk(child, func(n *ast.Node, entering bool) ast.WalkStatus {
-			if !entering {
+			if !entering || !n.IsBlock() {
 				return ast.WalkContinue
 			}
 
-			n.RemoveIALAttr("heading-fold")
-			n.RemoveIALAttr("fold")
+			if treenode.ClearLegacyHeadingFold(n) {
+				legacyNodes[n.ID] = n
+			}
 			return ast.WalkContinue
 		})
 	}
-	heading.RemoveIALAttr("fold")
-	heading.RemoveIALAttr("heading-fold")
+	if "1" == heading.IALAttr("heading-fold") {
+		legacyNodes[heading.ID] = heading
+	}
+	treenode.SetSelfFolded(heading, false)
 
 	tx.writeTree(tree)
 	IncSync()
 
 	cache.PutBlockIALInBox(headingID, tree.Box, parse.IAL2Map(heading.KramdownIAL))
-	for _, child := range children {
-		cache.PutBlockIALInBox(child.ID, tree.Box, parse.IAL2Map(child.KramdownIAL))
+	for _, node := range legacyNodes {
+		cache.PutBlockIALInBox(node.ID, tree.Box, parse.IAL2Map(node.KramdownIAL))
 	}
 	sql.UpsertTreeQueue(tree)
 
 	// 展开折叠的标题后显示块引用计数 Display reference counts after unfolding headings https://github.com/siyuan-note/siyuan/issues/13618
-	fillBlockRefCount(children)
+	fillBlockRefCount(children, tree.Box)
 
-	operation.RetData = renderBlockDOMByNodes(children, luteEngine)
+	operation.RetData = renderVisibleBlockDOMByNodes(children, NewLute())
+	if 0 < len(legacyNodes) {
+		go func() {
+			tx.WaitForCommit()
+			ReloadProtyle(tree.ID)
+		}()
+	}
 	return
 }
 
@@ -381,21 +412,19 @@ func Heading2Doc(srcHeadingID, targetBoxID, targetPath, previousPath string, toT
 		}
 	}
 
-	// 折叠标题转换为文档时需要自动展开下方块 https://github.com/siyuan-note/siyuan/issues/2947
+	// 标题转换为文档时清理旧版标题折叠派生状态，并保留下方块各自的折叠状态。
 	children := treenode.HeadingChildren(headingNode)
 	for _, child := range children {
 		ast.Walk(child, func(n *ast.Node, entering bool) ast.WalkStatus {
-			if !entering {
+			if !entering || !n.IsBlock() {
 				return ast.WalkContinue
 			}
 
-			n.RemoveIALAttr("heading-fold")
-			n.RemoveIALAttr("fold")
+			treenode.ClearLegacyHeadingFold(n)
 			return ast.WalkContinue
 		})
 	}
-	headingNode.RemoveIALAttr("fold")
-	headingNode.RemoveIALAttr("heading-fold")
+	treenode.SetSelfFolded(headingNode, false)
 
 	luteEngine := util.NewLute()
 	newTree := &parse.Tree{Root: &ast.Node{Type: ast.NodeDocument, ID: srcHeadingID}, Context: &parse.Context{ParseOption: luteEngine.ParseOptions}}

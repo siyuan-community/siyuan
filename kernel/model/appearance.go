@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -156,7 +156,7 @@ func LoadThemes() {
 		}
 		name := themeDir.Name()
 		themeConf, parseErr := bazaar.ParsePackageJSON(filepath.Join(util.ThemesPath, name, "theme.json"))
-		if nil != parseErr || nil == themeConf {
+		if nil != parseErr || !bazaar.IsValidInstalledPackage(themeConf, name) {
 			continue
 		}
 
@@ -165,7 +165,7 @@ func LoadThemes() {
 			modes = *themeConf.Modes
 		}
 		for _, mode := range modes {
-			t := &conf.AppearanceTheme{Name: name}
+			t := &conf.AppearanceTheme{Name: name, Frontends: themeConf.Frontends}
 			if isBuiltInTheme(name) {
 				t.Label = name + Conf.Language(281)
 			} else {
@@ -237,7 +237,7 @@ func LoadIcons() {
 		}
 		name := iconDir.Name()
 		iconConf, err := bazaar.ParsePackageJSON(filepath.Join(util.IconsPath, name, "icon.json"))
-		if err != nil || nil == iconConf {
+		if err != nil || !bazaar.IsValidInstalledPackage(iconConf, name) {
 			continue
 		}
 		t := &conf.AppearanceIcon{Name: name}

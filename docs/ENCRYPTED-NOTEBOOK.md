@@ -18,6 +18,7 @@ Implement an "encrypted notebook" in SiYuan — a special notebook whose `.sy` d
 | Global features | Encrypted notebooks never participate (global search / graph / block refs cannot see them) |
 | Block refs | Normal refs within the notebook; cross-boundary refs forbidden (bidirectional: normal↔encrypted, encrypted A↔encrypted B) |
 | AI / LLM | No functional-layer isolation — when unlocked, AI/LLM can read/search just like a normal notebook; when locked, no usable DEK handle exists and dedicated entry points deny access (see §13) |
+| Publish | Unsupported — publish readers and anonymous visitors cannot enumerate or read an encrypted notebook regardless of unlock state, publish password, or visibility configuration |
 | Cross-boundary move | Forbidden — would break data consistency and leak |
 | Database | Notebook-level storage — encrypted notebook database files follow the notebook directory, DEK-encrypted; cross-boundary mirroring forbidden |
 | Flashcards / spaced repetition | Not supported (feature limitation) |
@@ -57,6 +58,7 @@ Implement an "encrypted notebook" in SiYuan — a special notebook whose `.sy` d
 | **Deleted notebook history** | Supported | Supported (entire directory backed up as ciphertext before deletion and restored verbatim; recovery also requires the matching global key backup and master password) |
 | **Embedding vectorization / semantic search** | Participates | Does not participate (encrypted data never enters the global block_embeddings table; the embedding pipeline reads only the global SQLite database — independent of lock state) |
 | **Agents / AI chat / MCP** | Can read content, can search | Available when unlocked (can read blocks, list docs, search within notebook); unreachable when locked (see §13). Global search / semantic search not included |
+| **Publish** | Supports visibility, password, and deny configuration through `publishAccess.json` | Unsupported; publish readers and anonymous visitors can never enumerate or read it, and `publishAccess.json` cannot override this rule |
 | **Kernel CLI** | Can operate on workspace data | Does not support encrypted notebooks or their files, whether locked or unlocked |
 | **Flashcards / spaced repetition** | Participates | Not supported (feature limitation) |
 | **Bookmarks** | Participates (global aggregation) | Not supported (feature limitation) |
@@ -68,7 +70,7 @@ Implement an "encrypted notebook" in SiYuan — a special notebook whose `.sy` d
 | **Rebuild index** | Full | Skipped on startup (closed); opening performs a full rebuild into the encrypted SQLite database |
 | **/api/file/\*** | Can read, write, copy, rename, delete, or enumerate workspace files | Refuses access to any file in encrypted-notebook persistent directories (not just .sy) to prevent ciphertext disclosure or writes that bypass the encryption layer; `temp/` remains accessible to administrator file APIs and trusted plugins |
 
-**Core difference summary**: An encrypted notebook is an "island" — data is physically isolated, operations have dedicated entry points, it never participates in global features (global search/graph), and documents/database files do not cross the boundary. In-notebook features (editing, block refs, backlinks, search, database, outline, history, etc.) work normally; AI/LLM is also usable when unlocked (same as a normal notebook). Encrypted notebooks are also isolated from each other. Normal notebooks are completely unaffected.
+**Core difference summary**: An encrypted notebook is an "island" — data is physically isolated, operations have dedicated entry points, it never participates in global features (global search/graph), it cannot be published, and documents/database files do not cross the boundary. In-notebook features (editing, block refs, backlinks, search, database, outline, history, etc.) work normally; AI/LLM is also usable when unlocked (same as a normal notebook). Encrypted notebooks are also isolated from each other. Normal notebooks are completely unaffected.
 
 ## 4. Key Architecture
 
@@ -92,7 +94,9 @@ User master password
 
 MasterSalt is the global root of KEK derivation — the master password + MasterSalt derive the KEK via Argon2id, and the KEK then unwraps each notebook's WrappedDEK. **Losing MasterSalt permanently locks the data**: even with the same master password, a changed salt derives a different KEK, so old WrappedDEKs cannot be unwrapped. A backup-and-recovery mechanism is therefore introduced.
 
-**Backup**: `<DataDir>/.siyuan/notebook-crypto-backup.json`, holding the full NotebookCrypto (MasterSalt/KEKVerifier/KDFParams). Located inside DataDir, it **enters the dejavu sync scope**. It is refreshed when enabling encrypted notebooks and when changing the master password. It may be deleted on disable only after confirming that no live encrypted notebook and no kernel-enumerable history or recovery snapshot depends on it, or after the user explicitly chooses to purge those recovery artifacts permanently. Stored as plaintext JSON (salt is not secret, verifier is ciphertext — identical to how they are stored in `conf/conf.json`).
+**Backup**: `<DataDir>/.siyuan/data-crypto-backup.json`, holding the full NotebookCrypto (MasterSalt/KEKVerifier/KDFParams). Located inside DataDir, it **enters the dejavu sync scope**. It is refreshed when enabling encrypted notebooks and when changing the master password. It may be deleted on disable only after confirming that no live encrypted notebook and no kernel-enumerable history or recovery snapshot depends on it, or after the user explicitly chooses to purge those recovery artifacts permanently. Stored as plaintext JSON (salt is not secret, verifier is ciphertext — identical to how they are stored in `conf/conf.json`).
+
+Each encrypted notebook separately stores `<DataDir>/<boxID>/.siyuan/notebook-crypto-backup.json`, containing that notebook's BoxEncryption key envelope (WrappedDEK/WrapNonce and authenticated metadata). The global `data-crypto-backup.json` supplies the KEK derivation identity, while the per-notebook `notebook-crypto-backup.json` supplies the wrapped DEK; neither file can replace the other.
 
 **Recovery triggers** (covering scenarios such as conf.json loss, sync to a new device, importing Data.zip):
 
@@ -105,14 +109,14 @@ MasterSalt is the global root of KEK derivation — the master password + Master
 
 **Config recovery vs key recovery, separated**: Config recovery only needs to read the backup file and load back the salt/verifier (no password required, since salt is not secret and data remains undecryptable without the password); key recovery requires the password to derive the KEK and verify against the verifier. This allows the "enabled" state to be reached automatically after sync/import, so the user can unlock by entering the master password.
 
-**Manual key export/import**: Beyond auto-sync, users can manually export/import the key backup under **Settings → Access authorization → Encrypted notebooks**, as an independent recovery channel outside sync (e.g. when sync is unavailable, for cross-account migration, or offline physical transfer).
+**Manual key export/import**: Beyond auto-sync, users can manually export/import the key backup under **Settings - Authentication - Encrypted Notebook**, as an independent recovery channel outside sync (e.g. when sync is unavailable, for cross-account migration, or offline physical transfer).
 
 | Operation | Entry | Notes |
 |---|---|---|
-| Export key | Shown when enabled | Copies `notebook-crypto-backup.json` to the export directory for download; the user keeps it (API: `/api/notebook/exportNotebookCryptoBackup`) |
-| Import key | Shown when not enabled | Uploads a local backup file; after validation it is written back to `<DataDir>/.siyuan/` and the local config is restored (`Enabled=true`). Use the master password matching that key to unlock afterwards (API: `/api/notebook/importNotebookCryptoBackup`) |
+| Export key | Shown when enabled | Copies `data-crypto-backup.json` to the export directory for download; the user keeps it (API: `/api/notebook/exportNotebookCryptoBackup`) |
+| Import key | Shown in `Disabled` or `RecoveryRequired` | Uploads a local backup file; after validation it is written back to `<DataDir>/.siyuan/` and the local config is restored (`Enabled=true`). Use the master password matching that key to unlock afterwards (API: `/api/notebook/importNotebookCryptoBackup`) |
 
-Import guard: when the local machine is already enabled, import is rejected (to avoid overwriting the existing salt and orphaning WrappedDEKs); the import entry is shown only when not enabled. The backup file itself does not contain the master password (salt is not secret, verifier is ciphertext), so export/import does not leak plaintext data; unlocking still requires the master password.
+Import guard: a complete `Enabled` configuration rejects import to avoid overwriting the existing salt and orphaning WrappedDEKs. `RecoveryRequired` permits import only when the authenticated candidate key can unwrap every live encrypted notebook and every kernel-enumerable deleted-notebook history dependency. The backup file itself does not contain the master password (salt is not secret, verifier is ciphertext), so export/import does not leak plaintext data; unlocking still requires the master password.
 
 **Fool-proof guard**: When encrypted notebooks already exist on disk (notebooks with `Encrypted=true`) or kernel-enumerable encrypted recovery artifacts exist, `EnableEncryptedNotebook` **refuses to regenerate MasterSalt** (which would orphan old WrappedDEKs) and instead recovers from backup first; only if the backup is missing does it error out and guide the user to restore `conf.json` or the backup file. Symmetrically, `DisableEncryptedNotebook` scans live notebooks, deleted-notebook history, and local recovery snapshots; it refuses to disable while a dependency exists unless the user explicitly chooses to purge those recovery artifacts permanently. Sync endpoints, offline media, and external snapshots cannot be enumerated reliably, so users who may need those copies later must retain an independently exported matching key backup before disabling.
 
@@ -126,13 +130,14 @@ Import guard: when the local machine is already enabled, import is rejected (to 
 ├── storage/av/                             ← normal-notebook database files (plaintext)
 ├── data/
 │   ├── .siyuan/
-│   │   └── notebook-crypto-backup.json     ← NotebookCrypto backup (MasterSalt/KEKVerifier, synced; see §4.1)
+│   │   └── data-crypto-backup.json         ← NotebookCrypto backup (MasterSalt/KEKVerifier, synced; see §4.1)
 │   ├── <boxID>/                            ← encrypted notebook directory
-│   │   ├── .siyuan/conf.json               ← BoxConf (Encrypted=true + WrappedDEK)
+│   │   ├── .siyuan/
+│   │   │   ├── conf.json                   ← BoxConf (Encrypted=true + WrappedDEK)
+│   │   │   └── notebook-crypto-backup.json ← per-notebook BoxEncryption backup
 │   │   ├── *.sy                            ← AES-256-GCM ciphertext
 │   │   ├── assets/
-│   │   │   ├── <uuid>-<blockID>.ext        ← AES-256-GCM ciphertext, filename desensitized
-│   │   │   └── .names.json                 ← original filename mapping (DEK-encrypted)
+│   │   │   └── <uuid>-<blockID>.ext        ← single-file encrypted container, filename desensitized
 │   │   └── storage/av/
 │   │       └── <avID>.json                 ← database file (DEK-encrypted)
 │   └── <normal-notebookID>/                     ← normal notebook (plaintext, untouched)
@@ -176,11 +181,12 @@ Encrypted-notebook operations (dedicated read path, with boxID):
 
 **assets encryption**:
 - On upload, fully read into memory + encrypt + write (cannot stream-encrypt)
-- Filename desensitization: encrypted-notebook asset filenames are `<uuid>-<blockID>.<ext>`; the original name is stored in an encrypted mapping file
-- On read, decrypt then output; on download, look up the mapping for the original name
+- Filename desensitization: encrypted-notebook asset filenames are `<uuid>-<blockID>.<ext>`; the original name, plaintext size, and chunk count are authenticated encrypted metadata in the same asset container
+- The container starts with the fixed `SYAE` marker; name metadata and content chunks are authenticated separately with AAD binding the boxID, disk filename, and chunk index
+- On read, authenticate and decrypt the name metadata first, then authenticate and decrypt each content chunk; downloads use the original name stored in the container
 - Encrypted notebooks disable the global assets fallback; notebook-level is mandatory
-- Asset file rename is forbidden (desensitized-filename rename breaks the mapping)
-- The asset ciphertext and encrypted name mapping commit as one journaled recoverable transaction: write and sync same-directory temporary files, write a transaction journal containing no plaintext name, replace both targets and sync their directories, then clear the journal. Crash recovery rolls forward or back before opening access; any failure is returned to the caller and leaves no externally visible orphaned asset or missing mapping
+- Asset file rename is forbidden because the desensitized disk filename participates in AAD and renaming requires re-enveloping the whole asset
+- The original name and content reside in one encrypted container, so there is no cross-file name-mapping transaction; write failures are returned to the caller
 
 **database file encryption**:
 - Path fallback: encrypted-notebook database files are stored at `<boxID>/storage/av/<avID>.json`; normal notebooks still use global `storage/av/`
@@ -236,14 +242,14 @@ Encrypted notebooks forbid moving documents across the encrypted boundary (norma
 
 | Scenario | Interaction |
 |---|---|
-| Enable | Settings → Access authorization → Encrypted-notebook section → toggle → set master password (double input + risk confirmation) |
+| Enable | Settings - Authentication - Encrypted Notebook, then enable the toggle and set a master password (double input + risk confirmation) |
 | Disable | Supported only when no live encrypted notebook and no kernel-enumerable history or recovery snapshot depends on the current key backup; otherwise reject, or require explicit permanent purge of those recovery artifacts before deleting global config and backup |
-| Create | File panel "more" menu → "New encrypted notebook" → enter name + master password → auto-unlock and open |
+| Create | File panel - "more" menu - "New encrypted notebook"; enter a name and master password to unlock and open automatically |
 | Icon | Shows lock icon when closed (locked); restores user emoji when opened (unlocked) |
-| Unlock | Click a closed encrypted notebook → master-password prompt (🔓 Unlock xxx) → wait ~1s → opens |
+| Unlock | Click a closed encrypted notebook, enter the password in the master-password prompt (🔓 Unlock xxx), and wait about one second for it to open |
 | Lock | Equals close: first block new operations, wait for or cancel in-flight work, then remove managed DEK handles, delete encrypted SQLite databases, and best-effort clean kernel-managed plaintext caches, temporary files, and access tokens. Unsaved edits and file history are automatically saved before locking |
 | Auto-lock | Each unlocked notebook stores its own last-activity time. Real UI interaction by an authenticated user in the current workspace refreshes all currently unlocked encrypted notebooks together. A headless client can perform the same refresh through an explicit keepalive endpoint that requires authentication and the administrator role; background reads, sync, indexing, and other non-user activity do not keep notebooks alive automatically |
-| Change password | Settings → Access authorization → "Change master password" |
+| Change password | Settings - Authentication - Encrypted Notebook - "Change master password" |
 | Move document | A parent-only move within an encrypted notebook moves ciphertext verbatim and updates indexes; a basename change re-envelopes content. Moves between normal notebooks remain normal; cross-boundary (normal↔encrypted) moves are rejected with a prompt |
 | Doc to heading | Cross-boundary rejected with a prompt |
 | Block ref | Normal refs within an encrypted notebook (searching `((` only searches this notebook; backlinks panel displays normally); cross-boundary (normal↔encrypted, encrypted A↔encrypted B) blocked |
@@ -252,17 +258,19 @@ Encrypted notebooks forbid moving documents across the encrypted boundary (norma
 | Import | Supported: imported .sy.zip or Markdown files are auto DEK-encrypted before writing to disk |
 | File history | Supported (must unlock the corresponding encrypted notebook before viewing; the history index stores no plaintext content) |
 | Deleted notebook | Supported (ciphertext backup; recovery requires the matching global key backup and master password; retaining this history prevents direct deletion of its key backup) |
+| Publish | Unsupported; publish-access editing offers no configuration entry for an encrypted notebook or any of its documents, and the publish service never exposes them regardless of authentication state |
 | Export | Supported (identical to normal notebooks; must unlock first, exports plaintext. Rejected when locked) |
 | Sync | Unchanged (ciphertext in, ciphertext out, self-consistent) |
 
 ## 12. Security Boundary
 
-**Security premise**: An encrypted notebook provides its strongest application-level protection while closed (locked). After locking completes, new operations are denied, managed DEK handles and database connections are removed, and kernel-managed plaintext caches, temporary files, and tokens are cleaned on a best-effort basis; this does not promise erasure of every transient copy in the Go runtime, OS swap, crash dumps, or storage media. **When open (unlocked), the application holds a usable DEK handle**, and authenticated application callers — APIs, third-party plugins, AI/LLM (including MCP, agents, semantic search) — can read plaintext content just like a normal notebook. The kernel CLI is an explicit exception: it rejects encrypted notebooks and their raw files regardless of lock state. Encryption protects data at rest and unreachability through supported entry points after locking; it **does not protect visibility to authenticated callers while unlocked**. Treat an unlocked encrypted notebook as a normal notebook in active use and lock it immediately afterwards.
+**Security premise**: An encrypted notebook provides its strongest application-level protection while closed (locked). After locking completes, new operations are denied, managed DEK handles and database connections are removed, and kernel-managed plaintext caches, temporary files, and tokens are cleaned on a best-effort basis; this does not promise erasure of every transient copy in the Go runtime, OS swap, crash dumps, or storage media. **When open (unlocked), the application holds a usable DEK handle**, and callers authorized by the main application — APIs, third-party plugins, AI/LLM (including MCP, agents, semantic search) — can read plaintext content just like a normal notebook. The publish service is an explicit exception: publish readers and anonymous visitors cannot enumerate or read encrypted notebooks regardless of unlock state, and publish passwords, visibility configuration, and `publishAccess.json` cannot override this rule. The kernel CLI likewise rejects encrypted notebooks and their raw files regardless of lock state. Encryption protects data at rest and unreachability through supported entry points after locking; it **does not protect visibility to callers authorized by the main application while unlocked**. Treat an unlocked encrypted notebook as a normal notebook in active use within the main application and lock it immediately afterwards.
 
 **Protected (ciphertext on disk)**:
 - `.sy` document body (encrypted)
 - assets binary files (encrypted)
 - assets filenames (desensitized, original name encrypted)
+- notebook icon, list sort weight, and sort mode (authenticated ciphertext in `BoxCrypt.Metadata`)
 - database files (columns/rows/cell values/view config/content snapshots, encrypted)
 - content SQLite database (blocks/FTS/attributes/refs, SQLCipher-encrypted)
 - blocktree SQLite database (block-tree metadata: ID/path/title, SQLCipher-encrypted)
@@ -278,6 +286,7 @@ Encrypted notebooks forbid moving documents across the encrypted boundary (norma
 
 **API protection**:
 - `/api/file/*`: refuses access to any file in encrypted-notebook persistent directories (not just .sy), preventing ciphertext disclosure or writes that bypass the encryption layer; workspace `temp/` remains accessible.
+- Publish service: `RoleReader` and `RoleVisitor` can never access an encrypted notebook or its documents, blocks, attribute views, and resources; unlock state and publish-access configuration do not change the result.
 - Kernel CLI: rejects encrypted notebook/block targets and direct paths below `<workspace>/data/<encrypted-notebookID>/`; it cannot be used to unlock, read, write, export, or manipulate encrypted notebook data.
 
 ## 13. AI / LLM Reachability
@@ -295,9 +304,10 @@ Design stance: there is no "hide from AI" isolation at the functional layer, bec
 An encrypted notebook is an island; some features are unimplemented because of their cross-notebook nature or dependence on global aggregation. These are feature boundaries, not performance or security trade-offs.
 
 - **Flashcards / spaced repetition**: Decks and scheduling are cross-notebook and depend on the global SQLite database; not implemented.
+- **Publish**: The publish service targets read-only or anonymous visitors, so encrypted notebooks never participate whether locked or unlocked and cannot be enabled through publish passwords or visibility configuration.
 - **Bookmarks**: Global aggregation view (scans the global siyuan.db); encrypted notebooks not integrated.
 - **Tags**: Global aggregation view (scans the global spans table); encrypted notebooks not integrated.
-- **Asset file rename**: Encrypted-notebook asset filenames are already desensitized to `uuid-blockID.ext`; renaming breaks the original-name mapping.
+- **Asset file rename**: Encrypted-notebook asset filenames are already desensitized to `uuid-blockID.ext`; the disk filename participates in AAD, so renaming requires re-enveloping the whole asset.
 - **Unused asset cleanup**: Encrypted-notebook assets are excluded from global unused-asset cleanup (island, assets do not cross boundaries), preventing false deletion when locked and document references cannot be scanned.
 - **Unused database cleanup**: Encrypted-notebook database definitions are excluded from global unused-database cleanup, preventing false deletion when locked and reference relationships cannot be confirmed.
 
@@ -327,7 +337,7 @@ This feature protects data-at-rest confidentiality and inaccessibility through s
 
 The following are outside this feature's security boundary and must be stated in product UI and user documentation:
 
-- While a notebook is unlocked, authenticated application callers such as APIs, plugins, MCP, and AI/LLM, as well as a local attacker able to read the application process memory, may obtain plaintext.
+- While a notebook is unlocked, APIs, plugins, MCP, and AI/LLM authorized by the main application, as well as a local attacker able to read the application process memory, may obtain plaintext; publish readers and anonymous visitors are outside this scope and are always denied.
 - Local processes that can read workspace files, administrator file APIs, and trusted plugins can read temporary plaintext exports that have not yet been cleaned up; the temporary directory is not an access-control boundary.
 - Files intentionally exported by the user, clipboard contents, screenshots, printouts, content shared with third parties, and plaintext files saved outside the workspace are protected by the user.
 - OS swap, hibernation images, crash dumps, filesystem snapshots, and malware are not absolutely protected by clearing application memory; locking performs best-effort cleanup only within the application's control.
@@ -340,6 +350,8 @@ The following are outside this feature's security boundary and must be stated in
 
 The global state is `Disabled`, `Enabled`, or `RecoveryRequired`. In normal steady state, `Disabled` has no live encrypted notebook or kernel-enumerable key dependency. If startup discovers encrypted notebooks or recovery artifacts while global configuration is missing or disabled, it enters `RecoveryRequired`, never treats them as normal notebooks, and waits for a matching key backup to be restored. Under `Enabled`, each encrypted notebook independently has one of these states: `Locked`, `Unlocking`, `Unlocked`, `Locking`, or `Error`, and starts as `Locked` after application startup.
 
+Encrypted identity detection is fail-closed. If a valid boxID has a missing or damaged `conf.json` or notebook key backup, the presence of a current ciphertext marker or an encryption identity already confirmed by the current process puts the notebook in `Error` and denies normal-notebook reads and writes; the kernel never auto-creates an `Encrypted=false` configuration. Only the notebook-deletion flow may remove the runtime identity, after draining lifecycle leases and clearing the local DEK, mount marker, dedicated databases, and caches.
+
 | Transition | Preconditions | Invariants after success | Failure handling |
 |---|---|---|---|
 | `Locked → Unlocking → Unlocked` | Master-password verification succeeds and ciphertext configuration matches | A usable DEK handle exists only in managed memory; dedicated databases are open; notebook-specific entry points are allowed | Revoke derived KEK/DEK handles, close opened resources, and return to `Locked` |
@@ -347,7 +359,7 @@ The global state is `Disabled`, `Enabled`, or `RecoveryRequired`. In normal stea
 | `Unlocked → Error` | Ciphertext authentication fails, database opening fails, or an invariant is violated | Immediately deny reads and writes; never fall back to a normal-notebook path | Close resources and retain diagnostics without plaintext; the user can only lock or unlock again |
 | Change master password | All encrypted notebooks are `Locked` | All WrappedDEKs, global configuration, and backup update as one recoverable transaction | Keep old configuration and backup usable; no subset of notebooks becomes unlockable only with the new password |
 
-One lifecycle controller per notebook manages state, operation admission, and the active-operation count. Reads, edits, exports, previews, sync, indexing, history view or restore, and AI/MCP access obtain a shared lifecycle lease only while `Unlocked`, and hold it through parsing, cache publication, HTTP response or download completion, and asynchronous-result registration. Lock and delete atomically change the state to `Locking` and close admission, acquire the exclusive lifecycle lease after cancelling or draining active work, then close databases, revoke managed DEK handles, and best-effort clean caches and temporary artifacts while exclusive. They publish `Locked` after key handles and database connections are removed; a temporary-file deletion failure does not block locking, but it is logged and retried on exit or next startup. No new plaintext response, cache refill, or database reconnection may occur after locking completes, but a temporary plaintext copy whose deletion failed may remain on disk.
+One lifecycle controller per notebook manages state, operation admission, and the active-operation count. Reads, edits, exports, previews, sync, indexing, history view or restore, and AI/MCP access obtain a shared lifecycle lease only while `Unlocked`, and hold it through parsing, cache publication, HTTP response or download completion, and asynchronous-result registration. Unlock-and-open completes under one per-notebook transition lock; a mount failure rolls back only an unlock created by that operation and never locks a DEK or mount already used by a concurrent request. Lock and delete atomically change the state to `Locking` and close admission, acquire the exclusive lifecycle lease after cancelling or draining active work, then close databases, revoke managed DEK handles, and best-effort clean caches and temporary artifacts while exclusive. They publish `Locked` after key handles and database connections are removed; a temporary-file deletion failure does not block locking, but it is logged and retried on exit or next startup. No new plaintext response, cache refill, or database reconnection may occur after locking completes, but a temporary plaintext copy whose deletion failed may remain on disk.
 
 The global configuration lock is acquired before any notebook lifecycle lock. An operation involving multiple notebooks acquires lifecycle locks in lexicographic boxID order. DEK-cache, database, file, and other subsystem locks are acquired only after lifecycle locks and released before them. Reverse acquisition, reacquiring the global configuration lock while holding a subsystem lock, and acquiring a lower-level lock while holding a higher-level one are forbidden. Auto-lock stores activity time per notebook, but one authenticated user interaction in the current workspace or an explicit keepalive refreshes every unlocked notebook together. A periodic job checks elapsed time using the system clock, so a system-clock adjustment can advance or delay the trigger accordingly; auto-lock is a convenience protection, not a precise security timing boundary.
 
@@ -355,9 +367,9 @@ The global configuration lock is acquired before any notebook lifecycle lock. An
 
 Persistent formats are layered; global KDF configuration, key envelopes, and per-object data envelopes are not conflated:
 
-1. **Data-object envelope**: Every `.sy`, asset, asset-name mapping, and database-definition object contains at least a format version, algorithm identifier, cryptographically random nonce unique for the same purpose key, ciphertext, and authentication tag. The current format constructs AAD deterministically as `format version + boxID + object type + stable object ID`, excluding parent directories and absolute paths. A `.sy` stable object ID is its canonical basename `<rootID>.sy`; an asset uses its desensitized disk basename, a database definition uses its avID, and a fixed singleton file uses a versioned constant ID. After decryption, the internal object ID matches the AAD object ID, and duplicate object IDs within one notebook are rejected. AES-GCM nonces come from the operating system CSPRNG; randomness failure aborts the write, and the standard per-purpose-key invocation bound is enforced. An authentication tag cannot retrospectively identify nonce reuse, so the design never claims such reuse will automatically cause authentication failure.
+1. **Data-object envelope**: Every `.sy`, asset, and database-definition object contains at least a format marker or version, an algorithm identifier, a cryptographically random nonce unique for the same purpose key, ciphertext, and an authentication tag. The current format constructs AAD deterministically as `format domain + boxID + object type + stable object ID`, excluding parent directories and absolute paths. A `.sy` stable object ID is its canonical basename `<rootID>.sy`; an asset uses its desensitized disk basename, a database definition uses its avID, and a fixed singleton file uses a versioned constant ID. An asset's original name is authenticated encrypted metadata in the same asset container. After decryption, the internal object ID matches the AAD object ID, and duplicate object IDs within one notebook are rejected. AES-GCM nonces come from the operating system CSPRNG; randomness failure aborts the write, and the standard per-purpose-key invocation bound is enforced. An authentication tag cannot retrospectively identify nonce reuse, so the design never claims such reuse will automatically cause authentication failure.
 2. **Global key and envelope metadata**: `NotebookCrypto` stores the KDF algorithm and parameters, MasterSalt, verifier format, KEK-envelope version, and backup-HMAC version; `BoxConf.WrappedDEK` stores each notebook's DEK envelope. They are not duplicated in every data object.
-3. **Purpose separation**: Each notebook's DEK derives subkeys with fixed domain separators for file content, assets, database definitions, content SQLCipher, and blocktree SQLCipher. Asset content and asset-name mappings may share the asset subkey because their versioned AAD object types differ; a separate subkey for every object type is not required. The KEK may be used directly for the verifier, DEK wrapping, and backup HMAC, with those uses separated by different algorithms, versioned AAD, or authenticated data formats. WrappedDEK authentication is not incorrectly placed in a DEK domain.
+3. **Purpose separation**: Each notebook's DEK derives subkeys with fixed domain separators for file content, assets, database definitions, content SQLCipher, and blocktree SQLCipher. Asset-name metadata and content chunks share the asset subkey and are separated by distinct AAD suffixes; a separate subkey for every object type is not required. The KEK may be used directly for the verifier, DEK wrapping, and backup HMAC, with those uses separated by different algorithms, versioned AAD, or authenticated data formats. WrappedDEK authentication is not incorrectly placed in a DEK domain.
 4. **Database compatibility metadata**: SQLCipher version, cipher parameters, and schema version live in a verifiable database header or the corresponding encrypted configuration boundary, not every data object. Content and blocktree indexes are rebuildable; after source ciphertext authenticates, an incompatible index is closed and rebuilt rather than weakening cipher parameters or falling back to plaintext SQLite.
 5. **Rename and format stability**: The first released format constructs AAD directly from the stable object ID. It is intentionally incompatible with experimental development ciphertext bound to the full logical relative path and provides neither dual-format reads nor migration; development data is deleted and rebuilt after the format switch. A parent-only move does not re-envelope content. A stable-basename change authenticates and decrypts with the old basename and creates a new envelope with the new basename. After the first released version freezes the format, any future envelope or AAD semantic change increments the format version and requires a separately designed migration.
 
@@ -365,9 +377,9 @@ The SQLCipher main database, WAL, SHM, rollback journal, temporary files, and ba
 
 ## 19. Backup, Recovery, and Metadata Policy
 
-`notebook-crypto-backup.json` is recovery material, not a secret. It contains a format version, backup ID, creation time, content digest, and KEK-based HMAC. After the master password derives the KEK, a missing or mismatched HMAC rejects recovery rather than acting as a compatibility fallback. Recovery must not silently overwrite enabled configuration. A malformed backup or a backup incompatible with existing encrypted notebooks enters an error state instead of generating a new MasterSalt.
+`data-crypto-backup.json` is recovery material, not a secret. It contains a format version, backup ID, creation time, content digest, and KEK-based HMAC. After the master password derives the KEK, a missing or mismatched HMAC rejects recovery rather than acting as a compatibility fallback. Recovery must not silently overwrite enabled configuration. A malformed backup or a backup incompatible with existing encrypted notebooks enters an error state instead of generating a new MasterSalt.
 
-Backup persistence follows the project's existing file-write semantics. The global `notebook-crypto-backup.json` is written to a random temporary file in the same directory and then atomically replaced; each notebook's `notebook-crypt-backup.json` uses the ordinary file-lock-protected configuration write. Neither path makes an additional power-loss durability guarantee through file or directory `fsync`. Startup validates the structure and digest that can be checked without a key; recovery validates the HMAC and key-envelope compatibility after the master password is entered. Corruption or mismatch is safely rejected instead of generating replacement key material.
+Backup persistence follows the project's existing file-write semantics. The global `data-crypto-backup.json` is written to a random temporary file in the same directory and then atomically replaced; each notebook's `notebook-crypto-backup.json` uses the ordinary file-lock-protected configuration write. Neither path makes an additional power-loss durability guarantee through file or directory `fsync`. Startup validates the structure and digest that can be checked without a key; recovery validates the HMAC and key-envelope compatibility after the master password is entered. Corruption or mismatch is safely rejected instead of generating replacement key material.
 
 An HMAC proves only that a party without the KEK did not alter the backup; it does not prove that the backup is the latest version. The current scope introduces no trusted external monotonic counter, so an authenticated historical backup or ciphertext may pass validation. `BackupID` and `CreatedAt` are information for diagnostics and manual comparison, not rollback anchors. Sync, history, and recovery flows must not describe successful authentication as proof of freshness or source trust. Strong rollback prevention requires independent trusted state and is outside this design's scope.
 
@@ -382,7 +394,7 @@ Sync endpoints and offline backups are storage that may be lost, copied, or roll
 
 ## 20. Feature Boundaries, Plaintext Temporaries, and Interface Rules
 
-Unsupported flashcards, bookmarks, tags, asset rename, unused-asset cleanup, and unused-database cleanup must be handled uniformly by the frontend, HTTP API, plugin API, MCP, and import paths: return an explicit "unsupported" error for encrypted-notebook targets and create no global index, global attribute, or deferred task. Existing legacy data must not be loaded, aggregated, or written back. Error codes and localized messages remain stable for callers.
+Unsupported publishing, flashcards, bookmarks, tags, asset rename, unused-asset cleanup, and unused-database cleanup must be handled uniformly by the frontend, HTTP API, plugin API, MCP, and import paths: return an explicit "unsupported" error for encrypted-notebook targets and create no global index, global attribute, or deferred task. Existing legacy data must not be loaded, aggregated, or written back. Publish authorization is independent of lock state and takes precedence over `publishAccess.json`; existing publish configuration cannot make an encrypted notebook visible again. Error codes and localized messages remain stable for callers.
 
 Every raw entry point that might bypass dedicated read/write paths is registered, including file APIs, kernel CLI, MCP file tools, WebDAV, plugin file interfaces, export download URLs, preview URLs, and background tasks. Encrypted-notebook persistent directories always reject direct access through raw entry points to avoid ciphertext disclosure or writes that bypass the encryption layer. Workspace `temp/` is general temporary storage accessible to administrator file APIs, archive APIs, and trusted plugins, so it is not part of the encrypted access-control boundary. WebDAV continues to deny the entire `temp/` directory unconditionally to avoid exposing temporary data through a remote file service. Adding an entry point requires separate review of whether it touches encrypted-notebook persistent directories or temporary plaintext.
 
@@ -392,21 +404,25 @@ Exports have two classes: a user-selected external destination may contain plain
 
 The in-memory `managedEncryptedExports` tokens manage download-link expiry and lifecycle; they are not a security boundary against local files, administrator APIs, or trusted plugins. Lock, delete, cancellation, failure, and normal exit revoke related tokens and best-effort remove `temp/export/<boxID>`. At application startup, entries whose first-level name is a valid boxID are at least scanned and removed; generic desktop temporary-directory initialization also clears the entire `temp/export` directory. No caller may rely on files under `temp/` surviving across processes. Deletion failure only records diagnostics without plaintext and does not prevent the notebook from entering `Locked`; exit or the next startup retries cleanup. Logs, error reports, thumbnails, OCR/conversion output, and clipboard handling contain no plaintext by default unless the user explicitly sends content to an external program.
 
+Native mobile save flows must call `AcquireExportFile` to obtain a lease containing the path, name, size, and lease ID, then call `ReleaseExportFile` from a `finally` path after copying and verification finish. Encrypted exports must not use legacy path-only or name-only interfaces because those calls cannot cover the native copy phase with a lifecycle lease.
+
 ## 21. Security Acceptance Matrix
 
 | Scenario | Expected result |
 |---|---|
 | Access to encrypted-notebook persistent directories while locked through UI, HTTP, file APIs, CLI, MCP, WebDAV, plugins, and background tasks | Other than the explicitly exposed notebook name, cannot decrypt, write, copy, delete, or enumerate encrypted content; administrator file APIs and trusted plugins may still access an export copy in `temp/` that has not yet been cleaned up |
+| Access a locked or unlocked encrypted notebook through the publish service using anonymous access, a publish-reader account, and public/protected/private/forbidden configuration | Cannot enumerate notebooks, documents, blocks, attribute views, or resources and cannot obtain plaintext; lock state, publish authentication, and `publishAccess.json` do not change the result |
 | Unlock, lock, application restart, and authentication failure | Only `Unlocked` permits a managed DEK handle and database connections; after failure or restart, entry points deny access and application-controlled plaintext caches, temporary files, and handles undergo best-effort cleanup |
 | Lock concurrent with response generation, cache publication, export, preview, sync, indexing, or history restore | Lock succeeds only after all in-flight lifecycle leases end; no late plaintext response, cache refill, newly created temporary file, usable token, or database reconnection follows success, except for an existing temporary file whose deletion failed |
 | Move a document within one encrypted notebook, then clear caches and restart | When the basename is unchanged, ciphertext remains unchanged and authenticates with the stable object ID; the new parent takes effect under normal-notebook semantics, the old directory location is absent, and failure handling matches a normal notebook |
 | Refs, moves, mirrors, assets, and database operations between an encrypted notebook and a normal notebook or another encrypted notebook | Island boundaries hold; rejection creates no partial files, global indexes, or relation data |
-| Asset-ciphertext write or name-mapping update fails | The whole logical transaction fails and rolls back; the caller receives an error, with no accessible orphan, missing mapping, or plaintext temporary file |
+| Encrypted asset-container write fails | The caller receives an error, no separate name mapping or plaintext temporary file is created, and an incomplete target file cannot be read as a valid asset |
 | Delete an encrypted notebook while retaining history, then disable or restore | A key dependency prevents deletion of global config and backup; the matching backup and master password restore the notebook, and only explicit permanent purge removes the dependency |
 | Move a document's parent directory or change its basename after creating history, then view or restore the old entry | Authenticate and decrypt with the snapshot boxID, object type, and stable basename recorded by the history entry; rollback re-envelopes only when the target basename changes, while missing snapshot context rejects the operation |
 | Disk inspection of files, assets, databases, WAL/SHM, history, snapshots, and logs | No readable body, asset contents, original asset names, or plaintext SQLite pages exist in encrypted-notebook persistent locations; `temp/` may contain plaintext during export or after cleanup failure |
 | Restart after an abnormal exit | Startup removes at least entries under `temp/export/` whose first-level name is a valid boxID; generic temporary-directory initialization may also remove other exports and plugin temporary files |
 | Ciphertext tampering, path substitution, and backup corruption | Authentication or format validation fails safely; never fall back to a normal path, generate replacement key material, or silently overwrite configuration |
+| Both an encrypted notebook's `conf.json` and notebook key backup are missing, or sync removes an encrypted notebook that is currently open locally | Ciphertext or runtime identity puts the former in `Error` without creating a normal configuration; the latter drains in-flight leases and clears the DEK, mount, dedicated databases, caches, and indexes even though `Conf.GetBox` is empty after deletion |
 | Nonce randomness failure, reaching a purpose-key invocation bound, or discovering nonce reuse afterwards | Reject before encryption on randomness failure or bound exhaustion; AES-GCM authentication cannot detect nonce reuse that already occurred, so discovery is handled as a key-compromise incident by rotating the DEK and re-encrypting data |
 | Replay an authenticated historical ciphertext object or key backup | It may validate as an authentic old version but is never claimed to be freshest or from a trusted source; rollback risk is explicit, and the current design does not claim rollback prevention |
 | Master-password change and KEK rewrapping | WrappedDEKs and backup update atomically; an interrupted update leaves the old configuration recoverably usable; the old-password exposure warning is accurate; data and history are verifiably readable before and after migration |
@@ -415,26 +431,30 @@ The in-memory `managedEncryptedExports` tokens manage download-link expiry and l
 ## 22. Usage Guide
 
 ### First-time enablement
-1. Go to **Settings → Access authorization → Encrypted notebooks** and toggle it on
+1. Go to **Settings - Authentication - Encrypted Notebook** and toggle it on
 2. Set a master password (double input + risk confirmation). The master password is the unified key for all encrypted notebooks — **you must remember it; there is no recovery backdoor**
-3. Once enabled, you can **create a new encrypted notebook** from the file-panel "more" menu (enter a name + master password → auto-unlocks and opens)
+3. Once enabled, you can **create a new encrypted notebook** from the file-panel "more" menu; enter a name and master password to unlock and open it automatically
 
 > Strength recommendation: 12+ characters, mixed case + digits + symbols. The stronger the master password, the higher the brute-force resistance (password strength is the only line of defense; there is no backdoor).
 
 ### Daily use: unlock and lock
-- **Unlock**: Click a closed encrypted notebook → enter the master password → wait ~1 second (Argon2id derivation) → opens. Unlocking only affects that notebook; other encrypted notebooks stay locked
+- **Unlock**: Click a closed encrypted notebook, enter the master password, and wait about one second for Argon2id derivation before it opens. Unlocking only affects that notebook; other encrypted notebooks stay locked
 - **Lock**: Closing the notebook equals locking. The kernel stops new access, waits for or cancels in-flight work, revokes managed DEK handles and database connections, and best-effort cleans kernel-managed plaintext caches, temporary files, and tokens. **Locking after use** is the most important security habit because it minimizes key and plaintext exposure
 - **After restart**: All encrypted notebooks are force-closed; you must re-enter the master password to unlock (managed DEK handles exist only in process memory and must be derived again after restart)
 
-> Important: An encrypted notebook provides its strongest application-level protection while locked, but locking only best-effort cleans application-controlled memory and temporary data; it does not promise erasure of every transient copy in the operating system or storage media. While unlocked, authenticated application callers (APIs, plugins, AI/LLM including MCP) can read plaintext just like a normal notebook; the kernel CLI always rejects encrypted-notebook operations (see §12 Security premise).
+> Important: An encrypted notebook provides its strongest application-level protection while locked, but locking only best-effort cleans application-controlled memory and temporary data; it does not promise erasure of every transient copy in the operating system or storage media. While unlocked, callers authorized by the main application (APIs, plugins, AI/LLM including MCP) can read plaintext just like a normal notebook; publish readers, anonymous visitors, and the kernel CLI are always denied (see §12 Security premise).
 
 ### Changing the master password
-Go to **Settings → Access authorization → Change master password**. Changing the password only re-wraps each notebook's WrappedDEK — **document data is not re-encrypted**, so it completes instantly. The key backup is auto-refreshed and synced after a password change.
+Go to **Settings - Authentication - Encrypted Notebook - Change master password**. Changing the password only re-wraps each notebook's WrappedDEK — **document data is not re-encrypted**, so it completes instantly. The key backup is auto-refreshed and synced after a password change.
 
 > Important semantics: password change uses the KEK envelope model — the DEK itself does not change; only a new KEK (derived from the new password) re-wraps the WrappedDEK. This means **changing the password does not revoke the old password's decryption ability**: if the old password and an old WrappedDEK (retained in sync endpoints, backups, or historical snapshots) leak together, the same DEK can still be unwrapped, decrypting current data. If you suspect the old password has leaked, migrate content to a freshly created encrypted notebook (new DEK) rather than just changing the password.
 
 ### Multi-device sync
 Encrypted-notebook ciphertext `.sy`/assets/database files sync along with the data (ciphertext in, ciphertext out, self-consistent); the global key material (MasterSalt etc.) is also automatically backed up to the sync directory. **No manual "enable" is needed on a new device after sync**:
+
+An encrypted notebook's open state is never inherited across devices. Even if the synchronized `conf.json` records that another device had the notebook open, the UI and kernel must treat it as closed and skip indexing whenever the local process has no DEK for that notebook; entering the master password unlocks and mounts it locally.
+
+When sync removes an encrypted notebook currently mounted on this device, the kernel completes the local deletion transition before any full-reindex branch, exit early-return, or UI reload: it closes admission, drains active leases, clears the DEK and mount state, deletes dedicated index databases, and completes global-index cleanup. The now-missing disk configuration is never used to decide whether cleanup is required.
 
 1. Configure the same sync account on the new device and complete a sync
 2. Sync pulls the key backup to the local machine; the kernel auto-restores the "enabled" state
@@ -447,12 +467,13 @@ Sync recovery can validate backup integrity but cannot prove that a backup is th
 ### Import and export
 - **Import**: Supports importing `.sy.zip` and Markdown; content is automatically DEK-encrypted before writing to disk, identical to manually created documents
 - **Export**: Identical to normal notebooks (must unlock first; exports plaintext). `.sy.zip`, HTML, Word, PDF, Markdown, etc. are all supported; export is rejected while locked
+- **Publish**: Unsupported. Encrypted notebooks and their documents never appear through the publish service, and unlocking or setting a publish password cannot enable them
 
 ### What if I forget the password
 **It cannot be recovered** — by design (no backdoor). Even if the ciphertext has been synced to the cloud, it cannot be decrypted without the master password. **You must remember the master password; using a password manager is recommended.**
 
 ### Recovering from a lost key backup
-If both `conf/conf.json` and the key backup in the sync directory are lost (an extreme case), re-enabling the encrypted-notebook feature will be rejected with a prompt to restore the backup file. As long as you can recover `notebook-crypto-backup.json` from another synced device or a previously exported key file, you can import it via the "Import key" button (shown when not enabled), or manually put it back at `<workspace>/data/.siyuan/` and re-enable, then unlock with the master password matching that key.
+If both `conf/conf.json` and the key backup in the sync directory are lost (an extreme case), re-enabling the encrypted-notebook feature will be rejected with a prompt to restore the backup file. As long as you can recover `data-crypto-backup.json` from another synced device or a previously exported key file, you can import it via the "Import key" button shown in `Disabled` or `RecoveryRequired`, or manually put it back at `<workspace>/data/.siyuan/` and re-enable, then unlock with the master password matching that key.
 
 Restoring deleted encrypted-notebook history also requires the global key backup matching its WrappedDEK and the master password. While you still need that local recovery path, do not permanently purge either the history or its matching key backup; disabling must refuse to proceed when it discovers such a dependency.
 
@@ -464,6 +485,7 @@ Restoring deleted encrypted-notebook history also requires the global key backup
 ### Unsuitable scenarios for encrypted notebooks
 - Daily notes, study notes (the extra encryption overhead is not worth it)
 - Content that needs global search (encrypted notebooks do not participate)
+- Content that must be made available through the publish service (encrypted notebooks cannot be published)
 - Knowledge networks needing cross-notebook block refs (cross-boundary forbidden)
 - Documents needing cross-notebook move/reorganize (cross-boundary forbidden)
 - Scenarios needing cross-notebook database mirroring (cross-boundary forbidden)

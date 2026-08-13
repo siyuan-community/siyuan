@@ -49,6 +49,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
         window.siyuan.menus.menu.element.setAttribute("data-from", popoverElement ? popoverElement.dataset.level + "popover-" + from : "app-" + from);
         const submenu = copySubMenu([protyle.block.rootID], true, undefined, protyle.block.showAll ? protyle.block.id : protyle.block.rootID);
         submenu.push({
+            id: "copyDoc",
             iconHTML: "",
             label: window.siyuan.languages.copyDoc,
             accelerator: undefined,
@@ -122,6 +123,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
                 openOutline({
                     app: protyle.app,
                     rootId: protyle.block.rootID,
+                    notebookId: protyle.notebookId,
                     title: protyle.options.render.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : "",
                     isPreview: !protyle.preview.element.classList.contains("fn__none")
                 });
@@ -137,6 +139,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
                     app: protyle.app,
                     blockId: protyle.block.id,
                     rootId: protyle.block.rootID,
+                    notebookId: protyle.notebookId,
                     useBlockId: protyle.block.showAll,
                     title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null
                 });
@@ -152,6 +155,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
                     app: protyle.app,
                     blockId: protyle.block.id,
                     rootId: protyle.block.rootID,
+                    notebookId: protyle.notebookId,
                     useBlockId: protyle.block.showAll,
                     title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null
                 });
@@ -248,6 +252,9 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
                         notebook: protyle.notebookId,
                         path: searchPath + ".sy"
                     });
+                if (!isBoxDoc && (pathResponse?.code !== 0 || typeof pathResponse?.data !== "string")) {
+                    return;
+                }
                 popSearch(protyle.app, {
                     hasReplace: false,
                     hPath: isBoxDoc ? getNotebookName(protyle.notebookId) : pathPosix().join(getNotebookName(protyle.notebookId), pathResponse.data),
@@ -307,7 +314,7 @@ export const openTitleMenu = (protyle: IProtyle, position: IPosition, from: stri
         if (!protyle.disabled) {
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "fileHistory",
-                label: window.siyuan.languages.fileHistory,
+                label: window.siyuan.languages.dataHistory,
                 icon: "iconHistory",
                 click() {
                     openDocHistory({

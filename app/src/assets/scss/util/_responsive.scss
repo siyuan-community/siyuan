@@ -1,4 +1,9 @@
 @media (max-width: 750px) {
+  #encryptedNotebookEnabledActions {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
   .config-about__motto {
     display: none;
   }
@@ -128,6 +133,11 @@
         padding-bottom: 8px;
         width: auto !important;
         border-bottom: 1px solid var(--b3-border-color);
+
+        &.history__side--diff {
+          overflow: hidden;
+          padding-bottom: 0;
+        }
       }
     }
   }

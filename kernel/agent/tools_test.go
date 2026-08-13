@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
@@ -92,16 +94,107 @@ func TestConvertSchemaRootAnyOf(t *testing.T) {
 	}
 }
 
+func TestConvertSchemaPreservesRawJSONSchema(t *testing.T) {
+	raw := map[string]any{
+		"type":                  "object",
+		"unevaluatedProperties": false,
+	}
+	out := convertSchema(tools.ToolSchema{Raw: raw}).(map[string]any)
+	if out["unevaluatedProperties"] != false {
+		t.Fatalf("raw schema was not preserved: %#v", out)
+	}
+}
+
+func TestResultToStringUsesStructuredContent(t *testing.T) {
+	result := resultToString(tools.CallToolResult{
+		StructuredContent: map[string]any{"status": "ok"},
+	})
+	if result != `{"status":"ok"}` {
+		t.Fatalf("unexpected structured result: %q", result)
+	}
+}
+
+func TestResultToStringUsesExplicitNullStructuredContent(t *testing.T) {
+	result := resultToString(tools.CallToolResult{StructuredContentSet: true})
+	if result != "null" {
+		t.Fatalf("unexpected explicit null result: %q", result)
+	}
+}
+
+func TestResultToStringUsesStructuredContentForEmptyText(t *testing.T) {
+	result := resultToString(tools.CallToolResult{
+		Content:           []tools.ContentItem{{Type: "text"}},
+		StructuredContent: map[string]any{"status": "ok"},
+	})
+	if result != `{"status":"ok"}` {
+		t.Fatalf("unexpected structured result: %q", result)
+	}
+}
+
+func TestResultToStringTranslatesNonTextContent(t *testing.T) {
+	var image tools.ContentItem
+	if err := json.Unmarshal([]byte(`{"type":"image","data":"aW1hZ2U=","mimeType":"image/png"}`), &image); err != nil {
+		t.Fatal(err)
+	}
+	result := resultToString(tools.CallToolResult{Content: []tools.ContentItem{image}})
+	if !strings.Contains(result, `"type":"image"`) || !strings.Contains(result, `"mimeType":"image/png"`) {
+		t.Fatalf("unexpected image result: %q", result)
+	}
+}
+
+func TestExecuteToolPreservesModelAttachments(t *testing.T) {
+	const toolName = "test_model_attachment"
+	tools.SetTool(toolName, &tools.Tool{
+		Name:        toolName,
+		InputSchema: tools.ToolSchema{Type: "object"},
+		Handler: func(args map[string]any) (tools.CallToolResult, error) {
+			return tools.CallToolResult{
+				Content: []tools.ContentItem{{Type: "text", Text: "attached"}},
+				ModelAttachments: []tools.ModelAttachment{{
+					Type: "image", Data: []byte("image"), MIMEType: "image/png", Path: "assets/image.png",
+				}},
+			}, nil
+		},
+	})
+	t.Cleanup(func() { tools.RemoveTool(toolName) })
+
+	result := executeTool(context.Background(), openai.ToolCall{
+		Function: openai.FunctionCall{Name: toolName, Arguments: `{}`},
+	}, "")
+	if result.Text != "attached" || result.IsError || len(result.ModelAttachments) != 1 ||
+		string(result.ModelAttachments[0].Data) != "image" {
+		t.Fatalf("model attachment was not preserved: %#v", result)
+	}
+}
+
+func TestValidateToolCallInputRejectsMissingActionBeforeConfirmation(t *testing.T) {
+	args := map[string]any{"id": "20260707184942-prjqwqo"}
+	if _, _, err := validateToolCallInput(t.Context(), "outline", args); err == nil {
+		t.Fatal("outline without its required action must fail validation before confirmation")
+	}
+	args["action"] = "get"
+	if _, _, err := validateToolCallInput(t.Context(), "outline", args); err != nil {
+		t.Fatalf("valid outline arguments were rejected: %s", err)
+	}
+}
+
 func TestNeedsConfirmScopesReadOnlyActionsByToolSource(t *testing.T) {
 	const externalWrite = "test_external_write"
 	const externalRead = "test_external_read"
 	const nativeWrite = "test_native_write"
 	const nativeExternalWrite = "test_native_external_write"
-	tools.SetTool(externalWrite, &tools.Tool{Name: externalWrite, Source: "mcp"})
-	tools.SetTool(externalRead, &tools.Tool{Name: externalRead, Source: "mcp", ReadOnlyHint: true})
-	tools.SetTool(nativeWrite, &tools.Tool{Name: nativeWrite, Source: "native"})
+	tools.SetTool(externalWrite, &tools.Tool{
+		Name: externalWrite, Source: "mcp", InputSchema: tools.ToolSchema{Type: "object"},
+	})
+	tools.SetTool(externalRead, &tools.Tool{
+		Name: externalRead, Source: "mcp", ReadOnlyHint: true, InputSchema: tools.ToolSchema{Type: "object"},
+	})
+	tools.SetTool(nativeWrite, &tools.Tool{
+		Name: nativeWrite, Source: "native", InputSchema: tools.ToolSchema{Type: "object"},
+	})
 	tools.SetTool(nativeExternalWrite, &tools.Tool{
 		Name: nativeExternalWrite, Source: "native", EffectScope: tools.EffectScopeExternal,
+		InputSchema: tools.ToolSchema{Type: "object"},
 	})
 	t.Cleanup(func() {
 		tools.RemoveTool(externalWrite)
@@ -199,11 +292,48 @@ func TestQueryToolActionEffects(t *testing.T) {
 	}
 }
 
+func TestBrowserCapabilityEffects(t *testing.T) {
+	native := &capabilityRegistration{ID: "native/frontend/open_search", ModelName: "frontend__open_search", Source: "native", Runtime: "browser"}
+	if needsCapabilityConfirm(native, "", nil, false, nil) || needsCapabilitySnapshot(native, "") {
+		t.Fatal("built-in browser capability must not require confirmation or create a snapshot")
+	}
+	pluginUnknown := &capabilityRegistration{ID: "plugin/frontend/example/run", ModelName: "frontend__plugin_run", Source: "plugin", Runtime: "browser"}
+	if !needsCapabilityConfirm(pluginUnknown, "", nil, false, nil) {
+		t.Fatal("plugin browser capability with unknown effects must require confirmation")
+	}
+	pluginRead := &capabilityRegistration{ID: "plugin/frontend/example/read", ModelName: "frontend__plugin_read", Source: "plugin", Runtime: "browser", Effects: tools.ToolEffects{LocalRead: true}, EffectsDeclared: true}
+	if needsCapabilityConfirm(pluginRead, "", nil, false, nil) {
+		t.Fatal("plugin browser capability declared local-read-only must not require confirmation")
+	}
+	pluginActions := &capabilityRegistration{
+		ID: "plugin/frontend/example/actions", ModelName: "frontend__plugin_actions", Source: "plugin", Runtime: "browser",
+		ActionEffects: map[string]tools.ToolEffects{
+			"read":  {LocalRead: true},
+			"write": {LocalWrite: true},
+		},
+	}
+	if needsCapabilityConfirm(pluginActions, "read", nil, false, nil) {
+		t.Fatal("plugin browser action with explicit read effects must not require confirmation")
+	}
+	if !needsCapabilityConfirm(pluginActions, "write", nil, false, nil) ||
+		!needsCapabilityConfirm(pluginActions, "unknown", nil, false, nil) {
+		t.Fatal("plugin browser write or undeclared action must require confirmation")
+	}
+	for _, action := range []string{"html", "preview"} {
+		if needsConfirm("export", action, nil) || needsLocalSnapshot("export", action) {
+			t.Errorf("read-only export action %q must not require confirmation or create a snapshot", action)
+		}
+	}
+	if !needsConfirm("export", "docx", nil) || !needsLocalSnapshot("export", "docx") {
+		t.Fatal("file-producing export actions must retain confirmation and snapshot protection")
+	}
+}
+
 func TestConfirmSessionAcceptsResponseOnce(t *testing.T) {
 	const confirmID = "test-confirm"
 	ch := make(chan confirmResult, 1)
 	confirmChannelsMu.Lock()
-	confirmChannels[confirmID] = ch
+	confirmChannels[confirmID] = &confirmWaiter{sessionID: testSessionID, ch: ch}
 	confirmChannelsMu.Unlock()
 	t.Cleanup(func() {
 		confirmChannelsMu.Lock()
@@ -211,10 +341,11 @@ func TestConfirmSessionAcceptsResponseOnce(t *testing.T) {
 		confirmChannelsMu.Unlock()
 	})
 
-	if !ConfirmSession(confirmID, true, false) {
+	accepted, err := ConfirmSession(confirmID, true, false)
+	if err != nil || !accepted {
 		t.Fatal("registered confirmation was rejected")
 	}
-	if ConfirmSession(confirmID, false, false) {
+	if accepted, err = ConfirmSession(confirmID, false, false); err != nil || accepted {
 		t.Fatal("duplicate confirmation was accepted")
 	}
 	result, accepted := finishConfirmWait(confirmID, ch)
@@ -223,7 +354,7 @@ func TestConfirmSessionAcceptsResponseOnce(t *testing.T) {
 	}
 }
 
-func TestQuestionAndFrontendResultsAreAcceptedOnce(t *testing.T) {
+func TestQuestionAndBrowserCapabilityResultsAreAcceptedOnce(t *testing.T) {
 	const questionID = "test-question"
 	questionCh := make(chan QuestionAnswer, 1)
 	questionChannelsMu.Lock()
@@ -236,16 +367,17 @@ func TestQuestionAndFrontendResultsAreAcceptedOnce(t *testing.T) {
 		t.Fatalf("unexpected question answer: %#v", answer)
 	}
 
-	const callID = "test-frontend-call"
-	frontendCh := make(chan frontendCallResult, 1)
-	frontendCallChannelsMu.Lock()
-	frontendCallChannels[callID] = frontendCh
-	frontendCallChannelsMu.Unlock()
-	if !FrontendToolResult(callID, "result", false) || FrontendToolResult(callID, "duplicate", false) {
-		t.Fatal("frontend result was not accepted exactly once")
+	const callID = "test-browser-capability-call"
+	capabilityCh := make(chan browserCapabilityResult, 1)
+	browserCapabilityChannelsMu.Lock()
+	browserCapabilityChannels[callID] = capabilityCh
+	browserCapabilityChannelsMu.Unlock()
+	if !BrowserCapabilityResult(callID, "result", nil, false, false) ||
+		BrowserCapabilityResult(callID, "duplicate", nil, false, false) {
+		t.Fatal("browser capability result was not accepted exactly once")
 	}
-	if result := <-frontendCh; result.result != "result" || result.isError {
-		t.Fatalf("unexpected frontend result: %#v", result)
+	if result := <-capabilityCh; result.result != "result" || result.isError {
+		t.Fatalf("unexpected browser capability result: %#v", result)
 	}
 }
 
@@ -263,25 +395,69 @@ func TestWaitCompletionKeepsConcurrentlyAcceptedResults(t *testing.T) {
 		t.Fatalf("accepted question answer was lost: %#v, accepted=%v", answer, accepted)
 	}
 
-	const callID = "test-frontend-timeout-race"
-	frontendCh := make(chan frontendCallResult, 1)
-	frontendCallChannelsMu.Lock()
-	frontendCallChannels[callID] = frontendCh
-	frontendCallChannelsMu.Unlock()
-	if !FrontendToolResult(callID, "accepted", false) {
-		t.Fatal("frontend result was rejected")
+	const callID = "test-browser-capability-timeout-race"
+	capabilityCh := make(chan browserCapabilityResult, 1)
+	browserCapabilityChannelsMu.Lock()
+	browserCapabilityChannels[callID] = capabilityCh
+	browserCapabilityChannelsMu.Unlock()
+	if !BrowserCapabilityResult(callID, "accepted", nil, false, false) {
+		t.Fatal("browser capability result was rejected")
 	}
-	result, accepted := finishFrontendWait(callID, frontendCh)
+	result, accepted := finishBrowserCapabilityWait(callID, capabilityCh)
 	if !accepted || result.result != "accepted" || result.isError {
-		t.Fatalf("accepted frontend result was lost: %#v, accepted=%v", result, accepted)
+		t.Fatalf("accepted browser capability result was lost: %#v, accepted=%v", result, accepted)
+	}
+}
+
+func TestBrowserCapabilityValidatesStructuredOutput(t *testing.T) {
+	validationTool := &tools.Tool{
+		Name:        "test_browser_capability_output",
+		Description: "Test browser capability output",
+		InputSchema: tools.ToolSchema{Type: "object"},
+		OutputSchema: &tools.ToolSchema{
+			Type: "object",
+			Properties: map[string]tools.Property{
+				"value": {Type: "string"},
+			},
+			Required: []string{"value"},
+		},
+	}
+	validator, err := tools.CompileToolValidator(validationTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration := &capabilityRegistration{
+		ID:        "native/frontend/test_output",
+		ModelName: validationTool.Name,
+		Runtime:   "browser",
+		Validator: validator,
+	}
+	events := make(chan AgentEvent, 1)
+	resultCh := make(chan executedToolResult, 1)
+	go func() {
+		resultCh <- handleBrowserCapability(context.Background(), openai.ToolCall{
+			Function: openai.FunctionCall{Name: validationTool.Name, Arguments: `{}`},
+		}, registration, events, time.Second)
+	}()
+	event := <-events
+	if event.Type != "browser_capability_call" {
+		t.Fatalf("unexpected event: %#v", event)
+	}
+	if !BrowserCapabilityResult(event.CallID, "", map[string]any{"value": 1}, true, false) {
+		t.Fatal("browser capability result was rejected")
+	}
+	result := <-resultCh
+	if !result.IsError || !result.ExecutionUnknown {
+		t.Fatalf("invalid structured output was accepted: %#v", result)
 	}
 }
 
 func TestExecuteToolPropagatesUnknownExecution(t *testing.T) {
 	const toolName = "test_unknown_execution"
 	tools.SetTool(toolName, &tools.Tool{
-		Name:   toolName,
-		Source: "mcp",
+		Name:        toolName,
+		Source:      "mcp",
+		InputSchema: tools.ToolSchema{Type: "object"},
 		Handler: func(args map[string]any) (tools.CallToolResult, error) {
 			return tools.CallToolResult{
 				Content:          []tools.ContentItem{{Type: "text", Text: "result unknown"}},
@@ -292,11 +468,37 @@ func TestExecuteToolPropagatesUnknownExecution(t *testing.T) {
 	})
 	t.Cleanup(func() { tools.RemoveTool(toolName) })
 
-	result, isErr, executionUnknown := executeTool(context.Background(), openai.ToolCall{
+	result := executeTool(context.Background(), openai.ToolCall{
 		Function: openai.FunctionCall{Name: toolName, Arguments: `{}`},
 	}, "")
-	if result != "result unknown" || !isErr || !executionUnknown {
-		t.Fatalf("unexpected tool result: result=%q, isErr=%v, executionUnknown=%v", result, isErr, executionUnknown)
+	if result.Text != "result unknown" || !result.IsError || !result.ExecutionUnknown {
+		t.Fatalf("unexpected tool result: %#v", result)
+	}
+}
+
+func TestExecuteToolRejectsInvalidStructuredOutput(t *testing.T) {
+	const toolName = "test_invalid_structured_output"
+	if err := tools.SetTool(toolName, &tools.Tool{
+		Name:         toolName,
+		Source:       "mcp",
+		InputSchema:  tools.ToolSchema{Type: "object"},
+		OutputSchema: &tools.ToolSchema{Raw: map[string]any{"type": "array"}},
+		Handler: func(args map[string]any) (tools.CallToolResult, error) {
+			return tools.CallToolResult{
+				StructuredContent:    map[string]any{"wrong": true},
+				StructuredContentSet: true,
+			}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { tools.RemoveTool(toolName) })
+
+	result := executeTool(context.Background(), openai.ToolCall{
+		Function: openai.FunctionCall{Name: toolName, Arguments: `{}`},
+	}, "")
+	if !result.IsError || !result.ExecutionUnknown || !strings.Contains(result.Text, "must not be retried automatically") {
+		t.Fatalf("unexpected tool result: %#v", result)
 	}
 }
 
@@ -305,7 +507,8 @@ func TestExecuteToolCancellationMarksExecutionUnknown(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	tools.SetTool(toolName, &tools.Tool{
-		Name: toolName,
+		Name:        toolName,
+		InputSchema: tools.ToolSchema{Type: "object"},
 		Handler: func(args map[string]any) (tools.CallToolResult, error) {
 			close(started)
 			<-release
@@ -318,25 +521,16 @@ func TestExecuteToolCancellationMarksExecutionUnknown(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan struct {
-		text    string
-		isErr   bool
-		unknown bool
-	}, 1)
+	resultCh := make(chan executedToolResult, 1)
 	go func() {
-		text, isErr, unknown := executeTool(ctx, openai.ToolCall{
+		resultCh <- executeTool(ctx, openai.ToolCall{
 			Function: openai.FunctionCall{Name: toolName, Arguments: `{}`},
 		}, "")
-		resultCh <- struct {
-			text    string
-			isErr   bool
-			unknown bool
-		}{text: text, isErr: isErr, unknown: unknown}
 	}()
 	<-started
 	cancel()
 	result := <-resultCh
-	if !result.isErr || !result.unknown || result.text == "" {
+	if !result.IsError || !result.ExecutionUnknown || result.Text == "" {
 		t.Fatalf("cancelled tool result was not marked unknown: %#v", result)
 	}
 }
@@ -345,7 +539,8 @@ func TestExecuteToolDoesNotStartAfterCancellation(t *testing.T) {
 	const toolName = "test_pre_cancelled_execution"
 	invoked := false
 	tools.SetTool(toolName, &tools.Tool{
-		Name: toolName,
+		Name:        toolName,
+		InputSchema: tools.ToolSchema{Type: "object"},
 		Handler: func(args map[string]any) (tools.CallToolResult, error) {
 			invoked = true
 			return tools.CallToolResult{}, nil
@@ -355,11 +550,10 @@ func TestExecuteToolDoesNotStartAfterCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result, isErr, executionUnknown := executeTool(ctx, openai.ToolCall{
+	result := executeTool(ctx, openai.ToolCall{
 		Function: openai.FunctionCall{Name: toolName, Arguments: `{}`},
 	}, "")
-	if invoked || result == "" || !isErr || executionUnknown {
-		t.Fatalf("pre-cancelled tool was handled incorrectly: invoked=%v, result=%q, isErr=%v, executionUnknown=%v",
-			invoked, result, isErr, executionUnknown)
+	if invoked || result.Text == "" || !result.IsError || result.ExecutionUnknown {
+		t.Fatalf("pre-cancelled tool was handled incorrectly: invoked=%v, result=%#v", invoked, result)
 	}
 }

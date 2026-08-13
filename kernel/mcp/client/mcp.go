@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -19,12 +19,16 @@ package client
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"reflect"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +43,7 @@ import (
 
 const (
 	defaultMCPServerTimeout = 30 * time.Second
+	maxMCPToolListPages     = 1000
 )
 
 type Connection struct {
@@ -168,7 +173,8 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	for k, v := range h.headers {
 		// 对每个 header 值里的 {{secrets.NAME}}、{{vars.NAME}} 占位符插值，
 		// 使 MCP 服务的 Authorization 等头部可引用密钥/变量而无需明文存储。
-		clone.Header.Set(k, conf.ResolveSecretsVars(model.Conf.Secrets, model.Conf.Variables, v))
+		// 密钥插值限定目标主机为该 MCP 服务的出站地址，防止密钥被转发到其他主机。
+		clone.Header.Set(k, conf.ResolveSecretsVarsForHost(model.Conf.Secrets, model.Conf.Variables, req.URL.Hostname(), v))
 	}
 	return h.base.RoundTrip(clone)
 }
@@ -232,7 +238,7 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 	}
 
 	listCtx, listCancel := context.WithTimeout(ctx, serverTimeout(server))
-	toolList, err := session.ListTools(listCtx, nil)
+	toolList, err := listAllMCPTools(listCtx, session.ListTools)
 	listCancel()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -267,13 +273,13 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 		oauthHandler.disableInteractive()
 	}
 
-	baseNameCounts := make(map[string]int, len(toolList.Tools))
-	for _, tool := range toolList.Tools {
+	baseNameCounts := make(map[string]int, len(toolList))
+	for _, tool := range toolList {
 		baseNameCounts["mcp_"+sanitize(server.Name)+"_"+sanitize(tool.Name)]++
 	}
 	serverNameCollision := sanitizedServerNameCollision(server)
 	registeredTools := map[string]*tools.Tool{}
-	for _, t := range toolList.Tools {
+	for _, t := range toolList {
 		tool := t
 		baseName := "mcp_" + sanitize(server.Name) + "_" + sanitize(tool.Name)
 		name := mcpToolName(server, tool.Name,
@@ -284,12 +290,23 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 		}
 
 		readOnlyHint := trustedReadOnlyHint(server, tool)
-		handler := mcpToolContextHandler(server.Name, tool.Name, serverTimeout(server))
+		handler := mcpToolContextHandler(server.Name, tool.Name, serverTimeout(server), tool.OutputSchema != nil)
+		var outputSchema *tools.ToolSchema
+		if tool.OutputSchema != nil {
+			converted := convertMCPSchema(tool.OutputSchema)
+			outputSchema = &converted
+		}
 		registeredTool := &tools.Tool{
 			Name:         name,
+			Title:        tool.Title,
 			Description:  desc,
 			InputSchema:  convertMCPSchema(tool.InputSchema),
+			OutputSchema: outputSchema,
+			CapabilityID: tools.BuildCapabilityID("mcp", "backend", server.ID, tool.Name),
 			Source:       "mcp",
+			OwnerID:      server.ID,
+			OwnerName:    server.Name,
+			Runtime:      "mcp",
 			ReadOnlyHint: readOnlyHint,
 			EffectScope:  tools.EffectScopeExternal,
 			Handler: func(args map[string]any) (tools.CallToolResult, error) {
@@ -323,6 +340,34 @@ func connectOneServer(ctx context.Context, server conf.MCPServer, interactive bo
 	return connection
 }
 
+func listAllMCPTools(ctx context.Context,
+	listPage func(context.Context, *mcp.ListToolsParams) (*mcp.ListToolsResult, error)) ([]*mcp.Tool, error) {
+	var (
+		allTools []*mcp.Tool
+		params   *mcp.ListToolsParams
+	)
+	seenCursors := map[string]struct{}{}
+	for page := 0; page < maxMCPToolListPages; page++ {
+		result, err := listPage(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, fmt.Errorf("tools/list returned an empty response")
+		}
+		allTools = append(allTools, result.Tools...)
+		if result.NextCursor == "" {
+			return allTools, nil
+		}
+		if _, exists := seenCursors[result.NextCursor]; exists {
+			return nil, fmt.Errorf("tools/list repeated cursor %q", result.NextCursor)
+		}
+		seenCursors[result.NextCursor] = struct{}{}
+		params = &mcp.ListToolsParams{Cursor: result.NextCursor}
+	}
+	return nil, fmt.Errorf("tools/list exceeded %d pages", maxMCPToolListPages)
+}
+
 func sanitizedServerNameCollision(server conf.MCPServer) bool {
 	mcpMu.Lock()
 	defer mcpMu.Unlock()
@@ -337,12 +382,18 @@ func sanitizedServerNameCollision(server conf.MCPServer) bool {
 
 func mcpToolName(server conf.MCPServer, toolName string, collision bool) string {
 	name := "mcp_" + sanitize(server.Name) + "_" + sanitize(toolName)
-	if !collision {
+	if !collision && len(name) <= maxMCPToolNameLen {
 		return name
 	}
 	hash := sha256.Sum256([]byte(server.ID + "\x00" + toolName))
-	return fmt.Sprintf("%s_%x", name, hash[:6])
+	suffix := fmt.Sprintf("_%x", hash[:6])
+	if len(name) > maxMCPToolNameLen-len(suffix) {
+		name = name[:maxMCPToolNameLen-len(suffix)]
+	}
+	return name + suffix
 }
+
+const maxMCPToolNameLen = 64
 
 func registerMCPToolsForContext(ctx context.Context, registeredTools map[string]*tools.Tool) bool {
 	generation, ok := ctx.Value(mcpGenerationContextKey{}).(uint64)
@@ -352,7 +403,10 @@ func registerMCPToolsForContext(ctx context.Context, registeredTools map[string]
 		return false
 	}
 	for name, tool := range registeredTools {
-		tools.SetTool(name, tool)
+		if err := tools.SetTool(name, tool); err != nil {
+			logging.LogWarnf("mcp: skip invalid client tool [%s]: %v", name, err)
+			delete(registeredTools, name)
+		}
 	}
 	return true
 }
@@ -373,7 +427,12 @@ func closeConnections(connections []Connection) {
 }
 
 func connectServer(ctx context.Context, server conf.MCPServer, interactive bool) (*mcp.ClientSession, *exec.Cmd, *mcpOAuthHandler, error) {
-	c := mcp.NewClient(&mcp.Implementation{Name: "siyuan", Version: "3.0"}, nil)
+	c := mcp.NewClient(&mcp.Implementation{Name: "siyuan", Version: "3.0"}, &mcp.ClientOptions{
+		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
+			logging.LogInfof("mcp: server [%s] tool list changed, reconnecting", server.Name)
+			go reconnectMCPServer(server.ID)
+		},
+	})
 
 	switch server.Type {
 	case "stdio":
@@ -392,6 +451,16 @@ func connectStdio(ctx context.Context, client *mcp.Client, server conf.MCPServer
 	}
 
 	cmd := exec.Command(server.Command, server.Args...)
+	cmdEnv, err := buildStdioEnvironment(server, os.LookupEnv, func(value string) string {
+		if model.Conf == nil {
+			return value
+		}
+		return conf.ResolveSecretsVars(model.Conf.Secrets, model.Conf.Variables, value)
+	}, runtime.GOOS)
+	if err != nil {
+		return nil, nil, fmt.Errorf("environment: %w", err)
+	}
+	cmd.Env = cmdEnv
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, fmt.Errorf("stdin pipe: %w", err)
@@ -417,6 +486,129 @@ func connectStdio(ctx context.Context, client *mcp.Client, server conf.MCPServer
 	}
 
 	return session, cmd, nil
+}
+
+type environmentEntry struct {
+	name  string
+	value string
+}
+
+// buildStdioEnvironment 仅传递用户允许继承的变量，并用显式配置覆盖同名项。
+func buildStdioEnvironment(server conf.MCPServer, lookup func(string) (string, bool), resolve func(string) string,
+	goos string) ([]string, error) {
+	if err := validateMCPServerEnvironment(server, goos); err != nil {
+		return nil, err
+	}
+
+	entries := map[string]environmentEntry{}
+	for _, name := range server.InheritEnv {
+		if value, ok := lookup(name); ok {
+			entries[environmentKey(name, goos)] = environmentEntry{name: name, value: value}
+		}
+	}
+	for name, value := range server.Env {
+		value = resolve(value)
+		entries[environmentKey(name, goos)] = environmentEntry{name: name, value: value}
+	}
+
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	ret := make([]string, 0, len(keys))
+	for _, key := range keys {
+		entry := entries[key]
+		ret = append(ret, entry.name+"="+entry.value)
+	}
+	return ret, nil
+}
+
+func environmentKey(name, goos string) string {
+	if goos == "windows" {
+		return strings.ToUpper(name)
+	}
+	return name
+}
+
+func validateEnvironmentName(name string) error {
+	if name == "" {
+		return errors.New("name is empty")
+	}
+	if strings.ContainsAny(name, "=\x00") {
+		return fmt.Errorf("invalid name %q", name)
+	}
+	return nil
+}
+
+func validateMCPServerEnvironment(server conf.MCPServer, goos string) error {
+	inherited := map[string]bool{}
+	for _, name := range server.InheritEnv {
+		if err := validateEnvironmentName(name); err != nil {
+			return err
+		}
+		key := environmentKey(name, goos)
+		if inherited[key] {
+			return fmt.Errorf("duplicate inherited variable %q", name)
+		}
+		inherited[key] = true
+	}
+	explicit := map[string]bool{}
+	for name, value := range server.Env {
+		if err := validateEnvironmentName(name); err != nil {
+			return err
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return fmt.Errorf("variable %q contains NUL", name)
+		}
+		key := environmentKey(name, goos)
+		if explicit[key] {
+			return fmt.Errorf("duplicate variable %q", name)
+		}
+		explicit[key] = true
+	}
+	return nil
+}
+
+// ValidateMCPServerEnvironment 校验当前平台上的 stdio 环境变量配置。
+func ValidateMCPServerEnvironment(server conf.MCPServer) error {
+	return validateMCPServerEnvironment(server, runtime.GOOS)
+}
+
+func defaultMCPEnvironmentNames(goos string) []string {
+	if goos == "windows" {
+		return []string{"APPDATA", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "PATH", "PATHEXT",
+			"PROCESSOR_ARCHITECTURE", "PROGRAMFILES", "SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "USERNAME", "USERPROFILE"}
+	}
+	return []string{"HOME", "LOGNAME", "PATH", "SHELL", "TERM"}
+}
+
+func environmentVariableNames(environ []string, goos string) []string {
+	names := map[string]string{}
+	for _, item := range environ {
+		name, _, ok := strings.Cut(item, "=")
+		if !ok || name == "" {
+			continue
+		}
+		names[environmentKey(name, goos)] = name
+	}
+	ret := make([]string, 0, len(names))
+	for _, name := range names {
+		ret = append(ret, name)
+	}
+	sort.Slice(ret, func(i, j int) bool {
+		left, right := strings.ToUpper(ret[i]), strings.ToUpper(ret[j])
+		if left == right {
+			return ret[i] < ret[j]
+		}
+		return left < right
+	})
+	return ret
+}
+
+// MCPEnvironmentVariables 返回当前内核环境变量名称和新服务默认允许继承的名称，不暴露变量值。
+func MCPEnvironmentVariables() (names, defaults []string) {
+	return environmentVariableNames(os.Environ(), runtime.GOOS), defaultMCPEnvironmentNames(runtime.GOOS)
 }
 
 func connectHTTP(ctx context.Context, client *mcp.Client, server conf.MCPServer, interactive bool) (*mcp.ClientSession, *exec.Cmd, *mcpOAuthHandler, error) {
@@ -468,7 +660,8 @@ func hasAuthorizationHeader(headers map[string]string) bool {
 	return false
 }
 
-func mcpToolContextHandler(serverName, toolName string, timeout time.Duration) func(context.Context, map[string]any) (tools.CallToolResult, error) {
+func mcpToolContextHandler(serverName, toolName string, timeout time.Duration,
+	structuredContentExpected bool) func(context.Context, map[string]any) (tools.CallToolResult, error) {
 	return func(ctx context.Context, args map[string]any) (tools.CallToolResult, error) {
 		result := callMCPToolOnce(func() (*mcp.CallToolResult, error) {
 			result, err := callMCPTool(ctx, serverName, toolName, timeout, args)
@@ -477,7 +670,7 @@ func mcpToolContextHandler(serverName, toolName string, timeout time.Duration) f
 		}, func(err error) {
 			logging.LogWarnf("mcp: server [%s] tool [%s] disconnected (%s), reconnecting", serverName, toolName, err)
 			go reconnectMCP(serverName)
-		})
+		}, structuredContentExpected)
 		return result, nil
 	}
 }
@@ -520,7 +713,8 @@ func updateMCPRuntimeAfterToolCall(serverName string, callErr error) {
 }
 
 // callMCPToolOnce 保证一次工具请求最多发送一次。断线时只恢复后续调用所需的连接，不重放当前请求。
-func callMCPToolOnce(call func() (*mcp.CallToolResult, error), reconnect func(error)) tools.CallToolResult {
+func callMCPToolOnce(call func() (*mcp.CallToolResult, error), reconnect func(error),
+	structuredContentExpected bool) tools.CallToolResult {
 	result, err := call()
 	if err != nil && isExecutionUnknownError(err) {
 		if isReconnectableError(err) {
@@ -542,22 +736,59 @@ func callMCPToolOnce(call func() (*mcp.CallToolResult, error), reconnect func(er
 		}
 	}
 
-	var textParts []string
+	contentItems := make([]tools.ContentItem, 0, len(result.Content))
 	for _, content := range result.Content {
-		if textContent, ok := content.(*mcp.TextContent); ok {
-			textParts = append(textParts, textContent.Text)
+		data, marshalErr := content.MarshalJSON()
+		if marshalErr != nil {
+			return invalidMCPContentResult()
 		}
+		var item tools.ContentItem
+		if unmarshalErr := json.Unmarshal(data, &item); unmarshalErr != nil {
+			return invalidMCPContentResult()
+		}
+		contentItems = append(contentItems, item)
 	}
-	text := strings.Join(textParts, "\n")
-	if text == "" {
-		text = "(empty result)"
+	if len(contentItems) == 0 {
+		text := ""
+		if result.StructuredContent != nil {
+			if data, err := json.Marshal(result.StructuredContent); err == nil {
+				text = string(data)
+			}
+		}
+		if text == "" {
+			text = "(empty result)"
+		}
+		contentItems = append(contentItems, tools.ContentItem{Type: "text", Text: text})
+	}
+	structuredContentSet := result.StructuredContent != nil
+	if !structuredContentSet && structuredContentExpected && !result.IsError {
+		for _, content := range result.Content {
+			if textContent, ok := content.(*mcp.TextContent); ok && strings.TrimSpace(textContent.Text) == "null" {
+				structuredContentSet = true
+				break
+			}
+		}
 	}
 
 	syr := tools.CallToolResult{
-		IsError: result.IsError,
-		Content: []tools.ContentItem{{Type: "text", Text: text}},
+		IsError:              result.IsError,
+		Content:              contentItems,
+		StructuredContent:    result.StructuredContent,
+		StructuredContentSet: structuredContentSet,
 	}
 	return syr
+}
+
+func invalidMCPContentResult() tools.CallToolResult {
+	return tools.CallToolResult{
+		Content: []tools.ContentItem{{
+			Type: "text",
+			Text: "mcp tool returned invalid content after execution; execution result may have side effects and must not be " +
+				"retried automatically",
+		}},
+		IsError:          true,
+		ExecutionUnknown: true,
+	}
 }
 
 func trustedReadOnlyHint(server conf.MCPServer, tool *mcp.Tool) bool {
@@ -607,6 +838,24 @@ func reconnectMCP(serverName string) bool {
 	}
 	mcpMu.Unlock()
 	if serverID == "" {
+		return false
+	}
+	ReconnectMCPAsync(servers, []string{serverID}, nil)
+	return true
+}
+
+func reconnectMCPServer(serverID string) bool {
+	mcpMu.Lock()
+	servers := append([]conf.MCPServer(nil), mcpServers...)
+	found := false
+	for _, server := range servers {
+		if server.ID == serverID && server.Enabled {
+			found = true
+			break
+		}
+	}
+	mcpMu.Unlock()
+	if !found {
 		return false
 	}
 	ReconnectMCPAsync(servers, []string{serverID}, nil)

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -36,7 +36,6 @@ var (
 	bazaarCacheRhyHash string                          // bazaar hash，发生变更时清空以下缓存
 	stageIndexCache    = make(map[string]*StageIndex)  // pkgType -> 集市包索引
 	bazaarStatsCache   = make(map[string]*bazaarStats) // 集市统计数据
-	installSizeCache   = make(map[string]int64)        // repoURL -> 安装大小
 )
 
 func applyRhyBazaarHash(ctx context.Context) {
@@ -49,7 +48,6 @@ func applyRhyBazaarHash(ctx context.Context) {
 	if bazaarCacheRhyHash != "" && bazaarHash != bazaarCacheRhyHash {
 		clear(stageIndexCache)
 		clear(bazaarStatsCache)
-		clear(installSizeCache)
 		logging.LogInfof("rhy bazaar hash changed, clearing bazaar caches")
 	}
 	bazaarCacheRhyHash = bazaarHash
@@ -67,7 +65,7 @@ var onlineCheckFlight singleflight.Group
 var bazaarStatsFlight singleflight.Group
 
 // getStageAndBazaar 获取 stage 索引和 bazaar 索引，相同 pkgType 的并发调用会合并为一次实际请求 (single-flight)
-func getStageAndBazaar(pkgType string) (result StageBazaarResult) {
+func getStageAndBazaar(pkgType string, showError bool) (result StageBazaarResult) {
 	key := "stageBazaar:" + pkgType
 	v, err, _ := stageBazaarFlight.Do(key, func() (any, error) {
 		return getStageAndBazaar0(pkgType), nil
@@ -76,6 +74,9 @@ func getStageAndBazaar(pkgType string) (result StageBazaarResult) {
 		return
 	}
 	result = v.(StageBazaarResult)
+	if showError && !result.Online {
+		util.PushErrMsg(util.Langs[util.Lang][24], 5000)
+	}
 	return
 }
 

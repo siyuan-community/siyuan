@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -72,6 +72,27 @@ func TestAIDisabledKeylessProviderOrModelIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestAINormalizeModelContextLength(t *testing.T) {
+	ai := &AI{Providers: []*Provider{{
+		Models: []*Model{
+			{Name: "negative", ContextLength: -1},
+			{Name: "valid", ContextLength: 1048576},
+			{Name: "too-large", ContextLength: 100000001},
+		},
+	}}}
+
+	ai.Normalize()
+	if got := ai.Providers[0].Models[0].ContextLength; got != 0 {
+		t.Fatalf("negative context length = %d, want 0", got)
+	}
+	if got := ai.Providers[0].Models[1].ContextLength; got != 1048576 {
+		t.Fatalf("valid context length = %d, want 1048576", got)
+	}
+	if got := ai.Providers[0].Models[2].ContextLength; got != 0 {
+		t.Fatalf("too-large context length = %d, want 0", got)
+	}
+}
+
 func TestAssignDefaultModelIDsUsesKeylessProvider(t *testing.T) {
 	model := &Model{ID: "model-id", Name: "local-model", Enabled: true}
 	ai := &AI{
@@ -83,5 +104,32 @@ func TestAssignDefaultModelIDsUsesKeylessProvider(t *testing.T) {
 	assignDefaultModelIDs(ai)
 	if ai.Agent.ModelID != model.ID || ai.Editing.ModelID != model.ID {
 		t.Fatalf("unexpected default model IDs: agent=%q editing=%q", ai.Agent.ModelID, ai.Editing.ModelID)
+	}
+}
+
+func TestReconcileModelIDs(t *testing.T) {
+	first := &Model{ID: "first-model", Name: "first", Enabled: true}
+	second := &Model{ID: "second-model", Name: "second", DisplayName: "Second", Enabled: true}
+	ai := &AI{
+		Providers: []*Provider{
+			{Enabled: false, Models: []*Model{{ID: "disabled-provider-model", Name: "disabled", Enabled: true}}},
+			{Enabled: true, Models: []*Model{{ID: "disabled-model", Name: "disabled"}}},
+			{Enabled: true, Models: []*Model{first, second}},
+		},
+		Editing:         &Editing{ModelID: "missing"},
+		Agent:           &Agent{ModelID: second.Name},
+		ImageGeneration: &ImageGeneration{ModelID: second.DisplayName},
+	}
+
+	ai.ReconcileModelIDs()
+
+	if ai.Editing.ModelID != first.ID {
+		t.Fatalf("editing model ID = %q, want %q", ai.Editing.ModelID, first.ID)
+	}
+	if ai.Agent.ModelID != second.ID {
+		t.Fatalf("agent model ID = %q, want %q", ai.Agent.ModelID, second.ID)
+	}
+	if ai.ImageGeneration.ModelID != second.ID {
+		t.Fatalf("image generation model ID = %q, want %q", ai.ImageGeneration.ModelID, second.ID)
 	}
 }

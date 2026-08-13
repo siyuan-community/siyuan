@@ -16,9 +16,14 @@
         <use xlink:href="#iconMenu"></use>
     </svg>
     <input class="toolbar__title fn__hidden" id="toolbarName">
+    <span class="toolbar__title toolbar__title--readonly fn__hidden fn__none" id="toolbarNameReadonly"></span>
     <svg id="toolbarSync" class="toolbar__icon toolbar__icon-deactivate fn__none">
         <use xlink:href="#iconCloudSucc"></use>
     </svg>
+    <button id="toolbarTabs" class="toolbar__tabs" type="button">
+        <svg><use xlink:href="#iconLayoutGrid"></use></svg>
+        <span class="toolbar__tabs-count">0</span>
+    </button>
     <svg id="toolbarMore" class="toolbar__icon">
         <use xlink:href="#iconSettings"></use>
     </svg>
@@ -59,6 +64,7 @@
     </div>
     <div id="modelMain" class="fn__flex-1"></div>
 </div>
+<div id="commonMenuScrim" class="b3-menu__scrim fn__none" aria-hidden="true"></div>
 <div id="commonMenu" class="b3-menu fn__none">
     <div class="b3-menu__title fn__none">
         <svg class="b3-menu__icon"><use xlink:href="#iconLeft"></use></svg>

@@ -24,7 +24,7 @@ import {showMessage} from "../dialog/message";
 import {replaceLocalPath} from "../editor/rename";
 import {initBar} from "../layout/topBar";
 import {openChangelog} from "./openChangelog";
-import {App} from "../index";
+import type {App} from "../index";
 import {initWindowEvent} from "./globalEvent/event";
 import {sendGlobalShortcut} from "./globalEvent/keydown";
 import {closeWindow} from "../window/closeWin";
@@ -33,6 +33,7 @@ import {recordBeforeResizeTop} from "../protyle/util/resize";
 import {processSiYuanUri} from "../util/uri";
 import {getAllEditor} from "../layout/getAll";
 import {openDesktopOnboarding} from "../onboarding";
+import {ensureUILayout} from "../util/ensureUILayout";
 
 export const onGetConfig = (isStart: boolean, app: App) => {
     correctHotkey(app);
@@ -54,25 +55,29 @@ export const onGetConfig = (isStart: boolean, app: App) => {
         },
     });
     /// #endif
-    if (!window.siyuan.config.uiLayout || (window.siyuan.config.uiLayout && !window.siyuan.config.uiLayout.left)) {
-        window.siyuan.config.uiLayout = Constants.SIYUAN_EMPTY_LAYOUT;
-    }
+    ensureUILayout();
     initWindowEvent(app);
-    fetchPost("/api/system/getEmojiConf", {}, response => {
-        window.siyuan.emojis = response.data as IEmoji[];
-        try {
-            JSONToLayout(app, isStart);
-            setTimeout(() => {
-                adjustLayout();
-            }); // 等待 dock 中 !this.pin 的 setTimeout
-            /// #if !BROWSER
-            sendGlobalShortcut(app);
-            /// #endif
-            openChangelog();
-        } catch (e) {
-            resetLayout();
-        }
-        openDesktopOnboarding(app);
+    const snippetReady = renderSnippet(Constants.TIMEOUT_SNIPPET_LOAD);
+    const layoutReady = new Promise<void>((resolve) => {
+        fetchPost("/api/system/getEmojiConf", {}, response => {
+            window.siyuan.emojis = response.data as IEmoji[];
+            snippetReady.then(() => {
+                try {
+                    JSONToLayout(app, isStart);
+                    setTimeout(() => {
+                        adjustLayout();
+                    }); // 等待 dock 中 !this.pin 的 setTimeout
+                    /// #if !BROWSER
+                    sendGlobalShortcut(app);
+                    /// #endif
+                    openChangelog();
+                } catch (e) {
+                    resetLayout();
+                }
+                openDesktopOnboarding(app);
+                resolve();
+            });
+        });
     });
     initBar(app);
     initStatus();
@@ -84,7 +89,6 @@ export const onGetConfig = (isStart: boolean, app: App) => {
     appearanceConfigApi.apply(window.siyuan.config.appearance);
     initAssets();
     setInlineStyle();
-    renderSnippet();
     if (window.siyuan.config.system.safeMode) {
         // 安全模式已禁用代码片段、插件、自定义主题和图标
         showMessage(window.siyuan.languages.safeModeTip);
@@ -117,6 +121,7 @@ export const onGetConfig = (isStart: boolean, app: App) => {
             });
         }, Constants.TIMEOUT_RESIZE);
     });
+    return layoutReady;
 };
 
 export const initWindow = async (app: App) => {

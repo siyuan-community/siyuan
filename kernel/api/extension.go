@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -46,18 +46,22 @@ func extensionCopy(c *gin.Context) {
 	form, _ := c.MultipartForm()
 	dom := form.Value["dom"][0]
 	assets := filepath.Join(util.DataDir, "assets")
-	boxID := ""
+	targetBoxID := ""
+	encryptedBoxID := ""
 	if notebookVal := form.Value["notebook"]; 0 < len(notebookVal) {
 		nb := notebookVal[0]
-		if model.IsEncryptedBox(nb) {
-			boxID = nb
-			assets = filepath.Join(util.DataDir, nb, "assets")
-		} else {
-			assets = filepath.Join(util.DataDir, nb, "assets")
-			if !gulu.File.IsDir(assets) {
-				assets = filepath.Join(util.DataDir, "assets")
+		if ast.IsNodeIDPattern(nb) {
+			targetBoxID = nb
+			assets = model.GetImportAssetsDir(targetBoxID, "")
+			if model.IsEncryptedBox(targetBoxID) {
+				encryptedBoxID = targetBoxID
 			}
 		}
+	}
+	if err := holdEncryptedBoxRequest(c, encryptedBoxID); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
 	}
 
 	if err := os.MkdirAll(assets, 0755); err != nil {
@@ -166,7 +170,7 @@ func extensionCopy(c *gin.Context) {
 		}
 
 		// 统一通过 storeAssetForBox 写入，加密 box 自动脱敏 + 加密落盘 + 追加 ?box=
-		storedName, storeErr := model.StoreAssetForBox(boxID, assets, fName, data)
+		storedName, storeErr := model.StoreAssetForBox(targetBoxID, assets, fName, data)
 		if storeErr != nil {
 			ret.Code = -1
 			ret.Msg = storeErr.Error()
@@ -174,8 +178,8 @@ func extensionCopy(c *gin.Context) {
 		}
 
 		assetURL := "assets/" + storedName
-		if boxID != "" {
-			assetURL += "?box=" + boxID
+		if encryptedBoxID != "" {
+			assetURL += "?box=" + encryptedBoxID
 		}
 		uploaded[unescaped] = assetURL
 	}
@@ -200,7 +204,7 @@ func extensionCopy(c *gin.Context) {
 			md = string(bodyData)
 			luteEngine.SetIndentCodeBlock(true) // 链滴支持缩进代码块，因此需要开启
 			tree := parse.Parse("", []byte(md), luteEngine.ParseOptions)
-			tree.Box = boxID
+			tree.Box = targetBoxID
 			ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 				if ast.NodeInlineMath == n.Type {
 					withMath = true
@@ -245,7 +249,7 @@ func extensionCopy(c *gin.Context) {
 			return s
 		})
 
-		tree, withMath = model.HTML2Tree(dom, luteEngine, boxID)
+		tree, withMath = model.HTML2Tree(dom, luteEngine, targetBoxID)
 	} else {
 		tree = parse.Parse("", []byte(md), luteEngine.ParseOptions)
 	}

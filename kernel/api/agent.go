@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -30,22 +30,24 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/agent"
 	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 type agentChatReq struct {
-	SessionID       string               `json:"sessionID"`
-	UserEntryID     string               `json:"userEntryID"`
-	ContentRevision *int64               `json:"contentRevision"`
-	Message         string               `json:"message"`
-	Language        string               `json:"language"`
-	References      []agent.Reference    `json:"references"`
-	EditorContext   agent.EditorContext  `json:"editorContext"`
-	PluginActions   []agent.PluginAction `json:"pluginActions"`
-	Model           string               `json:"model,omitempty"`
-	Regenerate      bool                 `json:"regenerate"`
-	ReasoningEffort string               `json:"reasoningEffort,omitempty"`
+	SessionID            string                     `json:"sessionID"`
+	UserEntryID          string                     `json:"userEntryID"`
+	ContentRevision      *int64                     `json:"contentRevision"`
+	Message              string                     `json:"message"`
+	BlockHTML            *string                    `json:"blockHTML"`
+	Language             string                     `json:"language"`
+	References           []agent.Reference          `json:"references"`
+	EditorContext        agent.EditorContext        `json:"editorContext"`
+	FrontendCapabilities []agent.FrontendCapability `json:"frontendCapabilities"`
+	Model                string                     `json:"model,omitempty"`
+	Regenerate           bool                       `json:"regenerate"`
+	ReasoningEffort      string                     `json:"reasoningEffort,omitempty"`
 }
 
 type runningSession struct {
@@ -134,7 +136,10 @@ func agentChat(c *gin.Context) {
 	if req.ContentRevision != nil {
 		contentRevision = *req.ContentRevision
 	}
-	eventCh := agent.AgentChat(ctx, client, selectedModel.Name, req.SessionID, req.UserEntryID, contentRevision, req.Message, req.Language, req.References, req.EditorContext, req.PluginActions, req.Regenerate, confirmTimeout, maxRetries, req.ReasoningEffort, requestTimeout, streamIdleTimeout)
+	contextLimit := agent.ResolveModelContextLimit(selectedModel.Name, selectedModel.ContextLength)
+	imageCapabilityKey := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s",
+		selectedProvider.ID, selectedModel.ID, selectedProvider.BaseURL, selectedProvider.Protocol, selectedModel.Name)
+	eventCh := agent.AgentChat(ctx, client, selectedModel.Name, imageCapabilityKey, contextLimit, req.SessionID, req.UserEntryID, contentRevision, req.Message, req.BlockHTML, req.Language, req.References, req.EditorContext, req.FrontendCapabilities, req.Regenerate, confirmTimeout, maxRetries, req.ReasoningEffort, requestTimeout, streamIdleTimeout)
 	defer cancel()
 	streamClosed := false
 	defer func() {
@@ -202,8 +207,8 @@ func newAgentSessionDeadline(timeoutSeconds int) (*time.Timer, <-chan time.Time)
 
 func recordRunningEvent(sessionID string, running *runningSession, event agent.AgentEvent) {
 	sessionsMu.Lock()
-	defer sessionsMu.Unlock()
 	if runningSessions[sessionID] != running {
+		sessionsMu.Unlock()
 		return
 	}
 	if event.Type == "turn" {
@@ -211,6 +216,10 @@ func recordRunningEvent(sessionID string, running *runningSession, event agent.A
 	}
 	if event.Type == "done" || event.Type == "error" {
 		running.terminal = true
+	}
+	sessionsMu.Unlock()
+	if event.Type == agent.AgentEventPermission {
+		broadcastAgentSessionChanged(running.app, sessionID, "permission")
 	}
 }
 
@@ -249,13 +258,46 @@ func agentChatConfirm(c *gin.Context) {
 		return
 	}
 	ret := gulu.Ret.NewResult()
-	if !agent.ConfirmSession(req.ConfirmID, req.Approved, req.Always) {
+	accepted, err := agent.ConfirmSession(req.ConfirmID, req.Approved, req.Always)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+	if !accepted {
 		ret.Code = -1
 		ret.Msg = "agent confirmation expired"
 		c.JSON(http.StatusConflict, ret)
 		return
 	}
 	c.JSON(http.StatusOK, ret)
+}
+
+type agentPermissionReq struct {
+	SessionID      string `json:"sessionID"`
+	PermissionMode string `json:"permissionMode"`
+}
+
+func setAgentSessionPermission(c *gin.Context) {
+	req := &agentPermissionReq{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		ret := gulu.Ret.NewResult()
+		ret.Code = -1
+		ret.Msg = "invalid request: " + err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+	ret := gulu.Ret.NewResult()
+	if err := agent.SetSessionPermissionMode(req.SessionID, req.PermissionMode); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		c.JSON(http.StatusOK, ret)
+		return
+	}
+	ret.Data = map[string]string{"permissionMode": req.PermissionMode}
+	c.JSON(http.StatusOK, ret)
+	broadcastAgentSessionChanged(c.GetHeader("X-SiYuan-App-ID"), req.SessionID, "permission")
 }
 
 type agentQuestionReq struct {
@@ -282,14 +324,16 @@ func agentChatQuestion(c *gin.Context) {
 	c.JSON(http.StatusOK, ret)
 }
 
-type agentFrontendResultReq struct {
-	CallID  string `json:"callID"`
-	Result  string `json:"result"`
-	IsError bool   `json:"isError"`
+type agentBrowserCapabilityResultReq struct {
+	CallID               string `json:"callID"`
+	Result               string `json:"result"`
+	StructuredContent    any    `json:"structuredContent"`
+	StructuredContentSet bool   `json:"structuredContentSet"`
+	IsError              bool   `json:"isError"`
 }
 
-func agentChatFrontendResult(c *gin.Context) {
-	req := &agentFrontendResultReq{}
+func agentChatBrowserCapabilityResult(c *gin.Context) {
+	req := &agentBrowserCapabilityResultReq{}
 	if err := c.ShouldBindJSON(req); err != nil {
 		ret := gulu.Ret.NewResult()
 		ret.Code = -1
@@ -298,12 +342,18 @@ func agentChatFrontendResult(c *gin.Context) {
 		return
 	}
 	ret := gulu.Ret.NewResult()
-	if !agent.FrontendToolResult(req.CallID, req.Result, req.IsError) {
+	if !agent.BrowserCapabilityResult(req.CallID, req.Result, req.StructuredContent, req.StructuredContentSet, req.IsError) {
 		ret.Code = -1
-		ret.Msg = "agent frontend tool call expired"
+		ret.Msg = "agent browser capability call expired"
 		c.JSON(http.StatusConflict, ret)
 		return
 	}
+	c.JSON(http.StatusOK, ret)
+}
+
+func lsCapabilities(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	ret.Data = tools.ListCapabilityManifests()
 	c.JSON(http.StatusOK, ret)
 }
 
@@ -606,7 +656,8 @@ func saveSession(c *gin.Context) {
 }
 
 // broadcastAgentSessionChanged 向除发起者 app 外、所有打开了 agentChat dock 的实例推送会话变更通知。
-// action: streamStart / streamEnd / update / delete。排除发起者 app（它已通过 SSE 自渲染或本地持有最新状态）。
+// action: streamStart / streamEnd / update / permission / delete。
+// 排除发起者 app，它已通过 SSE 自渲染或在本地持有最新状态。
 func broadcastAgentSessionChanged(app, sessionID, action string) {
 	if "" == app || "" == sessionID {
 		return
@@ -629,7 +680,10 @@ func writeSSE(c *gin.Context, event agent.AgentEvent) error {
 	case "content":
 		return writeSSEEvent(c, "content", map[string]string{"token": event.Token})
 	case "thinking":
-		return writeSSEEvent(c, "thinking", map[string]string{"reasoning": event.Reasoning})
+		return writeSSEEvent(c, "thinking", map[string]string{
+			"reasoning": event.Reasoning,
+			"roundID":   event.RoundID,
+		})
 	case "reasoning":
 		return writeSSEEvent(c, "reasoning", map[string]string{"token": event.Token})
 	case "confirm":
@@ -638,16 +692,25 @@ func writeSSE(c *gin.Context, event agent.AgentEvent) error {
 			"arguments": event.Arguments,
 			"confirmID": event.ConfirmID,
 			"effects":   event.Effects,
+			"forced":    event.ForcedConfirm,
+		})
+	case agent.AgentEventPermission:
+		return writeSSEEvent(c, agent.AgentEventPermission, map[string]string{
+			"permissionMode": event.PermissionMode,
 		})
 	case "tool_call":
 		return writeSSEEvent(c, "tool_call", map[string]any{
 			"name":      event.Name,
+			"callID":    event.ToolCallID,
+			"roundID":   event.RoundID,
 			"arguments": event.Arguments,
 		})
 	case "tool_result":
 		return writeSSEEvent(c, "tool_result", map[string]string{
-			"name":   event.Name,
-			"result": event.Result,
+			"name":    event.Name,
+			"callID":  event.ToolCallID,
+			"roundID": event.RoundID,
+			"result":  event.Result,
 		})
 	case "error":
 		return writeSSEEvent(c, "error", map[string]string{"message": event.Error})
@@ -672,14 +735,19 @@ func writeSSE(c *gin.Context, event agent.AgentEvent) error {
 			"questionID": event.QuestionID,
 			"arguments":  event.Arguments,
 		})
-	case "frontend_tool_call":
-		return writeSSEEvent(c, "frontend_tool_call", map[string]any{
-			"callID":    event.CallID,
-			"name":      event.Name,
-			"arguments": event.Arguments,
+	case "browser_capability_call":
+		return writeSSEEvent(c, "browser_capability_call", map[string]any{
+			"callID":       event.CallID,
+			"name":         event.Name,
+			"capabilityID": event.CapabilityID,
+			"generation":   event.Generation,
+			"arguments":    event.Arguments,
 		})
 	case "snapshot":
-		return writeSSEEvent(c, "snapshot", map[string]string{"snapshotID": event.SnapshotID})
+		return writeSSEEvent(c, "snapshot", map[string]string{
+			"snapshotID": event.SnapshotID,
+			"roundID":    event.RoundID,
+		})
 	}
 	return nil
 }

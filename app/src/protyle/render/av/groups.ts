@@ -1,6 +1,6 @@
 import {unicode2Emoji} from "../../../emoji";
 import {getColIconByType} from "./col";
-import {escapeHtml} from "../../../util/escape";
+import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {setPosition} from "../../../util/setPosition";
 import {getFieldsByData} from "./view";
 import {fetchSyncPost} from "../../../util/fetch";
@@ -195,16 +195,16 @@ export const getGroupsHTML = (columns: IAVColumn[], view: IAVView) => {
                 if (item.groupHidden === 0) {
                     showCount++;
                 }
-                let titleHTML = `<div class="b3-menu__label fn__flex-1 fn__ellipsis">${item.name || ""}</div>`;
+                let titleHTML = `<div class="b3-menu__label fn__flex-1 fn__ellipsis">${escapeHtml(item.name || "")}</div>`;
                 if (item.groupValue?.mSelect?.length > 0) {
                     titleHTML = `<div class="fn__flex-1">
-        <span class="b3-chip" style="background-color:var(--b3-font-background${item.groupValue.mSelect[0].color});color:var(--b3-font-color${item.groupValue.mSelect[0].color})">
+        <span class="b3-chip" style="background-color:var(--b3-font-background${escapeAttr(item.groupValue.mSelect[0].color)});color:var(--b3-font-color${escapeAttr(item.groupValue.mSelect[0].color)})">
             <span class="fn__ellipsis">${escapeHtml(item.groupValue.mSelect[0].content)}</span>
         </span>
     </div>`;
                 } else if (item.groupValue?.type == "checkbox") {
                     titleHTML = `<div class="b3-menu__label fn__flex">
-<svg class="b3-menu__icon"><use xlink:href="#icon${item.groupValue.checkbox.checked ? "Check" : "Uncheck"}"></use></svg> ${column.name || ""}
+<svg class="b3-menu__icon"><use xlink:href="#icon${item.groupValue.checkbox.checked ? "Check" : "Uncheck"}"></use></svg> ${escapeHtml(column.name || "")}
 </div>`;
                 }
                 groupHTML += `<button class="b3-menu__item${item.groupHidden === 0 ? "" : " b3-menu__item--hidden"}" draggable="${disabledDrag ? "false" : "true"}" data-id="${item.id}">
@@ -260,7 +260,7 @@ ${groupHTML}
 <button class="b3-menu__separator"></button>
 <button class="b3-menu__item" data-type="goGroupsMethod">
     <span class="b3-menu__label">${window.siyuan.languages.groupMethod}</span>
-    <span class="b3-menu__accelerator">${column ? column.name : ""}</span>
+    <span class="b3-menu__accelerator">${escapeHtml(column ? column.name : "")}</span>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>
 ${html}

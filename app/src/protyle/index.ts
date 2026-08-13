@@ -37,7 +37,7 @@ import {renderBacklink} from "./wysiwyg/renderBacklink";
 import {setEmpty} from "../mobile/util/setEmpty";
 import {resize} from "./util/resize";
 import {getDocByScroll} from "./scroll/saveScroll";
-import {App} from "../index";
+import type {App} from "../index";
 import {insertHTML} from "./util/insertHTML";
 import {avRender} from "./render/av/render";
 import {focusBlock, getEditorRange} from "./util/selection";
@@ -51,6 +51,7 @@ import {isSupportCSSHL} from "./render/searchMarkRender";
 import {renderAVAttribute} from "./render/av/blockAttr";
 import {setFoldById, zoomOut} from "../menus/protyle";
 import {setEditMode} from "./util/setEditMode";
+import {waitForPendingTransactions} from "./util/transactionQueue";
 
 export class Protyle {
 
@@ -111,6 +112,11 @@ export class Protyle {
 
         this.protyle.element.innerHTML = "";
         this.protyle.element.classList.add("protyle");
+        if (this.protyle.notebookId) {
+            this.protyle.element.setAttribute("data-notebook-id", this.protyle.notebookId);
+        } else {
+            this.protyle.element.removeAttribute("data-notebook-id");
+        }
         // 启用 RTL 时给 .protyle 元素添加 .rtl 类名，方便主题开发者判断 RTL 方向
         if (window.siyuan.config.editor.rtl) {
             this.protyle.element.classList.add("rtl");
@@ -167,6 +173,17 @@ export class Protyle {
                             if (this.protyle.databaseAttributePanel?.hasDatabase(data.data.id)) {
                                 this.protyle.databaseAttributePanel.refresh();
                             }
+                            /// #if MOBILE
+                            document.querySelectorAll<HTMLElement>(
+                                `.protyle-db-row--mobile[data-protyle-id="${this.protyle.id}"] .protyle-db-row__body > [data-av-id="${data.data.id}"]`
+                            ).forEach((item) => {
+                                renderAVAttribute(item.parentElement as HTMLElement, item.dataset.nodeId, this.protyle, undefined, {
+                                    avID: data.data.id,
+                                    itemID: item.dataset.nodeId,
+                                    valueID: "",
+                                });
+                            });
+                            /// #endif
                             /// #if !MOBILE
                             getAllModels().custom.forEach((item) => {
                                 if (item.type === "siyuan-database-row" && (item.data.avID === data.data.id ||
@@ -260,6 +277,11 @@ export class Protyle {
                             if (this.protyle.path === data.data.fromPath) {
                                 this.protyle.path = data.data.newPath;
                                 this.protyle.notebookId = data.data.toNotebook;
+                                if (this.protyle.notebookId) {
+                                    this.protyle.element.setAttribute("data-notebook-id", this.protyle.notebookId);
+                                } else {
+                                    this.protyle.element.removeAttribute("data-notebook-id");
+                                }
                             }
                             break;
                         case "closeBox":
@@ -339,35 +361,25 @@ export class Protyle {
         const hadContent = this.protyle.wysiwyg.element.childElementCount > 0;
         let needCreateAction = "";
         let hasDeleteOp = false;
+        const operations: IOperation[] = [];
         data.data[0].doOperations.find((item: IOperation) => {
             if (this.protyle.options.backlinkData && ["delete", "move"].includes(item.action)) {
-                // 只对特定情况刷新，否则展开、编辑等操作刷新会频繁
-                /// #if !MOBILE
-                if (2 == data.data[0].doOperations.length && "insert" === data.data[0].doOperations[0].action && "delete" === data.data[0].doOperations[1].action) {
-                    // 从反链面板复制块到正文粘贴时不再自动刷新反链面板
-                    // The list in the backlink panel no longer collapses automatically https://github.com/siyuan-note/siyuan/issues/17362
-                    return true;
-                }
-
-                getAllModels().backlink.find(backlinkItem => {
-                    if (backlinkItem.element.contains(this.protyle.element)) {
-                        backlinkItem.refresh();
-                        return true;
-                    }
-                });
-                /// #endif
+                // 反链上下文只展示源文档的一部分，结构操作等待索引提交后按内容版本增量同步。
                 return true;
             } else {
                 if (item.action === "delete") {
                     hasDeleteOp = true;
                 }
-                onTransaction(this.protyle, [item], false);
+                operations.push(item);
                 // 反链面板移除元素后，文档为空
                 if (!(item.action === "delete" && typeof item.data?.createEmptyParagraph === "boolean" && !item.data.createEmptyParagraph)) {
                     needCreateAction = item.action;
                 }
             }
         });
+        if (operations.length > 0) {
+            onTransaction(this.protyle, operations, false);
+        }
         // 聚焦块被分屏另一侧的删除操作连带删除时（容器块删除会级联删除其所有子孙块，如列表/超级块/引述等），当前页签的聚焦块已成为孤儿但仍显示，需退出聚焦
         // Improve editor state synchronization when deleting blocks https://github.com/siyuan-note/siyuan/issues/17742
         if (this.protyle.block.showAll && hasDeleteOp) {
@@ -533,6 +545,11 @@ export class Protyle {
 
     public insert(html: string, isBlock = false, useProtyleRange = false) {
         insertHTML(html, this.protyle, isBlock, useProtyleRange);
+    }
+
+    public async flushPendingTransactions() {
+        await this.protyle.wysiwyg.flushPendingInput();
+        await waitForPendingTransactions(this.protyle);
     }
 
     public transaction(doOperations: IOperation[], undoOperations?: IOperation[]) {

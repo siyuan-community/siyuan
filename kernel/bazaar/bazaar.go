@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -25,12 +25,21 @@ import (
 	"github.com/araddon/dateparse"
 )
 
-// GetBazaarPackages 返回指定类型的在线集市包列表（plugins 类型需要传递 frontend 参数）。
+// GetBazaarPackages 返回指定类型的在线集市包列表（plugins 和 themes 类型需要传递 frontend 参数）。
 func GetBazaarPackages(pkgType string, frontend string) (packages []*Package) {
-	result := getStageAndBazaar(pkgType)
+	packages, _ = getBazaarPackages(pkgType, frontend, true)
+	return
+}
 
+func getBazaarPackages(pkgType, frontend string, showError bool) (packages []*Package, err error) {
+	result := getStageAndBazaar(pkgType, showError)
 	if !result.Online || nil != result.StageErr || nil == result.StageIndex {
-		return make([]*Package, 0)
+		if nil != result.StageErr {
+			err = result.StageErr
+		} else {
+			err = errors.New("bazaar is offline")
+		}
+		return make([]*Package, 0), err
 	}
 
 	packages = make([]*Package, 0, len(result.StageIndex.Repos))
@@ -44,16 +53,19 @@ func GetBazaarPackages(pkgType string, frontend string) (packages []*Package) {
 	return
 }
 
-// GetBazaarPackagesMap 返回按包名索引的在线集市包映射（plugins 类型需要传递 frontend 参数）。
-func GetBazaarPackagesMap(pkgType, frontend string) map[string]*Package {
-	packages := GetBazaarPackages(pkgType, frontend)
-	packagesMap := make(map[string]*Package, len(packages))
+// GetBazaarPackagesMap 返回按包名索引的在线集市包映射（plugins 和 themes 类型需要传递 frontend 参数）。
+func GetBazaarPackagesMap(pkgType, frontend string) (packagesMap map[string]*Package, err error) {
+	packages, err := getBazaarPackages(pkgType, frontend, false)
+	if err != nil {
+		return map[string]*Package{}, err
+	}
+	packagesMap = make(map[string]*Package, len(packages))
 	for _, pkg := range packages {
 		if "" != pkg.Name {
 			packagesMap[pkg.Name] = pkg
 		}
 	}
-	return packagesMap
+	return
 }
 
 // buildBazaarPackageWithMetadata 从 StageRepo 构建带有在线元数据的集市包。
@@ -90,8 +102,11 @@ func buildBazaarPackageWithMetadata(repo *StageRepo, bazaarStats map[string]*baz
 	pkg.DisallowInstall = disallowVer
 	pkg.DisallowUpdate = disallowVer
 	pkg.UpdateRequiredMinAppVer = pkg.MinAppVersion
-	if "plugins" == pkgType {
-		bazaarIncompatible := IsIncompatiblePlugin(&pkg, frontend)
+	if "plugins" == pkgType || "themes" == pkgType {
+		bazaarIncompatible := IsIncompatibleTheme(&pkg, frontend)
+		if "plugins" == pkgType {
+			bazaarIncompatible = IsIncompatiblePlugin(&pkg, frontend)
+		}
 		pkg.BazaarIncompatible = &bazaarIncompatible
 		if bazaarIncompatible {
 			pkg.DisallowInstall = true
@@ -111,10 +126,6 @@ func buildBazaarPackageWithMetadata(repo *StageRepo, bazaarStats map[string]*baz
 	if stats := bazaarStats[repoPath]; nil != stats { // 通过 bazaarStats[owner/repo] 获取单个包的统计数据
 		pkg.Downloads = stats.Downloads
 	}
-	// TODO 分离本地安装大小和在线 stage 数据的安装大小，不保存到 installSizeCache
-	bazaarMemMu.Lock()
-	installSizeCache[pkg.RepoURL] = pkg.InstallSize
-	bazaarMemMu.Unlock()
 	return &pkg
 }
 

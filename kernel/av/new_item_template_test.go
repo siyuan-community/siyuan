@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -22,10 +22,11 @@ func TestSetNewItemTemplates(t *testing.T) {
 	templateID := ast.NewNodeID()
 	config := &NewItemTemplatesConfig{
 		Templates: []*NewItemTemplate{{
-			ID:         templateID,
-			Name:       " Document ",
-			Icon:       " 1f4c4 ",
-			TargetType: NewItemTargetDocument,
+			ID:             templateID,
+			Name:           " Document ",
+			Icon:           " 1f4c4 ",
+			TargetType:     NewItemTargetDocument,
+			HideInFileTree: true,
 			FieldValues: map[string]*NewItemFieldValue{
 				textKey.ID: {Mode: NewItemFieldValueStatic, Value: &Value{
 					ID: ast.NewNodeID(), KeyID: "old", BlockID: "old", Type: KeyTypeNumber, Text: &ValueText{Content: "value"},
@@ -44,6 +45,9 @@ func TestSetNewItemTemplates(t *testing.T) {
 	}
 	if "1f4c4" != got.Icon {
 		t.Fatalf("unexpected normalized icon: %q", got.Icon)
+	}
+	if !got.HideInFileTree {
+		t.Fatal("document template should preserve the file tree visibility setting")
 	}
 	value := got.FieldValues[textKey.ID].Value
 	if KeyTypeText != value.Type || "" != value.ID || "" != value.KeyID || "" != value.BlockID {
@@ -86,6 +90,23 @@ func TestSetNewItemTemplatesRejectsInvalidConfig(t *testing.T) {
 	if nil == err {
 		t.Fatal("expected a number field without number payload to fail")
 	}
+
+	for _, keyType := range []KeyType{KeyTypeSelect, KeyTypeMSelect} {
+		selectKey := NewKey(ast.NewNodeID(), "Select", "", keyType)
+		selectKey.Options = []*SelectOption{{Name: "Available", Color: "1"}}
+		attrView.KeyValues = append(attrView.KeyValues, &KeyValues{Key: selectKey})
+		attrView.KeyIDs = append(attrView.KeyIDs, selectKey.ID)
+		err = attrView.SetNewItemTemplates(&NewItemTemplatesConfig{Templates: []*NewItemTemplate{{
+			ID: ast.NewNodeID(), Name: "Invalid", TargetType: NewItemTargetDetached,
+			FieldValues: map[string]*NewItemFieldValue{selectKey.ID: {
+				Mode:  NewItemFieldValueStatic,
+				Value: &Value{Type: keyType, MSelect: []*ValueSelect{{Content: "Unavailable", Color: "2"}}},
+			}},
+		}}})
+		if nil == err {
+			t.Fatalf("expected an unavailable %s option to fail", keyType)
+		}
+	}
 }
 
 func TestEmptyNewItemTemplatesUseVirtualDefault(t *testing.T) {
@@ -105,13 +126,16 @@ func TestEmptyNewItemTemplatesUseVirtualDefault(t *testing.T) {
 func TestDetachedNewItemTemplateDropsIcon(t *testing.T) {
 	attrView := &AttributeView{Spec: CurrentSpec, ID: ast.NewNodeID()}
 	config := &NewItemTemplatesConfig{Templates: []*NewItemTemplate{{
-		ID: ast.NewNodeID(), Name: "Detached", Icon: "1f4c4", TargetType: NewItemTargetDetached,
+		ID: ast.NewNodeID(), Name: "Detached", Icon: "1f4c4", TargetType: NewItemTargetDetached, HideInFileTree: true,
 	}}}
 	if err := attrView.SetNewItemTemplates(config); nil != err {
 		t.Fatalf("set detached new item template failed: %s", err)
 	}
 	if "" != attrView.NewItemTemplates[0].Icon {
 		t.Fatalf("detached template icon should be empty: %q", attrView.NewItemTemplates[0].Icon)
+	}
+	if attrView.NewItemTemplates[0].HideInFileTree {
+		t.Fatal("detached template should not preserve the file tree visibility setting")
 	}
 	if "1f4c4" != config.Templates[0].Icon {
 		t.Fatal("input icon was mutated")
@@ -154,5 +178,58 @@ func TestMaintainNewItemTemplateFieldValues(t *testing.T) {
 	attrView.RemoveNewItemTemplateFieldValue(selectKey.ID)
 	if nil != attrView.NewItemTemplates[0].FieldValues {
 		t.Fatalf("empty field values should be nil: %+v", attrView.NewItemTemplates[0].FieldValues)
+	}
+}
+
+func TestPruneInvalidNewItemTemplateOptions(t *testing.T) {
+	mSelectKey := NewKey(ast.NewNodeID(), "Multiple Select", "", KeyTypeMSelect)
+	mSelectKey.Options = []*SelectOption{{Name: "Available", Color: "1"}}
+	selectKey := NewKey(ast.NewNodeID(), "Select", "", KeyTypeSelect)
+	selectKey.Options = []*SelectOption{{Name: "Available", Color: "1"}}
+	templateID := ast.NewNodeID()
+	attrView := &AttributeView{
+		KeyValues: []*KeyValues{{Key: mSelectKey}, {Key: selectKey}},
+		NewItemTemplates: []*NewItemTemplate{{
+			ID: templateID, Name: "Template", TargetType: NewItemTargetDetached,
+			FieldValues: map[string]*NewItemFieldValue{
+				mSelectKey.ID: {
+					Mode: NewItemFieldValueStatic,
+					Value: &Value{Type: KeyTypeMSelect, MSelect: []*ValueSelect{
+						{Content: "Available", Color: "1"}, {Content: "Unavailable", Color: "2"},
+					}},
+				},
+				selectKey.ID: {
+					Mode: NewItemFieldValueStatic,
+					Value: &Value{Type: KeyTypeSelect, MSelect: []*ValueSelect{
+						{Content: "Missing", Color: "2"},
+					}},
+				},
+			},
+		}},
+	}
+
+	pruned := attrView.PruneInvalidNewItemTemplateFieldValues()
+	if 2 != len(pruned) {
+		t.Fatalf("expected two pruned option records, got %+v", pruned)
+	}
+	prunedByKeyID := map[string]*PrunedNewItemTemplateOption{}
+	for _, item := range pruned {
+		prunedByKeyID[item.KeyID] = item
+		if templateID != item.TemplateID {
+			t.Fatalf("unexpected template ID: %q", item.TemplateID)
+		}
+	}
+	if values := prunedByKeyID[mSelectKey.ID].Values; 1 != len(values) || "Unavailable" != values[0] {
+		t.Fatalf("unexpected multiple select values: %+v", values)
+	}
+	if values := prunedByKeyID[selectKey.ID].Values; 1 != len(values) || "Missing" != values[0] {
+		t.Fatalf("unexpected select values: %+v", values)
+	}
+	selections := attrView.NewItemTemplates[0].FieldValues[mSelectKey.ID].Value.MSelect
+	if 1 != len(selections) || "Available" != selections[0].Content {
+		t.Fatalf("unexpected retained multiple select values: %+v", selections)
+	}
+	if nil != attrView.NewItemTemplates[0].FieldValues[selectKey.ID] {
+		t.Fatal("select field with no available option should be removed")
 	}
 }

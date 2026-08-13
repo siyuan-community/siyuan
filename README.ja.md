@@ -1,7 +1,7 @@
 <p align="center">
 <img alt="SiYuan" src="https://b3log.org/images/brand/siyuan-128.png">
 <br>
-<em>あなたの思考をリファクタリングする</em>
+<em>思考から洞察へ、エージェントとともに</em>
 <br><br>
 <a title="Build Status" target="_blank" href="https://github.com/siyuan-note/siyuan/actions/workflows/cd.yml"><img src="https://img.shields.io/github/actions/workflow/status/siyuan-note/siyuan/cd.yml?style=flat-square"></a>
 <a title="Releases" target="_blank" href="https://github.com/siyuan-note/siyuan/releases"><img src="https://img.shields.io/github/release/siyuan-note/siyuan.svg?style=flat-square&color=9CF"></a>
@@ -18,8 +18,7 @@
 <a title="GitHub Commits" target="_blank" href="https://github.com/siyuan-note/siyuan/commits/master"><img src="https://img.shields.io/github/commit-activity/m/siyuan-note/siyuan.svg?style=flat-square"></a>
 <a title="Last Commit" target="_blank" href="https://github.com/siyuan-note/siyuan/commits/master"><img src="https://img.shields.io/github/last-commit/siyuan-note/siyuan.svg?style=flat-square&color=FF9900"></a>
 <br><br>
-<a title="Twitter" target="_blank" href="https://twitter.com/b3logos"><img alt="Twitter Follow" src="https://img.shields.io/twitter/follow/b3logos?label=Follow&style=social"></a>
-<a title="Discord" target="_blank" href="https://discord.gg/dmMbCqVX7G"><img alt="Chat on Discord" src="https://img.shields.io/discord/808152298789666826?label=Discord&logo=Discord&style=social"></a>
+<a title="X" target="_blank" href="https://x.com/b3logos"><img alt="X Follow" src="https://img.shields.io/twitter/follow/b3logos?label=Follow&style=social"></a>
 <br><br>
 <a href="https://trendshift.io/repositories/3949" target="_blank"><img src="https://trendshift.io/api/badge/repositories/3949" alt="siyuan-note%2Fsiyuan | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
@@ -46,7 +45,7 @@
   - [Docker ホスティング](#docker-ホスティング)
   - [Unraid ホスティング](#unraid-ホスティング)
   - [TrueNAS ホスティング](#truenas-ホスティング)
-  - [インサイダープレビュー](#インサイダープレビュー)
+  - [テストチャンネル](#テストチャンネル)
 - [⌨️ コマンドラインインターフェース](#-コマンドラインインターフェース)
 - [🏘️ コミュニティ](#️-コミュニティ)
 - [🛠️ 開発ガイド](#️-開発ガイド)
@@ -67,13 +66,11 @@
 
 SiYuanは、プライバシーを最優先とする個人の知識管理システムであり、細かいブロックレベルの参照とMarkdown WYSIWYGをサポートしています。
 
-詳細については、[SiYuan英語ディスカッションフォーラム](https://liuyun.io)をご覧ください。
+![feature0.png](screenshots/feature0.png)
 
-オンラインユーザーガイド：[English](https://siyuan-en.b3log.org/)
+![feature5-1.png](screenshots/feature5-1.png)
 
-![feature0.png](https://b3logfile.com/file/2025/11/feature0-GfbhEqf.png)
-
-![feature51.png](https://b3logfile.com/file/2025/11/feature5-1-7DJSfEP.png)
+詳細については、[オンラインユーザーガイド](https://siyuan-en.b3log.org/)をご覧いただくか、[SiYuan英語ディスカッションフォーラム](https://liuyun.io)をご利用ください。
 
 ## 🔮 特徴
 
@@ -115,7 +112,7 @@ SiYuanは、プライバシーを最優先とする個人の知識管理シス�
 
 ## 🏗️ アーキテクチャとエコシステム
 
-![SiYuan Arch](https://b3logfile.com/file/2023/05/SiYuan_Arch-Sgu8vXT.png "SiYuan Arch")
+![SiYuan Arch](screenshots/SiYuan_Arch.png "SiYuan Arch")
 
 | プロジェクト                                                   | 説明              | フォーク                                                                           | スター                                                                                | 
 |----------------------------------------------------------|-----------------|---------------------------------------------------------------------------------|--------------------------------------------------------------------------------------|
@@ -354,9 +351,9 @@ services:
 
 </details>
 
-### インサイダープレビュー
+### テストチャンネル
 
-主要な更新前にインサイダープレビューをリリースします。詳細は[https://github.com/siyuan-note/insider](https://github.com/siyuan-note/insider)をご覧ください。
+プレリリースを受信するには、`設定 - 情報 - 更新チャンネル`で Beta または Alpha を選択します。Beta チャンネルでは正式版、RC、Beta 版を受信し、Alpha チャンネルではすべての版を受信します。テストチャンネルの利用には GitHub へのアクセスが必要です。
 
 ## ⌨️ コマンドラインインターフェース
 

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -111,7 +111,7 @@ func ListItem2Doc(srcListItemID, targetBoxID, targetPath, previousPath string, t
 	listItemNode.SetIALAttr("type", "doc")
 	listItemNode.SetIALAttr("id", srcListItemID)
 	listItemNode.SetIALAttr("title", listItemText)
-	listItemNode.RemoveIALAttr("fold")
+	treenode.SetSelfFolded(listItemNode, false)
 	listItemNode.RemoveIALAttr(DocHiddenAttr)
 	newTree.Root.KramdownIAL = listItemNode.KramdownIAL
 	srcLiParent := listItemNode.Parent

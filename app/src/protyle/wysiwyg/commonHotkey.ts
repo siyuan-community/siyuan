@@ -11,7 +11,6 @@ import {onGet} from "../util/onGet";
 import {Constants} from "../../constants";
 import * as dayjs from "dayjs";
 import {net2LocalAssets} from "../breadcrumb/action";
-import {processClonePHElement} from "../render/util";
 import {copyTextByType} from "../toolbar/util";
 import {hasClosestByTag, hasTopClosestByClassName} from "../util/hasClosest";
 import {removeEmbed} from "./removeEmbed";
@@ -330,7 +329,7 @@ export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle)
             tempElement.setAttribute("data-marker", (orderIndex) + ".");
             tempElement.querySelector(".protyle-action--order").textContent = (orderIndex) + ".";
         }
-        lastElement.after(processClonePHElement(tempElement));
+        lastElement.after(tempElement);
         doOperations.push({
             action: "insert",
             data: tempElement.outerHTML,
@@ -343,13 +342,15 @@ export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle)
         });
         if (item.getAttribute("data-type") === "NodeHeading" && item.getAttribute("fold") === "1") {
             foldHeadingIds.push({oldId: item.getAttribute("data-node-id"), newId});
-            const responseHTML = await fetchSyncPost("/api/block/getHeadingChildrenDOM", {id: item.getAttribute("data-node-id")});
+            const responseHTML = await fetchSyncPost("/api/block/getHeadingChildrenDOM", {
+                id: item.getAttribute("data-node-id"),
+                removeFoldAttr: false,
+            });
             const foldElement = document.createElement("template");
             foldElement.innerHTML = responseHTML.data;
-            Array.from(foldElement.content.children).reverse().forEach((childItem: HTMLElement, childIndex) => {
-                if (childIndex === foldElement.content.children.length - 1) {
-                    return;
-                }
+            let previousID = newId;
+            Array.from(foldElement.content.children).slice(1).forEach((childItem: HTMLElement) => {
+                childItem.removeAttribute("parent-heading");
                 childItem.querySelectorAll("[data-node-id]").forEach(subItem => {
                     subItem.setAttribute("data-node-id", Lute.NewNodeID());
                     clearBlockElement(subItem);
@@ -364,12 +365,13 @@ export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle)
                     action: "insert",
                     data: childItem.outerHTML,
                     id: newChildId,
-                    previousID: newId,
+                    previousID,
                 });
                 undoOperations.push({
                     action: "delete",
                     id: newChildId,
                 });
+                previousID = newChildId;
             });
         }
     }

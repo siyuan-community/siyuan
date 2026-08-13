@@ -2,8 +2,8 @@ import {BlockPanel} from "./Panel";
 import {hasClosestByAttribute, hasClosestByClassName,} from "../protyle/util/hasClosest";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {hideTooltip, showTooltip} from "../dialog/tooltip";
-import {isLocalPath, parseSiYuanUriInfo} from "../util/pathName";
-import {App} from "../index";
+import {isEncryptedBox, isLocalPath, parseSiYuanUriInfo} from "../util/pathName";
+import type {App} from "../index";
 import {Constants} from "../constants";
 import {getCellText} from "../protyle/render/av/cell";
 import {isTouchDevice} from "../util/functions";
@@ -15,13 +15,47 @@ import {Tab} from "../layout/Tab";
 /// #endif
 
 let popoverTargetElement: HTMLElement;
+
+const getPopoverNotebookId = () => {
+    const notebookId = popoverTargetElement?.closest("[data-notebook-id]")?.getAttribute("data-notebook-id") || "";
+    return isEncryptedBox(notebookId) ? notebookId : "";
+};
 // 异步获取信息后再显示 tooltip，鼠标已移走时需中断请求 https://github.com/siyuan-note/siyuan/issues/14823
 let tooltipAbortController: AbortController | null = null;
 export const initBlockPopover = (app: App) => {
     let timeout: number;
     let timeoutHide: number;
+    let penTimeout: number;
+    let penTimeoutHide: number;
+    let lastPointerMoveLogTime = 0;
+    const logAndroidInputEvent = (event: MouseEvent | PointerEvent) => {
+        if (!window.JSAndroid?.logInputEvent) {
+            return;
+        }
+        const target = event.target instanceof Element ? event.target : undefined;
+        const pointerEvent = event as PointerEvent;
+        const targetClasses = target?.getAttribute("class")?.trim().split(/\s+/).slice(0, 4).join(".") || "";
+        const targetDetails = target ? [
+            target.tagName.toLowerCase(),
+            target.getAttribute("data-type") ? `data-type=${target.getAttribute("data-type")}` : "",
+            targetClasses ? `class=${targetClasses}` : "",
+        ].filter(Boolean).join(" ") : "unknown";
+        window.JSAndroid.logInputEvent([
+            `type=${event.type}`,
+            `pointerType=${pointerEvent.pointerType || "unavailable"}`,
+            `buttons=${event.buttons}`,
+            `button=${event.button}`,
+            `pressure=${typeof pointerEvent.pressure === "number" ? pointerEvent.pressure : "unavailable"}`,
+            `primary=${typeof pointerEvent.isPrimary === "boolean" ? pointerEvent.isPrimary : "unavailable"}`,
+            `client=(${Math.round(event.clientX)},${Math.round(event.clientY)})`,
+            `target=${targetDetails}`,
+            `touchDevice=${isTouchDevice()}`,
+            `floatWindowMode=${window.siyuan.config?.editor.floatWindowMode ?? "unavailable"}`,
+        ].join(", "));
+    };
     // 编辑器内容块引用/backlinks/tag/bookmark/套娃中使用
     document.addEventListener("mouseover", (event: MouseEvent & { target: HTMLElement, path: HTMLElement[] }) => {
+        logAndroidInputEvent(event);
         if (!window.siyuan.config || !window.siyuan.menus ||
             // 拖拽时禁止
             window.siyuan.dragElement || document.onmousemove) {
@@ -256,6 +290,76 @@ export const initBlockPopover = (app: App) => {
             showPopover(app);
         }, window.siyuan.config.editor.floatWindowDelay);
     });
+    if (window.JSAndroid) {
+        // Android 平板通过 Pointer Events 单独处理悬停笔浮窗。
+        document.addEventListener("pointerover", (event: PointerEvent & {
+            target: HTMLElement,
+            path: HTMLElement[]
+        }) => {
+            logAndroidInputEvent(event);
+            if (event.pointerType !== "pen") {
+                return;
+            }
+            clearTimeout(penTimeout);
+            clearTimeout(penTimeoutHide);
+            if (event.buttons !== 0 ||
+                !window.siyuan.config || !window.siyuan.menus ||
+                window.siyuan.dragElement || document.onmousemove ||
+                window.siyuan.config.editor.floatWindowMode !== 0 || window.siyuan.shiftIsPressed) {
+                return;
+            }
+            const aElement = hasClosestByAttribute(event.target, "data-type", "a", true) ||
+                hasClosestByClassName(event.target, "ariaLabel") ||
+                hasClosestByAttribute(event.target, "data-type", "tab-header") ||
+                hasClosestByAttribute(event.target, "data-type", "inline-memo") ||
+                hasClosestByClassName(event.target, "av__calc--ashow") ||
+                hasClosestByClassName(event.target, "av__cell");
+            penTimeoutHide = window.setTimeout(() => {
+                if (!hidePopover(event)) {
+                    return;
+                }
+                if (!popoverTargetElement && !aElement) {
+                    clearTimeout(penTimeout);
+                }
+            }, Constants.TIMEOUT_INPUT);
+            penTimeout = window.setTimeout(() => {
+                if (!getTarget(event, aElement)) {
+                    return;
+                }
+                clearTimeout(penTimeoutHide);
+                clearTimeout(timeoutHide);
+                showPopover(app);
+            }, window.siyuan.config.editor.floatWindowDelay);
+        }, {capture: true, passive: true});
+        document.addEventListener("pointermove", (event: PointerEvent) => {
+            const now = performance.now();
+            if (now - lastPointerMoveLogTime < 250) {
+                return;
+            }
+            lastPointerMoveLogTime = now;
+            logAndroidInputEvent(event);
+        }, {capture: true, passive: true});
+        const cancelPenHover = (event: PointerEvent) => {
+            logAndroidInputEvent(event);
+            if (event.pointerType === "pen") {
+                clearTimeout(penTimeout);
+                clearTimeout(penTimeoutHide);
+            }
+        };
+        const handlePenPointerDown = (event: PointerEvent & { path: HTMLElement[] }) => {
+            logAndroidInputEvent(event);
+            if (event.pointerType !== "pen") {
+                return;
+            }
+            cancelPenHover(event);
+            if (window.siyuan.menus) {
+                hidePopover(event);
+            }
+        };
+        document.addEventListener("pointerout", cancelPenHover, {capture: true, passive: true});
+        document.addEventListener("pointerdown", handlePenPointerDown, {capture: true, passive: true});
+        document.addEventListener("pointercancel", cancelPenHover, {capture: true, passive: true});
+    }
 };
 
 const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
@@ -273,6 +377,15 @@ const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
         return false;
     }
 
+    const dialogElement = hasClosestByAttribute(target, "data-popover-oid", null, true);
+    const dialogPopoverOID = dialogElement ? dialogElement.dataset.popoverOid : undefined;
+    const dialogPopoverLevel = Number(dialogElement ? dialogElement.dataset.popoverLevel : undefined);
+    const keepPopoverForDialog = (item: BlockPanel, itemLevel: number) => {
+        return Boolean(dialogPopoverOID) &&
+            dialogPopoverOID === item.element.dataset.oid &&
+            Number.isInteger(dialogPopoverLevel) &&
+            itemLevel <= dialogPopoverLevel;
+    };
     const avPanelElement = hasClosestByClassName(target, "av__panel") || hasClosestByClassName(target, "av__mask");
     if (avPanelElement) {
         // 浮窗上点击 av 操作，浮窗不能消失
@@ -341,6 +454,9 @@ const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
                     itemLevel > (maxEditLevels[item.element.getAttribute("data-oid")] || 0) &&
                     item.element.getAttribute("data-pin") === "false" &&
                     itemLevel > parseInt(blockElement.getAttribute("data-level"))) {
+                    if (keepPopoverForDialog(item, itemLevel)) {
+                        continue;
+                    }
                     if (menuLevel && menuLevel >= itemLevel) {
                         // 有 gutter 菜单时不隐藏
                         break;
@@ -362,6 +478,9 @@ const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
                 const item = window.siyuan.blockPanels[i];
                 const itemLevel = parseInt(item.element.getAttribute("data-level"));
                 if ((item.targetElement || typeof item.x === "number") && item.element.getAttribute("data-pin") === "false") {
+                    if (keepPopoverForDialog(item, itemLevel)) {
+                        continue;
+                    }
                     if (menuLevel && menuLevel >= itemLevel) {
                         // 有 gutter 菜单时不隐藏
                         break;
@@ -430,11 +549,15 @@ export const showPopover = async (app: App, showRef = false) => {
     }
     let refDefs: IRefDefs[] = [];
     let originalRefBlockIDs: IObject;
+    const notebookId = getPopoverNotebookId();
     const dataId = popoverTargetElement.getAttribute("data-id");
     if (dataId) {
         // backlink/util/hint 上的弹层
         if (showRef) {
-            const postResponse = await fetchSyncPost("/api/block/getRefIDs", {id: dataId});
+            const postResponse = await fetchSyncPost("/api/block/getRefIDs", {
+                id: dataId,
+                notebook: notebookId
+            });
             refDefs = postResponse.data.refDefs;
             originalRefBlockIDs = postResponse.data.originalRefBlockIDs;
         } else {
@@ -449,6 +572,7 @@ export const showPopover = async (app: App, showRef = false) => {
     } else if (popoverTargetElement.getAttribute("data-type")?.indexOf("virtual-block-ref") > -1) {
         const postResponse = await fetchSyncPost("/api/block/getBlockDefIDsByRefText", {
             anchor: popoverTargetElement.textContent,
+            notebook: notebookId
         });
         refDefs = postResponse.data.refDefs;
     } else if (popoverTargetElement.getAttribute("data-type")?.split(" ").includes("a")) {
@@ -496,7 +620,10 @@ export const showPopover = async (app: App, showRef = false) => {
             targetId = popoverTargetElement.parentElement.getAttribute("data-node-id");
         }
         if (url) {
-            const postResponse = await fetchSyncPost(url, {id: targetId});
+            const postResponse = await fetchSyncPost(url, {
+                id: targetId,
+                notebook: notebookId
+            });
             refDefs = postResponse.data.refDefs;
             originalRefBlockIDs = postResponse.data.originalRefBlockIDs;
         }

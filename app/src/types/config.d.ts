@@ -25,6 +25,7 @@ declare namespace Config {
          * Access authorization code
          */
         accessAuthCode: TAccessAuthCode;
+        oidc: IOIDC;
         account: IAccount;
         ai: IAI;
         api: IAPI;
@@ -114,6 +115,24 @@ declare namespace Config {
      */
     export type TAccessAuthCode = "" | "*******";
 
+    export interface IOIDCClaimRule {
+        claim: string;
+        operator: "equals" | "contains";
+        values: string[];
+    }
+
+    export interface IOIDC {
+        enabled: boolean;
+        provider: "custom" | "google" | "microsoft" | "github";
+        issuerURL: string;
+        clientID: string;
+        clientSecret: string;
+        scopes: string[];
+        redirectURL: string;
+        allowAll: boolean;
+        claimRules: IOIDCClaimRule[];
+    }
+
     /**
      * Account configuration
      */
@@ -135,7 +154,6 @@ declare namespace Config {
         providers: IProvider[];
         editing: IEditing;
         agent: IAgent;
-        vision: IVision;
         imageGeneration: IImageGeneration;
         mcp: IMCP;
         embedding: IEmbedding;
@@ -154,6 +172,19 @@ declare namespace Config {
         temperature: number;
         maxCompletionTokens: number;
         maxToolCallRounds: number;
+        capabilityPolicy: ICapabilityPolicy;
+        approvalPolicy: {
+            default: "risk" | "allow";
+            overrides: Record<string, {
+                default: "" | "risk" | "confirm" | "allow";
+                actions: Record<string, "risk" | "confirm" | "allow">;
+            }>;
+        };
+    }
+
+    export interface ICapabilityPolicy {
+        default: "allow" | "deny";
+        overrides: Record<string, "allow" | "deny">;
     }
 
     /**
@@ -164,14 +195,6 @@ declare namespace Config {
         maxHistoryMessages: number;
         temperature: number;
         maxCompletionTokens: number;
-    }
-
-    export interface IVision {
-        modelId: string;
-        requestTimeout: number;
-        maxImageBytes: number;
-        maxPixels: number;
-        maxEdge: number;
     }
 
     export interface IImageGeneration {
@@ -224,13 +247,14 @@ declare namespace Config {
 
     /**
      * AI model configuration. Behavior params (maxTokens/temperature/maxContexts)
-     * live on IEditing; Model holds only identity fields.
+     * live on IEditing; Model holds identity and provider metadata.
      */
     export interface IModel {
         id: string;
         enabled: boolean;
         name: string;
         displayName?: string;
+        contextLength?: number;
     }
 
     /**
@@ -238,6 +262,7 @@ declare namespace Config {
      */
     export interface IMCP {
         servers: IMCPServer[];
+        exposurePolicy: ICapabilityPolicy;
     }
 
     export interface IMCPServer {
@@ -248,6 +273,8 @@ declare namespace Config {
         type: string;
         command: string;
         args?: string[];
+        inheritEnv?: string[];
+        env?: Record<string, string>;
         headers?: Record<string, string>;
         timeout: number;
         trustToolAnnotations: boolean;
@@ -308,11 +335,11 @@ declare namespace Config {
         /**
          * List of installed light themes
          */
-        lightThemes: { label: string; name: string }[];
+        lightThemes: IAppearanceTheme[];
         /**
          * List of installed dark themes
          */
-        darkThemes: { label: string; name: string }[];
+        darkThemes: IAppearanceTheme[];
         /**
          * The current theme mode
          * - `0`: Light theme
@@ -341,6 +368,29 @@ declare namespace Config {
         themeVer: string;
         statusBar: IAppearanceStatusBar;
         notifications: IAppearanceNotifications;
+        entryVisibility: IEntryVisibility;
+    }
+
+    export interface IAppearanceTheme {
+        label: string;
+        name: string;
+        frontends?: string[];
+    }
+
+    export type TEntryVisibilityBase = "simple" | "full";
+
+    export interface IEntryVisibilityProfile {
+        id: string;
+        name: string;
+        base: TEntryVisibilityBase;
+        entries: Record<string, boolean>;
+        orders: Record<string, string[]>;
+    }
+
+    export interface IEntryVisibility {
+        version: number;
+        active: string;
+        profiles: IEntryVisibilityProfile[];
     }
 
     export interface IAppearanceStatusBar {
@@ -358,6 +408,8 @@ declare namespace Config {
         tagMaxList: boolean;
         workspaceNotSSD: boolean;
         browserCompatibility: boolean;
+        selectAllTip?: boolean;
+        selectAllIncompleteTip?: boolean;
     }
 
     /**
@@ -436,9 +488,17 @@ declare namespace Config {
          */
         inlineStrikethrough: boolean;
         /**
+         * Whether to enable the full-width inline strikethrough
+         */
+        inlineFullWidthStrikethrough: boolean;
+        /**
          * Whether to enable the inline mark
          */
         inlineMark: boolean;
+        /**
+         * Whether to enable the middle dot code block shortcut
+         */
+        codeBlockMiddleDot: boolean;
     }
 
     /**
@@ -473,6 +533,10 @@ declare namespace Config {
          * Whether the backlink contains children
          */
         backlinkContainChildren: boolean;
+        /**
+         * Whether to show backlinks at the bottom of the document
+         */
+        backlinkShowBottom: boolean;
         /**
          * Backlink sort mode
          */
@@ -511,11 +575,33 @@ declare namespace Config {
          */
         displayNetImgMark: boolean;
         /**
+         * Whether to show database attributes at the top of the document
+         */
+        databaseAttrShow: boolean;
+        /**
+         * Behavior when clicking a database badge
+         * - `0`: Focus the block and expand the database panel
+         * - `1`: Open the block attribute panel
+         */
+        databaseAttrClickMode: number;
+        /**
          * Default state of database attributes
          * - `0`: Expanded
          * - `1`: Collapsed
          */
         databaseAttrViewMode: number;
+        /**
+         * Whether to hide empty database attributes
+         */
+        databaseAttrHideEmpty: boolean;
+        /**
+         * Whether to use tabs for database attributes
+         */
+        databaseAttrUseTabs: boolean;
+        /**
+         * Whether to retain dynamically loaded content blocks
+         */
+        keepLoadedContent: boolean;
         /**
          * The number of blocks loaded each time they are dynamically loaded
          */
@@ -524,6 +610,14 @@ declare namespace Config {
          * Whether the embedded block displays breadcrumbs
          */
         embedBlockBreadcrumb: boolean;
+        /**
+         * Whether to display automatic heading numbers
+         */
+        headingNumber: boolean;
+        /**
+         * The automatic heading numbering format preset
+         */
+        headingNumberFormat: string;
         /**
          * Heading embed mode for embedded blocks
          * - `0`: Show title with blocks below (default)
@@ -608,6 +702,10 @@ declare namespace Config {
          * Whether to auto-convert pasted URLs to links
          */
         pasteURLAutoConvert: boolean;
+        /**
+         * Whether to embed dragged HTML files as IFrame blocks
+         */
+        dragHTMLFileToIframe: boolean;
         /**
          * Whether to enable read-only mode
          */
@@ -772,10 +870,15 @@ declare namespace Config {
          * Whether to close all tabs when starting
          */
         closeTabsOnStart: boolean;
+        tabStartupMode: 0 | 1 | 2;
         /**
          * The storage path of the new document
          */
         docCreateSavePath: string;
+        /**
+         * The content template path of the new document
+         */
+        docCreateTemplatePath: string;
         /**
          * The maximum number of documents listed
          */
@@ -850,6 +953,14 @@ declare namespace Config {
      * Flashcard related configuration
      */
     export interface IFlashCard {
+        /**
+         * Whether to enable blockquote card making
+         */
+        blockquote: boolean;
+        /**
+         * Whether to enable callout card making
+         */
+        callout: boolean;
         /**
          * Whether to enable deck card making
          */
@@ -1058,17 +1169,21 @@ declare namespace Config {
         attr: IKey;
         backlinks: IKey;
         collapse: IKey;
+        foldChildHeadings: IKey;
+        foldSiblingHeadings: IKey;
         foldRecursive: IKey;
         copyBlockEmbed: IKey;
         copyBlockRef: IKey;
         copyHPath: IKey;
         copyID: IKey;
         copyPlainText: IKey;
+        copyRichText: IKey;
         copyProtocol: IKey;
         copyProtocolInMd: IKey;
         copyText: IKey;
         duplicate: IKey;
         exitFocus: IKey;
+        focusBreadcrumb: IKey;
         expand: IKey;
         expandDown: IKey;
         expandUp: IKey;
@@ -1097,6 +1212,8 @@ declare namespace Config {
         refresh: IKey;
         refTab: IKey;
         rename: IKey;
+        selectToPageEnd: IKey;
+        selectToPageStart: IKey;
         showInFolder: IKey;
         spaceRepetition: IKey;
         switchReadonly: IKey;
@@ -1170,6 +1287,8 @@ declare namespace Config {
      * SiYuan editor list shortcut keys
      */
     export interface IKeymapEditorList extends IKeys {
+        prependListItem: IKey;
+        appendListItem: IKey;
         checkToggle: IKey;
         indent: IKey;
         outdent: IKey;
@@ -1520,10 +1639,13 @@ declare namespace Config {
 
     /**
      * A named secret. The value is AES-encrypted at rest on the kernel side.
+     * The secret is only interpolated when the request destination host is in
+     * the allowed hosts list; an empty list denies all requests.
      */
     export interface ISecret {
         name: string;
         value: string;
+        allowedHosts: string[];
     }
 
     /**
@@ -1656,6 +1778,18 @@ declare namespace Config {
         synced: number;
         webdav: ISyncWebDAV;
         local: ISyncLocal;
+        lan: ISyncLAN;
+    }
+
+    export interface ISyncLAN {
+        /**
+         * Whether to enable LAN sync acceleration
+         */
+        enabled: boolean;
+        /**
+         * Maximum number of concurrent peer requests
+         */
+        maxConcurrentReqs: number;
     }
 
     /**
@@ -1789,6 +1923,10 @@ declare namespace Config {
          */
         downloadInstallPkg: boolean;
         /**
+         * 更新通道
+         */
+        updateChannel: TUpdateChannel;
+        /**
          * The absolute path of the user's home directory for the current operating system user
          */
         homeDir: string;
@@ -1796,10 +1934,6 @@ declare namespace Config {
          * The UUID of the current session
          */
         id: string;
-        /**
-         * Whether the current version is an internal test version
-         */
-        isInsider: boolean;
         /**
          * Whether the current version is a Microsoft Store version
          */
@@ -1864,6 +1998,8 @@ declare namespace Config {
      * - `std`: Desktop Electron environment
      */
     export type TSystemContainer = "docker" | "android" | "ios" | "harmony" | "std";
+
+    export type TUpdateChannel = "stable" | "beta" | "alpha";
 
     /**
      * SiYuan Network proxy configuration
@@ -2159,6 +2295,10 @@ declare namespace Config {
          */
         rootId: string;
         /**
+         * (Backlink) Notebook ID
+         */
+        notebookId?: string;
+        /**
          * (Backlink) Tab type
          * - `pin`: Pinned panel
          * - `local`: The panel of the current document
@@ -2257,6 +2397,10 @@ declare namespace Config {
          */
         blockId: string;
         /**
+         * (Graph) Notebook ID
+         */
+        notebookId?: string;
+        /**
          * Object name
          */
         instance: "Graph";
@@ -2290,6 +2434,10 @@ declare namespace Config {
          * (Outline) Block ID
          */
         blockId: string;
+        /**
+         * (Outline) Notebook ID
+         */
+        notebookId?: string;
         /**
          * Object name
          */
@@ -2339,6 +2487,10 @@ declare namespace Config {
      * SiYuan search tab configuration
      */
     export interface IUILayoutTabSearchConfig {
+        /**
+         * Whether the search contains encrypted notebook data that must not be persisted
+         */
+        sensitive?: boolean;
         /**
          * 搜索传入的查询内容
          */

@@ -6,6 +6,8 @@ const sessionRevisions = new Map<string, number>();
 const sessionRuntimeRevisions = new Map<string, number>();
 const sessionSaveQueues = new Map<string, Promise<SessionSaveResult>>();
 
+export type AgentPermissionMode = "confirm" | "allowSession";
+
 interface SessionSaveResult {
     revision: number;
     session?: AgentSession;
@@ -48,6 +50,7 @@ export interface AgentSession {
     title: string;
     titled?: boolean;
     model?: string;
+    permissionMode?: AgentPermissionMode;
     messages?: Array<{role: string; content: string; toolCalls?: Array<{name: string; arguments?: Record<string, unknown>; result?: string}>}>;
     entries?: Array<{
         id?: string;
@@ -63,18 +66,28 @@ export interface AgentSession {
             selectedBlockIDs?: string[];
             visibleBlockIDs?: string[];
         };
-        // thinking step：新格式只含 reasoning/reasoningContent/toolNames/content；
+        // thinking step：新格式只含 reasoning/reasoningContent/roundID/toolNames/toolCallIDs/content；
         // text/toolCalls 仅为读取老数据而保留为可选（渲染时归一化）。
         steps?: Array<{
             reasoning: string;
             reasoningContent: string;
+            roundID?: string;
             toolNames?: string[];
+            toolCallIDs?: string[];
             content?: string;
             text?: string;
             toolCalls?: Array<{name: string; result?: string}>
         }>;
         reasoningContent?: string;
-        toolCalls?: Array<{name: string; arguments?: Record<string, unknown>; result?: string; state?: string}>;
+        roundID?: string;
+        toolCalls?: Array<{
+            id?: string;
+            name: string;
+            arguments?: Record<string, unknown>;
+            argumentsJSON?: string;
+            result?: string;
+            state?: string
+        }>;
         duration?: number;
         timestamp?: number;
         name?: string;
@@ -198,6 +211,18 @@ export const SessionStore = {
         if (!session) { return; }
         session.title = newTitle;
         await this.save(session);
+    },
+
+    async setPermission(id: string, permissionMode: AgentPermissionMode): Promise<AgentPermissionMode> {
+        await waitForPendingSave(id);
+        const resp = await fetchSyncPost(API + "/setPermission", {
+            sessionID: id,
+            permissionMode,
+        }, APP_HEADER) as {code: number; msg?: string; data?: {permissionMode?: AgentPermissionMode}};
+        if (!resp || resp.code !== 0) {
+            throw new Error(resp?.msg || "Failed to update agent session permission");
+        }
+        return resp.data?.permissionMode || permissionMode;
     },
 
     getRevision(id: string): number {

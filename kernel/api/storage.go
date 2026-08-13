@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -31,8 +31,7 @@ func getLocalStorage(c *gin.Context) {
 
 	data := model.GetLocalStorage()
 	if model.IsReadOnlyRoleContext(c) {
-		publishAccess := model.GetPublishAccess()
-		data = model.FilterLocalStorageByPublishAccess(publishAccess, data)
+		data = model.FilterLocalStorageByPublishAccess(data)
 	}
 	ret.Data = data
 }
@@ -53,8 +52,7 @@ func getLocalStorageVal(c *gin.Context) {
 
 	data := model.GetLocalStorage()
 	if model.IsReadOnlyRoleContext(c) {
-		publishAccess := model.GetPublishAccess()
-		data = model.FilterLocalStorageByPublishAccess(publishAccess, data)
+		data = model.FilterLocalStorageByPublishAccess(data)
 	}
 	ret.Data = data[key]
 }
@@ -91,8 +89,7 @@ func getLocalStorageVals(c *gin.Context) {
 
 	data := model.GetLocalStorage()
 	if model.IsReadOnlyRoleContext(c) {
-		publishAccess := model.GetPublishAccess()
-		data = model.FilterLocalStorageByPublishAccess(publishAccess, data)
+		data = model.FilterLocalStorageByPublishAccess(data)
 	}
 	out := map[string]any{}
 	for _, k := range keys {

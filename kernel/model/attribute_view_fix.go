@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -29,7 +29,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
-func checkAttrView(attrView *av.AttributeView, view *av.View) {
+func checkAttrView(attrView *av.AttributeView, view *av.View) (changed bool) {
 	// 字段删除以后需要删除设置的过滤和排序
 	validColumns := map[string]bool{}
 	for _, kv := range attrView.KeyValues {
@@ -41,7 +41,7 @@ func checkAttrView(attrView *av.AttributeView, view *av.View) {
 		newFilters = []*av.ViewFilter{{Combination: av.FilterCombinationAnd}}
 	}
 	view.Filters = newFilters
-	changed := filterChanged
+	changed = filterChanged
 
 	tmpSorts := []*av.ViewSort{}
 	for _, s := range view.Sorts {
@@ -80,6 +80,10 @@ func checkAttrView(attrView *av.AttributeView, view *av.View) {
 	// 订正字段类型
 	for _, kv := range attrView.KeyValues {
 		for _, v := range kv.Values {
+			if v.KeyID != kv.Key.ID {
+				v.KeyID = kv.Key.ID
+				changed = true
+			}
 			if v.Type != kv.Key.Type {
 				v.Type = kv.Key.Type
 				if av.KeyTypeBlock == v.Type && nil == v.Block {
@@ -111,21 +115,16 @@ func checkAttrView(attrView *av.AttributeView, view *av.View) {
 		changed = true
 	}
 
-	if changed {
-		av.SaveAttributeView(attrView)
-	}
+	return
 }
 
-func upgradeAttributeViewSpec(attrView *av.AttributeView) {
+func upgradeAttributeViewSpec(attrView *av.AttributeView) (changed bool) {
 	currentSpec := attrView.Spec
 
 	upgradeAttributeViewSpec1(attrView)
 	av.UpgradeSpec(attrView)
 
-	newSpec := attrView.Spec
-	if currentSpec != newSpec {
-		av.SaveAttributeView(attrView)
-	}
+	return currentSpec != attrView.Spec
 }
 
 func upgradeAttributeViewSpec1(attrView *av.AttributeView) {

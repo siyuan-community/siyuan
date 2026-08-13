@@ -3,16 +3,16 @@ import {ipcRenderer} from "electron";
 import * as path from "path";
 /// #endif
 import {fetchPost} from "../util/fetch";
-import {getAssetName, pathPosix, useShell} from "../util/pathName";
+import {getAssetExtension, getAssetName, useShell} from "../util/pathName";
 import {openFileById} from "../editor/util";
 import {Constants} from "../constants";
 import {openNewWindowById} from "../window/openNewWindow";
 import {MenuItem} from "./Menu";
-import {App} from "../index";
+import type {App} from "../index";
 import {isInAndroid, saveExportFile, updateHotkeyTip} from "../protyle/util/compatibility";
 import {checkFold} from "../util/noRelyPCFunction";
 import {showMessage} from "../dialog/message";
-import {Editor} from "../editor";
+import type {Editor} from "../editor";
 import {setEditMode} from "../protyle/util/setEditMode";
 
 export const exportAsset = (src: string) => {
@@ -26,7 +26,7 @@ export const exportAsset = (src: string) => {
             /// #else
             const result = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
                 cmd: "showSaveDialog",
-                defaultPath: getAssetName(src) + pathPosix().extname(src),
+                defaultPath: getAssetName(src) + getAssetExtension(src),
                 properties: ["showOverwriteConfirmation"],
             });
             if (!result.canceled) {

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -61,8 +61,9 @@ type Box struct {
 	DueFlashcardCount int `json:"dueFlashcardCount"`
 	FlashcardCount    int `json:"flashcardCount"`
 
-	Encrypted bool `json:"encrypted"` // 是否为加密笔记本
-	Unlocked  bool `json:"unlocked"`  // 加密笔记本是否已解锁（DEK 在内存），非加密笔记本恒为 false
+	Encrypted bool              `json:"encrypted"` // 是否为加密笔记本
+	Unlocked  bool              `json:"unlocked"`  // 加密笔记本是否已解锁（DEK 在内存），非加密笔记本恒为 false
+	State     EncryptedBoxState `json:"state,omitempty"`
 }
 
 func StatJob() {
@@ -115,16 +116,20 @@ func ListNotebooks() (ret []*Box, err error) {
 		boxDirPath := filepath.Join(util.DataDir, id)
 		boxConfPath := filepath.Join(boxDirPath, ".siyuan", "conf.json")
 		isExistConf := filelock.IsExist(boxConfPath)
+		missingEncryptedIdentity := false
 		if !isExistConf {
 			if !IsUserGuide(id) {
 				// conf.json 缺失时检查加密备份，确认是否为加密笔记本
 				backup, backupErr := readNotebookCryptBackup(id)
 				if backupErr != nil {
 					logging.LogErrorf("read notebook crypt backup [%s] failed: %s", boxDirPath, backupErr)
-					continue
-				}
-				if backup != nil {
+					markRuntimeEncryptedBox(id)
+					boxConf.Encrypted = true
+					missingEncryptedIdentity = true
+					setEncryptedBoxState(id, EncryptedBoxStateError)
+				} else if backup != nil {
 					// 从备份恢复 conf.json，避免加密笔记本被当作普通笔记本处理
+					markRuntimeEncryptedBox(id)
 					boxConf.Encrypted = true
 					boxConf.BoxCrypt = backup
 					tmpBox := &Box{ID: id}
@@ -133,6 +138,11 @@ func ListNotebooks() (ret []*Box, err error) {
 						continue
 					}
 					logging.LogWarnf("restored encrypted notebook conf from backup [%s]", boxDirPath)
+				} else if IsEncryptedBox(id) {
+					boxConf.Encrypted = true
+					missingEncryptedIdentity = true
+					setEncryptedBoxState(id, EncryptedBoxStateError)
+					logging.LogErrorf("encrypted notebook key identity is missing [%s]", boxDirPath)
 				} else {
 					// 数据同步时展开文档树操作可能导致数据丢失 https://github.com/siyuan-note/siyuan/issues/7129
 					logging.LogWarnf("found a corrupted box [%s]", boxDirPath)
@@ -150,32 +160,60 @@ func ListNotebooks() (ret []*Box, err error) {
 				logging.LogErrorf("parse box conf [%s] failed: %s", boxConfPath, readErr)
 				// 检查加密备份，有备份则保留损坏 conf 不删（避免标记为缺失后自动恢复旧数据）
 				backup, backupErr := readNotebookCryptBackup(id)
-				if backupErr == nil && backup != nil {
+				if backupErr != nil || backup != nil {
+					markRuntimeEncryptedBox(id)
 					continue
 				}
 				filelock.Remove(boxConfPath)
 				continue
 			}
 		}
-
-		icon := boxConf.Icon
-		if strings.Contains(icon, ".") { // 说明是自定义图标
-			// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-			icon = util.FilterUploadEmojiFileName(icon)
+		if !boxConf.Encrypted && IsEncryptedBox(id) {
+			backup, backupErr := readNotebookCryptBackup(id)
+			boxConf.Encrypted = true
+			if backupErr == nil && backup != nil {
+				boxConf.BoxCrypt = backup
+			} else {
+				missingEncryptedIdentity = true
+				setEncryptedBoxState(id, EncryptedBoxStateError)
+			}
+			logging.LogWarnf("normal notebook configuration conflicts with encrypted identity [%s]", boxDirPath)
+		}
+		if boxConf.Encrypted {
+			markRuntimeEncryptedBox(id)
+		}
+		if boxConf.Encrypted && !missingEncryptedIdentity {
+			repairEncryptedBoxStateFromDEK(id)
+			if metadataErr := revealBoxMetadataIfUnlocked(id, boxConf); metadataErr != nil {
+				logging.LogErrorf("decrypt encrypted notebook metadata [%s] failed: %s", id, metadataErr)
+			}
 		}
 
+		unlocked := boxConf.Encrypted && !missingEncryptedIdentity && isBoxUnlockedForAccess(id)
+		closed := boxConf.Closed
+		if boxConf.Encrypted {
+			// 加密笔记本的打开状态不能从其他设备继承，仅本机已挂载且持有 DEK 时才视为打开。
+			closed = !unlocked || !isEncryptedBoxMounted(id)
+		}
 		box := &Box{
 			ID:        id,
 			Name:      boxConf.Name,
-			Icon:      icon,
+			Icon:      filterBoxIcon(boxConf.Icon),
 			Sort:      boxConf.Sort,
 			SortMode:  boxConf.SortMode,
-			Closed:    boxConf.Closed,
+			Closed:    closed,
 			Encrypted: boxConf.Encrypted,
-			Unlocked:  IsBoxUnlocked(id),
+			Unlocked:  unlocked,
+		}
+		if box.Encrypted {
+			if missingEncryptedIdentity {
+				box.State = EncryptedBoxStateError
+			} else {
+				box.State = GetEncryptedBoxState(id)
+			}
 		}
 
-		if !isExistConf {
+		if !isExistConf && !missingEncryptedIdentity {
 			// Automatically create notebook conf.json if not found it https://github.com/siyuan-note/siyuan/issues/9647
 			if err := box.SaveConf(boxConf); err != nil {
 				logging.LogErrorf("save box conf [%s] failed: %s", boxDirPath, err)
@@ -232,32 +270,53 @@ func (box *Box) GetConf() (ret *conf.BoxConf) {
 		return
 	}
 
-	icon := ret.Icon
-	if strings.Contains(icon, ".") {
-		// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-		icon = util.FilterUploadEmojiFileName(icon)
-		ret.Icon = icon
+	if ret.Encrypted {
+		if err = revealBoxMetadataIfUnlocked(box.ID, ret); err != nil {
+			logging.LogErrorf("decrypt encrypted notebook metadata [%s] failed: %s", box.ID, err)
+		}
+	} else {
+		ret.Icon = filterBoxIcon(ret.Icon)
 	}
 	return
 }
 
 func (box *Box) SaveConf(conf *conf.BoxConf) error {
 	confPath := filepath.Join(util.DataDir, box.ID, ".siyuan/conf.json")
-	newData, err := gulu.JSON.MarshalIndentJSON(conf, "", "  ")
+	persisted, err := prepareBoxConfForSave(box.ID, conf)
+	if err != nil {
+		return fmt.Errorf("prepare box conf [%s] failed: %w", confPath, err)
+	}
+	newData, err := gulu.JSON.MarshalIndentJSON(persisted, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal box conf [%s] failed: %w", confPath, err)
 	}
 
 	oldData, err := filelock.ReadFile(confPath)
 	if err != nil {
-		return box.saveConf0(newData)
+		if err = box.saveConf0(newData); err != nil {
+			return err
+		}
+		return syncBoxConfCryptoBackup(box.ID, persisted)
 	}
 
 	if bytes.Equal(newData, oldData) {
-		return nil
+		return syncBoxConfCryptoBackup(box.ID, persisted)
 	}
 
-	return box.saveConf0(newData)
+	if err = box.saveConf0(newData); err != nil {
+		return err
+	}
+	return syncBoxConfCryptoBackup(box.ID, persisted)
+}
+
+func syncBoxConfCryptoBackup(boxID string, boxConf *conf.BoxConf) error {
+	if !boxConf.Encrypted || boxConf.BoxCrypt == nil {
+		return nil
+	}
+	if needWriteNotebookCryptBackup(boxID, boxConf.BoxCrypt) {
+		return writeNotebookCryptBackup(boxID, boxConf.BoxCrypt)
+	}
+	return nil
 }
 
 func (box *Box) saveConf0(data []byte) error {
@@ -269,6 +328,7 @@ func (box *Box) saveConf0(data []byte) error {
 		util.ReportFileSysFatalError(err)
 		return fmt.Errorf("write box conf [%s] failed: %w", confPath, err)
 	}
+	invalidateEncryptedPublishAccessCache()
 	return nil
 }
 
@@ -548,7 +608,7 @@ func moveTree(tree *parse.Tree) {
 		util.PushStatusBar(msg)
 	}
 
-	refreshDocInfo(tree)
+	refreshDocInfoWithoutParent(tree)
 }
 
 func parseKTree(kramdown []byte) (ret *parse.Tree) {
@@ -745,32 +805,15 @@ func ClearTempFiles() {
 		util.PushUpdateMsg(msgId, msg, 7000)
 	}()
 
-	bazaarTmp := filepath.Join(util.TempDir, "bazaar")
-	clearTempDir(bazaarTmp, &count, &size)
+	clearTempFiles(&count, &size)
+}
 
-	exportTmp := filepath.Join(util.TempDir, "export")
-	clearTempDir(exportTmp, &count, &size)
-
-	importTmp := filepath.Join(util.TempDir, "import")
-	clearTempDir(importTmp, &count, &size)
-
-	convertTmp := filepath.Join(util.TempDir, "convert")
-	clearTempDir(convertTmp, &count, &size)
-
-	osTmp := filepath.Join(util.TempDir, "os")
-	clearTempDir(osTmp, &count, &size)
-
-	base64Tmp := filepath.Join(util.TempDir, "base64")
-	clearTempDir(base64Tmp, &count, &size)
-
-	installTmp := filepath.Join(util.TempDir, "install")
-	clearTempDir(installTmp, &count, &size)
-
-	thumbnailsTmp := filepath.Join(util.TempDir, "thumbnails")
-	clearTempDir(thumbnailsTmp, &count, &size)
-
-	repoTmp := filepath.Join(util.TempDir, "repo")
-	clearTempDir(repoTmp, &count, &size)
+func clearTempFiles(count *int, size *int64) {
+	for _, name := range []string{
+		"bazaar", "export", "import", "convert", "pandoc", "os", "base64", "install", "thumbnails", "repo", "clipboard",
+	} {
+		clearTempDir(filepath.Join(util.TempDir, name), count, size)
+	}
 }
 
 func clearTempDir(dir string, count *int, size *int64) {
@@ -911,13 +954,19 @@ func fullReindex() {
 }
 
 func ChangeBoxSort(boxIDs []string) {
+	fileTreeSortLock.Lock()
+	defer fileTreeSortLock.Unlock()
+
 	for i, boxID := range boxIDs {
 		box := &Box{ID: boxID}
 		boxConf := box.GetConf()
 		boxConf.Sort = i + 1
 		box.SaveConf(boxConf)
 	}
+	pushNotebookSortChanged()
+}
 
+func pushNotebookSortChanged() {
 	var notebookIDs []string
 	for _, box := range Conf.GetOpenedBoxes() {
 		notebookIDs = append(notebookIDs, box.ID)
@@ -932,6 +981,7 @@ func SetBoxIcon(boxID, icon string) {
 
 	box := &Box{ID: boxID}
 	boxConf := box.GetConf()
+	oldIcon := boxConf.Icon
 	boxConf.Icon = icon
 	if err := box.SaveConf(boxConf); err != nil {
 		logging.LogErrorf("save box icon [%s] failed: %s", boxID, err)
@@ -941,15 +991,21 @@ func SetBoxIcon(boxID, icon string) {
 		logging.LogErrorf("set box document icon [%s] failed: %s", boxID, err)
 		return
 	}
+	if oldIcon != icon {
+		pushNotebookIconChanged(boxID, icon)
+	}
 	IncSync()
 }
 
 func filterBoxIcon(icon string) string {
-	if strings.Contains(icon, ".") {
-		// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-		icon = util.FilterUploadEmojiFileName(icon)
+	if filtered, valid := util.FilterIconValue(icon); valid {
+		return filtered
 	}
-	return icon
+	return ""
+}
+
+func isNetworkIconURL(icon string) bool {
+	return util.IsNetworkIconURL(icon)
 }
 
 func (box *Box) UpdateHistoryGenerated() {

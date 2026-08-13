@@ -11,10 +11,10 @@ import {hasClosestBlock, hasClosestByClassName} from "../util/hasClosest";
 import {getContenteditableElement, getTopAloneElement} from "../wysiwyg/getBlock";
 import {replaceFileName} from "../../editor/rename";
 import {transaction} from "../wysiwyg/transaction";
-import {getAssetName, getDisplayName, isEncryptedBox, pathPosix} from "../../util/pathName";
+import {getAssetExtension, getAssetName, getDisplayName, isEncryptedBox} from "../../util/pathName";
 import {genEmptyElement} from "../../block/util";
 import {updateListOrder} from "../wysiwyg/list";
-import {escapeHtml} from "../../util/escape";
+import {escapeHtml, stripSearchMark} from "../../util/escape";
 import {zoomOut} from "../../menus/protyle";
 import {hideElements} from "../ui/hideElements";
 import {genAssetHTML} from "../../asset/renderAssets";
@@ -30,7 +30,8 @@ const getHotkeyOrMarker = (hotkey: string, marker: string) => {
     return "";
 };
 
-export const hintSlash = (key: string, protyle: IProtyle) => {
+export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfiguredCreate: THintSource | boolean = false) => {
+    const hideConfiguredCreate = typeof sourceOrHideConfiguredCreate === "boolean" && sourceOrHideConfiguredCreate;
     const allList: IHintData[] = [{
         filter: [window.siyuan.languages.template, "template", "模板", "moban", "muban", "mb"],
         id: "template",
@@ -181,6 +182,21 @@ export const hintSlash = (key: string, protyle: IProtyle) => {
         value: "<div>",
         html: '<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconHTML5"></use></svg><span class="b3-list-item__text">HTML</span></div>',
     }, {
+        filter: [window.siyuan.languages.databaseTableView, "database table view", "数据库表格视图", "shujukubiaogeshitu", "sjkbgs"],
+        id: "databaseTableView",
+        value: '<div data-type="NodeAttributeView" data-av-type="table"></div>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconTable"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseTableView}</span></div>`,
+    }, {
+        filter: [window.siyuan.languages.databaseKanbanView, "database kanban view", "数据库看板视图", "shujukukanbanshitu", "sjkkbs"],
+        id: "databaseKanbanView",
+        value: '<div data-type="NodeAttributeView" data-av-type="kanban"></div>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconBoard"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseKanbanView}</span></div>`,
+    }, {
+        filter: [window.siyuan.languages.databaseGalleryView, "database card view", "database gallery view", "数据库卡片视图", "shujukukapianshitu", "sjkkps"],
+        id: "databaseGalleryView",
+        value: '<div data-type="NodeAttributeView" data-av-type="gallery"></div>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconGallery"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseGalleryView}</span></div>`,
+    }, {
         value: "",
         id: "separator_2",
         html: "separator",
@@ -258,7 +274,13 @@ export const hintSlash = (key: string, protyle: IProtyle) => {
         id: "insertAsset",
         value: Constants.ZWSP + 3,
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconDownload"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.insertAsset}</span>
-<input class="b3-form__upload" type="file" ${protyle.options.upload.accept ? 'multiple="' + protyle.options.upload.accept + '"' : ""}></div>`,
+<input class="b3-form__upload" type="file" multiple="multiple"${protyle.options.upload.accept ? ' accept="' + protyle.options.upload.accept + '"' : ""}></div>`,
+    }, {
+        filter: [window.siyuan.languages.insertHTMLFile, "embed html file", "iframe", "嵌入 html 文件", "qianruhtmlwenjian", "qrhtmlwj"],
+        id: "insertHTMLFile",
+        value: Constants.ZWSP + 3,
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconHTML5"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.insertHTMLFile}</span>
+<input class="b3-form__upload" data-upload-mode="html-iframe" type="file" multiple="multiple" accept=".html,.htm"></div>`,
     }, {
         filter: [window.siyuan.languages.insertIframeURL, "insert iframe link", "插入 iframe 链接", "charuiframelianjie", "criframelj"],
         id: "insertIframeURL",
@@ -367,10 +389,11 @@ export const hintSlash = (key: string, protyle: IProtyle) => {
     if (!hasPlugin) {
         allList.pop();
     }
+    const visibleList = hideConfiguredCreate ? allList.filter((item) => item.id !== "newFileRef") : allList;
     if (key === "") {
-        return allList;
+        return visibleList;
     }
-    return allList.filter((item) => {
+    return visibleList.filter((item) => {
         if (!item.filter) {
             return false;
         }
@@ -457,6 +480,7 @@ export const genHintItemHTML = (item: IBlock) => {
 
 export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IHintData[] => {
     const nodeElement = hasClosestBlock(getEditorRange(protyle.wysiwyg.element).startContainer);
+    const createTarget = protyle.hint.prepareCreateTarget(protyle, "ref");
     protyle.hint.genLoading(protyle);
     let refParam: IObject;
     if (protyle.lite) {
@@ -474,45 +498,64 @@ export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IH
             refParam.notebook = protyle.notebookId;
         }
     }
+    if (protyle.lite && isEncryptedBox(protyle.notebookId)) {
+        refParam.notebook = protyle.notebookId;
+    }
     fetchPost("/api/search/searchRefBlock", refParam, (response) => {
-        const dataList: IHintData[] = [];
-        if (response.data.newDoc) {
-            const newFileName = Lute.UnEscapeHTMLStr(replaceFileName(response.data.k));
-            dataList.push({
-                value: `((newFile "${newFileName}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))`,
-                html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFile"></use></svg>
-<span class="b3-list-item__text">${window.siyuan.languages.newFile} <mark>${response.data.k}</mark></span></div>`,
-            });
-        }
-        response.data.blocks.forEach((item: IBlock) => {
-            let value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="d">${item.name || item.refText.replace(new RegExp(Constants.ZWSP, "g"), "")}</span>`;
-            if (source === "search") {
-                value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${key}${Constants.ZWSP}${item.name || item.refText.replace(new RegExp(Constants.ZWSP, "g"), "")}</span>`;
-            } else if (source === "av") {
-                let refText = item.name || item.refText.replace(new RegExp(Constants.ZWSP, "g"), "");
-                if (nodeElement) {
-                    refText = item.ial["custom-sy-av-s-text-" + nodeElement.getAttribute("data-av-id")] || refText;
-                }
-                value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${refText}</span>`;
+        createTarget.promise.then((hideConfiguredCreate) => {
+            if (!createTarget.isCurrent()) {
+                return;
             }
-            dataList.push({
-                value,
-                html: genHintItemHTML(item),
+            const dataList: IHintData[] = [];
+            let createItemCount = 0;
+            if (response.data.newDoc) {
+                const newFileName = Lute.UnEscapeHTMLStr(replaceFileName(response.data.k));
+                if (!hideConfiguredCreate) {
+                    dataList.push({
+                        value: `((newFile "${newFileName}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))`,
+                        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFile"></use></svg>
+<span class="b3-list-item__text">${window.siyuan.languages.newFile} <mark>${response.data.k}</mark></span></div>`,
+                    });
+                    createItemCount++;
+                }
+                dataList.push({
+                    value: `((newSubDoc "${newFileName}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))`,
+                    html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFile"></use></svg>
+<span class="b3-list-item__text">${window.siyuan.languages.newSubDoc} <mark>${response.data.k}</mark></span></div>`,
+                });
+                createItemCount++;
+            }
+            response.data.blocks.forEach((item: IBlock) => {
+                const name = item.name ? stripSearchMark(item.name) : item.refText.replace(new RegExp(Constants.ZWSP, "g"), "");
+                let value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="d">${name}</span>`;
+                if (source === "search") {
+                    value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${key}${Constants.ZWSP}${name}</span>`;
+                } else if (source === "av") {
+                    let refText = name;
+                    if (nodeElement) {
+                        refText = item.ial["custom-sy-av-s-text-" + nodeElement.getAttribute("data-av-id")] || refText;
+                    }
+                    value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${refText}</span>`;
+                }
+                dataList.push({
+                    value,
+                    html: genHintItemHTML(item),
+                });
             });
+            if (source === "search") {
+                protyle.hint.splitChar = "((";
+                protyle.hint.lastIndex = -1;
+            }
+            if (dataList.length === 0) {
+                dataList.push({
+                    value: "",
+                    html: window.siyuan.languages.emptyContent,
+                });
+            } else if (createItemCount > 0 && dataList.length > createItemCount) {
+                dataList[createItemCount].focus = true;
+            }
+            protyle.hint.genHTML(dataList, protyle, true, source);
         });
-        if (source === "search") {
-            protyle.hint.splitChar = "((";
-            protyle.hint.lastIndex = -1;
-        }
-        if (dataList.length === 0) {
-            dataList.push({
-                value: "",
-                html: window.siyuan.languages.emptyContent,
-            });
-        } else if (response.data.newDoc && dataList.length > 1) {
-            dataList[1].focus = true;
-        }
-        protyle.hint.genHTML(dataList, protyle, true, source);
     });
     return [];
 };
@@ -586,7 +629,7 @@ export const hintRenderWidget = (value: string, protyle: IProtyle) => {
 
 export const hintRenderAssets = (value: string, protyle: IProtyle) => {
     focusByRange(protyle.toolbar.range);
-    const type = pathPosix().extname(value).toLowerCase();
+    const type = getAssetExtension(value).toLowerCase();
     const filename = value.startsWith("assets/") ? getAssetName(value) : value;
     insertHTML(genAssetHTML(type, value, filename, value.startsWith("assets/") ? filename + type : value), protyle);
     hideElements(["util"], protyle);

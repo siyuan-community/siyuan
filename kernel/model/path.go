@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -41,15 +41,11 @@ func createDocsByHPath(boxID, hPath, content, parentID, id string, titleEmpty bo
 
 	hPath = strings.TrimSuffix(hPath, ".sy")
 	hPath = util.TrimSpaceInPath(hPath)
+	if IsBoxDoc(boxID, parentID) {
+		// 笔记本顶层文档是用户可见的逻辑根，完整路径应从笔记本根目录解析。
+		parentID = ""
+	}
 	if "" != parentID {
-		if IsBoxDoc(boxID, parentID) {
-			name := path.Base(hPath)
-			p := "/" + id + ".sy"
-			if _, err = createDoc(boxID, p, name, content, titleEmpty); err != nil {
-				logging.LogErrorf("create doc [%s] failed: %s", p, err)
-			}
-			return
-		}
 		// The save path is incorrect when creating a sub-doc by ref in a doc with the same name https://github.com/siyuan-note/siyuan/issues/8138
 		// 在指定了父文档 ID 的情况下优先查找父文档
 		parentHPath, name := path.Split(hPath)
@@ -188,11 +184,11 @@ func toFlatTree(blocks []*Block, baseDepth int, typ string, tree *parse.Tree) (r
 }
 
 func toSubTree(blocks []*Block, keyword string) (ret []*Path) {
-	return toSubTreeInBox(blocks, keyword, "")
+	return toSubTreeInBox(blocks, keyword, "", nil)
 }
 
 // toSubTreeInBox 与 toSubTree 一致，但按 boxID 路由到加密 db 或全局 db。
-func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
+func toSubTreeInBox(blocks []*Block, keyword, boxID string, originalRefBlockIDs map[string]string) (ret []*Path) {
 	keyword = strings.TrimSpace(keyword)
 	var blockRoots []*Block
 	for _, block := range blocks {
@@ -218,7 +214,23 @@ func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
 			Count:    len(root.Children),
 		}
 		for _, c := range root.Children {
-			if "NodeListItem" == c.Type {
+			if "NodeDocument" == c.Type && "" != originalRefBlockIDs[c.ID] {
+				tree, _ := loadTreeByBlockIDInBox(c.RootID, boxID)
+				if nil == tree {
+					continue
+				}
+				for child := tree.Root.FirstChild; nil != child; child = child.Next {
+					if "" == child.ID || !child.IsBlock() {
+						continue
+					}
+					subBlock, _ := getBlock(child.ID, tree)
+					if nil == subBlock {
+						continue
+					}
+					subBlock.Depth = 1
+					treeNode.Blocks = append(treeNode.Blocks, subBlock)
+				}
+			} else if "NodeListItem" == c.Type {
 				tree, _ := loadTreeByBlockIDInBox(c.RootID, boxID)
 				li := treenode.GetNodeInTree(tree, c.ID)
 				if nil == li || nil == li.FirstChild {
@@ -248,8 +260,14 @@ func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
 					Count:    1,
 				}
 
+				refNode := li.FirstChild
+				if originalRefBlockID := originalRefBlockIDs[li.ID]; "" != originalRefBlockID {
+					if originalRefBlock := treenode.GetNodeInTree(tree, originalRefBlockID); nil != originalRefBlock {
+						refNode = originalRefBlock
+					}
+				}
 				unfold := true
-				for liFirstBlockSpan := li.FirstChild.FirstChild; nil != liFirstBlockSpan; liFirstBlockSpan = liFirstBlockSpan.Next {
+				for liFirstBlockSpan := refNode.FirstChild; nil != liFirstBlockSpan; liFirstBlockSpan = liFirstBlockSpan.Next {
 					if treenode.IsBlockRef(liFirstBlockSpan) {
 						continue
 					}
@@ -264,11 +282,20 @@ func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
 						if ast.NodeList == next.Type {
 							for subLi := next.FirstChild; nil != subLi; subLi = subLi.Next {
 								subLiBlock, _ := getBlock(subLi.ID, tree)
+								if nil == subLiBlock || nil == subLi.FirstChild {
+									continue
+								}
 								var subFirst *sql.Block
 								if 3 != subLi.ListData.Typ {
-									subFirst = sql.GetBlock(subLi.FirstChild.ID)
+									subFirst = sql.GetBlockInBox(subLi.FirstChild.ID, boxID)
 								} else {
-									subFirst = sql.GetBlock(subLi.FirstChild.Next.ID)
+									if nil == subLi.FirstChild.Next {
+										continue
+									}
+									subFirst = sql.GetBlockInBox(subLi.FirstChild.Next.ID, boxID)
+								}
+								if nil == subFirst {
+									continue
 								}
 								subPos := 0
 								content := subFirst.Content
@@ -321,13 +348,17 @@ func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
 					treeNode.Children = append(treeNode.Children, subRoot)
 				}
 			} else if "NodeHeading" == c.Type {
-				tree, _ := LoadTreeByBlockID(c.RootID)
+				tree, _ := loadTreeByBlockIDInBox(c.RootID, boxID)
 				h := treenode.GetNodeInTree(tree, c.ID)
 				if nil == h {
 					continue
 				}
 
-				name := sql.GetBlock(h.ID).Content
+				sqlHeading := sql.GetBlockInBox(h.ID, boxID)
+				if nil == sqlHeading {
+					continue
+				}
+				name := sqlHeading.Content
 				parentPos := 0
 				if "" != keyword {
 					parentPos, name = search.MarkText(name, keyword, 12, Conf.Search.CaseSensitive)
@@ -343,14 +374,17 @@ func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
 					Count:    1,
 				}
 
-				unfold := true
-				for headingFirstSpan := h.FirstChild; nil != headingFirstSpan; headingFirstSpan = headingFirstSpan.Next {
-					if treenode.IsBlockRef(headingFirstSpan) {
-						continue
-					}
-					if "" != strings.TrimSpace(headingFirstSpan.Text()) {
-						unfold = false
-						break
+				unfold := "" != originalRefBlockIDs[h.ID]
+				if !unfold {
+					unfold = true
+					for headingFirstSpan := h.FirstChild; nil != headingFirstSpan; headingFirstSpan = headingFirstSpan.Next {
+						if treenode.IsBlockRef(headingFirstSpan) {
+							continue
+						}
+						if "" != strings.TrimSpace(headingFirstSpan.Text()) {
+							unfold = false
+							break
+						}
 					}
 				}
 
@@ -360,11 +394,20 @@ func toSubTreeInBox(blocks []*Block, keyword, boxID string) (ret []*Path) {
 						if ast.NodeList == headingChild.Type {
 							for subLi := headingChild.FirstChild; nil != subLi; subLi = subLi.Next {
 								subLiBlock, _ := getBlock(subLi.ID, tree)
+								if nil == subLiBlock || nil == subLi.FirstChild {
+									continue
+								}
 								var subFirst *sql.Block
 								if 3 != subLi.ListData.Typ {
-									subFirst = sql.GetBlock(subLi.FirstChild.ID)
+									subFirst = sql.GetBlockInBox(subLi.FirstChild.ID, boxID)
 								} else {
-									subFirst = sql.GetBlock(subLi.FirstChild.Next.ID)
+									if nil == subLi.FirstChild.Next {
+										continue
+									}
+									subFirst = sql.GetBlockInBox(subLi.FirstChild.Next.ID, boxID)
+								}
+								if nil == subFirst {
+									continue
 								}
 								subPos := 0
 								content := subFirst.Content

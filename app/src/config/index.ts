@@ -1,5 +1,5 @@
 /// #if MOBILE
-import {popMenu} from "../mobile/menu";
+import {openMobileSetting} from "../mobile/menu";
 /// #else
 import {initSettingSearch, switchSettingTab} from "./search/dialog";
 import {bindSettingSaveDelegation} from "./setting/save";
@@ -12,7 +12,7 @@ import {getFrontend} from "../util/functions";
 import {showMessage} from "../dialog/message";
 import {escapeHtml} from "../util/escape";
 /// #endif
-import {getSettingTabDefs, settingTabToMenuId} from "./setting/tabs";
+import {getSettingTabDefs} from "./setting/tabs";
 import {clearAccessTabElement} from "./tabs/accessRuntime";
 import {clearSyncTabElement} from "./tabs/syncRuntime";
 import type {TSettingTab} from "./setting/tabs";
@@ -40,7 +40,7 @@ const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
                 <svg class="b3-list-item__graphic"><use xlink:href="#iconSettings"></use></svg>
                 <span class="b3-list-item__text">${window.siyuan.languages.config}</span>
             </div>
-            <input placeholder="${window.siyuan.languages.search}" class="b3-text-field fn__block">
+            <input placeholder="${window.siyuan.languages.searchPlaceholder}" class="b3-text-field fn__block">
         </div>
         <ul class="config__tab-scroll">
             ${tabListItems.join("")}
@@ -80,12 +80,7 @@ const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
 
 export const openSetting = (app: App, tab?: TSettingTab) => {
     /// #if MOBILE
-    popMenu();
-    if (tab) {
-        window.setTimeout(() => {
-            document.getElementById(settingTabToMenuId(tab))?.dispatchEvent(new MouseEvent("click", {bubbles: true}));
-        }, 200);
-    }
+    openMobileSetting(app, tab);
     /// #else
     return openSettingDialog(app, tab);
     /// #endif

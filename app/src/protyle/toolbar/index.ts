@@ -5,27 +5,31 @@ import {
     fixTableRange,
     focusBlock,
     focusByRange,
+    focusByOffset,
     focusByWbr,
+    getBlockRanges,
     getEditorRange,
+    getSelectionOffset,
     getSelectionPosition,
-    selectAll,
-    setFirstNodeRange,
-    setLastNodeRange
+    getUndoFocusContext,
+    IBlockRange,
+    selectAll
 } from "../util/selection";
 import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName, hasClosestByTag} from "../util/hasClosest";
 import {Link} from "./Link";
 import {setPosition} from "../../util/setPosition";
-import {transaction, updateTransaction} from "../wysiwyg/transaction";
+import {transaction, updateBatchTransaction, updateTransaction} from "../wysiwyg/transaction";
 import {Constants} from "../../constants";
 import {
     copyPlainText,
+    isNotCtrl,
     readClipboard,
     saveExportFile,
     setStorageVal
 } from "../util/compatibility";
 import {upDownHint} from "../../util/upDownHint";
 import {highlightRender} from "../render/highlightRender";
-import {getContenteditableElement, hasNextSibling, hasPreviousSibling} from "../wysiwyg/getBlock";
+import {getContenteditableElement, hasNextSibling, hasPreviousSibling, isEndOfBlock} from "../wysiwyg/getBlock";
 import {processRender} from "../util/processCode";
 import {BlockRef} from "./BlockRef";
 import {hintRenderTemplate, hintRenderWidget} from "../hint/extend";
@@ -34,13 +38,13 @@ import {blockRender} from "../render/blockRender";
 import {openBy} from "../../editor/util";
 /// #endif
 import {fetchPost} from "../../util/fetch";
-import {isArrayEqual, isMobile} from "../../util/functions";
+import {isMobile} from "../../util/functions";
 import * as dayjs from "dayjs";
 import {insertEmptyBlock} from "../../block/util";
 import {matchHotKey} from "../util/hotKey";
 import {hideElements} from "../ui/hideElements";
 import {electronUndo} from "../undo";
-import {previewTemplate, toolbarKeyToMenu} from "./util";
+import {mergeSameInlineElement, previewTemplate, toolbarKeyToMenu} from "./util";
 import {showMessage} from "../../dialog/message";
 import {InlineMath} from "./InlineMath";
 import {InlineMemo} from "./InlineMemo";
@@ -51,7 +55,7 @@ import {confirmDialog} from "../../dialog/confirmDialog";
 import {paste, pasteAsPlainText, pasteEscaped} from "../util/paste";
 import {escapeHtml} from "../../util/escape";
 import {resizeSide} from "../../history/resizeSide";
-import {activeBlur} from "../../mobile/util/keyboardToolbar";
+import {activeBlur, updateMobilePluginToolbar} from "../../mobile/util/keyboardToolbar";
 
 const filterPluginToolbar = (toolbar: Array<string | IMenuItem>, lite: boolean) => {
     if (!lite) {
@@ -70,13 +74,22 @@ const filterPluginToolbar = (toolbar: Array<string | IMenuItem>, lite: boolean) 
     });
 };
 
+interface IToolbarRangePosition {
+    left: number;
+    top: number;
+    isBottom?: boolean;
+    rectIndex?: number;
+}
+
 export class Toolbar {
     public element: HTMLElement;
     public subElement: HTMLElement;
     public subElementCloseCB: () => void;
     public subElementResizeCB: () => void;
     public range: Range;
+    public rangePosition?: IToolbarRangePosition;
     public toolbarHeight: number;
+    private isMultipleClick = false;
     private readonly LINE_HEIGHT = 32;
 
     constructor(protyle: IProtyle) {
@@ -91,7 +104,6 @@ export class Toolbar {
         this.subElement.className = "protyle-util fn__none";
         /// #endif
         this.toolbarHeight = 29;
-        const inlineToolbarElement = document.querySelector('#keyboardToolbar .keyboard__action[data-type="inline-memo"]')?.parentElement;
         protyle.app.plugins.forEach(item => {
             const pluginToolbar = filterPluginToolbar(item.updateProtyleToolbar(options.toolbar), protyle.lite);
             pluginToolbar.forEach(toolbarItem => {
@@ -104,17 +116,6 @@ export class Toolbar {
                 if (window.siyuan.config.keymap.plugin && window.siyuan.config.keymap.plugin[item.name] && window.siyuan.config.keymap.plugin[item.name][toolbarItem.name]) {
                     toolbarItem.hotkey = window.siyuan.config.keymap.plugin[item.name][toolbarItem.name].custom;
                 }
-                /// #if MOBILE
-                if (inlineToolbarElement) {
-                    const itemElement = new ToolbarItem(protyle, toolbarItem).element;
-                    itemElement.className = "keyboard__action";
-                    const oldItemElement = inlineToolbarElement.querySelector(`[data-type="${toolbarItem.name}"]`);
-                    if (!oldItemElement) {
-                        inlineToolbarElement.insertAdjacentHTML("beforeend",
-                            `<button class="keyboard__action" data-type="${toolbarItem.name}"><svg><use xlink:href="#${toolbarItem.icon}"></use></svg></button>`);
-                    }
-                }
-                /// #endif
             });
             options.toolbar = toolbarKeyToMenu(pluginToolbar);
         });
@@ -122,6 +123,9 @@ export class Toolbar {
             const itemElement = this.genItem(protyle, menuItem);
             this.element.appendChild(itemElement);
         });
+        /// #if MOBILE
+        updateMobilePluginToolbar(protyle);
+        /// #endif
     }
 
     public update(protyle: IProtyle) {
@@ -179,13 +183,69 @@ export class Toolbar {
             const itemElement = this.genItem(protyle, menuItem);
             this.element.appendChild(itemElement);
         });
+        /// #if MOBILE
+        updateMobilePluginToolbar(protyle);
+        /// #endif
     }
 
-    public render(protyle: IProtyle, range: Range, event?: KeyboardEvent) {
+    public setSelectionElementPosition(protyle: IProtyle, element: HTMLElement, triggerRect?: DOMRect,
+                                       scrollElement?: HTMLElement) {
+        if (!this.rangePosition || !this.range) {
+            return;
+        }
+        const protyleRect = protyle.element.getBoundingClientRect();
+        const topBoundary = protyleRect.top + 30;
+        const bottomBoundary = Math.min(protyleRect.bottom, window.innerHeight);
+        const rangeRects = this.range.getClientRects();
+        const rangeRect = (typeof this.rangePosition.rectIndex === "number" ?
+            rangeRects[this.rangePosition.rectIndex] : undefined) ||
+            (this.rangePosition.isBottom ? rangeRects[rangeRects.length - 1] : rangeRects[0]) ||
+            this.range.getBoundingClientRect();
+        const gap = this.isMultipleClick ? 2 : 4;
+        if (scrollElement) {
+            const availableHeight = Math.max(
+                rangeRect.top - topBoundary - gap,
+                bottomBoundary - rangeRect.bottom - gap,
+                0
+            );
+            if (element.offsetHeight > availableHeight) {
+                const outerHeight = element.offsetHeight - scrollElement.offsetHeight;
+                scrollElement.style.maxHeight = `${Math.max(0, availableHeight - outerHeight)}px`;
+            }
+        }
+        const above = rangeRect.top - element.offsetHeight - gap;
+        const below = rangeRect.bottom + gap;
+        const y = this.rangePosition.isBottom ?
+            (below + element.offsetHeight <= bottomBoundary ?
+                below : Math.max(above, topBoundary)) :
+            (above >= topBoundary ?
+                above : Math.min(below, bottomBoundary - element.offsetHeight));
+        const horizontalDivisor = this.isMultipleClick ? 3 : 4;
+        // 子面板与触发按钮水平居中，垂直方向继续避让选区
+        const left = triggerRect ?
+            triggerRect.left + (triggerRect.width - element.clientWidth) / 2 :
+            this.rangePosition.left - element.clientWidth / horizontalDivisor;
+        setPosition(element, left, y);
+        return y;
+    }
+
+    public render(protyle: IProtyle, range: Range, position?: IPosition & {detail?: number}) {
         this.range = range;
-        let nodeElement = hasClosestBlock(range.startContainer);
-        if (isMobile() || !nodeElement || protyle.disabled || nodeElement.classList.contains("av") ||
-            hasClosestByTag(range.startContainer, "CAPTION")) {
+        this.rangePosition = undefined;
+        this.isMultipleClick = (position?.detail || 0) > 1;
+        const nodeElement = hasClosestBlock(range.startContainer);
+        const endElement = hasClosestBlock(range.endContainer);
+        const isCrossBlock = !!nodeElement && !!endElement && nodeElement !== endElement;
+        const startCellElement = hasClosestByTag(range.startContainer, "TD") ||
+            hasClosestByTag(range.startContainer, "TH");
+        const endCellElement = hasClosestByTag(range.endContainer, "TD") ||
+            hasClosestByTag(range.endContainer, "TH");
+        const isCrossCell = !!startCellElement && !!endCellElement && startCellElement !== endCellElement;
+        if (isMobile() || !nodeElement || protyle.disabled || (!isCrossBlock && (
+            nodeElement.getAttribute("data-type") === "NodeCodeBlock" ||
+            nodeElement.classList.contains("av") ||
+            hasClosestByTag(range.startContainer, "CAPTION")
+        ))) {
             this.element.classList.add("fn__none");
             return;
         }
@@ -208,51 +268,21 @@ export class Toolbar {
             this.element.classList.add("fn__none");
             return;
         }
-        // shift+方向键或三击选中，不同的块 https://github.com/siyuan-note/siyuan/issues/3891
-        const startElement = hasClosestBlock(range.startContainer);
-        const endElement = hasClosestBlock(range.endContainer);
-        if (startElement && endElement && startElement !== endElement) {
-            if (event) { // 在 keyup 中使用 shift+方向键选中
-                if (event.key === "ArrowLeft") {
-                    this.range = setLastNodeRange(getContenteditableElement(startElement), range, false);
-                } else if (event.key === "ArrowRight") {
-                    this.range = setFirstNodeRange(getContenteditableElement(endElement), range);
-                    this.range.collapse(false);
-                } else if (event.key === "ArrowUp") {
-                    this.range = setFirstNodeRange(getContenteditableElement(endElement), range);
-                    nodeElement = hasClosestBlock(endElement);
-                    if (!nodeElement) {
-                        return;
-                    }
-                } else if (event.key === "ArrowDown") {
-                    this.range = setLastNodeRange(getContenteditableElement(startElement), range, false);
-                }
-            } else {
-                this.range = setLastNodeRange(getContenteditableElement(nodeElement), range, false);
-            }
-            focusByRange(this.range);
-            if (this.range.toString() === "") {
-                this.element.classList.add("fn__none");
-                return;
-            }
-        }
-        // 需放在 range 修改之后，否则 https://github.com/siyuan-note/siyuan/issues/4726
-        if (nodeElement.getAttribute("data-type") === "NodeCodeBlock") {
+        this.rangePosition = getSelectionPosition(nodeElement, range, true, position);
+        this.element.classList.remove("fn__none");
+        this.toolbarHeight = this.element.clientHeight;
+        const y = this.setSelectionElementPosition(protyle, this.element);
+        if (typeof y !== "number") {
             this.element.classList.add("fn__none");
             return;
         }
-        const rangePosition = getSelectionPosition(nodeElement, range, true);
-        this.element.classList.remove("fn__none");
-        this.toolbarHeight = this.element.clientHeight;
-        const y = rangePosition.isBottom ?
-            Math.min(rangePosition.top + 4, protyle.element.getBoundingClientRect().bottom - this.toolbarHeight) :
-            Math.max(rangePosition.top - this.toolbarHeight - 4, protyle.element.getBoundingClientRect().top + 30);
         this.element.setAttribute("data-inity", y + Constants.ZWSP + protyle.contentElement.scrollTop.toString());
-        setPosition(this.element, rangePosition.left - this.element.clientWidth / 4, y);
 
         this.element.querySelectorAll(".protyle-toolbar__item--current").forEach(item => {
             item.classList.remove("protyle-toolbar__item--current");
         });
+        this.element.querySelector('[data-type="a"]')?.toggleAttribute("disabled", isCrossBlock || isCrossCell);
+        this.element.querySelector('[data-type="block-ref"]')?.toggleAttribute("disabled", isCrossBlock || isCrossCell);
         const types = this.getCurrentType();
         types.forEach(item => {
             if (["search-mark", "a", "block-ref", "virtual-block-ref", "text", "file-annotation-ref", "inline-math",
@@ -310,20 +340,194 @@ export class Toolbar {
         return types;
     }
 
-    public setInlineMark(protyle: IProtyle, type: string, action: "range" | "toolbar", textObj?: ITextOption) {
+    private hasInlineMark(editableElement: Element, range: Range, type: string) {
+        const walker = document.createTreeWalker(editableElement, NodeFilter.SHOW_TEXT);
+        let textNode = walker.nextNode() as Text;
+        while (textNode) {
+            if (range.intersectsNode(textNode)) {
+                const start = range.startContainer === textNode ? range.startOffset : 0;
+                const end = range.endContainer === textNode ? range.endOffset : textNode.data.length;
+                if (start < end && textNode.data.substring(start, end).split(Constants.ZWSP).join("") &&
+                    !hasClosestByAttribute(textNode, "data-type", type)) {
+                    return false;
+                }
+            }
+            textNode = walker.nextNode() as Text;
+        }
+        return true;
+    }
+
+    public setInlineMark(protyle: IProtyle, type: string, action: "range" | "toolbar",
+                         textObj?: ITextOption, focusRange = true, undoContext?: Record<string, string>) {
         const nodeElement = hasClosestBlock(this.range.startContainer);
-        if (!nodeElement || nodeElement.getAttribute("data-type") === "NodeCodeBlock") {
+        if (!nodeElement) {
             return;
         }
         const endElement = hasClosestBlock(this.range.endContainer);
         if (!endElement) {
             return;
         }
-        // 三击后还没有重新纠正 range 时使用快捷键标记会导致异常 https://github.com/siyuan-note/siyuan/issues/7068
-        if (nodeElement !== endElement) {
-            this.range = setLastNodeRange(getContenteditableElement(nodeElement), this.range, false);
+        const startCellElement = hasClosestByTag(this.range.startContainer, "TD") ||
+            hasClosestByTag(this.range.startContainer, "TH");
+        const endCellElement = hasClosestByTag(this.range.endContainer, "TD") ||
+            hasClosestByTag(this.range.endContainer, "TH");
+        if (nodeElement !== endElement || (startCellElement && endCellElement && startCellElement !== endCellElement)) {
+            if (type === "a") {
+                return;
+            }
+            return this.setBlockRangesInlineMark(protyle, type, action, textObj, focusRange);
+        }
+        if (nodeElement.getAttribute("data-type") === "NodeCodeBlock") {
+            return;
+        }
+        return this.setInlineMarkInBlock(protyle, type, action, textObj, undefined, focusRange, undoContext);
+    }
+
+    private setBlockRangesInlineMark(protyle: IProtyle, type: string, action: "range" | "toolbar",
+                                     textObj?: ITextOption, focusRange = true) {
+        const selectedRange = this.range.cloneRange();
+        const startRange = selectedRange.cloneRange();
+        startRange.collapse(true);
+        const startsAtBlockEnd = isEndOfBlock(startRange);
+        const ranges = getBlockRanges(protyle.wysiwyg.element, selectedRange,
+            ["NodeCodeBlock", "NodeAttributeView"]).filter(item =>
+            !(startsAtBlockEnd && item.editableElement.contains(selectedRange.startContainer)) &&
+            item.range.toString().split(Constants.ZWSP).join(""));
+        const preserveStart = !ranges.some(item => item.editableElement.contains(selectedRange.startContainer));
+        const preserveEnd = !ranges.some(item => item.editableElement.contains(selectedRange.endContainer));
+
+        return this.setRangesInlineMark(protyle, ranges, type, action, textObj, {
+            focusRange,
+            preserveEnd,
+            preserveStart,
+            selectedRange,
+        });
+    }
+
+    private getTableCellRanges(cellElements: HTMLTableCellElement[]) {
+        const ranges: IBlockRange[] = [];
+        new Set(cellElements).forEach(cellElement => {
+            if (!cellElement.isConnected || cellElement.classList.contains("fn__none")) {
+                return;
+            }
+            const blockElement = hasClosestBlock(cellElement) as HTMLElement;
+            if (!blockElement || blockElement.getAttribute("data-type") !== "NodeTable") {
+                return;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(cellElement);
+            if (!range.toString().split(Constants.ZWSP).join("")) {
+                return;
+            }
+            const position = getSelectionOffset(cellElement, undefined, range);
+            ranges.push({
+                blockElement,
+                editableElement: cellElement,
+                range,
+                start: position.start,
+                end: position.end,
+            });
+        });
+        return ranges;
+    }
+
+    public hasTableCellsInlineMark(cellElements: HTMLTableCellElement[], type: string) {
+        const ranges = this.getTableCellRanges(cellElements);
+        return ranges.length > 0 && ranges.every(item => this.hasInlineMark(item.editableElement, item.range, type));
+    }
+
+    public setTableCellsInlineMark(protyle: IProtyle, cellElements: HTMLTableCellElement[], type: string,
+                                   textObj?: ITextOption) {
+        return this.setRangesInlineMark(protyle, this.getTableCellRanges(cellElements), type, "range", textObj);
+    }
+
+    private setRangesInlineMark(protyle: IProtyle, ranges: IBlockRange[], type: string, action: "range" | "toolbar",
+                                textObj?: ITextOption, options?: {
+            focusRange?: boolean,
+            preserveEnd?: boolean,
+            preserveStart?: boolean,
+            selectedRange?: Range,
+        }) {
+        if (ranges.length === 0) {
+            return;
         }
 
+        const actionBtn = action === "toolbar" ? this.element.querySelector(`[data-type="${type}"]`) : undefined;
+        const remove = type === "clear" || actionBtn?.classList.contains("protyle-toolbar__item--current") ||
+            (!textObj && ranges.every(item => this.hasInlineMark(item.editableElement, item.range, type)));
+        const rangesByBlock = new Map<HTMLElement, typeof ranges>();
+        const visibleOffsets = new Map(ranges.map(item =>
+            [item, getSelectionOffset(item.editableElement, undefined, item.range, true)]));
+        ranges.forEach(item => {
+            const blockRanges = rangesByBlock.get(item.blockElement) || [];
+            blockRanges.push(item);
+            rangesByBlock.set(item.blockElement, blockRanges);
+        });
+        const blockElements = Array.from(rangesByBlock.keys());
+        const memoOldHTMLs = type === "inline-memo" ?
+            new Map(blockElements.map(item => [item.getAttribute("data-node-id"), item.outerHTML])) : undefined;
+        const newNodes: Node[] = [];
+        let selectionRange: Range;
+        updateBatchTransaction(blockElements, protyle, blockElement => {
+            rangesByBlock.get(blockElement).forEach(item => {
+                const range = blockElement.getAttribute("data-type") === "NodeTable" ?
+                    focusByOffset(item.editableElement, item.start, item.end, false) : item.range;
+                if (!range || range.collapsed) {
+                    return;
+                }
+                this.range = range;
+                const rangeNodes = this.setInlineMarkInBlock(protyle, type, action, textObj, remove) || [];
+                const connectedNodes = rangeNodes.filter(node => node.isConnected);
+                let offsetRange: Range;
+                if (["block-ref", "file-annotation-ref", "inline-math"].includes(type) && connectedNodes.length > 0) {
+                    offsetRange = document.createRange();
+                    offsetRange.setStartBefore(connectedNodes[0]);
+                    offsetRange.setEndAfter(connectedNodes[connectedNodes.length - 1]);
+                } else {
+                    const position = visibleOffsets.get(item);
+                    offsetRange = focusByOffset(item.editableElement, position.start, position.end, false, true) as Range;
+                }
+                if (offsetRange) {
+                    if (selectionRange) {
+                        selectionRange.setEnd(offsetRange.endContainer, offsetRange.endOffset);
+                    } else {
+                        selectionRange = offsetRange.cloneRange();
+                    }
+                }
+                newNodes.push(...connectedNodes);
+            });
+        }, options?.selectedRange ? getUndoFocusContext(protyle.wysiwyg.element, options.selectedRange, true) : undefined);
+        if (selectionRange && options?.selectedRange) {
+            if (options.preserveStart) {
+                selectionRange.setStart(options.selectedRange.startContainer, options.selectedRange.startOffset);
+            }
+            if (options.preserveEnd) {
+                selectionRange.setEnd(options.selectedRange.endContainer, options.selectedRange.endOffset);
+            }
+            this.range = selectionRange;
+            if (options.focusRange) {
+                focusByRange(this.range);
+            }
+        }
+        if (memoOldHTMLs) {
+            const memoElements = newNodes.filter(item => item.nodeType !== 3 &&
+                ((item as HTMLElement).getAttribute("data-type") || "").split(" ").includes("inline-memo")) as HTMLElement[];
+            const memoElement = memoElements[0];
+            if (memoElement && !memoElement.getAttribute("data-inline-memo-content")) {
+                this.showRender(protyle, memoElement, memoElements, memoOldHTMLs);
+            }
+        }
+        return newNodes;
+    }
+
+    private setInlineMarkInBlock(protyle: IProtyle, type: string, action: "range" | "toolbar",
+                                 textObj?: ITextOption, remove?: boolean, focusRange = true,
+                                 undoContext?: Record<string, string>) {
+        const nodeElement = hasClosestBlock(this.range.startContainer);
+        if (!nodeElement || nodeElement.getAttribute("data-type") === "NodeCodeBlock") {
+            return;
+        }
+        const isBatch = remove !== undefined;
         let rangeTypes: string[] = [];
         this.range.cloneContents().childNodes.forEach((item: HTMLElement) => {
             if (item.nodeType !== 3) {
@@ -483,9 +687,11 @@ export class Toolbar {
         let endContainer: Node;
         let startOffset: number;
         let endOffset: number;
-        if (type === "clear" || actionBtn?.classList.contains("protyle-toolbar__item--current") || (
+        const shouldRemove = remove ?? (type === "clear" ||
+            actionBtn?.classList.contains("protyle-toolbar__item--current") || (
             action === "range" && rangeTypes.length > 0 && rangeTypes.includes(type) && !textObj
-        )) {
+        ));
+        if (shouldRemove) {
             // 移除
             if (type === "clear") {
                 toolbarElement.querySelectorAll('[data-type="strong"],[data-type="em"],[data-type="u"],[data-type="s"],[data-type="mark"],[data-type="sup"],[data-type="sub"],[data-type="kbd"],[data-type="mark"],[data-type="code"]').forEach(item => {
@@ -770,36 +976,8 @@ export class Toolbar {
                     }
                 }
                 if (currentNode && currentNode.nodeType !== 3) {
-                    const currentType = (currentNode.getAttribute("data-type") || "").split(" ");
-                    if (currentNode.tagName !== "BR" && !currentNode.classList.contains("img") &&
-                        previousElement && previousElement.nodeType !== 3 &&
-                        currentNode.nodeType !== 3 &&
-                        isArrayEqual(currentType, (previousElement.getAttribute("data-type") || "").split(" ")) &&
-                        hasSameTextStyle(currentNode, previousElement)) {
-                        if (currentType.includes("code") || currentType.includes("tag") || currentType.includes("kbd")) {
-                            if (currentNode.textContent.startsWith(Constants.ZWSP)) {
-                                currentNode.textContent = currentNode.textContent.substring(1);
-                            }
-                        }
-                        if (currentType.includes("inline-math")) {
-                            // 数学公式合并 data-content https://github.com/siyuan-note/siyuan/issues/6028
-                            currentNode.setAttribute("data-content", previousElement.getAttribute("data-content") + currentNode.getAttribute("data-content"));
-                        } else if (currentType.includes("block-ref") && previousElement.getAttribute("data-id") === currentNode.getAttribute("data-id")) {
-                            if (previousElement.dataset.subtype !== "d" || previousElement.dataset.subtype !== "d") {
-                                currentNode.setAttribute("data-subtype", "s");
-                                currentNode.textContent = previousElement.textContent + currentNode.textContent;
-                            }
-                        } else {
-                            // 测试不存在 https://ld246.com/article/1664454663564 情况，故移除引用合并限制
-                            // 搜索结果引用被高亮隔断需进行合并 https://github.com/siyuan-note/siyuan/issues/7588
-                            // textContent：防止赋值后 \n 转换为 br 导致后续 this.range.setStart 报错；innerText：获取 br 的 \n， https://github.com/siyuan-note/siyuan/issues/15968
-                            currentNode.textContent = previousElement.innerText + currentNode.innerText;
-                            // 如果为备注时，合并备注内容
-                            if (currentType.includes("inline-memo")) {
-                                currentNode.setAttribute("data-inline-memo-content", (previousElement.getAttribute("data-inline-memo-content") || "") +
-                                    (currentNode.getAttribute("data-inline-memo-content") || ""));
-                            }
-                        }
+                    if (mergeSameInlineElement(currentNode, previousElement)) {
+                        const currentType = (currentNode.getAttribute("data-type") || "").split(" ");
                         if (!currentType.includes("inline-math")) {
                             if (i === 0) {
                                 startContainer = currentNode;
@@ -882,7 +1060,9 @@ export class Toolbar {
             }
         }
         nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
-        updateTransaction(protyle, nodeElement, html);
+        if (!isBatch) {
+            updateTransaction(protyle, nodeElement, html, undoContext);
+        }
         nodeElement.querySelectorAll("wbr").forEach(item => {
             item.remove();
         });
@@ -901,23 +1081,25 @@ export class Toolbar {
                 this.range.setEnd(endContainer.firstChild, endOffset);
             }
         }
-        focusByRange(this.range);
+        if (!isBatch && focusRange) {
+            focusByRange(this.range);
+        }
 
         const showMenuElement = newNodes[0] as HTMLElement;
-        if (showMenuElement.nodeType !== 3) {
+        if (showMenuElement && showMenuElement.nodeType !== 3) {
             const showMenuTypes = (showMenuElement.getAttribute("data-type") || "").split(" ");
             if (type === "inline-math") {
                 mathRender(nodeElement);
-                if (selectText === "" && showMenuTypes.includes("inline-math")) {
+                if (!isBatch && selectText === "" && showMenuTypes.includes("inline-math")) {
                     protyle.toolbar.showRender(protyle, showMenuElement, undefined, html);
                 }
             } else if (type === "inline-memo") {
-                if (!showMenuElement.getAttribute("data-inline-memo-content") &&
+                if (!isBatch && !showMenuElement.getAttribute("data-inline-memo-content") &&
                     showMenuTypes.includes("inline-memo")) {
                     protyle.toolbar.showRender(protyle, showMenuElement, newNodes as Element[], html);
                 }
             } else if (type === "a") {
-                if (showMenuTypes.includes("a") &&
+                if (!isBatch && showMenuTypes.includes("a") &&
                     (showMenuElement.textContent.replace(Constants.ZWSP, "") === "" || !showMenuElement.getAttribute("data-href"))) {
                     linkMenu(protyle, showMenuElement, showMenuElement.getAttribute("data-href") ? true : false);
                 }
@@ -926,7 +1108,8 @@ export class Toolbar {
         return newNodes;
     }
 
-    public showRender(protyle: IProtyle, renderElement: Element, updateElements?: Element[], oldHTML?: string) {
+    public showRender(protyle: IProtyle, renderElement: Element, updateElements?: Element[],
+                      oldHTML?: string | Map<string, string>) {
         const nodeElement = hasClosestBlock(renderElement);
         if (!nodeElement) {
             return;
@@ -937,7 +1120,17 @@ export class Toolbar {
         window.siyuan.menus.menu.remove();
         const id = nodeElement.getAttribute("data-node-id");
         const types = (renderElement.getAttribute("data-type") || "").split(" ");
-        const html = oldHTML || nodeElement.outerHTML;
+        const html = oldHTML instanceof Map ? oldHTML.get(id) || nodeElement.outerHTML :
+            oldHTML || nodeElement.outerHTML;
+        const updateBlockElements = new Set<Element>();
+        if (oldHTML instanceof Map) {
+            updateElements?.forEach(item => {
+                const blockElement = hasClosestBlock(item);
+                if (blockElement) {
+                    updateBlockElements.add(blockElement);
+                }
+            });
+        }
         let title = "HTML";
         let placeholder = "";
         const isInlineMemo = types.includes("inline-memo");
@@ -1063,6 +1256,10 @@ export class Toolbar {
                 setPosition(this.subElement, nodeRect.right, bottom);
             }
         };
+        const closeRender = () => {
+            this.subElement.querySelector('[data-type="pin"]').setAttribute("aria-label", window.siyuan.languages.pin);
+            hideElements(["util"], protyle);
+        };
         const headerElement = this.subElement.querySelector(".block__icons");
         headerElement.addEventListener("click", (event: MouseEvent) => {
             const target = event.target as HTMLElement;
@@ -1085,8 +1282,7 @@ export class Toolbar {
             event.stopPropagation();
             switch (btnElement.getAttribute("data-type")) {
                 case "close":
-                    this.subElement.querySelector('[data-type="pin"]').setAttribute("aria-label", window.siyuan.languages.pin);
-                    hideElements(["util"], protyle);
+                    closeRender();
                     break;
                 case "pin":
                     if (btnElement.getAttribute("aria-label") === window.siyuan.languages.unpin) {
@@ -1145,13 +1341,14 @@ export class Toolbar {
         };
         const textElement = this.subElement.querySelector(".b3-text-field") as HTMLTextAreaElement;
         if (types.includes("NodeHTMLBlock")) {
-            textElement.value = Lute.UnEscapeHTMLStr(renderElement.querySelector("protyle-html").getAttribute("data-content") || "");
+            textElement.value = renderElement.querySelector("protyle-html").getAttribute("data-content") || "";
         } else if (isInlineMemo) {
             textElement.value = Lute.UnEscapeHTMLStr(renderElement.getAttribute("data-inline-memo-content") || "");
         } else {
             textElement.value = Lute.UnEscapeHTMLStr(renderElement.getAttribute("data-content") || "");
         }
         const oldTextValue = textElement.value;
+        let focusBeforeRender = false;
         textElement.addEventListener("input", (event) => {
             if (!renderElement.parentElement) {
                 return;
@@ -1161,7 +1358,7 @@ export class Toolbar {
                 return;
             }
             if (types.includes("NodeHTMLBlock")) {
-                renderElement.querySelector("protyle-html").setAttribute("data-content", Lute.EscapeHTMLStr(textElement.value));
+                renderElement.querySelector("protyle-html").setAttribute("data-content", textElement.value);
             } else if (isInlineMemo) {
                 let inlineMemoElements;
                 if (updateElements) {
@@ -1194,8 +1391,14 @@ export class Toolbar {
                 return;
             }
             if (event.key === "Escape" || matchHotKey("⌘↩", event)) {
-                this.subElement.querySelector('[data-type="pin"]').setAttribute("aria-label", window.siyuan.languages.pin);
-                hideElements(["util"], protyle);
+                closeRender();
+            } else if (types.includes("inline-math") && !event.altKey && !event.shiftKey && isNotCtrl(event) &&
+                textElement.selectionStart === textElement.selectionEnd &&
+                ((event.key === "ArrowLeft" && textElement.selectionStart === 0) ||
+                    (event.key === "ArrowRight" && textElement.selectionEnd === textElement.value.length))) {
+                focusBeforeRender = event.key === "ArrowLeft";
+                closeRender();
+                event.preventDefault();
             } else if (event.key === "Tab") {
                 // https://github.com/siyuan-note/siyuan/issues/5270
                 document.execCommand("insertText", false, "\t");
@@ -1219,7 +1422,7 @@ export class Toolbar {
                         htmlText = `<div>\n${htmlText}\n</div>`;
                     }
                 }
-                renderElement.querySelector("protyle-html").setAttribute("data-content", Lute.EscapeHTMLStr(htmlText));
+                renderElement.querySelector("protyle-html").setAttribute("data-content", htmlText);
                 // HTML 块中包含多个 <pre> 时只能保存第一个 https://github.com/siyuan-note/siyuan/issues/5732
                 const tempElement = document.createElement("template");
                 tempElement.innerHTML = protyle.lute.SpinBlockDOM(nodeElement.outerHTML);
@@ -1293,7 +1496,11 @@ export class Toolbar {
                             focusByWbr(nodeElement, this.range);
                         }
                     } else if (renderElement.parentElement) {
-                        this.range.setStartAfter(renderElement);
+                        if (focusBeforeRender) {
+                            this.range.setStartBefore(renderElement);
+                        } else {
+                            this.range.setStartAfter(renderElement);
+                        }
                         this.range.collapse(true);
                         focusByRange(this.range);
                     }
@@ -1307,7 +1514,30 @@ export class Toolbar {
                 nodeElement.querySelector("wbr")?.remove();
             }
 
-            if (!noChange && nodeElement.outerHTML !== html) {
+            if (!noChange && oldHTML instanceof Map && updateElements) {
+                const operations: IOperation[] = [];
+                const undoOperations: IOperation[] = [];
+                const editingAttr = ` ${Constants.ATTRIBUTE_EDITING}="true"`;
+                updateBlockElements.forEach(item => {
+                    const itemOldHTML = oldHTML.get(item.getAttribute("data-node-id"));
+                    if (itemOldHTML && item.outerHTML.replace(editingAttr, "") !== itemOldHTML) {
+                        item.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
+                        operations.push({
+                            action: "update",
+                            id: item.getAttribute("data-node-id"),
+                            data: item.outerHTML.replace(editingAttr, ""),
+                        });
+                        undoOperations.push({
+                            action: "update",
+                            id: item.getAttribute("data-node-id"),
+                            data: itemOldHTML,
+                        });
+                    }
+                });
+                if (operations.length > 0) {
+                    transaction(protyle, operations, undoOperations);
+                }
+            } else if (!noChange && nodeElement.outerHTML !== html) {
                 nodeElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
                 updateTransaction(protyle, nodeElement, html);
             }
@@ -1340,7 +1570,7 @@ export class Toolbar {
         this.range = getEditorRange(nodeElement);
         this.clearSubElement();
         this.subElement.innerHTML = `<div data-id="codeLanguage" class="fn__flex-column" style="max-height:50vh">
-    <input placeholder="${window.siyuan.languages.search}" style="margin: 0 8px 4px 8px" class="b3-text-field"/>
+    <input placeholder="${window.siyuan.languages.searchPlaceholder}" style="margin: 0 8px 4px 8px" class="b3-text-field"/>
     <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"></div>
 </div>`;
         const listElement = this.subElement.lastElementChild.lastElementChild as HTMLElement;
@@ -1773,7 +2003,7 @@ export class Toolbar {
         genList(true);
     }
 
-    public showContent(protyle: IProtyle, range: Range, nodeElement: Element) {
+    public showContent(protyle: IProtyle, range: Range, nodeElement: Element, pluginMenus: IMenu[] = []) {
         this.range = range;
         hideElements(["hint"], protyle);
         this.clearSubElement();
@@ -1791,6 +2021,9 @@ export class Toolbar {
         if (!protyle.disabled) {
             html += `<button class="keyboard__action" data-action="paste"><svg><use xlink:href="#iconPaste"></use></svg></button>
 <button class="keyboard__action" data-action="select"><svg><use xlink:href="#iconSelect"></use></svg></button>`;
+        }
+        if (pluginMenus.length > 0) {
+            html += `<button class="keyboard__action" data-action="plugin" data-menu="true" aria-label="${window.siyuan.languages.plugin}"><svg><use xlink:href="#iconPlugin"></use></svg></button>`;
         }
         if (hasCopy || !protyle.disabled) {
             html += '<button class="keyboard__action" data-action="more"><svg><use xlink:href="#iconMore"></use></svg></button>';
@@ -1849,6 +2082,17 @@ export class Toolbar {
                 this.subElement.classList.add("fn__none");
             } else if (action === "back") {
                 this.subElement.lastElementChild.innerHTML = html;
+            } else if (action === "plugin") {
+                window.siyuan.menus.menu.remove();
+                pluginMenus.forEach(item => window.siyuan.menus.menu.addItem({...item, index: undefined}));
+                const triggerRect = btnElemen.getBoundingClientRect();
+                const selectionRect = this.range.getBoundingClientRect();
+                window.siyuan.menus.menu.popup({
+                    x: triggerRect.left,
+                    y: selectionRect.bottom + 8,
+                    h: selectionRect.height + 8,
+                });
+                this.subElement.classList.add("fn__none");
             } else if (action === "more") {
                 this.subElement.lastElementChild.innerHTML = `<button class="keyboard__action${hasCopy ? "" : " fn__none"}" data-action="copyPlainText"><span>${window.siyuan.languages.copyPlainText}</span></button>
 <div class="keyboard__split${hasCopy ? "" : " fn__none"}"></div>
@@ -1864,7 +2108,7 @@ export class Toolbar {
         this.subElement.classList.remove("fn__none");
         this.element.classList.add("fn__none");
         const rangePosition = getSelectionPosition(nodeElement, range);
-        setPosition(this.subElement, rangePosition.left, rangePosition.top - 48, this.LINE_HEIGHT);
+        setPosition(this.subElement, rangePosition.left, rangePosition.top - this.subElement.clientHeight - 8, this.LINE_HEIGHT);
     }
 
     public isMultiSelectMode() {

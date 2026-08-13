@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -277,6 +278,20 @@ func getDocAssets(c *gin.Context) {
 	ret.Data = assets
 }
 
+// fileAnno 是 PDF 文件标注 .sya 的校验结构，setFileAnnotation 通过它约束客户端提交的数据结构，避免任意字符串落盘
+// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-fqpw-c3pj-w8g9
+type fileAnno struct {
+	Pages []struct {
+		Index     int         `json:"index"`
+		Positions [][]float64 `json:"positions"`
+	} `json:"pages"`
+	Color   string   `json:"color"`
+	Type    string   `json:"type"`
+	Content string   `json:"content"`
+	Mode    string   `json:"mode"`
+	IDs     []string `json:"ids"`
+}
+
 func setFileAnnotation(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
@@ -289,8 +304,14 @@ func setFileAnnotation(c *gin.Context) {
 	p := arg["path"].(string)
 	p = strings.ReplaceAll(p, "%23", "#")
 	data := arg["data"].(string)
-	writePath, err := resolveFileAnnotationAbsPath(p)
+	writePath, _, err := resolveFileAnnotationAbsPath(p)
 	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	boxID := model.ExtractBoxIDFromAssetsPath(writePath)
+	if err = holdEncryptedBoxRequest(c, boxID); err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -302,18 +323,34 @@ func setFileAnnotation(c *gin.Context) {
 			return
 		}
 	} else {
+		var annos map[string]fileAnno
+		if err = json.Unmarshal([]byte(data), &annos); err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+		if annos == nil {
+			ret.Code = -1
+			ret.Msg = "invalid annotation"
+			return
+		}
+		normalized, err := json.Marshal(annos)
+		if err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
 		// 加密笔记本的 .sya 写盘前必须加密；加密笔记本未解锁时拒绝写入（fail-closed，避免明文落盘）
-		writeData := []byte(data)
-		if boxID := model.ExtractBoxIDFromAssetsPath(writePath); boxID != "" && model.IsEncryptedBox(boxID) {
-			model.HoldBoxReadLock(boxID)
-			defer model.ReleaseBoxReadLock(boxID)
+		writeData := normalized
+		if boxID != "" && model.IsEncryptedBox(boxID) {
 			dek, dekErr := model.GetDEKIfUnlocked(boxID)
 			if dekErr != nil {
 				ret.Code = -1
 				ret.Msg = dekErr.Error()
 				return
 			}
-			enc, encErr := model.EncryptAsset(boxID, filepath.Base(writePath), dek, writeData)
+			diskName := filepath.Base(writePath)
+			enc, encErr := model.EncryptAsset(boxID, diskName, diskName, dek, writeData)
 			if encErr != nil {
 				ret.Code = -1
 				ret.Msg = encErr.Error()
@@ -342,15 +379,29 @@ func getFileAnnotation(c *gin.Context) {
 
 	p := arg["path"].(string)
 	p = strings.ReplaceAll(p, "%23", "#")
-	readPath, err := resolveFileAnnotationAbsPath(p)
+	readPath, assetAbsPath, err := resolveFileAnnotationAbsPath(p)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]any{"closeTimeout": 5000}
 		return
 	}
+	if model.IsReadOnlyRoleContext(c) {
+		publishAccess := model.GetPublishAccess()
+		if !model.CheckAbsPathAccessableByPublishAccess(c, assetAbsPath, publishAccess) {
+			ret.Code = http.StatusForbidden
+			ret.Msg = http.StatusText(http.StatusForbidden)
+			return
+		}
+	}
 	if !filelock.IsExist(readPath) {
 		ret.Code = 1
+		return
+	}
+	boxID := model.ExtractBoxIDFromAssetsPath(readPath)
+	if err = holdEncryptedBoxRequest(c, boxID); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
 		return
 	}
 
@@ -361,9 +412,7 @@ func getFileAnnotation(c *gin.Context) {
 		return
 	}
 	// 加密笔记本的 .sya 读盘后必须解密；未解锁时拒绝返回（fail-closed，避免返回密文或误判）
-	if boxID := model.ExtractBoxIDFromAssetsPath(readPath); boxID != "" && model.IsEncryptedBox(boxID) {
-		model.HoldBoxReadLock(boxID)
-		defer model.ReleaseBoxReadLock(boxID)
+	if boxID != "" && model.IsEncryptedBox(boxID) {
 		dek, dekErr := model.GetDEKIfUnlocked(boxID)
 		if dekErr != nil {
 			ret.Code = -1
@@ -383,15 +432,15 @@ func getFileAnnotation(c *gin.Context) {
 	}
 }
 
-func resolveFileAnnotationAbsPath(assetRelPath string) (ret string, err error) {
+func resolveFileAnnotationAbsPath(assetRelPath string) (annotationAbsPath, assetAbsPath string, err error) {
 	// .sya 在 URL 末尾，例如 assets/a.pdf?box=<id>.sya
 	// TrimSuffix 去掉 .sya 得到 assets/a.pdf?box=<id>，保留 query 供 box-aware 解析
 	filePath := strings.TrimSuffix(assetRelPath, ".sya")
-	absPath, err := model.GetAssetAbsPathInBox(filePath, "")
+	assetAbsPath, err = model.GetAssetAbsPathInBox(filePath, "")
 	if err != nil {
 		return
 	}
-	ret = absPath + ".sya"
+	annotationAbsPath = assetAbsPath + ".sya"
 	return
 }
 
@@ -405,7 +454,12 @@ func removeUnusedAsset(c *gin.Context) {
 	}
 
 	p := arg["path"].(string)
-	asset := model.RemoveUnusedAsset(p)
+	asset, err := model.RemoveUnusedAsset(p)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
 	ret.Data = map[string]any{
 		"path": asset,
 	}

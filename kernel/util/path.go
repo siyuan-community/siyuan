@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -24,8 +24,8 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/88250/gulu"
@@ -53,11 +53,23 @@ func TrimSpaceInPath(p string) string {
 	return strings.Join(parts, "/")
 }
 
-func GetTreeID(treePath string) string {
-	if strings.Contains(treePath, "\\") {
-		return strings.TrimSuffix(filepath.Base(treePath), ".sy")
+func NormalizeTemplatePath(p string) string {
+	p = TrimSpaceInPath(p)
+	if "" == p {
+		return ""
 	}
-	return strings.TrimSuffix(path.Base(treePath), ".sy")
+	if !strings.HasSuffix(p, ".md") {
+		p += ".md"
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+func GetTreeID(treePath string) string {
+	base := path.Base(strings.ReplaceAll(treePath, "\\", "/"))
+	return strings.TrimSuffix(base, ".sy")
 }
 
 func ShortPathForBootingDisplay(p string) string {
@@ -69,14 +81,29 @@ func ShortPathForBootingDisplay(p string) string {
 	return p
 }
 
-var LocalIPs []string
+var (
+	localIPsMu sync.RWMutex
+	localIPs   []string
+)
+
+func SetLocalIPs(addresses []string) {
+	localIPsMu.Lock()
+	localIPs = append([]string(nil), addresses...)
+	localIPsMu.Unlock()
+}
+
+func GetLocalIPs() []string {
+	localIPsMu.RLock()
+	defer localIPsMu.RUnlock()
+	return append([]string(nil), localIPs...)
+}
 
 func GetServerAddrs() (ret []string) {
 	if ContainerAndroid != Container && ContainerHarmony != Container {
 		ret = GetPrivateIPv4s()
 	} else {
 		// Android/鸿蒙上用不了 net.InterfaceAddrs() https://github.com/golang/go/issues/40569，所以前面使用启动内核传入的参数 localIPs
-		ret = LocalIPs
+		ret = GetLocalIPs()
 	}
 
 	ret = append(ret, LocalHost)
@@ -254,14 +281,19 @@ func FilterMoveDocFromPaths(fromPaths []string, toPath string) (ret []string) {
 }
 
 func FilterSelfChildDocs(paths []string) (ret []string) {
-	sort.Slice(paths, func(i, j int) bool { return strings.Count(paths[i], "/") < strings.Count(paths[j], "/") })
-
-	dirs := map[string]string{}
+	selected := map[string]struct{}{}
 	for _, fromPath := range paths {
-		dir := strings.TrimSuffix(fromPath, ".sy")
+		selected[fromPath] = struct{}{}
+	}
+
+	added := map[string]struct{}{}
+	for _, fromPath := range paths {
+		if _, ok := added[fromPath]; ok {
+			continue
+		}
 		existParent := false
-		for d := range dirs {
-			if strings.HasPrefix(fromPath, d) {
+		for parentDir := path.Dir(fromPath); "/" != parentDir && "." != parentDir; parentDir = path.Dir(parentDir) {
+			if _, ok := selected[parentDir+".sy"]; ok {
 				existParent = true
 				break
 			}
@@ -269,8 +301,8 @@ func FilterSelfChildDocs(paths []string) (ret []string) {
 		if existParent {
 			continue
 		}
-		dirs[dir] = fromPath
 		ret = append(ret, fromPath)
+		added[fromPath] = struct{}{}
 	}
 	return
 }

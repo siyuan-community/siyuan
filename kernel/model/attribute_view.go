@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,8 +18,11 @@ package model
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -27,6 +30,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -34,6 +38,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
+	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/copier"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/cache"
@@ -48,6 +53,11 @@ import (
 )
 
 func RemoveUnusedAttributeView(id string) {
+	// 防御性校验：ID 必须是合法的节点 ID 格式，防止通过路径穿越读取或删除任意文件
+	if !ast.IsNodeIDPattern(id) {
+		return
+	}
+
 	base := filepath.Join(util.DataDir, "storage", "av")
 	absPath := filepath.Join(base, id+".json")
 	if !filelock.IsExist(absPath) {
@@ -321,7 +331,7 @@ func GetAttributeViewBoundBlockIDs(avID string, itemIDs []string) (ret map[strin
 	return
 }
 
-func GetAttrViewAddingBlockDefaultValues(avID, viewID, groupID, previousBlockID, addingBlockID string) (ret map[string]*av.Value) {
+func GetAttrViewAddingBlockDefaultValues(avID, blockID, viewID, groupID, previousBlockID, addingBlockID string) (ret map[string]*av.Value, err error) {
 	ret = map[string]*av.Value{}
 
 	attrView, err := av.ParseAttributeView(avID)
@@ -330,19 +340,20 @@ func GetAttrViewAddingBlockDefaultValues(avID, viewID, groupID, previousBlockID,
 		return
 	}
 
-	view, _ := attrView.GetCurrentView(viewID)
+	view, err := resolveAttributeViewView(attrView, viewID, "", blockID)
 	if nil == view {
 		logging.LogErrorf("view [%s] not found in attribute view [%s]", viewID, avID)
 		return
 	}
 
-	if 1 > len(view.Filters) && !view.IsGroupView() {
+	useGroupDefault := "" != groupID
+	if 1 > len(view.Filters) && !useGroupDefault {
 		// 没有过滤条件也没有分组条件时忽略
 		return
 	}
 
 	groupView := view
-	if "" != groupID {
+	if useGroupDefault {
 		groupView = view.GetGroupByID(groupID)
 	}
 	if nil == groupView {
@@ -350,7 +361,7 @@ func GetAttrViewAddingBlockDefaultValues(avID, viewID, groupID, previousBlockID,
 		return
 	}
 
-	ret = getAttrViewAddingBlockDefaultValues(attrView, view, groupView, previousBlockID, addingBlockID, true)
+	ret = getAttrViewAddingBlockDefaultValues(attrView, view, groupView, previousBlockID, addingBlockID, true, useGroupDefault)
 	for _, value := range ret {
 		// 主键都不返回内容，避免闪烁 https://github.com/siyuan-note/siyuan/issues/15561#issuecomment-3184746195
 		if av.KeyTypeBlock == value.Type {
@@ -360,10 +371,16 @@ func GetAttrViewAddingBlockDefaultValues(avID, viewID, groupID, previousBlockID,
 	return
 }
 
-func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, groupView *av.View, previousItemID, addingItemID string, isCreate bool) (ret map[string]*av.Value) {
+func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, groupView *av.View, previousItemID, addingItemID string, isCreate, useGroupDefault bool) (ret map[string]*av.Value) {
 	ret = map[string]*av.Value{}
+	defer func() {
+		for keyID, value := range ret {
+			key, _ := attrView.GetKey(keyID)
+			normalizeAttrViewAddingDefaultValue(key, value)
+		}
+	}()
 
-	if 1 > len(view.Filters) && !view.IsGroupView() {
+	if 1 > len(view.Filters) && !useGroupDefault {
 		// 没有过滤条件也没有分组条件时忽略
 		return
 	}
@@ -396,6 +413,10 @@ func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, group
 	filterKeyIDs := map[string]bool{}
 	if applyFilterDefaultValues(view.Filters, attrView, addingItemID, nearItem, templateRelevantKeys, rollupRelevantKeys, ret, filterKeyIDs) {
 		// 遇到 mAsset 过滤即结束全部默认值计算（保留原外层 return 语义）
+		return
+	}
+
+	if !useGroupDefault {
 		return
 	}
 
@@ -489,11 +510,6 @@ func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, group
 		// 临近项不为空并且分组字段和过滤字段相同时，优先使用临近项 https://github.com/siyuan-note/siyuan/issues/15591
 		newValue = getNewValueByNearItem(nearItem, groupKey, addingItemID)
 		ret[groupKey.ID] = newValue
-
-		if nil != keyValues.Key.Date && keyValues.Key.Date.AutoFillNow {
-			newValue.Date.Content = time.Now().UnixMilli()
-			newValue.Date.IsNotEmpty = true
-		}
 		return
 	}
 
@@ -524,6 +540,9 @@ func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, group
 			}
 		} else if av.KeyTypeCheckbox == groupView.GroupVal.Type {
 			newValue.Checkbox.Checked = groupView.GroupVal.Checkbox.Checked
+		} else if av.KeyTypeRelation == groupKey.Type && av.KeyTypeRelation == groupView.GroupVal.Type &&
+			nil != groupView.GroupVal.Relation && 0 < len(groupView.GroupVal.Relation.BlockIDs) {
+			newValue.Relation.BlockIDs = []string{groupView.GroupVal.Relation.BlockIDs[0]}
 		}
 
 		ret[groupKey.ID] = newValue
@@ -532,19 +551,48 @@ func getAttrViewAddingBlockDefaultValues(attrView *av.AttributeView, view, group
 
 	if nil != newValue && !filterKeyIDs[groupKey.ID] {
 		ret[groupKey.ID] = newValue
-
-		if nil != keyValues.Key.Date && keyValues.Key.Date.AutoFillNow {
-			newValue.Date.Content = time.Now().UnixMilli()
-			newValue.Date.IsNotEmpty = true
-		}
 	}
 	return
 }
 
+func normalizeAttrViewAddingDefaultValue(key *av.Key, value *av.Value) {
+	if nil == key || nil == value {
+		return
+	}
+	if av.KeyTypeDate == value.Type && nil != value.Date {
+		value.Date.IsNotTime = true
+		if nil != key.Date {
+			value.Date.IsNotTime = !key.Date.FillSpecificTime
+			if key.Date.AutoFillNow {
+				value.Date.Content = util.CurrentTimeMillis()
+				value.Date.IsNotEmpty = true
+			}
+		}
+	}
+	if av.KeyTypeRelation == value.Type && nil != value.Relation {
+		value.Relation.Contents = nil
+	}
+}
+
 // applyFilterDefaultValues 递归遍历过滤节点树，对叶子节点计算新增行的默认值。
-// 分组节点只负责向下递归；叶子节点保留原扁平时代的默认值计算逻辑。
+// AND 分组合并后验证所有子节点，OR 分组采用首个可满足的分支；无法满足时不生成默认值。
 // 返回 true 表示遇到 mAsset 过滤，调用方应立即结束全部默认值计算（保留原外层 return 语义）。
 func applyFilterDefaultValues(filters []*av.ViewFilter, attrView *av.AttributeView, addingItemID string, nearItem av.Item,
+	templateRelevantKeys map[string][]*av.Key, rollupRelevantKeys map[string]*av.Key,
+	ret map[string]*av.Value, filterKeyIDs map[string]bool) (stop bool) {
+	originalRet := cloneDefaultValues(ret)
+	originalFilterKeyIDs := cloneBoolMap(filterKeyIDs)
+	if applyFilterDefaultValues0(filters, attrView, addingItemID, nearItem, templateRelevantKeys, rollupRelevantKeys, ret, filterKeyIDs) {
+		return true
+	}
+	if !filterBranchesMatchDefaultValues(filters, attrView, addingItemID, ret) {
+		replaceDefaultValues(ret, originalRet)
+		replaceBoolMap(filterKeyIDs, originalFilterKeyIDs)
+	}
+	return false
+}
+
+func applyFilterDefaultValues0(filters []*av.ViewFilter, attrView *av.AttributeView, addingItemID string, nearItem av.Item,
 	templateRelevantKeys map[string][]*av.Key, rollupRelevantKeys map[string]*av.Key,
 	ret map[string]*av.Value, filterKeyIDs map[string]bool) (stop bool) {
 	for _, filter := range filters {
@@ -552,17 +600,37 @@ func applyFilterDefaultValues(filters []*av.ViewFilter, attrView *av.AttributeVi
 			continue
 		}
 		if filter.IsGroup() {
+			if av.FilterCombinationOr == filter.Combination && 0 < len(filter.Filters) {
+				for _, child := range filter.Filters {
+					candidateRet := cloneDefaultValues(ret)
+					candidateFilterKeyIDs := cloneBoolMap(filterKeyIDs)
+					childStop := applyFilterDefaultValues([]*av.ViewFilter{child}, attrView, addingItemID, nearItem,
+						templateRelevantKeys, rollupRelevantKeys, candidateRet, candidateFilterKeyIDs)
+					if childStop || filterBranchMatchesDefaultValues(child, attrView, addingItemID, candidateRet) {
+						replaceDefaultValues(ret, candidateRet)
+						replaceBoolMap(filterKeyIDs, candidateFilterKeyIDs)
+						if childStop {
+							return true
+						}
+						break
+					}
+				}
+				continue
+			}
 			if applyFilterDefaultValues(filter.Filters, attrView, addingItemID, nearItem, templateRelevantKeys, rollupRelevantKeys, ret, filterKeyIDs) {
 				return true
 			}
 			continue
 		}
 
-		filterKeyIDs[filter.Column] = true
 		keyValues, _ := attrView.GetKeyValues(filter.Column)
 		if nil == keyValues {
 			continue
 		}
+		if !filter.IsValid() {
+			continue
+		}
+		filterKeyIDs[filter.Column] = true
 
 		if av.KeyTypeTemplate == keyValues.Key.Type && nil != nearItem {
 			if keys := templateRelevantKeys[keyValues.Key.ID]; 0 < len(keys) {
@@ -593,29 +661,95 @@ func applyFilterDefaultValues(filters []*av.ViewFilter, attrView *av.AttributeVi
 			return true // 保留原语义：遇到 mAsset 过滤即结束默认值计算
 		}
 
-		newValue := filter.GetAffectValue(keyValues.Key, addingItemID)
-		if nil == newValue {
-			if filter.IsValid() {
-				newValue = getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
-			}
+		newValue, allowNearItem := filter.GetAffectValue(keyValues.Key, addingItemID)
+		if nil == newValue && allowNearItem {
+			newValue = getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
 		}
 		if nil != newValue {
-			if av.KeyTypeDate == keyValues.Key.Type {
-				if nil != nearItem {
-					nearValue := getNewValueByNearItem(nearItem, keyValues.Key, addingItemID)
-					newValue.Date.IsNotTime = nearValue.Date.IsNotTime
-				}
-
-				if nil != keyValues.Key.Date && keyValues.Key.Date.AutoFillNow {
-					newValue.Date.Content = time.Now().UnixMilli()
-					newValue.Date.IsNotEmpty = true
-				}
-			}
-
 			ret[keyValues.Key.ID] = newValue
 		}
 	}
 	return false
+}
+
+func cloneDefaultValues(values map[string]*av.Value) (ret map[string]*av.Value) {
+	ret = make(map[string]*av.Value, len(values))
+	for key, value := range values {
+		ret[key] = value
+	}
+	return
+}
+
+func cloneBoolMap(values map[string]bool) (ret map[string]bool) {
+	ret = make(map[string]bool, len(values))
+	for key, value := range values {
+		ret[key] = value
+	}
+	return
+}
+
+func filterBranchesMatchDefaultValues(filters []*av.ViewFilter, attrView *av.AttributeView, addingItemID string,
+	values map[string]*av.Value) bool {
+	for _, filter := range filters {
+		if !filterBranchMatchesDefaultValues(filter, attrView, addingItemID, values) {
+			return false
+		}
+	}
+	return true
+}
+
+func filterBranchMatchesDefaultValues(filter *av.ViewFilter, attrView *av.AttributeView, addingItemID string,
+	values map[string]*av.Value) bool {
+	if nil == filter {
+		return false
+	}
+	if filter.IsGroup() {
+		if 1 > len(filter.Filters) {
+			return av.FilterCombinationOr != filter.Combination
+		}
+		if av.FilterCombinationOr == filter.Combination {
+			for _, child := range filter.Filters {
+				if filterBranchMatchesDefaultValues(child, attrView, addingItemID, values) {
+					return true
+				}
+			}
+			return false
+		}
+		return filterBranchesMatchDefaultValues(filter.Filters, attrView, addingItemID, values)
+	}
+
+	keyValues, _ := attrView.GetKeyValues(filter.Column)
+	if nil == keyValues {
+		return false
+	}
+	if !filter.IsValid() {
+		return true
+	}
+	switch keyValues.Key.Type {
+	case av.KeyTypeTemplate, av.KeyTypeRollup, av.KeyTypeMAsset, av.KeyTypeCreated, av.KeyTypeUpdated:
+		// 这些字段的最终值需要在渲染阶段计算，此处无法根据存储值准确判断。
+		return true
+	}
+
+	value := values[filter.Column]
+	if nil == value {
+		value = av.GetAttributeViewDefaultValue(ast.NewNodeID(), filter.Column, addingItemID, keyValues.Key.Type, false)
+	}
+	return value.Filter(filter, attrView, addingItemID, nil, nil)
+}
+
+func replaceDefaultValues(target, source map[string]*av.Value) {
+	clear(target)
+	for key, value := range source {
+		target[key] = value
+	}
+}
+
+func replaceBoolMap(target, source map[string]bool) {
+	clear(target)
+	for key, value := range source {
+		target[key] = value
+	}
 }
 
 func (tx *Transaction) doSortAttrViewGroup(operation *Operation) (ret *TxErr) {
@@ -855,6 +989,58 @@ func foldAttrViewGroup(avID, blockID, groupID string, folded bool) (err error) {
 	return nil
 }
 
+func (tx *Transaction) doFoldAttrViewGroups(operation *Operation) (ret *TxErr) {
+	folded := map[string]bool{}
+	data, err := gulu.JSON.MarshalJSON(operation.Data)
+	if nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	if err = gulu.JSON.UnmarshalJSON(data, &folded); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	if err = foldAttrViewGroups(operation.AvID, operation.BlockID, operation.ViewID, folded); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func foldAttrViewGroups(avID, blockID, viewID string, folded map[string]bool) (err error) {
+	attrView, err := av.ParseAttributeView(avID)
+	if err != nil {
+		return err
+	}
+
+	var view *av.View
+	if "" != viewID {
+		view = attrView.GetView(viewID)
+		if nil == view {
+			return av.ErrViewNotFound
+		}
+	} else {
+		view, err = getAttrViewViewByBlockID(attrView, blockID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if !view.IsGroupView() {
+		return
+	}
+
+	for _, group := range view.Groups {
+		if groupFolded, ok := folded[group.ID]; ok {
+			group.GroupFolded = groupFolded
+		}
+	}
+
+	err = av.SaveAttributeView(attrView)
+	if err != nil {
+		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
+		return err
+	}
+	return nil
+}
+
 func (tx *Transaction) doSetAttrViewGroup(operation *Operation) (ret *TxErr) {
 	data, err := gulu.JSON.MarshalJSON(operation.Data)
 	if nil != err {
@@ -960,6 +1146,15 @@ func (tx *Transaction) doSetAttrViewCardAspectRatio(operation *Operation) (ret *
 }
 
 func setAttrViewCardAspectRatio(operation *Operation) (err error) {
+	value, err := getAttrViewOperationNumber(operation)
+	if nil != err {
+		return
+	}
+	ratio := av.CardAspectRatio(value)
+	if value != math.Trunc(value) || ratio < av.CardAspectRatio16_9 || av.CardAspectRatio1_1 < ratio {
+		return fmt.Errorf("invalid card aspect ratio preset [%v]", value)
+	}
+
 	attrView, err := av.ParseAttributeView(operation.AvID)
 	if err != nil {
 		return
@@ -974,9 +1169,50 @@ func setAttrViewCardAspectRatio(operation *Operation) (err error) {
 	case av.LayoutTypeTable:
 		return
 	case av.LayoutTypeGallery:
-		view.Gallery.CardAspectRatio = av.CardAspectRatio(operation.Data.(float64))
+		view.Gallery.CardAspectRatio = ratio
+		view.Gallery.CardAspectRatioValue = av.CardAspectRatioValueByPreset(ratio)
 	case av.LayoutTypeKanban:
-		view.Kanban.CardAspectRatio = av.CardAspectRatio(operation.Data.(float64))
+		view.Kanban.CardAspectRatio = ratio
+		view.Kanban.CardAspectRatioValue = av.CardAspectRatioValueByPreset(ratio)
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func (tx *Transaction) doSetAttrViewCardAspectRatioValue(operation *Operation) (ret *TxErr) {
+	if err := setAttrViewCardAspectRatioValue(operation); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttrViewCardAspectRatioValue(operation *Operation) (err error) {
+	ratio, err := getAttrViewOperationNumber(operation)
+	if nil != err {
+		return
+	}
+	if math.IsNaN(ratio) || math.IsInf(ratio, 0) ||
+		ratio < av.CardAspectRatioValueMin || av.CardAspectRatioValueMax < ratio {
+		return fmt.Errorf("invalid card aspect ratio [%v]", ratio)
+	}
+
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	if err != nil {
+		return
+	}
+
+	switch view.LayoutType {
+	case av.LayoutTypeTable:
+		return
+	case av.LayoutTypeGallery:
+		view.Gallery.CardAspectRatioValue = ratio
+	case av.LayoutTypeKanban:
+		view.Kanban.CardAspectRatioValue = ratio
 	}
 
 	err = av.SaveAttributeView(attrView)
@@ -988,6 +1224,57 @@ func (tx *Transaction) doSetAttrViewBlockView(operation *Operation) (ret *TxErr)
 	if err != nil {
 		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
 	}
+	return
+}
+
+func (tx *Transaction) doSetAttrViewBlockVisibleViews(operation *Operation) (ret *TxErr) {
+	err := SetDatabaseBlockVisibleViews(operation.BlockID, operation.AvID, operation.ViewIDs)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func SetDatabaseBlockVisibleViews(blockID, avID string, viewIDs []string) (err error) {
+	if 1 > len(viewIDs) {
+		return errors.New("at least one visible view is required")
+	}
+
+	attrView, err := av.ParseAttributeView(avID)
+	if nil != err {
+		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
+		return
+	}
+
+	visible := map[string]bool{}
+	for _, viewID := range viewIDs {
+		if nil == attrView.GetView(viewID) {
+			return fmt.Errorf("view [%s] not found in attribute view [%s]", viewID, avID)
+		}
+		visible[viewID] = true
+	}
+
+	var normalized []string
+	for _, view := range attrView.Views {
+		if visible[view.ID] {
+			normalized = append(normalized, view.ID)
+		}
+	}
+	if 1 > len(normalized) {
+		return errors.New("at least one visible view is required")
+	}
+
+	node, tree, err := getNodeByBlockID(nil, blockID)
+	if nil != err {
+		return
+	}
+	if ast.NodeAttributeView != node.Type || node.AttributeViewID != avID {
+		return fmt.Errorf("block [%s] is not an instance of attribute view [%s]", blockID, avID)
+	}
+
+	err = setNodeAttrs(node, tree, map[string]string{
+		av.NodeAttrVisibleViewIDs: strings.Join(normalized, ","),
+	})
 	return
 }
 
@@ -1012,6 +1299,63 @@ func ChangeAttrViewLayout(blockID, avID string, newLayout av.LayoutType) (err er
 
 	if newLayout == view.LayoutType {
 		return
+	}
+
+	if err = changeAttrViewLayout(attrView, view, newLayout); err != nil {
+		return
+	}
+
+	blockIDs := treenode.GetMirrorAttrViewBlockIDs(avID)
+	for _, bID := range blockIDs {
+		node, tree, _ := getNodeByBlockID(nil, bID)
+		if nil == node || nil == tree {
+			logging.LogErrorf("get node by block ID [%s] failed", bID)
+			continue
+		}
+
+		changed := false
+		attrs := parse.IAL2Map(node.KramdownIAL)
+		if blockID == bID { // 当前操作的镜像库
+			attrs[av.NodeAttrView] = view.ID
+			node.AttributeViewType = string(view.LayoutType)
+			changed = true
+		} else {
+			if view.ID == attrs[av.NodeAttrView] {
+				// 仅更新和当前操作的镜像库指定的视图相同的镜像库
+				node.AttributeViewType = string(view.LayoutType)
+				changed = true
+			}
+		}
+
+		if changed {
+			err = setNodeAttrs(node, tree, attrs)
+			if err != nil {
+				logging.LogWarnf("set node [%s] attrs failed: %s", bID, err)
+				return
+			}
+		}
+	}
+
+	regenAttrViewGroups(attrView)
+
+	if err = av.SaveAttributeView(attrView); nil != err {
+		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
+		return
+	}
+
+	ReloadAttrView(avID)
+	return
+}
+
+func changeAttrViewLayout(attrView *av.AttributeView, view *av.View, newLayout av.LayoutType) (err error) {
+	if newLayout == view.LayoutType {
+		return
+	}
+
+	switch newLayout {
+	case av.LayoutTypeTable, av.LayoutTypeGallery, av.LayoutTypeKanban:
+	default:
+		return av.ErrWrongLayoutType
 	}
 
 	oldLayout := view.LayoutType
@@ -1085,47 +1429,6 @@ func ChangeAttrViewLayout(blockID, avID string, newLayout av.LayoutType) (err er
 			setAttributeViewGroup(attrView, view, group)
 		}
 	}
-
-	blockIDs := treenode.GetMirrorAttrViewBlockIDs(avID)
-	for _, bID := range blockIDs {
-		node, tree, _ := getNodeByBlockID(nil, bID)
-		if nil == node || nil == tree {
-			logging.LogErrorf("get node by block ID [%s] failed", bID)
-			continue
-		}
-
-		changed := false
-		attrs := parse.IAL2Map(node.KramdownIAL)
-		if blockID == bID { // 当前操作的镜像库
-			attrs[av.NodeAttrView] = view.ID
-			node.AttributeViewType = string(view.LayoutType)
-			attrView.ViewID = view.ID
-			changed = true
-		} else {
-			if view.ID == attrs[av.NodeAttrView] {
-				// 仅更新和当前操作的镜像库指定的视图相同的镜像库
-				node.AttributeViewType = string(view.LayoutType)
-				changed = true
-			}
-		}
-
-		if changed {
-			err = setNodeAttrs(node, tree, attrs)
-			if err != nil {
-				logging.LogWarnf("set node [%s] attrs failed: %s", bID, err)
-				return
-			}
-		}
-	}
-
-	regenAttrViewGroups(attrView)
-
-	if err = av.SaveAttributeView(attrView); nil != err {
-		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
-		return
-	}
-
-	ReloadAttrView(avID)
 	return
 }
 
@@ -1243,6 +1546,14 @@ func (tx *Transaction) doSetAttrViewDisplayFieldName(operation *Operation) (ret 
 	return
 }
 
+func (tx *Transaction) doSetAttrViewDisplayEmptyFields(operation *Operation) (ret *TxErr) {
+	err := setAttrViewDisplayEmptyFields(operation)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
 func (tx *Transaction) doSetAttrViewFillColBackgroundColor(operation *Operation) (ret *TxErr) {
 	err := setAttrViewFillColBackgroundColor(operation)
 	if err != nil {
@@ -1257,7 +1568,7 @@ func setAttrViewDisplayFieldName(operation *Operation) (err error) {
 		return
 	}
 
-	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	view, err := getAttrViewOperationView(attrView, operation)
 	if err != nil {
 		return
 	}
@@ -1269,6 +1580,30 @@ func setAttrViewDisplayFieldName(operation *Operation) (err error) {
 		view.Gallery.DisplayFieldName = operation.Data.(bool)
 	case av.LayoutTypeKanban:
 		view.Kanban.DisplayFieldName = operation.Data.(bool)
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func setAttrViewDisplayEmptyFields(operation *Operation) (err error) {
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+
+	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	if err != nil {
+		return
+	}
+
+	switch view.LayoutType {
+	case av.LayoutTypeTable:
+		return
+	case av.LayoutTypeGallery:
+		view.Gallery.DisplayEmptyFields = operation.Data.(bool)
+	case av.LayoutTypeKanban:
+		view.Kanban.DisplayEmptyFields = operation.Data.(bool)
 	}
 
 	err = av.SaveAttributeView(attrView)
@@ -1308,6 +1643,15 @@ func (tx *Transaction) doSetAttrViewCardSize(operation *Operation) (ret *TxErr) 
 }
 
 func setAttrViewCardSize(operation *Operation) (err error) {
+	value, err := getAttrViewOperationNumber(operation)
+	if nil != err {
+		return
+	}
+	size := av.CardSize(value)
+	if value != math.Trunc(value) || size < av.CardSizeSmall || av.CardSizeLarge < size {
+		return fmt.Errorf("invalid card size preset [%v]", value)
+	}
+
 	attrView, err := av.ParseAttributeView(operation.AvID)
 	if err != nil {
 		return
@@ -1322,12 +1666,163 @@ func setAttrViewCardSize(operation *Operation) (err error) {
 	case av.LayoutTypeTable:
 		return
 	case av.LayoutTypeGallery:
-		view.Gallery.CardSize = av.CardSize(operation.Data.(float64))
+		view.Gallery.CardSize = size
+		view.Gallery.CardWidth = av.CardWidthBySize(size)
 	case av.LayoutTypeKanban:
-		view.Kanban.CardSize = av.CardSize(operation.Data.(float64))
+		view.Kanban.CardSize = size
+		view.Kanban.CardWidth = av.CardWidthBySize(size)
 	}
 
 	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func (tx *Transaction) doSetAttrViewCardWidth(operation *Operation) (ret *TxErr) {
+	if err := setAttrViewCardWidth(operation); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttrViewCardWidth(operation *Operation) (err error) {
+	value, err := getAttrViewOperationNumber(operation)
+	if nil != err {
+		return
+	}
+	if math.IsNaN(value) || math.IsInf(value, 0) || value != math.Trunc(value) ||
+		value < av.CardWidthMin || av.CardWidthMax < value {
+		return fmt.Errorf("invalid card width [%v]", value)
+	}
+	width := int(value)
+
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	if err != nil {
+		return
+	}
+
+	switch view.LayoutType {
+	case av.LayoutTypeTable:
+		return
+	case av.LayoutTypeGallery:
+		view.Gallery.CardWidth = width
+	case av.LayoutTypeKanban:
+		view.Kanban.CardWidth = width
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func (tx *Transaction) doSetAttrViewCardLayout(operation *Operation) (ret *TxErr) {
+	if err := setAttrViewCardLayout(operation); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttrViewCardLayout(operation *Operation) (err error) {
+	value, err := getAttrViewOperationNumber(operation)
+	if nil != err {
+		return
+	}
+	layout := av.CardLayout(value)
+	if value != math.Trunc(value) || !layout.IsValid() {
+		return fmt.Errorf("invalid card layout [%v]", value)
+	}
+
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+	view, err := getAttrViewOperationView(attrView, operation)
+	if err != nil {
+		return
+	}
+
+	switch view.LayoutType {
+	case av.LayoutTypeGallery:
+		view.Gallery.CardLayout = layout
+	case av.LayoutTypeKanban:
+		view.Kanban.CardLayout = layout
+	default:
+		return av.ErrWrongLayoutType
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func (tx *Transaction) doSetAttrViewColFullRow(operation *Operation) (ret *TxErr) {
+	if err := setAttrViewColFullRow(operation); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttrViewColFullRow(operation *Operation) (err error) {
+	fullRow, ok := operation.Data.(bool)
+	if !ok {
+		return fmt.Errorf("invalid card field full row value [%v]", operation.Data)
+	}
+
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+	view, err := getAttrViewOperationView(attrView, operation)
+	if err != nil {
+		return
+	}
+
+	found := false
+	switch view.LayoutType {
+	case av.LayoutTypeGallery:
+		for _, field := range view.Gallery.CardFields {
+			if field.ID == operation.ID {
+				field.FullRow = fullRow
+				found = true
+				break
+			}
+		}
+	case av.LayoutTypeKanban:
+		for _, field := range view.Kanban.Fields {
+			if field.ID == operation.ID {
+				field.FullRow = fullRow
+				found = true
+				break
+			}
+		}
+	default:
+		return av.ErrWrongLayoutType
+	}
+	if !found {
+		return fmt.Errorf("field [%s] not found in view [%s]", operation.ID, view.ID)
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func getAttrViewOperationView(attrView *av.AttributeView, operation *Operation) (ret *av.View, err error) {
+	if "" != operation.ViewID {
+		ret = attrView.GetView(operation.ViewID)
+		if nil == ret {
+			err = av.ErrViewNotFound
+		}
+		return
+	}
+	return getAttrViewViewByBlockID(attrView, operation.BlockID)
+}
+
+func getAttrViewOperationNumber(operation *Operation) (ret float64, err error) {
+	var ok bool
+	if ret, ok = operation.Data.(float64); !ok {
+		err = fmt.Errorf("invalid card configuration value [%v]", operation.Data)
+	}
 	return
 }
 
@@ -1395,6 +1890,76 @@ func setAttrViewCoverFrom(operation *Operation) (err error) {
 	return
 }
 
+type setAttrViewCardCoverPositionData struct {
+	Source   string                `json:"source"`
+	Position *av.CardCoverPosition `json:"position"`
+}
+
+func (tx *Transaction) doSetAttrViewCardCoverPosition(operation *Operation) (ret *TxErr) {
+	if err := setAttrViewCardCoverPosition(operation); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttrViewCardCoverPosition(operation *Operation) (err error) {
+	dataJSON, err := json.Marshal(operation.Data)
+	if nil != err {
+		return
+	}
+	var data setAttrViewCardCoverPositionData
+	if err = json.Unmarshal(dataJSON, &data); nil != err {
+		return
+	}
+	if !av.IsValidCardCoverSource(data.Source) {
+		return fmt.Errorf("invalid card cover source [%s]", data.Source)
+	}
+	if nil != data.Position {
+		if "" == data.Position.Image || 32*1024 < len(data.Position.Image) {
+			return errors.New("invalid card cover image")
+		}
+		if math.IsNaN(data.Position.X) || math.IsInf(data.Position.X, 0) ||
+			math.IsNaN(data.Position.Y) || math.IsInf(data.Position.Y, 0) ||
+			data.Position.X < 0 || 100 < data.Position.X || data.Position.Y < 0 || 100 < data.Position.Y {
+			return fmt.Errorf("invalid card cover position [%v, %v]", data.Position.X, data.Position.Y)
+		}
+	}
+
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if nil != err {
+		return
+	}
+	if nil == attrView.GetBlockValue(operation.RowID) {
+		return fmt.Errorf("attribute view item [%s] not found", operation.RowID)
+	}
+	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	if nil != err {
+		return
+	}
+	if av.LayoutTypeGallery != view.LayoutType && av.LayoutTypeKanban != view.LayoutType {
+		return av.ErrWrongLayoutType
+	}
+	var source string
+	if av.LayoutTypeGallery == view.LayoutType {
+		source = av.CardCoverSource(view.Gallery.CoverFrom, view.Gallery.CoverFromAssetKeyID)
+	} else {
+		source = av.CardCoverSource(view.Kanban.CoverFrom, view.Kanban.CoverFromAssetKeyID)
+	}
+	if data.Source != source {
+		return fmt.Errorf("card cover source [%s] does not match view [%s]", data.Source, view.ID)
+	}
+	if keyID := av.CardCoverSourceAssetKeyID(data.Source); "" != keyID {
+		key, getErr := attrView.GetKey(keyID)
+		if nil != getErr || nil == key || av.KeyTypeMAsset != key.Type {
+			return fmt.Errorf("card cover asset field [%s] not found", keyID)
+		}
+	}
+
+	attrView.SetCardCoverPosition(operation.RowID, data.Source, data.Position)
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
 func AppendAttributeViewDetachedBlocksWithValues(avID string, blocksValues [][]*av.Value) (err error) {
 	attrView, err := av.ParseAttributeView(avID)
 	if err != nil {
@@ -1438,7 +2003,7 @@ func AppendAttributeViewDetachedBlocksWithValues(avID string, blocksValues [][]*
 					for _, valOpt := range v.MSelect {
 						if opt := key.GetOption(valOpt.Content); nil == opt {
 							// 不存在的选项新建保存
-							opt = &av.SelectOption{Name: valOpt.Content, Color: valOpt.Color}
+							opt = &av.SelectOption{Name: valOpt.Content, Color: av.FilterColorValue(valOpt.Color)}
 							key.Options = append(key.Options, opt)
 						} else {
 							// 已经存在的选项颜色需要保持不变
@@ -1550,7 +2115,7 @@ func DuplicateAttributeViewRow(tx *Transaction, avID, previousItemID, srcRowID, 
 			if 0 < len(newVal.MSelect) {
 				for _, valOpt := range newVal.MSelect {
 					if opt := keyValues.Key.GetOption(valOpt.Content); nil == opt {
-						opt = &av.SelectOption{Name: valOpt.Content, Color: valOpt.Color}
+						opt = &av.SelectOption{Name: valOpt.Content, Color: av.FilterColorValue(valOpt.Color)}
 						keyValues.Key.Options = append(keyValues.Key.Options, opt)
 					} else {
 						valOpt.Color = opt.Color
@@ -1571,6 +2136,7 @@ func DuplicateAttributeViewRow(tx *Transaction, avID, previousItemID, srcRowID, 
 	for _, v := range attrView.Views {
 		addRowToViewItems(v, newRowID, previousItemID)
 	}
+	attrView.CopyCardCoverPositions(srcRowID, newRowID)
 
 	// 统一处理双向关联：按目标属性视图聚合，每个目标只 parse/save 一次
 	twoWayByDestAv := map[string][]*pendingTwoWay{}
@@ -1749,12 +2315,6 @@ func SetDatabaseBlockView(blockID, avID, viewID string) (err error) {
 		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
 		return
 	}
-	if attrView.ViewID != viewID {
-		attrView.ViewID = viewID
-		if err = av.SaveAttributeView(attrView); err != nil {
-			return
-		}
-	}
 
 	view := attrView.GetView(viewID)
 	if nil == view {
@@ -1779,7 +2339,71 @@ func SetDatabaseBlockView(blockID, avID, viewID string) (err error) {
 	return
 }
 
-func GetAttributeViewPrimaryKeyValues(avID, keyword string, page, pageSize int) (attributeViewName string, databaseBlockIDs []string, keyValues *av.KeyValues, err error) {
+// normalizeDatabaseBlockView 使数据库载体绑定的视图和布局保持一致。
+func normalizeDatabaseBlockView(node *ast.Node, attrView *av.AttributeView) (changed bool) {
+	if nil == node || nil == attrView || ast.NodeAttributeView != node.Type {
+		return
+	}
+
+	viewID := node.IALAttr(av.NodeAttrView)
+	var view *av.View
+	if "" != viewID {
+		view = attrView.GetView(viewID)
+	}
+	if nil == view {
+		view, _ = attrView.GetFirstView()
+	}
+	if nil == view {
+		return
+	}
+
+	layout := string(view.LayoutType)
+	if layout != node.AttributeViewType {
+		node.AttributeViewType = layout
+		changed = true
+	}
+	if view.ID != viewID {
+		node.SetIALAttr(av.NodeAttrView, view.ID)
+		changed = true
+	}
+	return
+}
+
+func normalizeDatabaseBlockViews(node *ast.Node, boxID string, attrViews map[string]*av.AttributeView) (changed bool) {
+	ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+		if !entering || ast.NodeAttributeView != n.Type {
+			return ast.WalkContinue
+		}
+
+		attrView := cachedAttributeViewForBox(n.AttributeViewID, boxID, attrViews)
+		if normalizeDatabaseBlockView(n, attrView) {
+			changed = true
+		}
+		return ast.WalkContinue
+	})
+	return
+}
+
+func cachedAttributeViewForBox(avID, boxID string, attrViews map[string]*av.AttributeView) (ret *av.AttributeView) {
+	cacheKey := boxID + "\x00" + avID
+	if ret, ok := attrViews[cacheKey]; ok {
+		return ret
+	}
+
+	var err error
+	if IsEncryptedBox(boxID) {
+		ret, err = av.ParseAttributeViewInBox(avID, boxID)
+	} else {
+		ret, err = av.ParseAttributeView(avID)
+	}
+	if nil != err {
+		ret = nil
+	}
+	attrViews[cacheKey] = ret
+	return
+}
+
+func GetAttributeViewPrimaryKeyValues(avID, keyword string, blockIDs []string, page, pageSize int) (attributeViewName string, databaseBlockIDs []string, keyValues *av.KeyValues, total int, err error) {
 	waitForSyncingStorages()
 
 	attrView, err := av.ParseAttributeView(avID)
@@ -1792,29 +2416,255 @@ func GetAttributeViewPrimaryKeyValues(avID, keyword string, page, pageSize int) 
 	databaseBlockIDs = treenode.GetMirrorAttrViewBlockIDs(avID)
 
 	keyValues = attrView.GetBlockKeyValues()
+	if nil == keyValues {
+		keyValues = &av.KeyValues{}
+		return
+	}
 	var values []*av.Value
+	valuesByBlockID := map[string]*av.Value{}
 	for _, kv := range keyValues.Values {
 		if !kv.IsDetached && !treenode.ExistBlockTree(kv.Block.ID) {
 			continue
 		}
 
+		valuesByBlockID[kv.BlockID] = kv
 		if strings.Contains(strings.ToLower(kv.String(true)), strings.ToLower(keyword)) {
 			values = append(values, kv)
 		}
 	}
+	if 0 < len(blockIDs) {
+		values = nil
+		for _, blockID := range blockIDs {
+			if value := valuesByBlockID[blockID]; nil != value {
+				values = append(values, value)
+			}
+		}
+		keyValues.Values = values
+		total = len(values)
+		return
+	}
 	keyValues.Values = values
 
 	sort.Slice(keyValues.Values, func(i, j int) bool {
+		if keyValues.Values[i].Block.Updated == keyValues.Values[j].Block.Updated {
+			return keyValues.Values[i].BlockID > keyValues.Values[j].BlockID
+		}
 		return keyValues.Values[i].Block.Updated > keyValues.Values[j].Block.Updated
 	})
 
+	total = len(keyValues.Values)
+	if 1 > page {
+		page = 1
+	}
 	if 1 > pageSize {
 		pageSize = 16
 	}
 	start := (page - 1) * pageSize
+	if len(keyValues.Values) < start {
+		start = len(keyValues.Values)
+	}
 	end := min(len(keyValues.Values), start+pageSize)
 	keyValues.Values = keyValues.Values[start:end]
 	return
+}
+
+func GetAttributeViewRelationCandidates(srcAvID, relationKeyID, keyword string, selectedBlockIDs []string, page, pageSize int) (
+	attributeViewName string, databaseBlockIDs []string, columns []*av.TableColumn, selectedRows, rows []*av.TableRow,
+	total int, err error,
+) {
+	waitForSyncingStorages()
+
+	srcAttrView, err := av.ParseAttributeView(srcAvID)
+	if err != nil {
+		logging.LogErrorf("parse attribute view [%s] failed: %s", srcAvID, err)
+		return
+	}
+	var relationKey *av.Key
+	attrView := srcAttrView
+	if "" != relationKeyID {
+		relationKey, _ = srcAttrView.GetKey(relationKeyID)
+		if nil == relationKey || av.KeyTypeRelation != relationKey.Type || nil == relationKey.Relation {
+			err = av.ErrKeyNotFound
+			return
+		}
+		if relationKey.Relation.AvID != srcAvID {
+			attrView, err = av.ParseAttributeView(relationKey.Relation.AvID)
+		}
+		if err != nil {
+			logging.LogErrorf("parse attribute view [%s] failed: %s", relationKey.Relation.AvID, err)
+			return
+		}
+	}
+	attributeViewName = getAttrViewName(attrView)
+	databaseBlockIDs = treenode.GetMirrorAttrViewBlockIDs(attrView.ID)
+
+	table := renderAttributeViewRelationCandidates(attrView)
+	if nil == table {
+		err = av.ErrViewNotFound
+		return
+	}
+	columns = table.Columns
+
+	rowsByID := map[string]*av.TableRow{}
+	for _, row := range table.Rows {
+		rowsByID[row.ID] = row
+	}
+	for _, blockID := range selectedBlockIDs {
+		if row := rowsByID[blockID]; nil != row {
+			selectedRows = append(selectedRows, row)
+		}
+	}
+	if nil == selectedRows {
+		selectedRows = []*av.TableRow{}
+	}
+
+	if nil != relationKey && hasAttrViewFilterConditions(relationKey.Relation.CandidateFilters) {
+		validColumns := map[string]bool{}
+		for _, keyValues := range attrView.KeyValues {
+			if nil != keyValues && nil != keyValues.Key {
+				validColumns[keyValues.Key.ID] = true
+			}
+		}
+		table.Filters, _ = av.PruneInvalidColumnFilters(
+			av.CloneFilters(relationKey.Relation.CandidateFilters), validColumns)
+		cachedAttrViews := map[string]*av.AttributeView{attrView.ID: attrView}
+		av.Filter(table, attrView, sql.GetFurtherCollections(attrView, cachedAttrViews), cachedAttrViews)
+	}
+
+	rows, total = filterSortPageRelationCandidates(table.Rows, keyword, page, pageSize)
+	return
+}
+
+func filterSortPageRelationCandidates(tableRows []*av.TableRow, keyword string, page, pageSize int) (
+	rows []*av.TableRow, total int,
+) {
+	for _, row := range tableRows {
+		if relationCandidateMatches(row, keyword) {
+			rows = append(rows, row)
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		iCreated := relationCandidateCreatedAt(rows[i])
+		jCreated := relationCandidateCreatedAt(rows[j])
+		if iCreated == jCreated {
+			return rows[i].ID > rows[j].ID
+		}
+		return iCreated > jCreated
+	})
+
+	total = len(rows)
+	if 1 > page {
+		page = 1
+	}
+	if 1 > pageSize {
+		pageSize = 16
+	}
+	start := min(len(rows), (page-1)*pageSize)
+	end := min(len(rows), start+pageSize)
+	rows = rows[start:end]
+	if nil == rows {
+		rows = []*av.TableRow{}
+	}
+	return
+}
+
+func renderAttributeViewRelationCandidates(attrView *av.AttributeView) (ret *av.Table) {
+	if nil == attrView {
+		return
+	}
+
+	keysByID := map[string]*av.Key{}
+	for _, keyValues := range attrView.KeyValues {
+		if nil != keyValues && nil != keyValues.Key {
+			keysByID[keyValues.Key.ID] = keyValues.Key
+		}
+	}
+
+	var keys []*av.Key
+	added := map[string]bool{}
+	if blockKey := attrView.GetBlockKey(); nil != blockKey {
+		keys = append(keys, blockKey)
+		added[blockKey.ID] = true
+	}
+	appendKey := func(key *av.Key) {
+		if nil == key || added[key.ID] || av.KeyTypeLineNumber == key.Type {
+			return
+		}
+		keys = append(keys, key)
+		added[key.ID] = true
+	}
+	for _, keyID := range attrView.KeyIDs {
+		appendKey(keysByID[keyID])
+	}
+	for _, keyValues := range attrView.KeyValues {
+		if nil != keyValues {
+			appendKey(keyValues.Key)
+		}
+	}
+
+	view := &av.View{
+		ID:         ast.NewNodeID(),
+		Filters:    []*av.ViewFilter{},
+		Sorts:      []*av.ViewSort{},
+		PageSize:   av.ViewDefaultPageSize,
+		LayoutType: av.LayoutTypeTable,
+		Table:      av.NewLayoutTable(),
+	}
+	for _, key := range keys {
+		view.Table.Columns = append(view.Table.Columns, &av.ViewTableColumn{
+			BaseField: &av.BaseField{ID: key.ID},
+		})
+	}
+
+	viewable := sql.RenderView(attrView, view, "", false)
+	ret, _ = viewable.(*av.Table)
+	return
+}
+
+func relationCandidateMatches(row *av.TableRow, keyword string) bool {
+	keywords := strings.Fields(strings.TrimSpace(keyword))
+	if 1 > len(keywords) {
+		return true
+	}
+	for _, cell := range row.Cells {
+		if nil == cell || nil == cell.Value {
+			continue
+		}
+		content := cell.Value.String(true)
+		allKeywordsHit := true
+		for _, currentKeyword := range keywords {
+			if util.SearchCaseSensitive {
+				if !strings.Contains(content, currentKeyword) {
+					allKeywordsHit = false
+					break
+				}
+			} else if !strings.Contains(strings.ToLower(content), strings.ToLower(currentKeyword)) {
+				allKeywordsHit = false
+				break
+			}
+		}
+		if allKeywordsHit {
+			return true
+		}
+	}
+	return false
+}
+
+func relationCandidateCreatedAt(row *av.TableRow) int64 {
+	if nil == row {
+		return 0
+	}
+	blockValue := row.GetBlockValue()
+	if nil == blockValue {
+		return 0
+	}
+	if 0 < blockValue.CreatedAt {
+		return blockValue.CreatedAt
+	}
+	if nil != blockValue.Block {
+		return blockValue.Block.Created
+	}
+	return 0
 }
 
 func GetAttributeViewFilterSort(avID, blockID string) (filters []*av.ViewFilter, sorts []*av.ViewSort) {
@@ -1827,12 +2677,9 @@ func GetAttributeViewFilterSort(avID, blockID string) (filters []*av.ViewFilter,
 	}
 
 	view, err := getAttrViewViewByBlockID(attrView, blockID)
-	if nil == view {
-		view, err = attrView.GetCurrentView(attrView.ViewID)
-		if nil == view || err != nil {
-			logging.LogErrorf("get current view failed: %s", err)
-			return
-		}
+	if nil == view || err != nil {
+		logging.LogErrorf("get current view failed: %s", err)
+		return
 	}
 
 	filters = view.Filters
@@ -1893,6 +2740,68 @@ func GetAttributeView(avID string) (ret *av.AttributeView) {
 	return
 }
 
+// AttributeViewData 是面向外部接口的兼容数据，不参与数据库文件持久化。
+type AttributeViewData struct {
+	Spec               int                                         `json:"spec"`
+	ID                 string                                      `json:"id"`
+	Name               string                                      `json:"name"`
+	KeyValues          []*av.KeyValues                             `json:"keyValues"`
+	KeyIDs             []string                                    `json:"keyIDs"`
+	ViewID             string                                      `json:"viewID"`
+	Views              []*av.View                                  `json:"views"`
+	NewItemTemplates   []*av.NewItemTemplate                       `json:"newItemTemplates,omitempty"`
+	DefaultTemplateID  string                                      `json:"defaultTemplateID,omitempty"`
+	CardCoverPositions map[string]map[string]*av.CardCoverPosition `json:"cardCoverPositions,omitempty"`
+}
+
+func NewAttributeViewData(attrView *av.AttributeView) (ret *AttributeViewData) {
+	if nil == attrView {
+		return
+	}
+	ret = &AttributeViewData{
+		Spec: attrView.Spec, ID: attrView.ID, Name: attrView.Name, KeyValues: attrView.KeyValues, KeyIDs: attrView.KeyIDs,
+		Views: attrView.Views, NewItemTemplates: attrView.NewItemTemplates, DefaultTemplateID: attrView.DefaultTemplateID,
+		CardCoverPositions: attrView.CardCoverPositions,
+	}
+	if view, _ := attrView.GetFirstView(); nil != view {
+		ret.ViewID = view.ID
+	}
+	return
+}
+
+type AttributeViewFieldView struct {
+	ID     string        `json:"id"`
+	Icon   string        `json:"icon"`
+	Name   string        `json:"name"`
+	Type   av.LayoutType `json:"type"`
+	Hidden bool          `json:"hidden"`
+}
+
+func GetAttributeViewFieldViews(avID, keyID string) (ret []*AttributeViewFieldView, err error) {
+	waitForSyncingStorages()
+
+	attrView, err := av.ParseAttributeView(avID)
+	if err != nil {
+		return
+	}
+
+	for _, view := range attrView.Views {
+		field := getAttributeViewField(view, keyID)
+		if nil == field {
+			err = fmt.Errorf("field [%s] not found in view [%s]", keyID, view.ID)
+			return
+		}
+		ret = append(ret, &AttributeViewFieldView{
+			ID:     view.ID,
+			Icon:   view.Icon,
+			Name:   view.Name,
+			Type:   view.LayoutType,
+			Hidden: field.Hidden,
+		})
+	}
+	return
+}
+
 type AvSearchResult struct {
 	AvID       string            `json:"avID"`
 	AvName     string            `json:"avName"`
@@ -1901,47 +2810,241 @@ type AvSearchResult struct {
 	ViewLayout av.LayoutType     `json:"viewLayout"`
 	BlockID    string            `json:"blockID"`
 	HPath      string            `json:"hPath"`
+	Matched    bool              `json:"matched,omitempty"`
 	Children   []*AvSearchResult `json:"children,omitempty"`
 }
 
 type AvSearchTempResult struct {
-	AvID      string
-	AvName    string
-	AvUpdated int64
-	Score     float64
+	AvID           string
+	AvName         string
+	AvUpdated      int64
+	Score          float64
+	Matched        bool
+	SearchInfo     *av.AttributeViewSearchInfo
+	MatchedViewIDs map[string]bool
 }
 
-func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, currentBlockID string) (ret []*AvSearchResult) {
+type SearchAttributeViewOptions struct {
+	Keyword            string
+	ExcludeAvIDs       []string
+	CurrentAvID        string
+	CurrentBlockID     string
+	IncludeViewMatches bool
+}
+
+type attributeViewSearchCacheWarmup struct {
+	signature uint64
+	cancel    context.CancelFunc
+	running   bool
+}
+
+var attributeViewSearchCacheWarmups = struct {
+	sync.Mutex
+	states map[string]*attributeViewSearchCacheWarmup
+}{states: map[string]*attributeViewSearchCacheWarmup{}}
+
+var attributeViewSearchCacheWarmupDelay = 500 * time.Millisecond
+var loadAttributeViewSearchInfo = av.GetAttributeViewSearchInfoInBox
+
+const attributeViewSearchCacheWarmupHashOffset = uint64(1469598103934665603)
+const attributeViewSearchCacheWarmupHashPrime = uint64(1099511628211)
+
+func warmAttributeViewSearchCache(boxID string, avIDs []string, signature uint64) {
+	if len(avIDs) == 0 {
+		return
+	}
+
+	attributeViewSearchCacheWarmups.Lock()
+	if state := attributeViewSearchCacheWarmups.states[boxID]; state != nil && state.signature == signature {
+		attributeViewSearchCacheWarmups.Unlock()
+		return
+	}
+	if state := attributeViewSearchCacheWarmups.states[boxID]; state != nil && state.cancel != nil {
+		state.cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &attributeViewSearchCacheWarmup{signature: signature, cancel: cancel, running: true}
+	attributeViewSearchCacheWarmups.states[boxID] = state
+	attributeViewSearchCacheWarmups.Unlock()
+
+	ids := slices.Clone(avIDs)
+	delay := attributeViewSearchCacheWarmupDelay
+	loader := loadAttributeViewSearchInfo
+	go func() {
+		completed := false
+		defer func() {
+			attributeViewSearchCacheWarmups.Lock()
+			defer attributeViewSearchCacheWarmups.Unlock()
+			if attributeViewSearchCacheWarmups.states[boxID] != state {
+				return
+			}
+			if completed {
+				state.cancel = nil
+				state.running = false
+			} else {
+				delete(attributeViewSearchCacheWarmups.states, boxID)
+			}
+		}()
+
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+
+		for _, avID := range ids {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if isSyncingStorages() {
+				return
+			}
+			_, _ = loader(avID, boxID)
+		}
+		completed = true
+	}()
+}
+
+func stopAttributeViewSearchCacheWarmup(boxID string) {
+	attributeViewSearchCacheWarmups.Lock()
+	defer attributeViewSearchCacheWarmups.Unlock()
+	state := attributeViewSearchCacheWarmups.states[boxID]
+	if state == nil || !state.running {
+		return
+	}
+	state.cancel()
+	delete(attributeViewSearchCacheWarmups.states, boxID)
+}
+
+func updateAttributeViewSearchCacheWarmupSignature(signature uint64, avID string, info os.FileInfo) uint64 {
+	for i := 0; i < len(avID); i++ {
+		signature ^= uint64(avID[i])
+		signature *= attributeViewSearchCacheWarmupHashPrime
+	}
+	if info != nil {
+		signature ^= uint64(info.ModTime().UnixNano())
+		signature *= attributeViewSearchCacheWarmupHashPrime
+		signature ^= uint64(info.Size())
+		signature *= attributeViewSearchCacheWarmupHashPrime
+	}
+	return signature
+}
+
+func matchAttributeViewSearchName(name string, keywords []string) (score float64, hit bool) {
+	if name == "" || len(keywords) == 0 {
+		return
+	}
+
+	lowerName := strings.ToLower(name)
+	hit = true
+	for _, keyword := range keywords {
+		lowerKeyword := strings.ToLower(keyword)
+		if !strings.Contains(lowerName, lowerKeyword) {
+			return 0, false
+		}
+		score += smetrics.JaroWinkler(name, keyword, 0.7, 4)
+	}
+	return
+}
+
+func sortAndLimitAttributeViewSearchResults(results []*AvSearchTempResult, keyword string) []*AvSearchTempResult {
+	if keyword == "" {
+		sort.Slice(results, func(i, j int) bool { return results[i].AvUpdated > results[j].AvUpdated })
+	} else {
+		sort.SliceStable(results, func(i, j int) bool {
+			if results[i].Score == results[j].Score {
+				return results[i].AvUpdated > results[j].AvUpdated
+			}
+			return results[i].Score > results[j].Score
+		})
+	}
+	if 12 < len(results) {
+		return results[:12]
+	}
+	return results
+}
+
+func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, currentBlockID string) []*AvSearchResult {
+	return SearchAttributeViewWithOptions(SearchAttributeViewOptions{
+		Keyword:        keyword,
+		ExcludeAvIDs:   excludeAvIDs,
+		CurrentAvID:    currentAvID,
+		CurrentBlockID: currentBlockID,
+	})
+}
+
+func SearchAttributeViewWithOptions(options SearchAttributeViewOptions) (ret []*AvSearchResult) {
+	searchStart := time.Now()
+	var waitSyncElapsed, readDirElapsed, getBlockRelsElapsed, scanElapsed, readNameElapsed time.Duration
+	var readFileInfoElapsed, sortElapsed, resolveElapsed, loadTreeElapsed, findNodeElapsed time.Duration
+	var readSearchInfoElapsed, resolveHPathElapsed time.Duration
+	var directoryEntryCount, validFileCount, eligibleFileCount, matchedCount int
+	var readNameCount, loadTreeCount, findNodeCount, readSearchInfoCount, resolveHPathCount int
+	var eligibleFileSize int64
+	defer func() {
+		totalElapsed := time.Since(searchStart)
+		if totalElapsed < 500*time.Millisecond {
+			return
+		}
+		logging.LogInfof("search attribute views [total=%dms, waitSync=%dms, readDir=%dms, getBlockRels=%dms, scan=%dms, readNames=%dms, readFileInfo=%dms, sort=%dms, resolve=%dms, loadTrees=%dms, findNodes=%dms, readSearchInfo=%dms, resolveHPaths=%dms, entries=%d, validFiles=%d, eligibleFiles=%d, matched=%d, results=%d, readNameCount=%d, loadTreeCount=%d, findNodeCount=%d, readSearchInfoCount=%d, resolveHPathCount=%d, eligibleSizeBytes=%d, keywordEmpty=%t, includeViewMatches=%t]",
+			totalElapsed.Milliseconds(), waitSyncElapsed.Milliseconds(), readDirElapsed.Milliseconds(),
+			getBlockRelsElapsed.Milliseconds(), scanElapsed.Milliseconds(), readNameElapsed.Milliseconds(),
+			readFileInfoElapsed.Milliseconds(), sortElapsed.Milliseconds(), resolveElapsed.Milliseconds(),
+			loadTreeElapsed.Milliseconds(), findNodeElapsed.Milliseconds(), readSearchInfoElapsed.Milliseconds(),
+			resolveHPathElapsed.Milliseconds(), directoryEntryCount, validFileCount, eligibleFileCount, matchedCount,
+			len(ret), readNameCount, loadTreeCount, findNodeCount, readSearchInfoCount, resolveHPathCount,
+			eligibleFileSize, strings.TrimSpace(options.Keyword) == "", options.IncludeViewMatches)
+	}()
+
+	waitSyncStart := time.Now()
 	waitForSyncingStorages()
+	waitSyncElapsed = time.Since(waitSyncStart)
 
 	ret = []*AvSearchResult{}
-	keyword = strings.TrimSpace(keyword)
+	keyword := strings.TrimSpace(options.Keyword)
 	keywords := strings.Fields(keyword)
 
 	var avSearchTmpResults []*AvSearchTempResult
+	var warmupAvIDs []string
+	warmupSignature := attributeViewSearchCacheWarmupHashOffset
+	warmupSignature ^= cache.GetAVCacheGeneration()
+	warmupSignature *= attributeViewSearchCacheWarmupHashPrime
 	boxID := ""
-	if currentBlockID != "" {
-		if bt := treenode.GetBlockTree(currentBlockID); nil != bt && IsEncryptedBox(bt.BoxID) {
+	if options.CurrentBlockID != "" {
+		if bt := treenode.GetBlockTree(options.CurrentBlockID); nil != bt && IsEncryptedBox(bt.BoxID) {
 			boxID = bt.BoxID
 		}
-	} else if currentAvID != "" {
-		_, boxID = av.FindAttributeViewPath(currentAvID)
+	} else if options.CurrentAvID != "" {
+		_, boxID = av.FindAttributeViewPath(options.CurrentAvID)
+	}
+	if keyword != "" {
+		stopAttributeViewSearchCacheWarmup(boxID)
 	}
 	avDir := filepath.Join(util.DataDir, "storage", "av")
 	if boxID != "" {
 		avDir = filepath.Join(util.DataDir, boxID, "storage", "av")
 	}
+	readDirStart := time.Now()
 	entries, err := os.ReadDir(avDir)
+	readDirElapsed = time.Since(readDirStart)
 	if err != nil {
 		logging.LogErrorf("read directory [%s] failed: %s", avDir, err)
 		return
 	}
+	directoryEntryCount = len(entries)
 
+	getBlockRelsStart := time.Now()
 	avBlockRels := av.GetBlockRels()
+	getBlockRelsElapsed = time.Since(getBlockRelsStart)
 	if 1 > len(avBlockRels) {
 		return
 	}
 
+	scanStart := time.Now()
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -1951,75 +3054,103 @@ func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, cur
 		if !ast.IsNodeIDPattern(id) {
 			continue
 		}
-
-		if gulu.Str.Contains(id, excludeAvIDs) {
-			continue
-		}
+		validFileCount++
 
 		if nil == avBlockRels[id] {
 			continue
 		}
-
-		name, _ := av.GetAttributeViewNameInBox(id, boxID)
+		readFileInfoStart := time.Now()
 		info, _ := entry.Info()
-		if "" != keyword {
-			score := 0.0
-			hit := false
-			for _, k := range keywords {
-				if strings.Contains(strings.ToLower(name), strings.ToLower(k)) {
-					score += smetrics.JaroWinkler(name, k, 0.7, 4)
-					hit = true
-				} else {
-					hit = false
-					break
-				}
-			}
+		readFileInfoElapsed += time.Since(readFileInfoStart)
+		warmupAvIDs = append(warmupAvIDs, id)
+		warmupSignature = updateAttributeViewSearchCacheWarmupSignature(warmupSignature, id, info)
 
-			if hit {
-				a := &AvSearchTempResult{AvID: id, AvName: name, Score: score}
-				if nil != info && !info.ModTime().IsZero() {
-					a.AvUpdated = info.ModTime().UnixMilli()
+		if gulu.Str.Contains(id, options.ExcludeAvIDs) {
+			continue
+		}
+		eligibleFileCount++
+
+		if info != nil {
+			eligibleFileSize += info.Size()
+		}
+		a := &AvSearchTempResult{AvID: id}
+		if nil != info && !info.ModTime().IsZero() {
+			a.AvUpdated = info.ModTime().UnixMilli()
+		}
+		if keyword == "" {
+			avSearchTmpResults = append(avSearchTmpResults, a)
+			continue
+		}
+
+		var searchInfo *av.AttributeViewSearchInfo
+		readSearchInfoStart := time.Now()
+		searchInfo, _ = av.GetAttributeViewSearchInfoInBox(id, boxID)
+		readSearchInfoElapsed += time.Since(readSearchInfoStart)
+		readSearchInfoCount++
+		var name string
+		if searchInfo != nil {
+			name = searchInfo.Name
+		}
+		if searchInfo == nil {
+			readNameStart := time.Now()
+			name, _ = av.GetAttributeViewNameInBox(id, boxID)
+			readNameElapsed += time.Since(readNameStart)
+			readNameCount++
+		}
+		score, hit := matchAttributeViewSearchName(name, keywords)
+		matchedViewIDs := map[string]bool{}
+		if options.IncludeViewMatches && searchInfo != nil {
+			for _, view := range searchInfo.Views {
+				viewScore, viewHit := matchAttributeViewSearchName(view.Name, keywords)
+				if viewHit {
+					matchedViewIDs[view.ID] = true
+					if viewScore > score {
+						score = viewScore
+					}
 				}
-				avSearchTmpResults = append(avSearchTmpResults, a)
 			}
-		} else {
-			a := &AvSearchTempResult{AvID: id, AvName: name}
-			if nil != info && !info.ModTime().IsZero() {
-				a.AvUpdated = info.ModTime().UnixMilli()
-			}
+		}
+
+		if hit || len(matchedViewIDs) > 0 {
+			a.AvName = name
+			a.Score = score
+			a.Matched = hit
+			a.SearchInfo = searchInfo
+			a.MatchedViewIDs = matchedViewIDs
 			avSearchTmpResults = append(avSearchTmpResults, a)
 		}
 	}
+	scanElapsed = time.Since(scanStart)
 
-	if "" == keyword {
-		sort.Slice(avSearchTmpResults, func(i, j int) bool { return avSearchTmpResults[i].AvUpdated > avSearchTmpResults[j].AvUpdated })
-	} else {
-		sort.SliceStable(avSearchTmpResults, func(i, j int) bool {
-			if avSearchTmpResults[i].Score == avSearchTmpResults[j].Score {
-				return avSearchTmpResults[i].AvUpdated > avSearchTmpResults[j].AvUpdated
-			}
-			return avSearchTmpResults[i].Score > avSearchTmpResults[j].Score
-		})
-	}
-	if 12 <= len(avSearchTmpResults) {
-		avSearchTmpResults = avSearchTmpResults[:12]
-	}
+	sortStart := time.Now()
+	matchedCount = len(avSearchTmpResults)
+	avSearchTmpResults = sortAndLimitAttributeViewSearchResults(avSearchTmpResults, keyword)
+	sortElapsed = time.Since(sortStart)
 
+	resolveStart := time.Now()
 	for _, tmpResult := range avSearchTmpResults {
 		bIDs := avBlockRels[tmpResult.AvID]
 		var node *ast.Node
+		var treeHPath string
 		for _, bID := range bIDs {
+			loadTreeStart := time.Now()
 			tree, _ := loadTreeByBlockIDInBox(bID, boxID)
+			loadTreeElapsed += time.Since(loadTreeStart)
+			loadTreeCount++
 			if nil == tree {
 				continue
 			}
 
+			findNodeStart := time.Now()
 			node = treenode.GetNodeInTree(tree, bID)
+			findNodeElapsed += time.Since(findNodeStart)
+			findNodeCount++
 			if nil == node || "" == node.AttributeViewID || ast.NodeAttributeView != node.Type {
 				node = nil
 				continue
 			}
 
+			treeHPath = tree.HPath
 			break
 		}
 
@@ -2027,35 +3158,39 @@ func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, cur
 			continue
 		}
 
-		attrView, _ := av.ParseAttributeViewInBox(tmpResult.AvID, boxID)
-		if nil == attrView {
+		searchInfo := tmpResult.SearchInfo
+		if searchInfo == nil {
+			readSearchInfoStart := time.Now()
+			searchInfo, _ = av.GetAttributeViewSearchInfoInBox(tmpResult.AvID, boxID)
+			readSearchInfoElapsed += time.Since(readSearchInfoStart)
+			readSearchInfoCount++
+		}
+		if searchInfo == nil {
 			continue
 		}
-
-		var hPath string
-		baseBlock := treenode.GetBlockTreeRootByPath(node.Box, node.Path)
-		if nil != baseBlock {
-			hPath = baseBlock.HPath
+		if tmpResult.AvName == "" {
+			tmpResult.AvName = searchInfo.Name
 		}
+
+		resolveHPathStart := time.Now()
+		hPath := treeHPath
 		box := Conf.Box(node.Box)
 		if nil != box {
 			hPath = box.Name + hPath
 		}
-
-		name := tmpResult.AvName
-		if "" == name {
-			name = Conf.language(267)
-		}
+		resolveHPathElapsed += time.Since(resolveHPathStart)
+		resolveHPathCount++
 
 		parent := &AvSearchResult{
 			AvID:    tmpResult.AvID,
 			AvName:  tmpResult.AvName,
 			BlockID: node.ID,
 			HPath:   hPath,
+			Matched: tmpResult.Matched,
 		}
 		ret = append(ret, parent)
 
-		for _, view := range attrView.Views {
+		for _, view := range searchInfo.Views {
 			child := &AvSearchResult{
 				AvID:       tmpResult.AvID,
 				AvName:     tmpResult.AvName,
@@ -2064,18 +3199,70 @@ func SearchAttributeView(keyword string, excludeAvIDs []string, currentAvID, cur
 				ViewLayout: view.LayoutType,
 				BlockID:    node.ID,
 				HPath:      hPath,
+				Matched:    tmpResult.MatchedViewIDs[view.ID],
 			}
 			parent.Children = append(parent.Children, child)
 		}
+	}
+	resolveElapsed = time.Since(resolveStart)
+	if keyword == "" {
+		warmAttributeViewSearchCache(boxID, warmupAvIDs, warmupSignature)
 	}
 	return
 }
 
 type BlockAttributeViewKeys struct {
-	AvID      string          `json:"avID"`
-	AvName    string          `json:"avName"`
-	BlockIDs  []string        `json:"blockIDs"`
-	KeyValues []*av.KeyValues `json:"keyValues"`
+	AvID          string                       `json:"avID"`
+	AvName        string                       `json:"avName"`
+	BlockIDs      []string                     `json:"blockIDs"`
+	KeyValues     []*av.KeyValues              `json:"keyValues"`
+	ItemPositions []*AttributeViewItemPosition `json:"itemPositions"`
+}
+
+type AttributeViewItemPosition struct {
+	ViewID     string                            `json:"viewID"`
+	PreviousID string                            `json:"previousID"`
+	Groups     []*AttributeViewGroupItemPosition `json:"groups"`
+}
+
+type AttributeViewGroupItemPosition struct {
+	GroupID    string `json:"groupID"`
+	PreviousID string `json:"previousID"`
+}
+
+func getAttributeViewItemPositions(attrView *av.AttributeView, itemID string) (ret []*AttributeViewItemPosition) {
+	for _, view := range attrView.Views {
+		previousID, found := getAttributeViewPreviousItemID(view.ItemIDs, itemID)
+		if !found {
+			continue
+		}
+
+		position := &AttributeViewItemPosition{ViewID: view.ID, PreviousID: previousID}
+		for _, group := range view.Groups {
+			groupPreviousID, groupFound := getAttributeViewPreviousItemID(group.GroupItemIDs, itemID)
+			if groupFound {
+				position.Groups = append(position.Groups, &AttributeViewGroupItemPosition{
+					GroupID: group.ID, PreviousID: groupPreviousID,
+				})
+			}
+		}
+		ret = append(ret, position)
+	}
+	return
+}
+
+func getAttributeViewPreviousItemID(itemIDs []string, itemID string) (previousID string, found bool) {
+	for i, currentID := range itemIDs {
+		if currentID != itemID {
+			continue
+		}
+		if 0 < i {
+			previousID = itemIDs[i-1]
+		}
+		found = true
+		return
+	}
+	return
 }
 
 type AttributeViewBacklinkRelation struct {
@@ -2348,7 +3535,7 @@ func GetAttributeViewItemKeys(avID, itemID, valueID string) (ret []*BlockAttribu
 		return
 	}
 
-	view, err := getRenderAttributeViewView(attrView, "", "", true)
+	view, err := getRenderAttributeViewView(attrView, "", "", "", true)
 	if nil != err {
 		return
 	}
@@ -2381,10 +3568,11 @@ func GetAttributeViewItemKeys(avID, itemID, valueID string) (ret []*BlockAttribu
 	})
 
 	ret = append(ret, &BlockAttributeViewKeys{
-		AvID:      avID,
-		AvName:    getAttrViewName(attrView),
-		BlockIDs:  treenode.GetMirrorAttrViewBlockIDs(avID),
-		KeyValues: keyValues,
+		AvID:          avID,
+		AvName:        getAttrViewName(attrView),
+		BlockIDs:      treenode.GetMirrorAttrViewBlockIDs(avID),
+		KeyValues:     keyValues,
+		ItemPositions: getAttributeViewItemPositions(attrView, itemID),
 	})
 	return
 }
@@ -2426,7 +3614,7 @@ func GetBlockAttributeViewKeys(nodeID string) (ret []*BlockAttributeViewKeys) {
 		}
 
 		itemID := blockVal.BlockID
-		view, err := getRenderAttributeViewView(attrView, "", nodeID, true)
+		view, err := getRenderAttributeViewView(attrView, "", "", nodeID, true)
 		if nil != err {
 			continue
 		}
@@ -2465,12 +3653,16 @@ func GetBlockAttributeViewKeys(nodeID string) (ret []*BlockAttributeViewKeys) {
 		blockIDs := treenode.GetMirrorAttrViewBlockIDs(avID)
 		if 1 > len(blockIDs) {
 			// 老数据兼容处理
-			avBts := treenode.GetBlockTreesByType("av")
+			boxID := ""
+			if tree, _ := LoadTreeByBlockID(nodeID); tree != nil {
+				boxID = tree.Box
+			}
+			avBts := treenode.GetBlockTreesByTypeInBox("av", boxID)
 			for _, avBt := range avBts {
 				if nil == avBt {
 					continue
 				}
-				tree, _ := LoadTreeByBlockID(avBt.ID)
+				tree, _ := LoadTreeByBlockIDInExactBox(avBt.ID, avBt.BoxID)
 				if nil == tree {
 					continue
 				}
@@ -2501,10 +3693,11 @@ func GetBlockAttributeViewKeys(nodeID string) (ret []*BlockAttributeViewKeys) {
 		}
 
 		ret = append(ret, &BlockAttributeViewKeys{
-			AvID:      avID,
-			AvName:    getAttrViewName(attrView),
-			BlockIDs:  blockIDs,
-			KeyValues: keyValues,
+			AvID:          avID,
+			AvName:        getAttrViewName(attrView),
+			BlockIDs:      blockIDs,
+			KeyValues:     keyValues,
+			ItemPositions: getAttributeViewItemPositions(attrView, itemID),
 		})
 	}
 	return
@@ -2819,7 +4012,7 @@ func setAttrViewGroupStates(view *av.View, groupStates map[string]*GroupState) {
 	}
 }
 
-func GetCurrentAttributeViewImages(avID, viewID, query string) (ret []string, err error) {
+func GetCurrentAttributeViewImages(c *gin.Context, avID, viewID, query string) (ret []string, err error) {
 	var attrView *av.AttributeView
 	attrView, err = av.ParseAttributeView(avID)
 	if err != nil {
@@ -2828,10 +4021,9 @@ func GetCurrentAttributeViewImages(avID, viewID, query string) (ret []string, er
 	}
 	var view *av.View
 
-	if "" != viewID {
-		view, _ = attrView.GetCurrentView(viewID)
-	} else {
-		view = attrView.GetView(attrView.ViewID)
+	view, err = resolveAttributeViewView(attrView, viewID, "", "")
+	if nil != err {
+		return
 	}
 
 	cachedAttrViews := map[string]*av.AttributeView{}
@@ -2839,6 +4031,9 @@ func GetCurrentAttributeViewImages(avID, viewID, query string) (ret []string, er
 	table := getAttrViewTable(attrView, view, query)
 	av.Filter(table, attrView, rollupFurtherCollections, cachedAttrViews)
 	av.Sort(table, attrView)
+	if IsReadOnlyRoleContext(c) {
+		table = FilterViewByPublishAccess(c, GetPublishAccess(), table).(*av.Table)
+	}
 
 	ids := map[string]bool{}
 	for _, column := range table.Columns {
@@ -3034,9 +4229,26 @@ func updateAttributeViewColRollup(operation *Operation) (err error) {
 		return
 	}
 
+	var filters []*av.ViewFilter
+	oldDestAvID := ""
+	if nil != rollUpKey.Rollup {
+		filters = rollUpKey.Rollup.Filters
+		if oldRelationKey, _ := attrView.GetKey(rollUpKey.Rollup.RelationKeyID); nil != oldRelationKey &&
+			nil != oldRelationKey.Relation {
+			oldDestAvID = oldRelationKey.Relation.AvID
+		}
+	}
+	newDestAvID := ""
+	if newRelationKey, _ := attrView.GetKey(operation.ParentID); nil != newRelationKey && nil != newRelationKey.Relation {
+		newDestAvID = newRelationKey.Relation.AvID
+	}
+	if oldDestAvID != newDestAvID {
+		filters = nil
+	}
 	rollUpKey.Rollup = &av.Rollup{
 		RelationKeyID: operation.ParentID,
 		KeyID:         operation.KeyID,
+		Filters:       filters,
 	}
 
 	if nil == operation.Data {
@@ -3137,9 +4349,14 @@ func updateAttributeViewColRelation(operation *Operation) (err error) {
 			av.RemoveAvRel(srcAv.ID, srcRel.AvID)
 		}
 
+		var candidateFilters []*av.ViewFilter
+		if nil != srcRel && srcRel.AvID == operation.ID {
+			candidateFilters = srcRel.CandidateFilters
+		}
 		srcRel = &av.Relation{
-			AvID:     operation.ID,
-			IsTwoWay: operation.IsTwoWay,
+			AvID:             operation.ID,
+			IsTwoWay:         operation.IsTwoWay,
+			CandidateFilters: candidateFilters,
 		}
 		if operation.IsTwoWay {
 			srcRel.BackKeyID = operation.BackRelationKeyID
@@ -3153,6 +4370,13 @@ func updateAttributeViewColRelation(operation *Operation) (err error) {
 	}
 	if oldDestAvID != operation.ID {
 		srcAv.RemoveNewItemTemplateFieldValue(operation.KeyID)
+		srcAv.RemoveExactRelationFilters(operation.KeyID)
+		for _, keyValues := range srcAv.KeyValues {
+			if nil != keyValues && nil != keyValues.Key && av.KeyTypeRollup == keyValues.Key.Type &&
+				nil != keyValues.Key.Rollup && keyValues.Key.Rollup.RelationKeyID == operation.KeyID {
+				keyValues.Key.Rollup.Filters = nil
+			}
+		}
 	}
 
 	destAdded := false
@@ -3311,10 +4535,13 @@ func (tx *Transaction) doRemoveAttrViewView(operation *Operation) (ret *TxErr) {
 		return
 	}
 
-	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	view, err := getAttrViewViewToRemove(attrView, operation)
 	if nil == view {
-		logging.LogWarnf("get view failed: %s", operation.BlockID)
-		return
+		logging.LogWarnf("get view [%s] to remove failed: %s", operation.ID, err)
+		if nil == err {
+			err = av.ErrViewNotFound
+		}
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
 	}
 
 	viewID := view.ID
@@ -3331,7 +4558,6 @@ func (tx *Transaction) doRemoveAttrViewView(operation *Operation) (ret *TxErr) {
 	}
 
 	view = attrView.Views[index]
-	attrView.ViewID = view.ID
 	if err = av.SaveAttributeView(attrView); err != nil {
 		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
 		return &TxErr{code: TxErrCodeWriteTree, msg: err.Error(), id: avID}
@@ -3340,24 +4566,41 @@ func (tx *Transaction) doRemoveAttrViewView(operation *Operation) (ret *TxErr) {
 	trees, nodes := getMirrorBlocksNodes(avID)
 	for _, node := range nodes {
 		attrs := parse.IAL2Map(node.KramdownIAL)
+		changed := false
+		visibleViewIDsValue := attrs[av.NodeAttrVisibleViewIDs]
+		visibleViewIDs := attrView.GetVisibleViewIDs(visibleViewIDsValue)
+		if "" != visibleViewIDsValue {
+			normalized := strings.Join(visibleViewIDs, ",")
+			if normalized != visibleViewIDsValue {
+				attrs[av.NodeAttrVisibleViewIDs] = normalized
+				changed = true
+			}
+		}
+
 		blockViewID := attrs[av.NodeAttrView]
 		if blockViewID == viewID {
-			attrs[av.NodeAttrView] = attrView.ViewID
-			node.AttributeViewType = string(view.LayoutType)
-			// 镜像块节点未关联 tree，通过 blocktree 解析 boxID 以走加密笔记本守卫与 box-aware 缓存键
-			boxID := ""
-			if bt := treenode.GetBlockTree(node.ID); nil != bt {
-				boxID = bt.BoxID
-			}
-			oldAttrs, e := setNodeAttrs0(node, attrs, boxID)
-			if nil != e {
-				logging.LogErrorf("set node attrs failed: %s", e)
-				continue
-			}
-
-			cache.PutBlockIALInBox(node.ID, boxID, parse.IAL2Map(node.KramdownIAL))
-			pushBlockAttrs(oldAttrs, node)
+			attrs[av.NodeAttrView] = visibleViewIDs[0]
+			fallbackView := attrView.GetView(visibleViewIDs[0])
+			node.AttributeViewType = string(fallbackView.LayoutType)
+			changed = true
 		}
+		if !changed {
+			continue
+		}
+
+		// 镜像块节点未关联 tree，通过 blocktree 解析 boxID 以走加密笔记本守卫与 box-aware 缓存键
+		boxID := ""
+		if bt := treenode.GetBlockTree(node.ID); nil != bt {
+			boxID = bt.BoxID
+		}
+		oldAttrs, e := setNodeAttrs0(node, attrs, boxID)
+		if nil != e {
+			logging.LogErrorf("set node attrs failed: %s", e)
+			continue
+		}
+
+		cache.PutBlockIALInBox(node.ID, boxID, parse.IAL2Map(node.KramdownIAL))
+		pushBlockAttrs(oldAttrs, node)
 	}
 
 	for _, tree := range trees {
@@ -3368,6 +4611,17 @@ func (tx *Transaction) doRemoveAttrViewView(operation *Operation) (ret *TxErr) {
 
 	operation.RetData = view.LayoutType
 	return
+}
+
+func getAttrViewViewToRemove(attrView *av.AttributeView, operation *Operation) (ret *av.View, err error) {
+	if "" != operation.ID {
+		ret = attrView.GetView(operation.ID)
+		if nil == ret {
+			err = av.ErrViewNotFound
+		}
+		return
+	}
+	return getAttrViewViewByBlockID(attrView, operation.BlockID)
 }
 
 func getMirrorBlocksNodes(avID string) (trees []*parse.Tree, nodes []*ast.Node) {
@@ -3384,6 +4638,57 @@ func getMirrorBlocksNodes(avID string) (trees []*parse.Tree, nodes []*ast.Node) 
 
 	for _, tree := range mirrorBlockTrees {
 		trees = append(trees, tree)
+	}
+	return
+}
+
+func freezeOtherAttrViewBlockVisibleViews(attrView *av.AttributeView, currentBlockID string, currentTree *parse.Tree) (err error) {
+	var oldViewIDs []string
+	for _, view := range attrView.Views {
+		oldViewIDs = append(oldViewIDs, view.ID)
+	}
+	if 1 > len(oldViewIDs) {
+		return
+	}
+	value := strings.Join(oldViewIDs, ",")
+
+	var otherBlockIDs []string
+	for _, blockID := range treenode.GetMirrorAttrViewBlockIDs(attrView.ID) {
+		if blockID != currentBlockID {
+			otherBlockIDs = append(otherBlockIDs, blockID)
+		}
+	}
+	mirrorBlockTrees := filesys.LoadTrees(otherBlockIDs)
+	changedTrees := map[string]*parse.Tree{}
+	for blockID, tree := range mirrorBlockTrees {
+		if tree.Root.ID == currentTree.Root.ID {
+			tree = currentTree
+		}
+		node := treenode.GetNodeInTree(tree, blockID)
+		if nil == node {
+			logging.LogErrorf("get node in tree by block ID [%s] failed", blockID)
+			continue
+		}
+		if "" != node.IALAttr(av.NodeAttrVisibleViewIDs) {
+			continue
+		}
+
+		boxID := tree.Box
+		oldAttrs, setErr := setNodeAttrs0(node, map[string]string{av.NodeAttrVisibleViewIDs: value}, boxID)
+		if nil != setErr {
+			return setErr
+		}
+		cache.PutBlockIALInBox(node.ID, boxID, parse.IAL2Map(node.KramdownIAL))
+		pushBlockAttrs(oldAttrs, node)
+		if tree.Root.ID != currentTree.Root.ID {
+			changedTrees[tree.Root.ID] = tree
+		}
+	}
+
+	for _, tree := range changedTrees {
+		if err = indexWriteTreeUpsertQueue(tree); nil != err {
+			return
+		}
 	}
 	return
 }
@@ -3423,8 +4728,15 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID}
 	}
 
+	visibleViewIDs := attrView.GetVisibleViewIDs(node.IALAttr(av.NodeAttrVisibleViewIDs))
+	visibleViewIDs = append(visibleViewIDs, operation.ID)
+	if err = freezeOtherAttrViewBlockVisibleViews(attrView, operation.BlockID, tree); nil != err {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+
 	attrs := parse.IAL2Map(node.KramdownIAL)
 	attrs[av.NodeAttrView] = operation.ID
+	attrs[av.NodeAttrVisibleViewIDs] = strings.Join(visibleViewIDs, ",")
 	node.AttributeViewType = string(masterView.LayoutType)
 	err = setNodeAttrs(node, tree, attrs)
 	if err != nil {
@@ -3444,7 +4756,6 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 
 	view.ID = operation.ID
 	attrView.Views = append(attrView.Views, view)
-	attrView.ViewID = view.ID
 
 	view.Icon = masterView.Icon
 	view.Name = util.GetDuplicateName(masterView.Name)
@@ -3457,8 +4768,9 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 
 	for _, s := range masterView.Sorts {
 		view.Sorts = append(view.Sorts, &av.ViewSort{
-			Column: s.Column,
-			Order:  s.Order,
+			Column:       s.Column,
+			Order:        s.Order,
+			DateEndpoint: s.DateEndpoint,
 		})
 	}
 
@@ -3490,14 +4802,20 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 					Hidden: field.Hidden,
 					Desc:   field.Desc,
 				},
+				FullRow: field.FullRow,
 			})
 		}
 
 		view.Gallery.CoverFrom = masterView.Gallery.CoverFrom
 		view.Gallery.CoverFromAssetKeyID = masterView.Gallery.CoverFromAssetKeyID
+		view.Gallery.CardAspectRatio = masterView.Gallery.CardAspectRatio
+		view.Gallery.CardAspectRatioValue = masterView.Gallery.CardAspectRatioValue
 		view.Gallery.CardSize = masterView.Gallery.CardSize
+		view.Gallery.CardWidth = masterView.Gallery.CardWidth
+		view.Gallery.CardLayout = masterView.Gallery.CardLayout
 		view.Gallery.FitImage = masterView.Gallery.FitImage
 		view.Gallery.DisplayFieldName = masterView.Gallery.DisplayFieldName
+		view.Gallery.DisplayEmptyFields = masterView.Gallery.DisplayEmptyFields
 		view.Gallery.ShowIcon = masterView.Gallery.ShowIcon
 		view.Gallery.WrapField = masterView.Gallery.WrapField
 	case av.LayoutTypeKanban:
@@ -3509,14 +4827,20 @@ func (tx *Transaction) doDuplicateAttrViewView(operation *Operation) (ret *TxErr
 					Hidden: field.Hidden,
 					Desc:   field.Desc,
 				},
+				FullRow: field.FullRow,
 			})
 		}
 
 		view.Kanban.CoverFrom = masterView.Kanban.CoverFrom
 		view.Kanban.CoverFromAssetKeyID = masterView.Kanban.CoverFromAssetKeyID
+		view.Kanban.CardAspectRatio = masterView.Kanban.CardAspectRatio
+		view.Kanban.CardAspectRatioValue = masterView.Kanban.CardAspectRatioValue
 		view.Kanban.CardSize = masterView.Kanban.CardSize
+		view.Kanban.CardWidth = masterView.Kanban.CardWidth
+		view.Kanban.CardLayout = masterView.Kanban.CardLayout
 		view.Kanban.FitImage = masterView.Kanban.FitImage
 		view.Kanban.DisplayFieldName = masterView.Kanban.DisplayFieldName
+		view.Kanban.DisplayEmptyFields = masterView.Kanban.DisplayEmptyFields
 		view.Kanban.FillColBackgroundColor = masterView.Kanban.FillColBackgroundColor
 		view.Kanban.ShowIcon = masterView.Kanban.ShowIcon
 		view.Kanban.WrapField = masterView.Kanban.WrapField
@@ -3630,8 +4954,18 @@ func addAttrViewView(avID, viewID, blockID string, layout av.LayoutType) (err er
 		return
 	}
 
+	node, tree, _ := getNodeByBlockID(nil, blockID)
+	if nil == node {
+		logging.LogErrorf("get node by block ID [%s] failed", blockID)
+		return
+	}
+	visibleViewIDs := attrView.GetVisibleViewIDs(node.IALAttr(av.NodeAttrVisibleViewIDs))
+	visibleViewIDs = append(visibleViewIDs, viewID)
+	if err = freezeOtherAttrViewBlockVisibleViews(attrView, blockID, tree); nil != err {
+		return
+	}
+
 	view.ItemIDs = firstView.ItemIDs
-	attrView.ViewID = viewID
 	view.ID = viewID
 	attrView.Views = append(attrView.Views, view)
 
@@ -3641,15 +4975,10 @@ func addAttrViewView(avID, viewID, blockID string, layout av.LayoutType) (err er
 		setAttributeViewGroup(attrView, view, group)
 	}
 
-	node, tree, _ := getNodeByBlockID(nil, blockID)
-	if nil == node {
-		logging.LogErrorf("get node by block ID [%s] failed", blockID)
-		return
-	}
-
 	node.AttributeViewType = string(view.LayoutType)
 	attrs := parse.IAL2Map(node.KramdownIAL)
 	attrs[av.NodeAttrView] = viewID
+	attrs[av.NodeAttrVisibleViewIDs] = strings.Join(visibleViewIDs, ",")
 	err = setNodeAttrs(node, tree, attrs)
 	if err != nil {
 		logging.LogWarnf("set node [%s] attrs failed: %s", blockID, err)
@@ -3736,12 +5065,21 @@ func (tx *Transaction) doSetAttrViewViewIcon(operation *Operation) (ret *TxErr) 
 		return &TxErr{code: TxErrHandleAttributeView, id: viewID}
 	}
 
-	view.Icon = operation.Data.(string)
+	view.Icon = filterAttrViewIconValue(operation.Data.(string))
 	if err = av.SaveAttributeView(attrView); err != nil {
 		logging.LogErrorf("save attribute view [%s] failed: %s", avID, err)
 		return &TxErr{code: TxErrHandleAttributeView, msg: err.Error(), id: avID}
 	}
 	return
+}
+
+// filterAttrViewIconValue 过滤属性视图图标值，非法值置空，防止存储可执行标记
+// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-vx5w-qrvp-mmcq
+func filterAttrViewIconValue(icon string) string {
+	if filtered, valid := util.FilterIconValue(icon); valid {
+		return filtered
+	}
+	return ""
 }
 
 func (tx *Transaction) doSetAttrViewViewDesc(operation *Operation) (ret *TxErr) {
@@ -3902,6 +5240,22 @@ func (tx *Transaction) doSetAttrViewFilters(operation *Operation) (ret *TxErr) {
 	return
 }
 
+func (tx *Transaction) doSetAttrViewColRelationFilters(operation *Operation) (ret *TxErr) {
+	err := setAttrViewColFilters(operation.AvID, operation.BlockID, operation.KeyID, operation.Data.([]any), true)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func (tx *Transaction) doSetAttrViewColRollupFilters(operation *Operation) (ret *TxErr) {
+	err := setAttrViewColFilters(operation.AvID, operation.BlockID, operation.KeyID, operation.Data.([]any), false)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
 // avParseView 根据 blockID 推导 box 上下文，使用 box-aware 或全局 AV 解析。
 func avParseView(avID, blockID string) (*av.AttributeView, error) {
 	boxID := deriveAVBoxID(blockID)
@@ -3979,6 +5333,227 @@ func SetAttrViewFilters(avID, blockID string, data []any) (err error) {
 	}
 
 	err = avSaveView(attrView, blockID)
+	return
+}
+
+func setAttrViewColFilters(avID, blockID, keyID string, data []any, relation bool) (err error) {
+	attrView, err := avParseView(avID, blockID)
+	if err != nil {
+		return
+	}
+
+	key, _ := attrView.GetKey(keyID)
+	if nil == key {
+		return av.ErrKeyNotFound
+	}
+
+	destAvID := ""
+	if relation {
+		if av.KeyTypeRelation != key.Type || nil == key.Relation {
+			return av.ErrKeyNotFound
+		}
+		destAvID = key.Relation.AvID
+	} else {
+		if av.KeyTypeRollup != key.Type || nil == key.Rollup {
+			return av.ErrKeyNotFound
+		}
+		relationKey, _ := attrView.GetKey(key.Rollup.RelationKeyID)
+		if nil == relationKey || nil == relationKey.Relation {
+			return av.ErrKeyNotFound
+		}
+		destAvID = relationKey.Relation.AvID
+	}
+
+	destAttrView := attrView
+	if destAvID != avID {
+		destAttrView, err = av.ParseAttributeView(destAvID)
+		if err != nil {
+			return
+		}
+	}
+
+	jsonData, err := gulu.JSON.MarshalJSON(data)
+	if err != nil {
+		return
+	}
+	var filters []*av.ViewFilter
+	if err = gulu.JSON.UnmarshalJSON(jsonData, &filters); err != nil {
+		return
+	}
+	if 0 < len(filters) && (1 != len(filters) || nil == filters[0] || !filters[0].IsGroup()) {
+		filters = []*av.ViewFilter{{Combination: av.FilterCombinationAnd, Filters: filters}}
+	}
+	if err = av.ValidateFilterDepth(filters); nil != err {
+		return
+	}
+
+	validColumns := map[string]bool{}
+	for _, keyValues := range destAttrView.KeyValues {
+		if nil != keyValues && nil != keyValues.Key {
+			validColumns[keyValues.Key.ID] = true
+		}
+	}
+	filters, _ = av.PruneInvalidColumnFilters(filters, validColumns)
+	if !hasAttrViewFilterConditions(filters) {
+		filters = nil
+	}
+
+	if relation {
+		key.Relation.CandidateFilters = filters
+	} else {
+		key.Rollup.Filters = filters
+	}
+	err = avSaveView(attrView, blockID)
+	return
+}
+
+func hasAttrViewFilterConditions(filters []*av.ViewFilter) bool {
+	for _, filter := range filters {
+		if nil == filter {
+			continue
+		}
+		if filter.IsGroup() {
+			if hasAttrViewFilterConditions(filter.Filters) {
+				return true
+			}
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func attrViewFiltersContainColumn(filters []*av.ViewFilter, column string) bool {
+	for _, filter := range filters {
+		if nil == filter {
+			continue
+		}
+		if filter.IsGroup() {
+			if attrViewFiltersContainColumn(filter.Filters, column) {
+				return true
+			}
+			continue
+		}
+		if filter.Column == column {
+			return true
+		}
+	}
+	return false
+}
+
+func attrViewFiltersContainOption(filters []*av.ViewFilter, column, optionContent string) bool {
+	for _, filter := range filters {
+		if nil == filter {
+			continue
+		}
+		if filter.IsGroup() {
+			if attrViewFiltersContainOption(filter.Filters, column, optionContent) {
+				return true
+			}
+			continue
+		}
+		if filter.Column != column || nil == filter.Value {
+			continue
+		}
+		for _, option := range filter.Value.MSelect {
+			if nil != option && option.Content == optionContent {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func removeAttrViewColumnFromFieldFilters(attrView *av.AttributeView, targetAvID, column string) (changed bool) {
+	for _, keyValues := range attrView.KeyValues {
+		if nil == keyValues || nil == keyValues.Key {
+			continue
+		}
+		key := keyValues.Key
+		if av.KeyTypeRelation == key.Type && nil != key.Relation && key.Relation.AvID == targetAvID &&
+			attrViewFiltersContainColumn(key.Relation.CandidateFilters, column) {
+			key.Relation.CandidateFilters = av.RemoveFiltersByColumn(key.Relation.CandidateFilters, column)
+			if !hasAttrViewFilterConditions(key.Relation.CandidateFilters) {
+				key.Relation.CandidateFilters = nil
+			}
+			changed = true
+			continue
+		}
+		if av.KeyTypeRollup != key.Type || nil == key.Rollup ||
+			!attrViewFiltersContainColumn(key.Rollup.Filters, column) {
+			continue
+		}
+		relationKey, _ := attrView.GetKey(key.Rollup.RelationKeyID)
+		if nil == relationKey || nil == relationKey.Relation || relationKey.Relation.AvID != targetAvID {
+			continue
+		}
+		key.Rollup.Filters = av.RemoveFiltersByColumn(key.Rollup.Filters, column)
+		if !hasAttrViewFilterConditions(key.Rollup.Filters) {
+			key.Rollup.Filters = nil
+		}
+		changed = true
+	}
+	return
+}
+
+func removeAttrViewOptionFromFieldFilters(attrView *av.AttributeView, targetAvID, column,
+	optionContent string) (changed bool) {
+	for _, keyValues := range attrView.KeyValues {
+		if nil == keyValues || nil == keyValues.Key {
+			continue
+		}
+		key := keyValues.Key
+		if av.KeyTypeRelation == key.Type && nil != key.Relation && key.Relation.AvID == targetAvID &&
+			attrViewFiltersContainOption(key.Relation.CandidateFilters, column, optionContent) {
+			key.Relation.CandidateFilters = av.RemoveSelectOptionFromFilters(
+				key.Relation.CandidateFilters, column, optionContent)
+			if !hasAttrViewFilterConditions(key.Relation.CandidateFilters) {
+				key.Relation.CandidateFilters = nil
+			}
+			changed = true
+			continue
+		}
+		if av.KeyTypeRollup != key.Type || nil == key.Rollup ||
+			!attrViewFiltersContainOption(key.Rollup.Filters, column, optionContent) {
+			continue
+		}
+		relationKey, _ := attrView.GetKey(key.Rollup.RelationKeyID)
+		if nil == relationKey || nil == relationKey.Relation || relationKey.Relation.AvID != targetAvID {
+			continue
+		}
+		key.Rollup.Filters = av.RemoveSelectOptionFromFilters(key.Rollup.Filters, column, optionContent)
+		if !hasAttrViewFilterConditions(key.Rollup.Filters) {
+			key.Rollup.Filters = nil
+		}
+		changed = true
+	}
+	return
+}
+
+func renameAttrViewOptionInFieldFilters(attrView *av.AttributeView, targetAvID, column,
+	oldContent, newContent, newColor string) (changed bool) {
+	for _, keyValues := range attrView.KeyValues {
+		if nil == keyValues || nil == keyValues.Key {
+			continue
+		}
+		key := keyValues.Key
+		if av.KeyTypeRelation == key.Type && nil != key.Relation && key.Relation.AvID == targetAvID &&
+			attrViewFiltersContainOption(key.Relation.CandidateFilters, column, oldContent) {
+			av.RenameSelectOptionInFilters(key.Relation.CandidateFilters, column, oldContent, newContent, newColor)
+			changed = true
+			continue
+		}
+		if av.KeyTypeRollup != key.Type || nil == key.Rollup ||
+			!attrViewFiltersContainOption(key.Rollup.Filters, column, oldContent) {
+			continue
+		}
+		relationKey, _ := attrView.GetKey(key.Rollup.RelationKeyID)
+		if nil == relationKey || nil == relationKey.Relation || relationKey.Relation.AvID != targetAvID {
+			continue
+		}
+		av.RenameSelectOptionInFilters(key.Rollup.Filters, column, oldContent, newContent, newColor)
+		changed = true
+	}
 	return
 }
 
@@ -4090,15 +5665,34 @@ func setAttributeViewColumnCalc(operation *Operation) (err error) {
 }
 
 func (tx *Transaction) doInsertAttrViewBlock(operation *Operation) (ret *TxErr) {
-	err := AddAttributeViewBlock(tx, operation.Srcs, operation.AvID, operation.BlockID, operation.ViewID, operation.GroupID, operation.PreviousID, operation.IgnoreDefaultFill)
+	result, err := addAttributeViewBlocks(tx, operation.Srcs, operation.AvID, operation.BlockID, operation.ViewID, operation.GroupID, operation.PreviousID, operation.IgnoreDefaultFill)
 	if err != nil {
 		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
 	}
+	operation.RetData = result
 	return
 }
 
 func AddAttributeViewBlock(tx *Transaction, srcs []map[string]any, avID, dbBlockID, viewID, groupID, previousItemID string, ignoreDefaultFill bool) (err error) {
+	_, err = addAttributeViewBlocks(tx, srcs, avID, dbBlockID, viewID, groupID, previousItemID, ignoreDefaultFill)
+	return
+}
+
+type insertAttrViewBlockResult struct {
+	InsertedItemIDs []string `json:"insertedItemIDs"`
+	ExistingItemIDs []string `json:"existingItemIDs"`
+}
+
+func addAttributeViewBlocks(tx *Transaction, srcs []map[string]any, avID, dbBlockID, viewID, groupID, previousItemID string, ignoreDefaultFill bool) (result *insertAttrViewBlockResult, err error) {
+	result = &insertAttrViewBlockResult{}
+	if 0 == len(srcs) {
+		return
+	}
 	slices.Reverse(srcs) // https://github.com/siyuan-note/siyuan/issues/11286
+	attrView, err := av.ParseAttributeView(avID)
+	if err != nil {
+		return
+	}
 
 	now := time.Now().UnixMilli()
 	for _, src := range srcs {
@@ -4124,7 +5718,8 @@ func AddAttributeViewBlock(tx *Transaction, srcs []map[string]any, avID, dbBlock
 			}
 			if nil != loadErr {
 				logging.LogErrorf("load tree [%s] failed: %s", boundBlockID, loadErr)
-				return loadErr
+				err = loadErr
+				return
 			}
 		}
 
@@ -4132,14 +5727,30 @@ func AddAttributeViewBlock(tx *Transaction, srcs []map[string]any, avID, dbBlock
 		if nil != src["content"] {
 			srcContent = src["content"].(string)
 		}
-		if avErr := addAttributeViewBlock(now, avID, dbBlockID, viewID, groupID, previousItemID, srcItemID, boundBlockID, srcContent, src, isDetached, ignoreDefaultFill, tree, tx); nil != avErr {
-			return avErr
+		if avErr := addAttributeViewBlock0(attrView, now, avID, dbBlockID, viewID, groupID, previousItemID, srcItemID, boundBlockID, srcContent, src, isDetached, ignoreDefaultFill, tree, tx, result); nil != avErr {
+			err = avErr
+			return
 		}
 	}
+	regenAttrViewGroups(attrView)
+	err = av.SaveAttributeView(attrView)
 	return
 }
 
-func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previousItemID, addingItemID, addingBoundBlockID, addingBlockContent string, src map[string]any, isDetached, ignoreDefaultFill bool, tree *parse.Tree, tx *Transaction) (err error) {
+func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previousItemID, addingItemID, addingBoundBlockID, addingBlockContent string, src map[string]any, isDetached, ignoreDefaultFill bool, tree *parse.Tree, tx *Transaction, result *insertAttrViewBlockResult) (err error) {
+	attrView, err := av.ParseAttributeView(avID)
+	if err != nil {
+		return
+	}
+	if err = addAttributeViewBlock0(attrView, now, avID, dbBlockID, viewID, groupID, previousItemID, addingItemID, addingBoundBlockID, addingBlockContent, src, isDetached, ignoreDefaultFill, tree, tx, result); nil != err {
+		return
+	}
+	regenAttrViewGroups(attrView)
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
+func addAttributeViewBlock0(attrView *av.AttributeView, now int64, avID, dbBlockID, viewID, groupID, previousItemID, addingItemID, addingBoundBlockID, addingBlockContent string, src map[string]any, isDetached, ignoreDefaultFill bool, tree *parse.Tree, tx *Transaction, result *insertAttrViewBlockResult) (err error) {
 	var node *ast.Node
 	if !isDetached {
 		node = treenode.GetNodeInTree(tree, addingBoundBlockID)
@@ -4154,11 +5765,6 @@ func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previous
 		}
 	}
 
-	attrView, err := av.ParseAttributeView(avID)
-	if err != nil {
-		return
-	}
-
 	var blockIcon string
 	if !isDetached {
 		blockIcon, addingBlockContent = getNodeAvBlockText(node, "")
@@ -4167,7 +5773,13 @@ func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previous
 
 	// 检查是否重复添加相同的块
 	blockValues := attrView.GetBlockKeyValues()
+	if nil == blockValues || nil == blockValues.Key {
+		return fmt.Errorf("attribute view [%s] has no block key", avID)
+	}
 	for _, blockValue := range blockValues.Values {
+		if nil == blockValue || nil == blockValue.Block {
+			continue
+		}
 		if "" != addingBoundBlockID && blockValue.Block.ID == addingBoundBlockID {
 			if !isDetached {
 				// 重复绑定一下，比如剪切数据库块、取消绑定块后再次添加的场景需要
@@ -4176,12 +5788,14 @@ func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previous
 				blockValue.Block.Icon = blockIcon
 				blockValue.Block.Content = addingBlockContent
 				blockValue.UpdatedAt = now
-				err = av.SaveAttributeView(attrView)
 			}
 
 			msg := fmt.Sprintf(Conf.language(269), util.EscapeHTML(getAttrViewName(attrView)))
 			util.PushMsg(msg, 5000)
 			src["itemID"] = blockValue.BlockID
+			if nil == err {
+				result.ExistingItemIDs = append(result.ExistingItemIDs, blockValue.BlockID)
+			}
 			return
 		}
 	}
@@ -4220,30 +5834,14 @@ func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previous
 		groupView = view.GetGroupByID(groupID)
 	}
 
+	useGroupDefault := "" != groupID
 	if !ignoreDefaultFill {
-		fillDefaultValue(attrView, view, groupView, previousItemID, addingItemID, true)
+		fillDefaultValue(attrView, view, groupView, previousItemID, addingItemID, true, useGroupDefault)
 	}
 
 	// 处理日期字段默认填充当前创建时间
 	// The database date field supports filling the current time by default https://github.com/siyuan-note/siyuan/issues/10823
-	for _, keyValues := range attrView.KeyValues {
-		if av.KeyTypeDate == keyValues.Key.Type && nil != keyValues.Key.Date && keyValues.Key.Date.AutoFillNow {
-			val := keyValues.GetValue(addingItemID)
-			if nil == val { // 避免覆盖已有值（可能前面已经通过过滤或者分组条件填充了值）
-				dateVal := &av.Value{
-					ID: ast.NewNodeID(), KeyID: keyValues.Key.ID, BlockID: addingItemID, Type: av.KeyTypeDate, IsDetached: isDetached, CreatedAt: now, UpdatedAt: now + 1000,
-					Date: &av.ValueDate{Content: now, IsNotEmpty: true, IsNotTime: !keyValues.Key.Date.FillSpecificTime},
-				}
-				keyValues.Values = append(keyValues.Values, dateVal)
-			} else {
-				if val.IsRenderAutoFill {
-					val.CreatedAt, val.UpdatedAt = now, now+1000
-					val.Date.Content, val.Date.IsNotEmpty, val.Date.IsNotTime = now, true, !keyValues.Key.Date.FillSpecificTime
-					val.IsRenderAutoFill = false
-				}
-			}
-		}
-	}
+	fillAttrViewAutoFillNowValues(attrView, addingItemID, isDetached, now)
 
 	if !isDetached {
 		bindBlockAv0(tx, avID, node, tree)
@@ -4287,13 +5885,34 @@ func addAttributeViewBlock(now int64, avID, dbBlockID, viewID, groupID, previous
 		}
 	}
 
-	regenAttrViewGroups(attrView)
-	err = av.SaveAttributeView(attrView)
+	result.InsertedItemIDs = append(result.InsertedItemIDs, addingItemID)
 	return
 }
 
-func fillDefaultValue(attrView *av.AttributeView, view, groupView *av.View, previousItemID, addingItemID string, isCreate bool) {
-	defaultValues := getAttrViewAddingBlockDefaultValues(attrView, view, groupView, previousItemID, addingItemID, isCreate)
+func fillAttrViewAutoFillNowValues(attrView *av.AttributeView, addingItemID string, isDetached bool, now int64) {
+	for _, keyValues := range attrView.KeyValues {
+		if av.KeyTypeDate == keyValues.Key.Type && nil != keyValues.Key.Date && keyValues.Key.Date.AutoFillNow {
+			val := keyValues.GetValue(addingItemID)
+			if nil == val {
+				dateVal := &av.Value{
+					ID: ast.NewNodeID(), KeyID: keyValues.Key.ID, BlockID: addingItemID, Type: av.KeyTypeDate, IsDetached: isDetached, CreatedAt: now, UpdatedAt: now + 1000,
+					Date: &av.ValueDate{Content: now, IsNotEmpty: true, IsNotTime: !keyValues.Key.Date.FillSpecificTime},
+				}
+				keyValues.Values = append(keyValues.Values, dateVal)
+			} else {
+				if nil == val.Date {
+					val.Date = &av.ValueDate{}
+				}
+				val.CreatedAt, val.UpdatedAt = now, now+1000
+				val.Date.Content, val.Date.IsNotEmpty, val.Date.IsNotTime = now, true, !keyValues.Key.Date.FillSpecificTime
+				val.IsRenderAutoFill = false
+			}
+		}
+	}
+}
+
+func fillDefaultValue(attrView *av.AttributeView, view, groupView *av.View, previousItemID, addingItemID string, isCreate, useGroupDefault bool) {
+	defaultValues := getAttrViewAddingBlockDefaultValues(attrView, view, groupView, previousItemID, addingItemID, isCreate, useGroupDefault)
 	for keyID, newValue := range defaultValues {
 		newValue.BlockID = addingItemID
 		keyValues, getErr := attrView.GetKeyValues(keyID)
@@ -4339,7 +5958,13 @@ func getNewValueByNearItem(nearItem av.Item, key *av.Key, addingBlockID string) 
 	}
 
 	defaultVal := nearItem.GetValue(key.ID)
+	if nil == defaultVal {
+		return
+	}
 	ret = defaultVal.Clone()
+	if nil == ret {
+		return
+	}
 	ret.ID = ast.NewNodeID()
 	ret.KeyID = key.ID
 	ret.BlockID = addingBlockID
@@ -4448,7 +6073,11 @@ func removeAttributeViewBlock(srcIDs []string, avID string, tx *Transaction) (er
 			view.ItemIDs = gulu.Str.RemoveElem(view.ItemIDs, blockID)
 		}
 	}
+	for _, itemID := range srcIDs {
+		attrView.RemoveCardCoverPositions(itemID)
+	}
 	attrView.RemoveNewItemTemplateRelationItems(avID, srcIDs)
+	attrView.RemoveRelationFilterItems(avID, srcIDs)
 
 	regenAttrViewGroups(attrView)
 
@@ -4456,7 +6085,7 @@ func removeAttributeViewBlock(srcIDs []string, avID string, tx *Transaction) (er
 	if nil != err {
 		return
 	}
-	if err = removeRelatedNewItemTemplateRelationItems(avID, srcIDs); nil != err {
+	if err = removeRelatedRelationItems(avID, srcIDs); nil != err {
 		return
 	}
 
@@ -4503,7 +6132,7 @@ func removeAttributeViewBlock(srcIDs []string, avID string, tx *Transaction) (er
 	return
 }
 
-func removeRelatedNewItemTemplateRelationItems(avID string, itemIDs []string) (err error) {
+func removeRelatedRelationItems(avID string, itemIDs []string) (err error) {
 	for _, relatedAvID := range av.GetSrcAvIDs(avID) {
 		if relatedAvID == avID {
 			continue
@@ -4512,7 +6141,9 @@ func removeRelatedNewItemTemplateRelationItems(avID string, itemIDs []string) (e
 		if nil != parseErr || nil == relatedAv {
 			continue
 		}
-		if !relatedAv.RemoveNewItemTemplateRelationItems(avID, itemIDs) {
+		templateChanged := relatedAv.RemoveNewItemTemplateRelationItems(avID, itemIDs)
+		filterChanged := relatedAv.RemoveRelationFilterItems(avID, itemIDs)
+		if !templateChanged && !filterChanged {
 			continue
 		}
 		if err = av.SaveAttributeView(relatedAv); nil != err {
@@ -4524,11 +6155,21 @@ func removeRelatedNewItemTemplateRelationItems(avID string, itemIDs []string) (e
 }
 
 func removeNodeAvID(node *ast.Node, avID string, tx *Transaction, tree *parse.Tree) (err error) {
-	attrs := parse.IAL2Map(node.KramdownIAL)
-	if ast.NodeDocument == node.Type && !IsBoxDoc(tree.Box, tree.ID) {
-		delete(attrs, DocHiddenAttr)
-		node.RemoveIALAttr(DocHiddenAttr)
+	attrs := removeNodeAvIDAttrs(node, avID)
+	if nil != tx {
+		if err = setNodeAttrsWithTx(tx, node, tree, attrs); err != nil {
+			return
+		}
+	} else {
+		if err = setNodeAttrs(node, tree, attrs); err != nil {
+			return
+		}
 	}
+	return
+}
+
+func removeNodeAvIDAttrs(node *ast.Node, avID string) map[string]string {
+	attrs := parse.IAL2Map(node.KramdownIAL)
 
 	if avs := attrs[av.NodeAttrNameAvs]; "" != avs {
 		avIDs := strings.Split(avs, ",")
@@ -4550,17 +6191,7 @@ func removeNodeAvID(node *ast.Node, avID string, tx *Transaction, tree *parse.Tr
 			attrs[av.NodeAttrViewNames] = avNames
 		}
 	}
-
-	if nil != tx {
-		if err = setNodeAttrsWithTx(tx, node, tree, attrs); err != nil {
-			return
-		}
-	} else {
-		if err = setNodeAttrs(node, tree, attrs); err != nil {
-			return
-		}
-	}
-	return
+	return attrs
 }
 
 func (tx *Transaction) doDuplicateAttrViewKey(operation *Operation) (ret *TxErr) {
@@ -4627,6 +6258,7 @@ func duplicateAttributeViewKey(operation *Operation) (err error) {
 								Hidden: field.Hidden,
 								Desc:   field.Desc,
 							},
+							FullRow: field.FullRow,
 						},
 					}, view.Gallery.CardFields[i+1:]...)...)
 					break
@@ -4643,6 +6275,7 @@ func duplicateAttributeViewKey(operation *Operation) (err error) {
 								Hidden: field.Hidden,
 								Desc:   field.Desc,
 							},
+							FullRow: field.FullRow,
 						},
 					}, view.Kanban.Fields[i+1:]...)...)
 					break
@@ -4678,7 +6311,7 @@ func setAttributeViewColWidth(operation *Operation) (err error) {
 	case av.LayoutTypeTable:
 		for _, column := range view.Table.Columns {
 			if column.ID == operation.ID {
-				column.Width = operation.Data.(string)
+				column.Width = av.FilterWidthValue(operation.Data.(string))
 				break
 			}
 		}
@@ -4688,6 +6321,47 @@ func setAttributeViewColWidth(operation *Operation) (err error) {
 
 	err = av.SaveAttributeView(attrView)
 	return
+}
+
+func (tx *Transaction) doSetAttrViewColumnsWidth(operation *Operation) (ret *TxErr) {
+	err := setAttributeViewColsWidth(operation)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttributeViewColsWidth(operation *Operation) (err error) {
+	widthData, ok := operation.Data.(map[string]any)
+	if !ok {
+		return fmt.Errorf("invalid attribute view column widths")
+	}
+	widths := map[string]string{}
+	for id, value := range widthData {
+		width, valueOK := value.(string)
+		if !valueOK {
+			return fmt.Errorf("invalid width for attribute view column [%s]", id)
+		}
+		widths[id] = width
+	}
+
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return err
+	}
+	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	if err != nil {
+		return err
+	}
+	if av.LayoutTypeTable != view.LayoutType {
+		return nil
+	}
+	for _, column := range view.Table.Columns {
+		if width, found := widths[column.ID]; found {
+			column.Width = av.FilterWidthValue(width)
+		}
+	}
+	return av.SaveAttributeView(attrView)
 }
 
 func (tx *Transaction) doSetAttrViewColumnAlign(operation *Operation) (ret *TxErr) {
@@ -4795,36 +6469,87 @@ func setAttributeViewColHidden(operation *Operation) (err error) {
 		return
 	}
 
-	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
+	viewIDs := operation.ViewIDs
+	if 1 > len(viewIDs) {
+		if "" != operation.ViewID {
+			viewIDs = []string{operation.ViewID}
+		} else {
+			var view *av.View
+			view, err = getAttrViewViewByBlockID(attrView, operation.BlockID)
+			if err != nil {
+				return
+			}
+			viewIDs = []string{view.ID}
+		}
+	}
+
+	err = setAttributeViewFieldsHidden(attrView, operation.ID, viewIDs, operation.Data.(bool))
 	if err != nil {
 		return
 	}
+	err = av.SaveAttributeView(attrView)
+	return
+}
 
+func setAttributeViewFieldsHidden(attrView *av.AttributeView, keyID string, viewIDs []string, hidden bool) (err error) {
+	var fields []*av.BaseField
+	seen := map[string]bool{}
+	for _, viewID := range viewIDs {
+		if seen[viewID] {
+			continue
+		}
+		seen[viewID] = true
+
+		view := attrView.GetView(viewID)
+		if nil == view {
+			return fmt.Errorf("view [%s] not found", viewID)
+		}
+		field := getAttributeViewField(view, keyID)
+		if nil == field {
+			return fmt.Errorf("field [%s] not found in view [%s]", keyID, viewID)
+		}
+		fields = append(fields, field)
+	}
+
+	if 1 > len(fields) {
+		return errors.New("view IDs is empty")
+	}
+	for _, field := range fields {
+		field.Hidden = hidden
+	}
+	return
+}
+
+func getAttributeViewField(view *av.View, keyID string) (ret *av.BaseField) {
 	switch view.LayoutType {
 	case av.LayoutTypeTable:
+		if nil == view.Table {
+			return
+		}
 		for _, column := range view.Table.Columns {
-			if column.ID == operation.ID {
-				column.Hidden = operation.Data.(bool)
-				break
+			if column.ID == keyID {
+				return column.BaseField
 			}
 		}
 	case av.LayoutTypeGallery:
+		if nil == view.Gallery {
+			return
+		}
 		for _, field := range view.Gallery.CardFields {
-			if field.ID == operation.ID {
-				field.Hidden = operation.Data.(bool)
-				break
+			if field.ID == keyID {
+				return field.BaseField
 			}
 		}
 	case av.LayoutTypeKanban:
+		if nil == view.Kanban {
+			return
+		}
 		for _, field := range view.Kanban.Fields {
-			if field.ID == operation.ID {
-				field.Hidden = operation.Data.(bool)
-				break
+			if field.ID == keyID {
+				return field.BaseField
 			}
 		}
 	}
-
-	err = av.SaveAttributeView(attrView)
 	return
 }
 
@@ -4849,11 +6574,9 @@ func setAttributeViewColPin(operation *Operation) (err error) {
 
 	switch view.LayoutType {
 	case av.LayoutTypeTable:
+		pin := operation.Data.(bool)
 		for _, column := range view.Table.Columns {
-			if column.ID == operation.ID {
-				column.Pin = operation.Data.(bool)
-				break
-			}
+			column.Pin = pin && column.ID == operation.ID
 		}
 	case av.LayoutTypeGallery, av.LayoutTypeKanban:
 		return
@@ -4879,7 +6602,7 @@ func setAttributeViewColIcon(operation *Operation) (err error) {
 
 	for _, keyValues := range attrView.KeyValues {
 		if keyValues.Key.ID == operation.ID {
-			keyValues.Key.Icon = operation.Data.(string)
+			keyValues.Key.Icon = filterAttrViewIconValue(operation.Data.(string))
 			break
 		}
 	}
@@ -4932,9 +6655,17 @@ func sortAttributeViewRow(operation *Operation) (err error) {
 		return
 	}
 
-	view, err := getAttrViewViewByBlockID(attrView, operation.BlockID)
-	if err != nil {
-		return
+	var view *av.View
+	if "" != operation.ViewID {
+		view = attrView.GetView(operation.ViewID)
+		if nil == view {
+			return av.ErrViewNotFound
+		}
+	} else {
+		view, err = getAttrViewViewByBlockID(attrView, operation.BlockID)
+		if err != nil {
+			return
+		}
 	}
 
 	var itemID string
@@ -4965,7 +6696,7 @@ func sortAttributeViewRow(operation *Operation) (err error) {
 
 			if isAcrossGroup {
 				if targetGroupView := view.GetGroupByID(operation.TargetGroupID); nil != targetGroupView && !gulu.Str.Contains(itemID, targetGroupView.GroupItemIDs) {
-					fillDefaultValue(attrView, view, targetGroupView, operation.PreviousID, itemID, false)
+					fillDefaultValue(attrView, view, targetGroupView, operation.PreviousID, itemID, false, true)
 
 					if val := attrView.GetValue(groupKey.ID, itemID); nil != val {
 						if av.MSelectExistOption(val.MSelect, groupView.GetGroupValue()) {
@@ -5203,7 +6934,8 @@ func (tx *Transaction) doAddAttrViewColumn(operation *Operation) (ret *TxErr) {
 	if nil != operation.Data {
 		icon = operation.Data.(string)
 	}
-	err := AddAttributeViewKey(operation.AvID, operation.ID, operation.Name, operation.Typ, icon, operation.PreviousID)
+	err := AddAttributeViewKey(operation.AvID, operation.BlockID, operation.ID, operation.Name, operation.Typ, icon, operation.PreviousID,
+		av.DateDisplayFormat(operation.Format))
 
 	if err != nil {
 		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
@@ -5211,24 +6943,32 @@ func (tx *Transaction) doAddAttrViewColumn(operation *Operation) (ret *TxErr) {
 	return
 }
 
-func AddAttributeViewKey(avID, keyID, keyName, keyType, keyIcon, previousKeyID string) (err error) {
+func AddAttributeViewKey(avID, blockID, keyID, keyName, keyType, keyIcon, previousKeyID string, dateFormat av.DateDisplayFormat) (err error) {
 	attrView, err := av.ParseAttributeView(avID)
 	if err != nil {
 		return
 	}
 
-	currentView, err := attrView.GetCurrentView(attrView.ViewID)
+	currentView, err := getAttrViewViewByBlockID(attrView, blockID)
 	if nil != err {
 		return
 	}
 
 	keyTyp := av.KeyType(keyType)
 	switch keyTyp {
+	case av.KeyTypeBlock:
+		return errors.New("cannot add an attribute view block key")
 	case av.KeyTypeText, av.KeyTypeNumber, av.KeyTypeDate, av.KeyTypeSelect, av.KeyTypeMSelect, av.KeyTypeURL, av.KeyTypeEmail,
 		av.KeyTypePhone, av.KeyTypeMAsset, av.KeyTypeTemplate, av.KeyTypeCreated, av.KeyTypeUpdated, av.KeyTypeCheckbox,
 		av.KeyTypeRelation, av.KeyTypeRollup, av.KeyTypeLineNumber:
 
-		key := av.NewKey(keyID, keyName, keyIcon, keyTyp)
+		key := av.NewKey(keyID, keyName, filterAttrViewIconValue(keyIcon), keyTyp)
+		if av.KeyTypeDate == keyTyp || av.KeyTypeCreated == keyTyp || av.KeyTypeUpdated == keyTyp {
+			if !dateFormat.IsValid() {
+				return errors.New("invalid date display format")
+			}
+			key.DateFormat = dateFormat
+		}
 		if av.KeyTypeRollup == keyTyp {
 			key.Rollup = &av.Rollup{Calc: &av.RollupCalc{Operator: av.CalcOperatorNone}}
 		}
@@ -5302,6 +7042,8 @@ func AddAttributeViewKey(avID, keyID, keyName, keyType, keyIcon, previousKeyID s
 				}
 			}
 		}
+	default:
+		return fmt.Errorf("unsupported attribute view key type [%s]", keyType)
 	}
 
 	err = av.SaveAttributeView(attrView)
@@ -5367,6 +7109,40 @@ func updateAttributeViewColNumberFormat(operation *Operation) (err error) {
 	return
 }
 
+func (tx *Transaction) doSetAttrViewColDateFormat(operation *Operation) (ret *TxErr) {
+	err := setAttributeViewColDateFormat(operation)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	return
+}
+
+func setAttributeViewColDateFormat(operation *Operation) (err error) {
+	format := av.DateDisplayFormat(operation.Format)
+	if !format.IsValid() {
+		return errors.New("invalid date display format")
+	}
+
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return
+	}
+
+	colType := av.KeyType(operation.Typ)
+	if av.KeyTypeDate != colType && av.KeyTypeCreated != colType && av.KeyTypeUpdated != colType {
+		return errors.New("date display format is only available for date fields")
+	}
+	for _, keyValues := range attrView.KeyValues {
+		if keyValues.Key.ID == operation.ID && keyValues.Key.Type == colType {
+			keyValues.Key.DateFormat = format
+			break
+		}
+	}
+
+	err = av.SaveAttributeView(attrView)
+	return
+}
+
 func (tx *Transaction) doUpdateAttrViewColumn(operation *Operation) (ret *TxErr) {
 	err := updateAttributeViewColumn(operation)
 	if err != nil {
@@ -5422,6 +7198,7 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 				}
 			}
 		}
+		removeAttrViewColumnFromFieldFilters(attrView, attrView.ID, operation.ID)
 	}
 
 	if err = av.SaveAttributeView(attrView); nil != err {
@@ -5431,13 +7208,17 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 	if changeType {
 		relatedAvIDs := av.GetSrcAvIDs(attrView.ID)
 		for _, relatedAvID := range relatedAvIDs {
+			if relatedAvID == attrView.ID {
+				continue
+			}
 			destAv, _ := av.ParseAttributeView(relatedAvID)
 			if nil == destAv {
 				continue
 			}
 
 			for _, keyValues := range destAv.KeyValues {
-				if av.KeyTypeRollup == keyValues.Key.Type && keyValues.Key.Rollup.KeyID == operation.ID {
+				if av.KeyTypeRollup == keyValues.Key.Type && nil != keyValues.Key.Rollup &&
+					keyValues.Key.Rollup.KeyID == operation.ID {
 					// 置空关联过来的汇总
 					for _, val := range keyValues.Values {
 						val.Rollup.Contents = nil
@@ -5445,6 +7226,7 @@ func updateAttributeViewColumn(operation *Operation) (err error) {
 					keyValues.Key.Rollup.Calc = &av.RollupCalc{Operator: av.CalcOperatorNone}
 				}
 			}
+			removeAttrViewColumnFromFieldFilters(destAv, attrView.ID, operation.ID)
 
 			regenAttrViewGroups(destAv)
 			av.SaveAttributeView(destAv)
@@ -5567,6 +7349,7 @@ func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err er
 			}
 		}
 	}
+	attrView.RemoveCardCoverPositionsBySource(av.CardCoverSource(av.CoverFromAssetField, keyID))
 
 	for _, view := range attrView.Views {
 		if nil != view.Table {
@@ -5604,6 +7387,7 @@ func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err er
 			}
 		}
 	}
+	removeAttrViewColumnFromFieldFilters(attrView, avID, keyID)
 
 	if err = av.SaveAttributeView(attrView); nil != err {
 		return
@@ -5615,19 +7399,24 @@ func RemoveAttributeViewKey(avID, keyID string, removeRelationDest bool) (err er
 
 	relatedAvIDs := av.GetSrcAvIDs(avID)
 	for _, relatedAvID := range relatedAvIDs {
+		if relatedAvID == avID {
+			continue
+		}
 		destAv, _ := av.ParseAttributeView(relatedAvID)
 		if nil == destAv {
 			continue
 		}
 
 		for _, keyValues := range destAv.KeyValues {
-			if av.KeyTypeRollup == keyValues.Key.Type && keyValues.Key.Rollup.KeyID == keyID {
+			if av.KeyTypeRollup == keyValues.Key.Type && nil != keyValues.Key.Rollup &&
+				keyValues.Key.Rollup.KeyID == keyID {
 				// 置空关联过来的汇总
 				for _, val := range keyValues.Values {
 					val.Rollup.Contents = nil
 				}
 			}
 		}
+		removeAttrViewColumnFromFieldFilters(destAv, avID, keyID)
 
 		regenAttrViewGroups(destAv)
 		av.SaveAttributeView(destAv)
@@ -5744,6 +7533,50 @@ func (tx *Transaction) doUpdateAttrViewCell(operation *Operation) (ret *TxErr) {
 	return
 }
 
+func (tx *Transaction) doBatchUpdateAttrViewCells(operations []*Operation) (ret *TxErr) {
+	attrView, err := av.ParseAttributeView(operations[0].AvID)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operations[0].AvID, msg: err.Error()}
+	}
+
+	for _, operation := range operations {
+		if _, err = updateAttributeViewValue(tx, attrView, operation.KeyID, operation.RowID, operation.Data, false); err != nil {
+			return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+		}
+	}
+	regenAttrViewGroups(attrView)
+	if err = av.SaveAttributeView(attrView); err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: attrView.ID, msg: err.Error()}
+	}
+	refreshRelatedSrcAvs(attrView.ID, tx)
+	return
+}
+
+func (tx *Transaction) doUpdateAttrViewCells(operation *Operation) (ret *TxErr) {
+	if "" == operation.AvID || 0 == len(operation.CellUpdates) {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: "invalid attribute view cell updates"}
+	}
+	attrView, err := av.ParseAttributeView(operation.AvID)
+	if err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+	}
+	context := newAttrViewValueUpdateContext(attrView)
+	for _, cell := range operation.CellUpdates {
+		if nil == cell || "" == cell.KeyID || "" == cell.RowID {
+			return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: "invalid attribute view cell update"}
+		}
+		if _, err = updateAttributeViewValue0(tx, attrView, cell.KeyID, cell.RowID, cell.Data, false, context); err != nil {
+			return &TxErr{code: TxErrHandleAttributeView, id: operation.AvID, msg: err.Error()}
+		}
+	}
+	regenAttrViewGroups(attrView)
+	if err = av.SaveAttributeView(attrView); err != nil {
+		return &TxErr{code: TxErrHandleAttributeView, id: attrView.ID, msg: err.Error()}
+	}
+	refreshRelatedSrcAvs(attrView.ID, tx)
+	return
+}
+
 func BatchUpdateAttributeViewCells(tx *Transaction, avID string, values []any) (err error) {
 	attrView, err := av.ParseAttributeView(avID)
 	if err != nil {
@@ -5766,11 +7599,16 @@ func BatchUpdateAttributeViewCells(tx *Transaction, avID string, values []any) (
 			return
 		}
 		valueData := v["value"]
-		_, err = updateAttributeViewValue(tx, attrView, keyID, itemID, valueData)
+		_, err = updateAttributeViewValue(tx, attrView, keyID, itemID, valueData, false)
 		if err != nil {
 			return
 		}
 	}
+	regenAttrViewGroups(attrView)
+	if err = av.SaveAttributeView(attrView); err != nil {
+		return
+	}
+	refreshRelatedSrcAvs(avID, tx)
 	return
 }
 
@@ -5780,54 +7618,104 @@ func UpdateAttributeViewCell(tx *Transaction, avID, keyID, itemID string, valueD
 		return
 	}
 
-	val, err = updateAttributeViewValue(tx, attrView, keyID, itemID, valueData)
+	val, err = updateAttributeViewValue(tx, attrView, keyID, itemID, valueData, true)
 	if nil != err {
 		return
 	}
 	return
 }
 
-func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID, itemID string, valueData any) (val *av.Value, err error) {
-	avID := attrView.ID
-	var blockVal *av.Value
-	for _, kv := range attrView.KeyValues {
-		if av.KeyTypeBlock == kv.Key.Type {
-			for _, v := range kv.Values {
-				if itemID == v.BlockID {
-					blockVal = v
-					break
+func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID, itemID string, valueData any, save bool) (val *av.Value, err error) {
+	return updateAttributeViewValue0(tx, attrView, keyID, itemID, valueData, save, nil)
+}
+
+type attrViewValueUpdateContext struct {
+	keyValues   map[string]*av.KeyValues
+	blockValues map[string]*av.Value
+	values      map[string]map[string]*av.Value
+}
+
+func newAttrViewValueUpdateContext(attrView *av.AttributeView) *attrViewValueUpdateContext {
+	context := &attrViewValueUpdateContext{
+		keyValues:   map[string]*av.KeyValues{},
+		blockValues: map[string]*av.Value{},
+		values:      map[string]map[string]*av.Value{},
+	}
+	for _, keyValues := range attrView.KeyValues {
+		if nil == keyValues || nil == keyValues.Key {
+			continue
+		}
+		context.keyValues[keyValues.Key.ID] = keyValues
+		values := map[string]*av.Value{}
+		for _, value := range keyValues.Values {
+			if nil == value {
+				continue
+			}
+			if _, exists := values[value.BlockID]; !exists {
+				values[value.BlockID] = value
+			}
+			if av.KeyTypeBlock == keyValues.Key.Type {
+				if _, exists := context.blockValues[value.BlockID]; !exists {
+					context.blockValues[value.BlockID] = value
 				}
 			}
-			break
 		}
+		context.values[keyValues.Key.ID] = values
+	}
+	return context
+}
+
+func updateAttributeViewValue0(tx *Transaction, attrView *av.AttributeView, keyID, itemID string, valueData any, save bool, context *attrViewValueUpdateContext) (val *av.Value, err error) {
+	avID := attrView.ID
+	var keyValues *av.KeyValues
+	var blockVal *av.Value
+	if nil == context {
+		keyValues, err = attrView.GetKeyValues(keyID)
+		if nil != err {
+			return
+		}
+		blockVal = attrView.GetBlockValue(itemID)
+	} else {
+		keyValues = context.keyValues[keyID]
+		if nil == keyValues {
+			err = av.ErrKeyNotFound
+			return
+		}
+		blockVal = context.blockValues[itemID]
+	}
+	if nil == blockVal {
+		err = av.ErrItemNotFound
+		return
 	}
 
 	now := time.Now().UnixMilli()
-	oldIsDetached := true
-	var oldBoundBlockID string
-	if nil != blockVal {
-		oldIsDetached = blockVal.IsDetached
-		oldBoundBlockID = blockVal.Block.ID
-	}
-	for _, keyValues := range attrView.KeyValues {
-		if keyID != keyValues.Key.ID {
-			continue
-		}
-
+	oldIsDetached := blockVal.IsDetached
+	oldBoundBlockID := blockVal.Block.ID
+	if nil == context {
 		for _, value := range keyValues.Values {
 			if itemID == value.BlockID {
 				val = value
-				val.Type = keyValues.Key.Type
 				break
 			}
 		}
-
-		if nil == val {
-			val = &av.Value{ID: ast.NewNodeID(), KeyID: keyID, BlockID: itemID, Type: keyValues.Key.Type, CreatedAt: now, UpdatedAt: now}
-			keyValues.Values = append(keyValues.Values, val)
-		}
-		break
+	} else {
+		val = context.values[keyID][itemID]
 	}
+	if nil != val {
+		val.Type = keyValues.Key.Type
+	}
+
+	if nil == val {
+		val = &av.Value{ID: ast.NewNodeID(), KeyID: keyID, BlockID: itemID, Type: keyValues.Key.Type, CreatedAt: now, UpdatedAt: now}
+		keyValues.Values = append(keyValues.Values, val)
+		if nil != context {
+			context.values[keyID][itemID] = val
+		}
+	}
+
+	valueID := val.ID
+	valueType := val.Type
+	valueCreatedAt := val.CreatedAt
 
 	isUpdatingBlockKey := av.KeyTypeBlock == val.Type
 	var oldRelationBlockIDs []string
@@ -5843,10 +7731,15 @@ func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID
 		logging.LogErrorf("marshal value [%+v] failed: %s", valueData, err)
 		return
 	}
-	if err = gulu.JSON.UnmarshalJSON(data, &val); err != nil {
+	if err = gulu.JSON.UnmarshalJSON(data, val); err != nil {
 		logging.LogErrorf("unmarshal data [%s] failed: %s", data, err)
 		return
 	}
+	val.ID = valueID
+	val.KeyID = keyID
+	val.BlockID = itemID
+	val.Type = valueType
+	val.CreatedAt = valueCreatedAt
 
 	key, _ := attrView.GetKey(keyID)
 
@@ -5860,9 +7753,13 @@ func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID
 			}
 		}
 	} else if av.KeyTypeDate == val.Type {
-		if nil != val.Date && !val.Date.IsNotEmpty {
-			val.Date.Content = 0
-			val.Date.FormattedContent = ""
+		if nil != val.Date {
+			if !val.Date.IsNotEmpty {
+				val.Date.Content = 0
+				val.Date.FormattedContent = ""
+			} else if nil != key {
+				val.Date.FormatDate(key.DateFormat)
+			}
 		}
 	} else if av.KeyTypeSelect == val.Type || av.KeyTypeMSelect == val.Type {
 		if nil != key && 0 < len(val.MSelect) {
@@ -5883,7 +7780,7 @@ func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID
 			for _, valOpt := range val.MSelect {
 				if opt := key.GetOption(valOpt.Content); nil == opt {
 					// 不存在的选项新建保存
-					color := valOpt.Color
+					color := av.FilterColorValue(valOpt.Color)
 					if "" == color {
 						color = fmt.Sprintf("%d", 1+rand.Intn(14))
 					}
@@ -5967,15 +7864,19 @@ func updateAttributeViewValue(tx *Transaction, attrView *av.AttributeView, keyID
 		updateTwoWayRelationDestAttrView(attrView, key, val, relationChangeMode, oldRelationBlockIDs)
 	}
 
-	regenAttrViewGroups(attrView)
-	if err = av.SaveAttributeView(attrView); nil != err {
-		return
+	if save {
+		regenAttrViewGroups(attrView)
+		if err = av.SaveAttributeView(attrView); nil != err {
+			return
+		}
 	}
 	if 0 != relationChangeMode && nil != key && nil != key.Relation && "" != key.Relation.AvID && key.Relation.AvID != avID {
 		ReloadAttrView(key.Relation.AvID)
 	}
 
-	refreshRelatedSrcAvs(avID, tx)
+	if save {
+		refreshRelatedSrcAvs(avID, tx)
+	}
 	return
 }
 
@@ -6244,7 +8145,6 @@ func updateAttributeViewColumnOptions(operation *Operation) (err error) {
 		optionSorts[opt.Name] = i
 	}
 
-	addNew := false
 	selectKey, _ := attrView.GetKey(operation.ID)
 	if nil == selectKey {
 		return
@@ -6256,28 +8156,44 @@ func updateAttributeViewColumnOptions(operation *Operation) (err error) {
 	for _, opt := range options {
 		if existingOpt, exists := existingOptions[opt.Name]; exists {
 			// 如果选项已经存在则更新颜色和描述
-			existingOpt.Color = opt.Color
+			existingOpt.Color = av.FilterColorValue(opt.Color)
 			existingOpt.Desc = opt.Desc
 		} else {
 			// 如果选项不存在则添加新选项
 			selectKey.Options = append(selectKey.Options, &av.SelectOption{
 				Name:  opt.Name,
-				Color: opt.Color,
+				Color: av.FilterColorValue(opt.Color),
 				Desc:  opt.Desc,
 			})
-			addNew = true
 		}
 	}
 
-	if !addNew {
-		sort.SliceStable(selectKey.Options, func(i, j int) bool {
-			return optionSorts[selectKey.Options[i].Name] < optionSorts[selectKey.Options[j].Name]
-		})
-	}
+	sortAttributeViewColumnOptions(selectKey.Options, optionSorts)
 
 	regenAttrViewGroups(attrView)
 	err = av.SaveAttributeView(attrView)
 	return
+}
+
+func sortAttributeViewColumnOptions(options []*av.SelectOption, optionSorts map[string]int) {
+	var sortableOptions []*av.SelectOption
+	for _, opt := range options {
+		if _, ok := optionSorts[opt.Name]; ok {
+			sortableOptions = append(sortableOptions, opt)
+		}
+	}
+	sort.SliceStable(sortableOptions, func(i, j int) bool {
+		return optionSorts[sortableOptions[i].Name] < optionSorts[sortableOptions[j].Name]
+	})
+
+	// 仅重排请求中包含的选项，避免过期请求扰动其他请求新增的选项。
+	sortableIndex := 0
+	for i, opt := range options {
+		if _, ok := optionSorts[opt.Name]; ok {
+			options[i] = sortableOptions[sortableIndex]
+			sortableIndex++
+		}
+	}
 }
 
 func (tx *Transaction) doRemoveAttrViewColOption(operation *Operation) (ret *TxErr) {
@@ -6337,9 +8253,27 @@ func removeAttributeViewColumnOption(operation *Operation) (err error) {
 			view.Filters = []*av.ViewFilter{{Combination: av.FilterCombinationAnd}}
 		}
 	}
+	removeAttrViewOptionFromFieldFilters(attrView, attrView.ID, operation.ID, optName)
 
 	regenAttrViewGroups(attrView)
-	err = av.SaveAttributeView(attrView)
+	if err = av.SaveAttributeView(attrView); nil != err {
+		return
+	}
+
+	for _, relatedAvID := range av.GetSrcAvIDs(attrView.ID) {
+		if relatedAvID == attrView.ID {
+			continue
+		}
+		relatedAv, parseErr := av.ParseAttributeView(relatedAvID)
+		if nil != parseErr || nil == relatedAv ||
+			!removeAttrViewOptionFromFieldFilters(relatedAv, attrView.ID, operation.ID, optName) {
+			continue
+		}
+		if err = av.SaveAttributeView(relatedAv); nil != err {
+			return
+		}
+		ReloadAttrView(relatedAvID)
+	}
 	return
 }
 
@@ -6368,7 +8302,7 @@ func updateAttributeViewColumnOption(operation *Operation) (err error) {
 	oldName := strings.TrimSpace(data["oldName"].(string))
 	newName := strings.TrimSpace(data["newName"].(string))
 	newDesc := strings.TrimSpace(data["newDesc"].(string))
-	newColor := data["newColor"].(string)
+	newColor := av.FilterColorValue(data["newColor"].(string))
 
 	found := false
 	if oldName != newName {
@@ -6445,9 +8379,27 @@ func updateAttributeViewColumnOption(operation *Operation) (err error) {
 	for _, view := range attrView.Views {
 		av.RenameSelectOptionInFilters(view.Filters, key.ID, oldName, newName, newColor)
 	}
+	renameAttrViewOptionInFieldFilters(attrView, attrView.ID, key.ID, oldName, newName, newColor)
 
 	regenAttrViewGroups(attrView)
-	err = av.SaveAttributeView(attrView)
+	if err = av.SaveAttributeView(attrView); nil != err {
+		return
+	}
+
+	for _, relatedAvID := range av.GetSrcAvIDs(attrView.ID) {
+		if relatedAvID == attrView.ID {
+			continue
+		}
+		relatedAv, parseErr := av.ParseAttributeView(relatedAvID)
+		if nil != parseErr || nil == relatedAv ||
+			!renameAttrViewOptionInFieldFilters(relatedAv, attrView.ID, key.ID, oldName, newName, newColor) {
+			continue
+		}
+		if err = av.SaveAttributeView(relatedAv); nil != err {
+			return
+		}
+		ReloadAttrView(relatedAvID)
+	}
 	return
 }
 
@@ -6485,16 +8437,35 @@ func setAttributeViewColumnOptionDesc(operation *Operation) (err error) {
 	return
 }
 
-func getAttrViewViewByBlockID(attrView *av.AttributeView, blockID string) (ret *av.View, err error) {
-	var viewID string
-	var node *ast.Node
+func resolveAttributeViewView(attrView *av.AttributeView, viewID, carrierViewID, blockID string) (ret *av.View, err error) {
+	if "" != viewID {
+		ret = attrView.GetView(viewID)
+		if nil == ret {
+			return nil, av.ErrViewNotFound
+		}
+		return
+	}
+
+	if "" != carrierViewID {
+		if ret = attrView.GetView(carrierViewID); nil != ret {
+			return
+		}
+	}
+
 	if "" != blockID {
-		node, _, _ = getNodeByBlockID(nil, blockID)
+		node, _, _ := getNodeByBlockID(nil, blockID)
+		if nil != node && ast.NodeAttributeView == node.Type && attrView.ID == node.AttributeViewID {
+			if ret = attrView.GetView(node.IALAttr(av.NodeAttrView)); nil != ret {
+				return
+			}
+		}
 	}
-	if nil != node {
-		viewID = node.IALAttr(av.NodeAttrView)
-	}
-	return attrView.GetCurrentView(viewID)
+
+	return attrView.GetFirstView()
+}
+
+func getAttrViewViewByBlockID(attrView *av.AttributeView, blockID string) (ret *av.View, err error) {
+	return resolveAttributeViewView(attrView, "", "", blockID)
 }
 
 func getAttrViewName(attrView *av.AttributeView) string {

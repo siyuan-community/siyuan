@@ -4,6 +4,7 @@
 
 * [Specification](#Specification)
     * [Parameters and return values](#Parameters-and-return-values)
+    * [Behavior semantics](#Behavior-semantics)
     * [Authentication](#Authentication)
 * [Notebooks](#Notebooks)
     * [List notebooks](#List-notebooks)
@@ -19,6 +20,7 @@
     * [Rename a document](#Rename-a-document)
     * [Remove a document](#Remove-a-document)
     * [Move documents](#Move-documents)
+    * [Set notebook and document sort values](#Set-notebook-and-document-sort-values)
     * [Get human-readable path based on path](#Get-human-readable-path-based-on-path)
     * [Get human-readable path based on ID](#Get-human-readable-path-based-on-ID)
     * [Get storage path based on ID](#Get-storage-path-based-on-ID)
@@ -79,6 +81,10 @@
     * [Push error message](#Push-error-message)
 * [Network](#Network)
     * [Forward proxy](#Forward-proxy)
+        * [JSON forward proxy](#JSON-forward-proxy)
+        * [HTTP forward proxy](#HTTP-forward-proxy)
+        * [WebSocket forward proxy](#WebSocket-forward-proxy)
+        * [EventSource forward proxy](#EventSource-forward-proxy)
 * [System](#System)
     * [Get boot progress](#Get-boot-progress)
     * [Get system version](#Get-system-version)
@@ -91,9 +97,8 @@
 ### Parameters and return values
 
 * Endpoint: `http://127.0.0.1:6806`
-* Both are POST methods
-* An interface with parameters is required, the parameter is a JSON string, placed in the body, and the header
-  Content-Type is `application/json`
+* Unless otherwise stated, API interfaces use the POST method
+* For interfaces that take JSON parameters, the parameter is a JSON string placed in the body, and the header Content-Type is `application/json`
 * Return value
 
    ````json
@@ -108,9 +113,18 @@
     * `msg`: an empty string under normal circumstances, an error text will be returned under abnormal conditions
     * `data`: may be `{}`, `[]` or `NULL`, depending on the interface
 
+### Behavior semantics
+
+* Only interfaces with dedicated interface sections in this document are public APIs. Other kernel routes and `/api/transactions` operations are internal implementations and provide no compatibility or behavioral stability guarantees unless otherwise stated
+* `code: 0` means the interface reported no error while handling the request. It guarantees only the outcome explicitly documented for that interface; it does not mean that related indexes, caches, WebSocket broadcasts, or sync state have all been updated
+* The meanings of omitted fields, `null`, empty objects, and empty arrays are interface-specific. Whether an object or array replaces, merges with, or partially updates existing state, and whether its order is significant, are also defined by each interface
+* An interface may trim, ignore, complete, or transform input. When its documentation states that a normalized result is returned, callers should use the returned `data` as the actual accepted result
+* Do not infer that an operation is read-only from its name. Persistent side effects and their scope are described by each interface when applicable
+* Repeating the same request is idempotent or safe to retry only when explicitly documented. If a response is interrupted or otherwise indeterminate, read the current state before retrying whenever possible
+
 ### Authentication
 
-View API token in <kbd>Settings - About</kbd>, request header: `Authorization: Token xxx`
+View the API token in <kbd>Settings - Authentication - API token</kbd>. Use it in the request header: `Authorization: Token xxx`
 
 ## Notebooks
 
@@ -510,6 +524,45 @@ Move documents by `id`:
   }
   ```
 
+### Set notebook and document sort values
+
+* `/api/filetree/setSort`
+* Parameters
+
+  ```json
+  {
+    "notebookSorts": [
+      {
+        "id": "20210817205410-2kvfpfn",
+        "sort": -10
+      }
+    ],
+    "docSorts": [
+      {
+        "id": "20210917220056-yxtyl7i",
+        "sort": -8
+      }
+    ]
+  }
+  ```
+
+    * `notebookSorts`: Notebook IDs and their sort values, optional
+    * `docSorts`: Document IDs and their sort values, optional
+    * Documents in `docSorts` must belong to opened and unlocked notebooks; notebook root document IDs are not accepted
+    * At least one of `notebookSorts` and `docSorts` must be non-empty. Array order does not affect sorting; each `sort` value is stored directly
+* Return value
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "notebookIDs": ["20210817205410-2kvfpfn"],
+      "docIDs": ["20210917220056-yxtyl7i"]
+    }
+  }
+  ```
+
 ### Get human-readable path based on path
 
 * `/api/filetree/getHPathByPath`
@@ -788,13 +841,15 @@ Move documents by `id`:
   {
     "dataType": "markdown",
     "data": "foobarbaz",
-    "id": "20211230161520-querkps"
+    "id": "20211230161520-querkps",
+    "lockType": false
   }
   ```
 
     * `dataType`: The data type to be updated, the value can be `markdown` or `dom`
     * `data`: Data to be updated
     * `id`: ID of the block to be updated
+    * `lockType`: Whether to reject the update when the parsed block type differs from the existing block type; invalid parent-child structures are always rejected, while an empty paragraph can be converted to any valid block type; defaults to `false`
 * Return value
 
   ```json
@@ -970,6 +1025,8 @@ Move documents by `id`:
     }
   }
   ```
+
+* Determinism: The returned Kramdown canonicalizes block-level IAL attribute ordering; the order remains stable while the block content and attributes are unchanged
 
 ### Get child blocks
 
@@ -1480,6 +1537,8 @@ Note: To ensure data security, access to this interface is prohibited in Publish
 
 ### Forward proxy
 
+#### JSON forward proxy
+
 * `/api/network/forwardProxy`
 * Parameters
 
@@ -1494,8 +1553,9 @@ Note: To ensure data security, access to this interface is prohibited in Publish
             "Cookie": ""
         }
     ],
+    "redirect": true,
     "payload": {},
-    "payloadEncoding": "text",
+    "payloadEncoding": "json",
     "responseEncoding": "text"
   }
   ```
@@ -1504,18 +1564,18 @@ Note: To ensure data security, access to this interface is prohibited in Publish
     * `method`: HTTP method, default is `POST`
     * `timeout`: timeout in milliseconds, default is `7000`
     * `contentType`: Content-Type, default is `application/json`
-    * `headers`: HTTP headers
+    * `headers`: HTTP request header array; each key-value pair in the objects is set as a request header
+    * `redirect`: Whether to follow redirects, default is `true`, following up to 2 redirects; set it to `false` to disable redirects
     * `payload`: HTTP payload, object or string
-    * `payloadEncoding`: The encoding scheme used by `pyaload`, default is `text`, optional values are as follows
+    * `payloadEncoding`: The encoding scheme used by `payload`, default is `json`; `json` sends `payload` directly, and binary payloads can use the following encoded strings
 
-        * `text`
+        * `json`
         * `base64` | `base64-std`
         * `base64-url`
         * `base32` | `base32-std`
         * `base32-hex`
         * `hex`
-    * `responseEncoding`: The encoding scheme used by `body` in response data, default is `text`, optional values are as
-      follows
+    * `responseEncoding`: The encoding scheme used by `body` in response data, default is `text`, optional values are as follows
 
         * `text`
         * `base64` | `base64-std`
@@ -1537,13 +1597,13 @@ Note: To ensure data security, access to this interface is prohibited in Publish
       "headers": {
       },
       "status": 200,
-      "url": "https://b3log.org/siyuan"
+      "url": "https://b3log.org/siyuan/"
     }
   }
   ```
 
-    * `bodyEncoding`: The encoding scheme used by `body`, is consistent with field `responseEncoding` in request,
-      default is `text`, optional values are as follows
+    * `body`: Response body
+    * `bodyEncoding`: The encoding scheme used by `body`; it is consistent with the `responseEncoding` field in the request, default is `text`, optional values are as follows
 
         * `text`
         * `base64` | `base64-std`
@@ -1551,6 +1611,45 @@ Note: To ensure data security, access to this interface is prohibited in Publish
         * `base32` | `base32-std`
         * `base32-hex`
         * `hex`
+    * `contentType`: Response header `Content-Type`
+    * `elapsed`: Request duration in milliseconds
+    * `headers`: Response headers returned by the target service
+    * `status`: HTTP status code returned by the target service
+    * `url`: Forwarded URL
+
+#### HTTP forward proxy
+
+* `/api/network/proxy`
+* Request method: any HTTP method
+* Query parameters
+
+    * `u`: Required, target `http` or `https` URL encoded with Go `base64.RawURLEncoding`, which is URL-safe Base64 without `=` padding
+    * `h`: Optional, request header JSON encoded in the same way; the JSON type is `map[string][]string`, for example `{"Authorization":["Bearer token"]}`
+    * `t`: Optional, connection timeout in Go `time.ParseDuration` format, for example `30s` or `1500ms`
+* Request body: Forwards the current request body as-is, and forwards the current request's full `Content-Type` header to the target request
+* Return value: Directly returns the target service HTTP status code and response body without wrapping them in `code`, `msg`, or `data`; target response headers are returned with the `Siyuan-Proxy-` prefix, for example `Content-Type` is returned as `Siyuan-Proxy-Content-Type`
+
+#### WebSocket forward proxy
+
+* `/ws/network/proxy`
+* Request method: `GET`
+* Query parameters
+
+    * `u`: Required, target `ws` or `wss` URL encoded with Go `base64.RawURLEncoding`
+    * `h`: Optional, handshake request header JSON encoded in the same way; the JSON type is `map[string][]string`
+    * `t`: Optional, handshake timeout in Go `time.ParseDuration` format, for example `30s` or `1500ms`
+* Return value: Upgrades to WebSocket and then forwards messages bidirectionally; target handshake response headers are returned with the `Siyuan-Proxy-` prefix
+
+#### EventSource forward proxy
+
+* `/es/network/proxy`
+* Request method: `GET`
+* Query parameters
+
+    * `u`: Required, target `http` or `https` URL encoded with Go `base64.RawURLEncoding`
+    * `h`: Optional, request header JSON encoded in the same way; the JSON type is `map[string][]string`
+    * `t`: Optional, connection timeout in Go `time.ParseDuration` format, for example `30s` or `1500ms`
+* Return value: Directly streams the target service HTTP status code and response body without wrapping them in `code`, `msg`, or `data`; if the request headers do not include `Accept`, `text/event-stream` is used automatically; target response headers are returned with the `Siyuan-Proxy-` prefix
 
 ## System
 
@@ -1641,18 +1740,24 @@ The field types (`keyType`) are:
     "pageSize": 50,
     "query": "",
     "groupPaging": {},
-    "createIfNotExist": true
+    "targetItemID": "",
+    "targetGroupID": "",
+    "createIfNotExist": true,
+    "persistView": true
   }
   ```
 
     * `id`: Database ID
-    * `blockID`: The database block that embeds this database. Used to resolve the active view and publish access. Omit when rendering a detached database.
-    * `viewID`: The view to render. When omitted, the current view (`viewID` field) is used
+    * `blockID`: The database block that embeds this database. Used to resolve the active view and publish access. If its `custom-sy-av-view` is missing or invalid, the first available view is used. Omit when rendering a detached database
+    * `viewID`: An explicit view to render. An invalid value returns an error. When omitted, the view is resolved from `blockID`, then falls back to the first available view
     * `page`: Page number, 1-based. Defaults to `1`
     * `pageSize`: Items per page. `-1` or omitted means use the view's default (`50`)
     * `query`: Optional full-text filter for the primary-key values
     * `groupPaging`: Optional paging configuration for grouped (kanban) views
-    * `createIfNotExist`: When `true` (default), create a default view if the database has none
+    * `targetItemID`: Optional database item ID to locate. When specified, the response includes target-location metadata
+    * `targetGroupID`: Optional group hint used with `targetItemID`
+    * `createIfNotExist`: When `true` (default), create a database with a default view if the database does not exist
+    * `persistView`: Deprecated compatibility parameter. It is accepted but ignored because the database definition no longer stores a top-level current view
 * Return value (real response, table layout, one row shown):
 
   ```json
@@ -1739,9 +1844,10 @@ The field types (`keyType`) are:
   }
   ```
 
-    * `data.view`: The rendered viewable instance. Shape depends on `viewType` — `table` returns `columns`/`rows`/`rowCount`, `gallery` returns `columns`/`rows`, `kanban` returns `columns`/`groups` (each group is itself a view instance with `groupKey`/`groupValue`). `view` also carries `filters`, `sorts`, `group`, `showIcon`, `wrapField`, `groupFolded`, `groupHidden`. Note: active filters/grouping can make `rows` empty even when `rowCount` > 0
+    * `data.view`: The rendered view instance. Its shape depends on `viewType`: `table` returns `columns`/`rows`/`rowCount`, while `gallery` and `kanban` return `fields`/`cards`/`cardCount`. When grouping is enabled, `groups` contains a view instance for each group, including `groupKey`/`groupValue`. `view` also carries `filters`, `sorts`, `group`, `showIcon`, `wrapField`, `groupFolded`, and `groupHidden`. Note: active filters or grouping can make the item list empty even when the total item count is greater than 0
     * `data.view.columns[]`: Each has `id`, `name`, `type`, `icon`, `wrap`, `hidden`, `desc`, `calc`, `numberFormat`, `template`, `pin`, `width`; `select`/`mSelect` columns additionally carry `options`
-    * `data.view.rows[].id`: The **row ID** (an item ID). For a bound row this is the same as the bound block ID; for a detached row it is a generated item ID distinct from any block
+    * `data.view.rows[].id`: The table row's **item ID** (`itemID`). It also equals `value.blockID` in that row's primary-key cell. For a bound row, the bound block ID is stored in `value.block.id` in the primary-key cell; these are distinct concepts and must not be assumed equal
+    * `data.view.cards[].id`: The **item ID** (`itemID`) of a gallery or kanban card. When grouping is enabled, table rows or cards are in the corresponding view instances under `groups[]`
     * `data.view.rows[].cells[].value`: A `Value` object — see [Set a cell value](#Set-a-cell-value) for all value shapes. `createdAt`/`updatedAt` are int64 millisecond timestamps
     * `data.views`: Metadata of every view (no rows)
     * `data.isMirror`: `true` when the database block is a mirror (read-only copy) of the database
@@ -1838,7 +1944,7 @@ The field types (`keyType`) are:
   }
   ```
 
-    * `data.av`: The full `AttributeView` definition — fields (`keyValues`), field ordering (`keyIDs`, may be `null`), current view (`viewID`), and all views with their raw layout config (`table`/`gallery`/`kanban`) and item ordering (`itemIds`). Returns the raw definition (no rendered rows or pagination); use [Render](#Render) for computed rows
+    * `data.av`: The full `AttributeView` definition — fields (`keyValues`), field ordering (`keyIDs`, may be `null`), and all views with their raw layout config (`table`/`gallery`/`kanban`) and item ordering (`itemIds`). The compatibility `viewID` is computed as the first available view and is not persisted. Returns no rendered rows or pagination; use [Render](#Render) for computed rows
 
 ### Get primary key values
 
@@ -1867,6 +1973,7 @@ The field types (`keyType`) are:
     "data": {
       "name": "API 测试",
       "blockIDs": ["20240118120201-kldj15t"],
+      "total": 1,
       "rows": {
         "key": {
           "id": "20240118120204-w6cggab",
@@ -1900,6 +2007,7 @@ The field types (`keyType`) are:
 
     * `data.rows`: A `KeyValues` object holding the primary-key (`block`) field and its paginated values
     * `data.blockIDs`: IDs of all database blocks (mirrors) that reference this database
+    * `data.total`: Number of primary-key values after filtering and before pagination
 
 ### Search
 
@@ -1909,12 +2017,14 @@ The field types (`keyType`) are:
   ```json
   {
     "keyword": "API",
-    "excludes": []
+    "excludes": [],
+    "includeViewMatches": true
   }
   ```
 
     * `keyword`: Search keyword (matches database name)
     * `excludes`: Optional list of database IDs to exclude from the results
+    * `includeViewMatches`: Optional. When `true`, view names are also searched and matching child views contain `"matched": true`
 * Return value (real response):
 
   ```json
@@ -1938,6 +2048,7 @@ The field types (`keyType`) are:
               "viewName": "表格",
               "viewID": "20240118120204-7rnmyc1",
               "viewLayout": "table",
+              "matched": true,
               "blockID": "20240118120201-kldj15t",
               "hPath": "正在跟进的问题/数据库/API"
             }
@@ -1948,7 +2059,7 @@ The field types (`keyType`) are:
   }
   ```
 
-    * `data.results[]`: Each top-level result groups a database by `avID`; its `children[]` list the individual views (`viewName`/`viewID`/`viewLayout`)
+    * `data.results[]`: Each top-level result groups a database by `avID`; its `children[]` list the individual views (`viewName`/`viewID`/`viewLayout`), and `matched` identifies a view-name match when `includeViewMatches` is enabled
 
 ### Set a cell value
 
@@ -1965,9 +2076,12 @@ Updates a single cell (one field of one row). This is the primary write endpoint
 | `url`      | `{"url": {"content": "https://siyuan.com"}}`                                                                         |
 | `email`    | `{"email": {"content": "a@b.com"}}`                                                                                  |
 | `phone`    | `{"phone": {"content": "1234567890"}}`                                                                               |
+| `mAsset`   | `{"mAsset": [{"type": "image", "name": "", "content": "https://example.com/image"}]}`                               |
 | `checkbox` | `{"checkbox": {"checked": true}}`                                                                                    |
 
-> ⚠️ `itemID` is the **row ID** (`rows[].id` from [Render](#Render)). For a bound row the row ID equals the bound block ID; for a detached row it is a generated item ID. Passing the wrong ID stores the value as an orphan that does not appear in the rendered cell.
+> ⚠️ `itemID` is the **item ID**, which is the rendered item's `id` from [Render](#Render): `rows[].id` for a table and `cards[].id` for a gallery or kanban, inside the corresponding view instance under `groups[]` when grouping is enabled. It also equals the primary-key value's `value.blockID`. For a bound item, the bound block ID is stored in the primary-key value's `value.block.id`; these are distinct concepts and must not be assumed equal. Passing the wrong ID stores the value as an orphan that does not appear in the rendered cell.
+
+For `mAsset`, each item uses `type: "image"` to render an image or `type: "file"` to render a file link. Updating the value replaces the entire `mAsset` array, so append operations must include the existing items.
 
 * `/api/av/setAttributeViewBlockAttr`
 * Parameters
@@ -2045,7 +2159,7 @@ Adds one or more items (rows). Each source can either bind an existing block (`i
 
     * `avID`: Database ID
     * `blockID`: The database block that owns this database (resolves target view/group)
-    * `viewID`: Target view. When omitted, the current view is used
+    * `viewID`: Explicit target view. When omitted, the view selected by `blockID` is used, then the first available view
     * `groupID`: Target group ID for kanban views. Omit for table/gallery
     * `previousID`: Insert after this item ID. Empty means append to the end
     * `srcs[].id`: For bound blocks (`isDetached: false`), the block ID to bind. Must match the node ID pattern
@@ -2093,7 +2207,7 @@ Removes one or more items (rows). Detached rows are deleted; bound blocks are un
 
 ### Change layout
 
-Switches the layout type of the current view between `table`, `gallery`, and `kanban`. On success the server re-renders the view and returns it (same shape as [Render](#Render)).
+Switches the layout type of the view selected by the database block between `table`, `gallery`, and `kanban`. On success the server re-renders the view and returns it (same shape as [Render](#Render)).
 
 * `/api/av/changeAttrViewLayout`
 * Parameters
@@ -2407,7 +2521,7 @@ Reorders a column within a single view's layout (e.g. a table's column order), w
   ```
 
     * `avID`: Database ID
-    * `viewID`: Target view. When empty, uses the current view
+    * `viewID`: Target view. When empty, uses the first available view
     * `keyID`: Field ID to move
     * `previousKeyID`: Field ID after which `keyID` should be placed. Empty string moves it to the first position
 * Return value

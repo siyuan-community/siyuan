@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
 package mobile
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -40,6 +41,69 @@ import (
 	"github.com/siyuan-note/logging"
 	_ "golang.org/x/mobile/bind"
 )
+
+// AcquireExportFile 获取移动端导出租约，返回 JSON 格式的路径、名称和租约 ID。
+func AcquireExportFile(exportPath string) string {
+	lease, err := model.AcquireMobileExportLease(exportPath)
+	if err != nil {
+		logging.LogErrorf("acquire export file [%s] failed: %s", exportPath, err)
+		return ""
+	}
+	data, err := json.Marshal(lease)
+	if err != nil {
+		model.ReleaseMobileExportLease(lease.ID)
+		return ""
+	}
+	return string(data)
+}
+
+// ReleaseExportFile 释放 AcquireExportFile 返回的租约。
+func ReleaseExportFile(leaseID string) {
+	model.ReleaseMobileExportLease(leaseID)
+}
+
+// LANSyncDiscoveryInfo 返回原生 Bonjour 发现需要发布的服务信息。
+func LANSyncDiscoveryInfo() string {
+	info := model.GetLANSyncDiscoveryInfo()
+	if nil == info {
+		return ""
+	}
+	data, err := json.Marshal(info)
+	if nil != err {
+		return ""
+	}
+	return string(data)
+}
+
+// AddLANSyncPeer 将原生 Bonjour 发现的设备交给内核验证。
+func AddLANSyncPeer(instance, address string, port int, txtJSON string) bool {
+	txt := map[string]string{}
+	if err := json.Unmarshal([]byte(txtJSON), &txt); nil != err {
+		return false
+	}
+	return model.AddLANSyncPeer(instance, address, port, txt)
+}
+
+// RemoveLANSyncPeer 将原生 Bonjour 移除的设备从内核中删除。
+func RemoveLANSyncPeer(instance string) bool {
+	return model.RemoveLANSyncPeer(instance)
+}
+
+// LANSyncActive 返回局域网同步服务是否正在运行。
+func LANSyncActive() bool {
+	return model.LANSyncActive()
+}
+
+// UpdateLocalIPs 更新原生容器提供的局域网地址并刷新局域网同步服务。
+func UpdateLocalIPs(localIPs string) {
+	util.SetLocalIPs(strings.Split(localIPs, ","))
+	model.RefreshLANSyncNetwork()
+}
+
+// GetExportFileName 返回普通导出的资源名称；加密导出应读取 AcquireExportFile 返回的 Name。
+func GetExportFileName(exportPath string) string {
+	return model.GetMobileExportName(exportPath)
+}
 
 // VerifyAppStoreTransaction 用于验证苹果 App Store 交易。
 //
@@ -206,7 +270,7 @@ func StartKernel(container, appDir, workspaceBaseDir, timezoneID, localIPs, lang
 	SetTimezone(container, appDir, timezoneID)
 	util.Mode = "prod"
 	util.MobileOSVer = osVer
-	util.LocalIPs = strings.Split(localIPs, ",")
+	util.SetLocalIPs(strings.Split(localIPs, ","))
 	util.BootMobile(container, appDir, workspaceBaseDir, lang)
 
 	model.InitConf()
@@ -324,14 +388,10 @@ func GetExportFilePath(exportPath string) (ret string) {
 			logging.LogWarnf("get export file path [%s] blocked: path traversal attempt [%s]", exportPath, fileName)
 			return
 		}
-		// 加密导出受控路径（<boxID>/<kind>/<file>）：必须经注册表校验且 box 已解锁，否则 fail-closed
+		// 加密导出需要持有覆盖原生复制过程的租约，旧路径解析接口不再返回其明文地址。
 		if model.IsManagedEncryptedExportPath(fileName) {
-			artifact, ok := model.ResolveManagedExportForMobile(fileName)
-			if !ok {
-				logging.LogWarnf("get export file path [%s] blocked: managed export not available or box locked", exportPath)
-				return
-			}
-			return artifact
+			logging.LogWarnf("get export file path [%s] blocked: use AcquireExportFile for encrypted exports", exportPath)
+			return
 		}
 		absPath = filepath.Join(util.TempDir, "export", fileName)
 		exportBaseDir := filepath.Join(util.TempDir, "export")

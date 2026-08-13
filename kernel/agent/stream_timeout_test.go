@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -210,7 +210,7 @@ func TestAgentChatPartialStreamTimeoutSavesInterruptedWithoutRetry(t *testing.T)
 	}))
 	defer server.Close()
 
-	events := AgentChat(context.Background(), newTestOpenAIClient(server.URL), "test-model", testSessionID, "user-1", 1, "hello", "English", nil, EditorContext{}, nil, false, time.Second, 3, "", time.Second, 50*time.Millisecond)
+	events := AgentChat(context.Background(), newTestOpenAIClient(server.URL), "test-model", "", 0, testSessionID, "user-1", 1, "hello", nil, "English", nil, EditorContext{}, nil, false, time.Second, 3, "", time.Second, 50*time.Millisecond)
 	contentSeen := false
 	errorSeen := false
 	for event := range events {

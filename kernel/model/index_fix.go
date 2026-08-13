@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -410,6 +410,9 @@ func fixBlockTreeByFileSys() {
 	// 清理已关闭的笔记本块树
 	boxes = Conf.GetClosedBoxes()
 	for _, box := range boxes {
+		if IsEncryptedBox(box.ID) && !IsBoxUnlocked(box.ID) {
+			continue
+		}
 		treenode.RemoveBlockTreesByBoxID(box.ID)
 	}
 }

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -52,15 +52,23 @@ type TemplateSearchResult struct {
 }
 
 func RenderGoTemplate(templateContent string) (ret string, err error) {
-	return RenderGoTemplateAt(templateContent, time.Now())
+	return RenderGoTemplateAtInBox(templateContent, time.Now(), "")
 }
 
 // RenderGoTemplateAt 使用固定时间渲染 Go 模板，保证同一次业务操作中的多个模板结果一致。
 func RenderGoTemplateAt(templateContent string, now time.Time) (ret string, err error) {
+	return RenderGoTemplateAtInBox(templateContent, now, "")
+}
+
+func RenderGoTemplateInBox(templateContent, boxID string) (ret string, err error) {
+	return RenderGoTemplateAtInBox(templateContent, time.Now(), boxID)
+}
+
+func RenderGoTemplateAtInBox(templateContent string, now time.Time, boxID string) (ret string, err error) {
 	tmpl := template.New("")
 	tplFuncMap := filesys.BuiltInTemplateFuncs()
 	tplFuncMap["now"] = func() time.Time { return now }
-	sql.SQLTemplateFuncs(&tplFuncMap)
+	sql.SQLTemplateFuncs(&tplFuncMap, boxID)
 	tmpl = tmpl.Funcs(tplFuncMap)
 	tpl, err := tmpl.Parse(templateContent)
 	if err != nil {
@@ -77,8 +85,18 @@ func RenderGoTemplateAt(templateContent string, now time.Time) (ret string, err 
 	return
 }
 
+// RemoveTemplate 删除模板文件，路径必须限定在 <data>/templates/ 目录内，防止任意文件被删除
 func RemoveTemplate(p string) (err error) {
-	err = filelock.Remove(p)
+	abs := p
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(util.DataDir, "templates", p)
+	}
+	abs = filepath.Clean(abs)
+	templatesRoot := filepath.Clean(filepath.Join(util.DataDir, "templates"))
+	if !gulu.File.IsSubPath(templatesRoot, abs) {
+		return errors.New("template path is outside templates directory")
+	}
+	err = filelock.Remove(abs)
 	if err != nil {
 		logging.LogErrorf("remove template failed: %s", err)
 	}
@@ -133,6 +151,13 @@ func SearchTemplate(keyword string) (ret []*TemplateSearchResult) {
 
 		if group.IsDir() {
 			templateDir := filepath.Join(templates, group.Name())
+			manifestPath := filepath.Join(templateDir, "template.json")
+			if filelock.IsExist(manifestPath) {
+				pkg, parseErr := bazaar.ParsePackageJSON(manifestPath)
+				if parseErr != nil || !bazaar.IsValidInstalledPackage(pkg, group.Name()) {
+					continue
+				}
+			}
 			readmePaths := getTemplateReadmePaths(templateDir)
 			filelock.Walk(templateDir, func(path string, d fs.DirEntry, err error) error {
 				name := strings.ToLower(d.Name())
@@ -324,8 +349,7 @@ func RenderDynamicIconContentTemplate(content, id string) (ret string) {
 	dataModel["alias"] = block.Alias
 
 	goTpl := template.New("").Delims(".action{", "}")
-	tplFuncMap := filesys.BuiltInTemplateFuncs()
-	sql.SQLTemplateFuncs(&tplFuncMap)
+	tplFuncMap := dynamicIconTemplateFuncs()
 	goTpl = goTpl.Funcs(tplFuncMap)
 	tpl, err := goTpl.Funcs(tplFuncMap).Parse(content)
 	if err != nil {
@@ -341,6 +365,10 @@ func RenderDynamicIconContentTemplate(content, id string) (ret string) {
 	}
 	ret = buf.String()
 	return
+}
+
+func dynamicIconTemplateFuncs() template.FuncMap {
+	return filesys.BuiltInTemplateFuncs()
 }
 
 func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, err error) {
@@ -375,7 +403,7 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 
 	goTpl := template.New("").Delims(".action{", "}")
 	tplFuncMap := filesys.BuiltInTemplateFuncs()
-	sql.SQLTemplateFuncs(&tplFuncMap)
+	sql.SQLTemplateFuncs(&tplFuncMap, tree.Box)
 	goTpl = goTpl.Funcs(tplFuncMap)
 	tpl, err := goTpl.Funcs(tplFuncMap).Parse(gulu.Str.FromBytes(md))
 	if err != nil {
@@ -453,7 +481,7 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 				} else {
 					// 预览时使用简单表格渲染
 					viewID := n.IALAttr(av.NodeAttrView)
-					view, getErr := attrView.GetCurrentView(viewID)
+					view, getErr := resolveAttributeViewView(attrView, viewID, "", "")
 					if nil != getErr {
 						logging.LogErrorf("get attribute view [%s] failed: %s", n.AttributeViewID, getErr)
 						return ast.WalkContinue
@@ -497,7 +525,11 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 			} else {
 				// 外部引用：保持 ID 不变，补全空锚文本
 				if refText := n.Text(); "" == refText {
-					refText = strings.TrimSpace(sql.GetRefText(defID))
+					if IsEncryptedBox(tree.Box) {
+						refText = strings.TrimSpace(GetBlockRefTextInBox(defID, tree.Box))
+					} else {
+						refText = strings.TrimSpace(sql.GetRefText(defID))
+					}
 					if "" != refText {
 						treenode.SetDynamicBlockRefText(n, refText)
 					} else {
@@ -515,7 +547,11 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 				} else {
 					// 外部引用：保持 ID 不变，补全空锚文本
 					if refText := n.Text(); "" == refText {
-						refText = strings.TrimSpace(sql.GetRefText(defID))
+						if IsEncryptedBox(tree.Box) {
+							refText = strings.TrimSpace(GetBlockRefTextInBox(defID, tree.Box))
+						} else {
+							refText = strings.TrimSpace(sql.GetRefText(defID))
+						}
 						if "" != refText {
 							treenode.SetDynamicBlockRefText(n, refText)
 						} else {
@@ -549,17 +585,16 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 		n.Unlink()
 	}
 
-	// 折叠标题导出为模板后使用会出现内容重复 https://github.com/siyuan-note/siyuan/issues/4488
+	// 折叠标题下方块需要在模板插入后从当前 DOM 中移除，展开标题时再由内核加载，避免内容重复。
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
-		if !entering {
-			return ast.WalkContinue
-		}
-
-		if "1" == n.IALAttr("heading-fold") { // 为标题折叠下方块添加属性，前端渲染以后会统一做移除处理
-			n.SetIALAttr("status", "temp")
+		if entering && n.IsBlock() {
+			treenode.ClearLegacyHeadingFold(n)
 		}
 		return ast.WalkContinue
 	})
+	for _, n := range treenode.CollectFoldHiddenNodes(tree.Root) {
+		n.SetIALAttr("status", "temp")
+	}
 
 	icon := tree.Root.IALAttr("icon")
 	if "" != icon {
@@ -574,6 +609,14 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 }
 
 func addBlockIALNodes(tree *parse.Tree, removeUpdated bool) {
+	addBlockIALNodes0(tree, removeUpdated, false)
+}
+
+func addCanonicalBlockIALNodes(tree *parse.Tree, removeUpdated bool) {
+	addBlockIALNodes0(tree, removeUpdated, true)
+}
+
+func addBlockIALNodes0(tree *parse.Tree, removeUpdated, canonical bool) {
 	var blocks []*ast.Node
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering || !n.IsBlock() {
@@ -604,8 +647,92 @@ func addBlockIALNodes(tree *parse.Tree, removeUpdated bool) {
 		return ast.WalkContinue
 	})
 	for _, block := range blocks {
-		block.InsertAfter(&ast.Node{Type: ast.NodeKramdownBlockIAL, Tokens: parse.IAL2Tokens(block.KramdownIAL)})
+		ial := block.KramdownIAL
+		if canonical {
+			ial = canonicalBlockKramdownIAL(ial)
+		}
+		block.InsertAfter(&ast.Node{Type: ast.NodeKramdownBlockIAL, Tokens: parse.IAL2Tokens(ial)})
 	}
+}
+
+func applyDocContentTemplateAfterIndex(templatePath, docID string) error {
+	sql.FlushQueue()
+	if err := applyDocContentTemplate(templatePath, docID); nil != err {
+		return err
+	}
+	sql.FlushQueue()
+	return nil
+}
+
+func applyDocContentTemplate(templatePath, docID string) error {
+	absPath, err := resolveDocContentTemplatePath(templatePath)
+	if nil != err {
+		return err
+	}
+	templateTree, templateDOM, err := RenderTemplate(absPath, docID, false)
+	if nil != err {
+		return err
+	}
+	if "" == templateDOM {
+		return nil
+	}
+	tree, err := LoadTreeByBlockID(docID)
+	if nil != err {
+		return err
+	}
+	if nil != tree.Root.FirstChild {
+		tree.Root.FirstChild.Unlink()
+	}
+	newTree := util.NewLute().BlockDOM2Tree(templateDOM)
+	var children []*ast.Node
+	for child := newTree.Root.FirstChild; nil != child; child = child.Next {
+		children = append(children, child)
+	}
+	for _, child := range children {
+		tree.Root.AppendChild(child)
+	}
+	templateIALs := parse.IAL2Map(templateTree.Root.KramdownIAL)
+	for key, value := range templateIALs {
+		if "name" == key || "alias" == key || "bookmark" == key || "memo" == key || "icon" == key ||
+			strings.HasPrefix(key, "custom-") {
+			tree.Root.SetIALAttr(key, value)
+		}
+	}
+	tree.Root.SetIALAttr("updated", util.CurrentTimeSecondsStr())
+	return indexWriteTreeUpsertQueue(tree)
+}
+
+func resolveDocContentTemplatePath(templatePath string) (string, error) {
+	templatePath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(templatePath)), "/")
+	cleanPath := filepath.Clean(filepath.FromSlash(templatePath))
+	if "" == cleanPath || "." == cleanPath || filepath.IsAbs(cleanPath) || ".." == cleanPath ||
+		strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) {
+		return "", errors.New("invalid content template path")
+	}
+	templateRoot := filepath.Join(util.DataDir, "templates")
+	absPath := filepath.Join(templateRoot, cleanPath)
+	if !gulu.File.IsSubPath(templateRoot, absPath) {
+		return "", errors.New("content template path is outside templates directory")
+	}
+	if !filelock.IsExist(absPath) {
+		return "", fmt.Errorf("content template [%s] not found", templatePath)
+	}
+	realRoot, err := filepath.EvalSymlinks(templateRoot)
+	if nil != err {
+		return "", err
+	}
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if nil != err {
+		return "", err
+	}
+	info, err := os.Stat(realPath)
+	if nil != err || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("content template [%s] is not a regular file", templatePath)
+	}
+	if !gulu.File.IsSubPath(realRoot, realPath) {
+		return "", errors.New("content template path is outside templates directory")
+	}
+	return realPath, nil
 }
 
 // CreateTemplate 在 <data>/templates/ 下创建模板文件。name 不含扩展名，content 为 markdown 文本。

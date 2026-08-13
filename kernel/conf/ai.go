@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -35,21 +35,43 @@ type AI struct {
 	Rerank          *Rerank          `json:"rerank"`
 	Agent           *Agent           `json:"agent"`
 	Editing         *Editing         `json:"editing"`
-	Vision          *Vision          `json:"vision"`
 	ImageGeneration *ImageGeneration `json:"imageGeneration"`
 	Providers       []*Provider      `json:"providers"`
 }
 
 type Agent struct {
-	ModelID             string  `json:"modelId"`
-	SessionTimeout      int     `json:"sessionTimeout"`
-	StreamIdleTimeout   int     `json:"streamIdleTimeout"`
-	ConfirmTimeout      int     `json:"confirmTimeout"`
-	MaxRetries          int     `json:"maxRetries"`
-	Temperature         float64 `json:"temperature"`
-	MaxCompletionTokens int     `json:"maxCompletionTokens"`
-	MaxToolCallRounds   int     `json:"maxToolCallRounds"`
+	ModelID             string            `json:"modelId"`
+	SessionTimeout      int               `json:"sessionTimeout"`
+	StreamIdleTimeout   int               `json:"streamIdleTimeout"`
+	ConfirmTimeout      int               `json:"confirmTimeout"`
+	MaxRetries          int               `json:"maxRetries"`
+	Temperature         float64           `json:"temperature"`
+	MaxCompletionTokens int               `json:"maxCompletionTokens"`
+	MaxToolCallRounds   int               `json:"maxToolCallRounds"`
+	CapabilityPolicy    *CapabilityPolicy `json:"capabilityPolicy"`
+	ApprovalPolicy      *ApprovalPolicy   `json:"approvalPolicy"`
 }
+
+type CapabilityPolicy struct {
+	Default   string            `json:"default"`
+	Overrides map[string]string `json:"overrides"`
+}
+
+type ApprovalPolicy struct {
+	Default   string                         `json:"default"`
+	Overrides map[string]*CapabilityApproval `json:"overrides"`
+}
+
+type CapabilityApproval struct {
+	Default string            `json:"default"`
+	Actions map[string]string `json:"actions"`
+}
+
+const (
+	ApprovalDecisionRisk    = "risk"
+	ApprovalDecisionConfirm = "confirm"
+	ApprovalDecisionAllow   = "allow"
+)
 
 // Editing holds behavior parameters used by the in-editor chat scenario. They
 // are kept here (instead of on Model) to mirror Agent and to decouple scenario
@@ -59,15 +81,6 @@ type Editing struct {
 	MaxHistoryMessages  int     `json:"maxHistoryMessages"`  // Max number of prior turns kept as context
 	Temperature         float64 `json:"temperature"`         // Alignment with Agent.Temperature
 	MaxCompletionTokens int     `json:"maxCompletionTokens"` // Alignment with Agent.MaxCompletionTokens
-}
-
-// Vision 配置图片理解场景及发送到模型前的资源限制。
-type Vision struct {
-	ModelID        string `json:"modelId"`
-	RequestTimeout int    `json:"requestTimeout"`
-	MaxImageBytes  int    `json:"maxImageBytes"`
-	MaxPixels      int    `json:"maxPixels"`
-	MaxEdge        int    `json:"maxEdge"`
 }
 
 // ImageGeneration 配置图片生成场景的模型和默认输出参数。
@@ -117,14 +130,16 @@ type Provider struct {
 // MaxContexts remain the persisted UI-facing config (the settings page still
 // reads/writes them). Editing holds the runtime view derived from them.
 type Model struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName,omitempty"`
-	Enabled     bool   `json:"enabled"`
-	Name        string `json:"name"`
+	ID            string `json:"id"`
+	DisplayName   string `json:"displayName,omitempty"`
+	Enabled       bool   `json:"enabled"`
+	Name          string `json:"name"`
+	ContextLength int    `json:"contextLength,omitempty"`
 }
 
 type MCP struct {
-	Servers []MCPServer `json:"servers"`
+	Servers        []MCPServer       `json:"servers"`
+	ExposurePolicy *CapabilityPolicy `json:"exposurePolicy"`
 }
 
 type MCPServer struct {
@@ -134,6 +149,8 @@ type MCPServer struct {
 	Type                 string            `json:"type"`
 	Command              string            `json:"command"`
 	Args                 []string          `json:"args"`
+	InheritEnv           []string          `json:"inheritEnv"`
+	Env                  map[string]string `json:"env"`
 	URL                  string            `json:"url"`
 	Headers              map[string]string `json:"headers"`
 	Timeout              int               `json:"timeout"`
@@ -157,7 +174,69 @@ func defaultAgent() *Agent {
 		Temperature:         1.0,
 		MaxCompletionTokens: 0,
 		MaxToolCallRounds:   64,
+		CapabilityPolicy:    defaultCapabilityPolicy(),
+		ApprovalPolicy:      defaultApprovalPolicy(),
 	}
+}
+
+func defaultApprovalPolicy() *ApprovalPolicy {
+	return &ApprovalPolicy{
+		Default:   ApprovalDecisionRisk,
+		Overrides: map[string]*CapabilityApproval{},
+	}
+}
+
+func defaultCapabilityPolicy() *CapabilityPolicy {
+	return &CapabilityPolicy{
+		Default:   "allow",
+		Overrides: map[string]string{},
+	}
+}
+
+func normalizeCapabilityPolicy(policy *CapabilityPolicy) *CapabilityPolicy {
+	if policy == nil {
+		return defaultCapabilityPolicy()
+	}
+	if policy.Default != "deny" {
+		policy.Default = "allow"
+	}
+	if policy.Overrides == nil {
+		policy.Overrides = map[string]string{}
+	}
+	for id, decision := range policy.Overrides {
+		if id == "" || decision != "allow" && decision != "deny" {
+			delete(policy.Overrides, id)
+		}
+	}
+	return policy
+}
+
+func (policy *CapabilityPolicy) Allows(id string) bool {
+	if policy == nil {
+		return true
+	}
+	if decision := policy.Overrides[id]; decision != "" {
+		return decision == "allow"
+	}
+	return policy.Default != "deny"
+}
+
+func (policy *ApprovalPolicy) Decision(id, action string) string {
+	if policy == nil {
+		return ApprovalDecisionRisk
+	}
+	if override := policy.Overrides[id]; override != nil {
+		if decision := override.Actions[action]; decision != "" {
+			return decision
+		}
+		if override.Default != "" {
+			return override.Default
+		}
+	}
+	if policy.Default == "" {
+		return ApprovalDecisionRisk
+	}
+	return policy.Default
 }
 
 func defaultEditing() *Editing {
@@ -168,10 +247,6 @@ func defaultEditing() *Editing {
 	}
 }
 
-func defaultVision() *Vision {
-	return &Vision{RequestTimeout: 300, MaxImageBytes: 20 * 1024 * 1024, MaxPixels: 40 * 1000 * 1000, MaxEdge: 2048}
-}
-
 func defaultImageGeneration() *ImageGeneration {
 	return &ImageGeneration{RequestTimeout: 300, Size: "1024x1024", Quality: "auto", OutputFormat: "png"}
 }
@@ -179,12 +254,11 @@ func defaultImageGeneration() *ImageGeneration {
 func NewAI() *AI {
 	ai := &AI{
 		Providers:       []*Provider{},
-		MCP:             &MCP{Servers: []MCPServer{}},
+		MCP:             &MCP{Servers: []MCPServer{}, ExposurePolicy: defaultCapabilityPolicy()},
 		Embedding:       defaultEmbedding(),
 		Rerank:          defaultRerank(),
 		Agent:           defaultAgent(),
 		Editing:         defaultEditing(),
-		Vision:          defaultVision(),
 		ImageGeneration: defaultImageGeneration(),
 	}
 
@@ -348,13 +422,6 @@ func (ai *AI) GetAgentModel() (*Provider, *Model) {
 	return ai.GetModel(ai.Agent.ModelID)
 }
 
-func (ai *AI) GetVisionModel() (*Provider, *Model) {
-	if ai.Vision == nil || ai.Vision.ModelID == "" {
-		return nil, nil
-	}
-	return ai.GetModel(ai.Vision.ModelID)
-}
-
 func (ai *AI) GetImageGenerationModel() (*Provider, *Model) {
 	if ai.ImageGeneration == nil || ai.ImageGeneration.ModelID == "" {
 		return nil, nil
@@ -362,15 +429,62 @@ func (ai *AI) GetImageGenerationModel() (*Provider, *Model) {
 	return ai.GetModel(ai.ImageGeneration.ModelID)
 }
 
+// ReconcileModelIDs 校正各使用场景引用的模型，并将旧版名称引用转换为模型 ID。
+// 编辑器和智能体始终回退到首个可用模型，可选的图片生成场景仅清理失效引用。
+func (ai *AI) ReconcileModelIDs() {
+	firstModelID := ""
+	for _, p := range ai.Providers {
+		if p == nil || !p.Enabled {
+			continue
+		}
+		for _, m := range p.Models {
+			if m != nil && m.Enabled && m.Name != "" {
+				firstModelID = m.ID
+				break
+			}
+		}
+		if firstModelID != "" {
+			break
+		}
+	}
+
+	if ai.Editing == nil {
+		ai.Editing = defaultEditing()
+	}
+	if _, m := ai.GetModel(ai.Editing.ModelID); m == nil {
+		ai.Editing.ModelID = firstModelID
+	} else {
+		ai.Editing.ModelID = m.ID
+	}
+	if ai.Agent == nil {
+		ai.Agent = defaultAgent()
+	}
+	if _, m := ai.GetModel(ai.Agent.ModelID); m == nil {
+		ai.Agent.ModelID = firstModelID
+	} else {
+		ai.Agent.ModelID = m.ID
+	}
+	if ai.ImageGeneration != nil {
+		if _, m := ai.GetModel(ai.ImageGeneration.ModelID); ai.ImageGeneration.ModelID != "" {
+			if m == nil {
+				ai.ImageGeneration.ModelID = ""
+			} else {
+				ai.ImageGeneration.ModelID = m.ID
+			}
+		}
+	}
+}
+
 func (ai *AI) Normalize() {
 	if ai.Providers == nil {
 		ai.Providers = []*Provider{}
 	}
 	if ai.MCP == nil {
-		ai.MCP = &MCP{Servers: []MCPServer{}}
+		ai.MCP = &MCP{Servers: []MCPServer{}, ExposurePolicy: defaultCapabilityPolicy()}
 	} else if ai.MCP.Servers == nil {
 		ai.MCP.Servers = []MCPServer{}
 	}
+	ai.MCP.ExposurePolicy = normalizeCapabilityPolicy(ai.MCP.ExposurePolicy)
 	serverIDs := map[string]bool{}
 	for i := range ai.MCP.Servers {
 		if ai.MCP.Servers[i].ID == "" || serverIDs[ai.MCP.Servers[i].ID] {
@@ -381,6 +495,12 @@ func (ai *AI) Normalize() {
 	if ai.Agent == nil {
 		ai.Agent = defaultAgent()
 	} else {
+		ai.Agent.CapabilityPolicy = normalizeCapabilityPolicy(ai.Agent.CapabilityPolicy)
+		if ai.Agent.ApprovalPolicy == nil {
+			ai.Agent.ApprovalPolicy = defaultApprovalPolicy()
+		} else {
+			normalizeApprovalPolicy(ai.Agent.ApprovalPolicy)
+		}
 		if ai.Agent.SessionTimeout < 0 {
 			ai.Agent.SessionTimeout = 0
 		} else if ai.Agent.SessionTimeout > 3600 {
@@ -413,29 +533,6 @@ func (ai *AI) Normalize() {
 		} else if 64 < ai.Editing.MaxHistoryMessages {
 			ai.Editing.MaxHistoryMessages = 64
 		}
-	}
-	if ai.Vision == nil {
-		ai.Vision = defaultVision()
-	}
-	if ai.Vision.RequestTimeout < 1 {
-		ai.Vision.RequestTimeout = 300
-	} else if ai.Vision.RequestTimeout > 600 {
-		ai.Vision.RequestTimeout = 600
-	}
-	if ai.Vision.MaxImageBytes < 1024*1024 {
-		ai.Vision.MaxImageBytes = 20 * 1024 * 1024
-	} else if ai.Vision.MaxImageBytes > 100*1024*1024 {
-		ai.Vision.MaxImageBytes = 100 * 1024 * 1024
-	}
-	if ai.Vision.MaxPixels < 1000*1000 {
-		ai.Vision.MaxPixels = 40 * 1000 * 1000
-	} else if ai.Vision.MaxPixels > 100*1000*1000 {
-		ai.Vision.MaxPixels = 100 * 1000 * 1000
-	}
-	if ai.Vision.MaxEdge < 512 {
-		ai.Vision.MaxEdge = 2048
-	} else if ai.Vision.MaxEdge > 4096 {
-		ai.Vision.MaxEdge = 4096
 	}
 	if ai.ImageGeneration == nil {
 		ai.ImageGeneration = defaultImageGeneration()
@@ -490,6 +587,9 @@ func (ai *AI) Normalize() {
 				m.Name = "model"
 			}
 			m.DisplayName = strings.TrimSpace(m.DisplayName)
+			if m.ContextLength < 0 || 100000000 < m.ContextLength {
+				m.ContextLength = 0
+			}
 			if !ast.IsNodeIDPattern(m.ID) {
 				m.ID = ast.NewNodeID()
 			}
@@ -524,6 +624,39 @@ func (ai *AI) Normalize() {
 	}
 	if !ast.IsNodeIDPattern(ai.Rerank.ID) {
 		ai.Rerank.ID = ast.NewNodeID()
+	}
+}
+
+func normalizeApprovalPolicy(policy *ApprovalPolicy) {
+	// 旧版中的 confirm 表示未自动批准，实际仍按操作风险判断，因此迁移为 risk。
+	if policy.Default == ApprovalDecisionConfirm ||
+		policy.Default != ApprovalDecisionAllow && policy.Default != ApprovalDecisionRisk {
+		policy.Default = ApprovalDecisionRisk
+	}
+	if policy.Overrides == nil {
+		policy.Overrides = map[string]*CapabilityApproval{}
+	}
+	for id, override := range policy.Overrides {
+		if id == "" || override == nil {
+			delete(policy.Overrides, id)
+			continue
+		}
+		if override.Default != ApprovalDecisionAllow && override.Default != ApprovalDecisionConfirm &&
+			override.Default != ApprovalDecisionRisk {
+			override.Default = ""
+		}
+		if override.Actions == nil {
+			override.Actions = map[string]string{}
+		}
+		for action, decision := range override.Actions {
+			if decision != ApprovalDecisionAllow && decision != ApprovalDecisionConfirm &&
+				decision != ApprovalDecisionRisk {
+				delete(override.Actions, action)
+			}
+		}
+		if override.Default == "" && len(override.Actions) == 0 {
+			delete(policy.Overrides, id)
+		}
 	}
 }
 
@@ -727,6 +860,8 @@ func migrateMCP(raw map[string]any) *MCP {
 			Type:                 getString(sm, "type"),
 			Command:              getString(sm, "command"),
 			Args:                 getStringSlice(sm, "args"),
+			InheritEnv:           getStringSlice(sm, "inheritEnv"),
+			Env:                  getStringMap(sm, "env"),
 			URL:                  getString(sm, "url"),
 			Headers:              getStringMap(sm, "headers"),
 			Timeout:              getInt(sm, "timeout"),

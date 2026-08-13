@@ -4,32 +4,47 @@ import {fetchSyncPost} from "../../../../util/fetch";
 import {Constants} from "../../../../constants";
 import {avRender, genTabHeaderHTML} from "../render";
 import {afterRenderGallery, renderGallery} from "../gallery/render";
-import {escapeHtml} from "../../../../util/escape";
+import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getRowHTML} from "../row";
-import {getBodyVirtualData} from "../virtualScroll";
-import {beginAVRender, getAVLocateParams, isCurrentAVRender, prepareAVLocate} from "../locate";
+import {getAVSelectedItemPoints, getBodyVirtualData} from "../virtualScroll";
+import {
+    applyAVRenderContext,
+    beginAVRender,
+    failAVRender,
+    getAVLocateParams,
+    isCurrentAVRender,
+    persistAVLocateView,
+    prepareAVLocate
+} from "../locate";
+import {getCardStyle} from "../gallery/style";
 
 interface IIds {
     groupId: string,
     fieldId: string,
 }
 
-const getKanbanTitleHTML = (group: IAVView, counter: number) => {
+const getKanbanTitleHTML = (group: IAVView, counter: number, draggable: boolean) => {
     let nameHTML = "";
+    let optionMenuHTML = "";
     if (["mSelect", "select"].includes(group.groupValue.type)) {
         group.groupValue.mSelect.forEach((item) => {
-            nameHTML += `<span class="b3-chip" style="background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})">${escapeHtml(item.content)}</span>`;
+            nameHTML += `<span class="b3-chip" style="background-color:var(--b3-font-background${escapeAttr(item.color)});color:var(--b3-font-color${escapeAttr(item.color)})">${escapeHtml(item.content)}</span>`;
         });
+        if (draggable && group.groupValue.mSelect.length === 1) {
+            const value = group.groupValue.mSelect[0];
+            optionMenuHTML = `<span class="av__group-icon av__group-icon--hover ariaLabel" data-type="av-kanban-group-more" data-position="north" aria-label="${window.siyuan.languages.more}" data-group-id="${group.id}" data-col-id="${group.groupKey.id}" data-name="${escapeAttr(value.content)}"><svg><use xlink:href="#iconMore"></use></svg></span><span class="fn__space"></span>`;
+        }
     } else if (group.groupValue.type === "checkbox") {
         nameHTML = `<svg style="width:calc(1.625em - 12px);height:calc(1.625em - 12px);margin: 4px 0;float: left;"><use xlink:href="#icon${group.groupValue.checkbox.checked ? "Check" : "Uncheck"}"></use></svg>`;
     } else {
-        nameHTML = group.name;
+        nameHTML = escapeHtml(group.name);
     }
     // av__group-name 为第三方需求，本应用内没有使用，但不能移除 https://github.com/siyuan-note/siyuan/issues/15736
-    return `<div class="av__group-title">
+    return `<div class="av__group-title"${draggable ? ' draggable="true"' : ""}>
     <span class="av__group-name fn__ellipsis" style="white-space: nowrap;">${nameHTML}</span>
     ${(!counter || counter === 0) ? '<span class="fn__space"></span>' : `<span aria-label="${window.siyuan.languages.entryNum}" data-position="north" class="av__group-counter ariaLabel">${counter}</span>`}
     <span class="fn__flex-1"></span>
+    ${optionMenuHTML}
     <span class="av__group-icon av__group-icon--hover ariaLabel" data-type="av-add-top" data-position="north" aria-label="${window.siyuan.languages.newRow}"><svg><use xlink:href="#iconAdd"></use></svg></span>
 </div>`;
 };
@@ -84,16 +99,10 @@ export const renderKanban = async (options: {
             fieldId: item.parentElement.getAttribute("data-id"),
         });
     });
-    const selectItemIds: IIds[] = [];
-    options.blockElement.querySelectorAll(".av__gallery-item--select").forEach(galleryItem => {
-        const fieldId = galleryItem.getAttribute("data-id");
-        if (fieldId) {
-            selectItemIds.push({
-                groupId: (hasClosestByClassName(galleryItem, "av__body") as HTMLElement).dataset.groupId || "",
-                fieldId
-            });
-        }
-    });
+    const selectItemIds: IIds[] = getAVSelectedItemPoints(options.blockElement).map(item => ({
+        groupId: item.groupID,
+        fieldId: item.itemID,
+    }));
     const pageSizes: { [key: string]: string } = {};
     const virtualData: { [key: string]: IAVVirtualData } = {};
     options.blockElement.querySelectorAll(".av__body").forEach((item: HTMLElement) => {
@@ -139,31 +148,43 @@ export const renderKanban = async (options: {
     if (!data) {
         const avPageSize = getPageSize(options.blockElement);
         const locateParams = getAVLocateParams(options.blockElement, !created && !snapshot);
+        const historical = !!created || !!snapshot;
         const response = await fetchSyncPost(created ? "/api/av/renderHistoryAttributeView" : (snapshot ? "/api/av/renderSnapshotAttributeView" : "/api/av/renderAttributeView"), {
             id: options.blockElement.getAttribute("data-av-id"),
             created,
             snapshot,
             pageSize: avPageSize.unGroupPageSize,
             groupPaging: avPageSize.groupPageSize,
-            viewID: locateParams?.viewID || options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "",
+            viewID: locateParams?.viewID || "",
+            ...(historical ? {carrierViewID: options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || ""} : {}),
             query: resetData.query.trim(),
             blockID: options.blockElement.getAttribute("data-node-id"),
+            initialLayout: options.blockElement.getAttribute("data-av-type"),
             targetItemID: locateParams?.targetItemID || "",
             targetGroupID: locateParams?.targetGroupID || "",
-        });
+        }, undefined, false);
+        if (!isCurrentAVRender(options.blockElement, renderToken)) {
+            return;
+        }
+        if (response.code !== 0) {
+            failAVRender(options.blockElement, response);
+            return;
+        }
         data = response.data;
     }
     if (!isCurrentAVRender(options.blockElement, renderToken)) {
         return;
     }
+    if (persistAVLocateView(options.blockElement, options.protyle, data)) {
+        return;
+    }
+    applyAVRenderContext(options.blockElement, data);
     prepareAVLocate(options.blockElement, data, resetData);
     if (data.viewType === "table") {
-        options.blockElement.setAttribute("data-av-type", "table");
         avRender(options.blockElement, options.protyle, options.cb, options.renderAll, data);
         return;
     }
     if (data.viewType === "gallery") {
-        options.blockElement.setAttribute("data-av-type", data.viewType);
         renderGallery({
             blockElement: options.blockElement,
             protyle: options.protyle,
@@ -174,9 +195,15 @@ export const renderKanban = async (options: {
         return;
     }
     const view = data.view as IAVKanban;
+    const groupKey = view.fields.find(item => item.id === view.group?.field);
+    const groupOptions = groupKey?.options || [];
+    const groupDraggable = !options.protyle.disabled && !created && !snapshot &&
+        !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed") &&
+        !["created", "date", "updated"].includes(groupKey?.type);
+    const groupConfig = escapeAttr(JSON.stringify(view.group));
     let bodyHTML = "";
     let isSelectGroup = false;
-    view.groups.forEach((group: IAVKanban) => {
+    view.groups.forEach((group: IAVKanban, groupIndex: number) => {
         if (group.groupHidden === 0) {
             let selectBg = "";
             if (group.fillColBackgroundColor) {
@@ -185,22 +212,22 @@ export const renderKanban = async (options: {
                 }
                 if (isSelectGroup) {
                     if (group.groupValue.mSelect && group.groupValue.mSelect.length > 0) {
-                        selectBg = `style="--b3-av-kanban-background: var(--b3-font-background${group.groupValue.mSelect[0].color});"`;
+                        selectBg = `style="--b3-av-kanban-background: var(--b3-font-background${escapeAttr(group.groupValue.mSelect[0].color)});"`;
                     } else {
                         selectBg = 'style="--b3-av-kanban-background: var(--b3-border-color);"';
                     }
                 }
             }
-            bodyHTML += `<div class="av__kanban-group${group.cardSize === 0 ? " av__kanban-group--small" : (group.cardSize === 2 ? " av__kanban-group--big" : "")}"${selectBg}>
-    ${getKanbanTitleHTML(group, group.cardCount)}
+            bodyHTML += `<div class="av__kanban-group${group.cardSize === 0 ? " av__kanban-group--small" : (group.cardSize === 2 ? " av__kanban-group--big" : "")}" data-group-id="${group.id}" data-previous-group-id="${view.groups[groupIndex - 1]?.id || ""}" data-group-config="${groupConfig}"${selectBg}>
+    ${getKanbanTitleHTML(group, group.cardCount, groupDraggable)}
     <div data-group-id="${group.id}" data-page-size="${group.pageSize}" data-dtype="${group.groupKey.type}" data-content="${Lute.EscapeHTMLStr(group.groupValue.text?.content || "")}"${virtualData[group.id]?.locate ? ' data-av-locate-window="true"' : ""} class="av__body">${getKanbanHTML(group, options.blockElement, virtualData[group.id])}</div>
 </div>`;
         }
     });
     if (options.renderAll) {
         options.blockElement.firstElementChild.outerHTML = `<div class="av__container fn__block">
-    ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, !options.protyle.disabled && !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed"))}
-    <div class="av__kanban${isSelectGroup ? " av__kanban--bg" : ""}">
+    ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query, !options.protyle.disabled && !hasClosestByAttribute(options.blockElement, "data-type", "NodeBlockQueryEmbed"), options.blockElement)}
+    <div class="av__kanban${isSelectGroup ? " av__kanban--bg" : ""}" data-group-options="${escapeAttr(JSON.stringify(groupOptions))}" style="${getCardStyle(view)}">
         ${bodyHTML}
     </div>
     <div class="av__cursor" contenteditable="true">${Constants.ZWSP}</div>
@@ -208,6 +235,7 @@ export const renderKanban = async (options: {
     } else {
         const kanbanElement = options.blockElement.querySelector(".av__kanban");
         kanbanElement.innerHTML = bodyHTML;
+        (kanbanElement as HTMLElement).dataset.groupOptions = JSON.stringify(groupOptions);
         if (isSelectGroup) {
             kanbanElement.classList.add("av__kanban--bg");
         } else {

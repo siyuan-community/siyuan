@@ -28,6 +28,8 @@ import {commonClick} from "../wysiwyg/commonClick";
 import {openTitleMenu} from "./openTitleMenu";
 import {electronUndo} from "../undo";
 import {enableLuteMarkdownSyntax, restoreLuteMarkdownSyntax} from "../util/paste";
+import {addSpellcheckMenuItems, requestSpellcheckContext} from "../../menus/spellcheck";
+import {focusAVByArrow} from "../render/av/focus";
 
 export class Title {
     public element: HTMLElement;
@@ -146,7 +148,10 @@ export class Title {
                         const noContainerElement = getNoContainerElement(protyle.wysiwyg.element.firstElementChild);
                         // https://github.com/siyuan-note/siyuan/issues/4923
                         if (noContainerElement) {
-                            focusBlock(noContainerElement, protyle.wysiwyg.element);
+                            if (!noContainerElement.classList.contains("av") ||
+                                !focusAVByArrow(protyle, noContainerElement as HTMLElement, event.key)) {
+                                focusBlock(noContainerElement, protyle.wysiwyg.element);
+                            }
                         }
                         event.preventDefault();
                         event.stopPropagation();
@@ -211,12 +216,20 @@ export class Title {
                     openTitleMenu(protyle, {x: iconRect.left, y: iconRect.bottom}, Constants.MENU_FROM_TITLE_PROTYLE);
                 }
             });
-            this.element.addEventListener("contextmenu", (event) => {
+            this.element.addEventListener("contextmenu", async (event) => {
                 if (event.shiftKey) {
                     return;
                 }
                 if (getSelection().rangeCount === 0 || iconElement.contains((event.target as HTMLElement))) {
                     openTitleMenu(protyle, {x: event.clientX, y: event.clientY}, Constants.MENU_FROM_TITLE_PROTYLE);
+                    return;
+                }
+                event.stopPropagation();
+                /// #if BROWSER
+                event.preventDefault();
+                /// #endif
+                const spellcheckContext = await requestSpellcheckContext(event.clientX, event.clientY);
+                if (spellcheckContext === null) {
                     return;
                 }
                 protyle.toolbar?.element.classList.add("fn__none");
@@ -309,6 +322,7 @@ export class Title {
                         focusByRange(range);
                     }
                 }).element);
+                addSpellcheckMenuItems(spellcheckContext);
                 window.siyuan.menus.menu.popup({x: event.clientX, y: event.clientY});
             });
         }
@@ -363,6 +377,7 @@ export class Title {
             if (nbsp2space(title) !== nbsp2space(inputElement.value)) {
                 inputElement.value = empty ? "" : title;
             }
+            document.getElementById("toolbarNameReadonly").textContent = inputElement.value;
         }
         /// #else
         if (nbsp2space(title) !== nbsp2space(this.editElement.textContent)) {

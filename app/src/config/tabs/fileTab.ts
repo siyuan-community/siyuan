@@ -21,6 +21,10 @@ const genNotebookSavePathHtml = (
     selectId: string,
     pathId: string,
     optionsHtml: string,
+    template?: {
+        id: string;
+        desc: string;
+    },
 ) => `<div class="b3-label config-item config-item--save-path">
     ${genConfigItemName(title)}
     <div class="b3-label__text">${desc}</div>
@@ -30,6 +34,10 @@ const genNotebookSavePathHtml = (
         <div class="fn__space"></div>
         <input class="b3-text-field fn__flex-1" id="${pathId}" value="">
     </div>
+    ${template ? `<div class="fn__hr"></div>
+    <div class="b3-label__text">${template.desc}</div>
+    <div class="fn__hr--small"></div>
+    <input class="b3-text-field fn__flex-center fn__block" id="${template.id}" value="">` : ""}
 </div>`;
 
 /// #if !MOBILE
@@ -62,18 +70,28 @@ const registerFileTreeBehaviorGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.noSplitScreenWhenOpenTab,
         desc: window.siyuan.languages.noSplitScreenWhenOpenTabTip,
     });
+};
+/// #endif
+
+const registerTabStartupGroup = (tab: SettingTabBuilder) => {
+    const group = tab.group("tabStartup", window.siyuan.languages.tabStartup);
     group.number("fileTree.maxOpenTabCount", {
         title: window.siyuan.languages.tabLimit,
         desc: window.siyuan.languages.tabLimit1,
         min: 1,
         max: 32,
     });
-    group.switch("fileTree.closeTabsOnStart", {
-        title: window.siyuan.languages.fileTree9,
-        desc: window.siyuan.languages.fileTree10,
+    group.select("fileTree.tabStartupMode", {
+        title: window.siyuan.languages.tabStartupMode,
+        desc: window.siyuan.languages.tabStartupModeTip,
+        options: [
+            {value: 0, label: window.siyuan.languages.tabStartupRestore},
+            {value: 1, label: window.siyuan.languages.tabStartupNew},
+            {value: 2, label: window.siyuan.languages.tabStartupClose},
+        ],
+        save: (value) => fileConfigApi.patch("tabStartupMode", value),
     });
 };
-/// #endif
 
 const registerFileNewDocumentGroup = (tab: SettingTabBuilder) => {
     const group = tab.group("newDocument", window.siyuan.languages.configGroupNewDocument);
@@ -87,18 +105,35 @@ const registerFileNewDocumentGroup = (tab: SettingTabBuilder) => {
     const docCreateDesc = window.siyuan.languages.fileTree13;
     group.composite({
         key: "docCreateSavePath",
-        keywords: [docCreateTitle, docCreateDesc],
+        keywords: [
+            docCreateTitle,
+            docCreateDesc,
+            window.siyuan.languages.template,
+            window.siyuan.languages.docCreateTemplatePathTip,
+        ],
         html: () => genNotebookSavePathHtml(
             docCreateTitle,
             docCreateDesc,
             "fileTree.docCreateSaveBox",
             "fileTree.docCreateSavePath",
             genNotebookOption(window.siyuan.config.fileTree.docCreateSaveBox),
+            {
+                id: "fileTree.docCreateTemplatePath",
+                desc: window.siyuan.languages.docCreateTemplatePathTip,
+            },
         ),
         afterMount: (root) => {
-            const el = root.querySelector<HTMLInputElement>(`#${CSS.escape("fileTree.docCreateSavePath")}`);
-            if (el) {
-                el.value = window.siyuan.config.fileTree.docCreateSavePath;
+            const savePathElement = root.querySelector<HTMLInputElement>(
+                `#${CSS.escape("fileTree.docCreateSavePath")}`,
+            );
+            if (savePathElement) {
+                savePathElement.value = window.siyuan.config.fileTree.docCreateSavePath;
+            }
+            const templatePathElement = root.querySelector<HTMLInputElement>(
+                `#${CSS.escape("fileTree.docCreateTemplatePath")}`,
+            );
+            if (templatePathElement) {
+                templatePathElement.value = window.siyuan.config.fileTree.docCreateTemplatePath;
             }
         },
         controls: [
@@ -109,6 +144,10 @@ const registerFileNewDocumentGroup = (tab: SettingTabBuilder) => {
             {
                 control: controlString("fileTree.docCreateSavePath"),
                 save: (v) => fileConfigApi.patch("docCreateSavePath", v),
+            },
+            {
+                control: controlString("fileTree.docCreateTemplatePath"),
+                save: (v) => fileConfigApi.patch("docCreateTemplatePath", v),
             },
         ],
     });
@@ -292,6 +331,7 @@ export const registerFileTab = (tab: SettingTabBuilder) => {
     /// #if !MOBILE
     registerFileTreeBehaviorGroup(tab);
     /// #endif
+    registerTabStartupGroup(tab);
     registerFileNewDocumentGroup(tab);
     registerFileManagementGroup(tab);
     registerFileOthersGroup(tab);

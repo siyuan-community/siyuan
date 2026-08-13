@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/88250/gulu"
@@ -27,17 +29,122 @@ import (
 )
 
 const (
-	toolNotExecutedResult = "Tool was not executed because the turn was interrupted."
-	toolUnknownResult     = "Tool execution was interrupted; the result is unknown. Do not retry automatically."
+	toolNotExecutedResult       = "Tool was not executed because the turn was interrupted."
+	toolUnknownResult           = "Tool execution was interrupted; the result is unknown. Do not retry automatically."
+	AgentPermissionConfirm      = "confirm"
+	AgentPermissionAllowSession = "allowSession"
+	AgentEventPermission        = "permission"
 )
 
 type agentRuntime struct {
-	SchemaVersion int                `json:"schemaVersion"`
-	Revision      int64              `json:"revision"`
-	SessionID     string             `json:"sessionID"`
-	AlwaysAllow   bool               `json:"alwaysAllow,omitempty"`
-	ActiveTurn    *agentRuntimeTurn  `json:"activeTurn,omitempty"`
-	Compaction    *runtimeCompaction `json:"compaction,omitempty"`
+	SchemaVersion  int                `json:"schemaVersion"`
+	Revision       int64              `json:"revision"`
+	SessionID      string             `json:"sessionID"`
+	PermissionMode string             `json:"permissionMode,omitempty"`
+	AlwaysAllow    bool               `json:"alwaysAllow,omitempty"`
+	ActiveTurn     *agentRuntimeTurn  `json:"activeTurn,omitempty"`
+	Compaction     *runtimeCompaction `json:"compaction,omitempty"`
+}
+
+type sessionPermissionController struct {
+	allowSession atomic.Bool
+}
+
+var sessionPermissionControllers sync.Map
+
+func validAgentPermissionMode(mode string) bool {
+	return mode == AgentPermissionConfirm || mode == AgentPermissionAllowSession
+}
+
+func resolveSessionPermissionModeLocked(sessionID string, session map[string]any) (string, error) {
+	runtime, err := loadRuntimeLocked(sessionID)
+	if err != nil {
+		return "", err
+	}
+	if runtime.PermissionMode != "" {
+		if !validAgentPermissionMode(runtime.PermissionMode) {
+			return "", fmt.Errorf("invalid agent permission mode")
+		}
+		return runtime.PermissionMode, nil
+	}
+	if runtime.AlwaysAllow {
+		return AgentPermissionAllowSession, nil
+	}
+	if session == nil {
+		data, readErr := os.ReadFile(filepath.Join(sessionsDir(), sessionID, "session.json"))
+		if readErr != nil {
+			return "", readErr
+		}
+		session = map[string]any{}
+		if unmarshalErr := gulu.JSON.UnmarshalJSON(data, &session); unmarshalErr != nil {
+			return "", unmarshalErr
+		}
+	}
+	if permissionMode, _ := session["permissionMode"].(string); permissionMode != "" {
+		if !validAgentPermissionMode(permissionMode) {
+			return "", fmt.Errorf("invalid agent permission mode")
+		}
+		return permissionMode, nil
+	}
+	if alwaysAllow, _ := session["alwaysAllow"].(bool); alwaysAllow {
+		return AgentPermissionAllowSession, nil
+	}
+	return AgentPermissionConfirm, nil
+}
+
+func registerSessionPermissionController(sessionID string) (*sessionPermissionController, error) {
+	controller := &sessionPermissionController{}
+	if sessionID == "" {
+		return controller, nil
+	}
+	if !isValidSessionID(sessionID) {
+		return nil, fmt.Errorf("invalid session id")
+	}
+	lock := sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	mode, err := resolveSessionPermissionModeLocked(sessionID, nil)
+	if err != nil {
+		return nil, err
+	}
+	controller.allowSession.Store(mode == AgentPermissionAllowSession)
+	sessionPermissionControllers.Store(sessionID, controller)
+	return controller, nil
+}
+
+func unregisterSessionPermissionController(sessionID string, controller *sessionPermissionController) {
+	if sessionID == "" || controller == nil {
+		return
+	}
+	sessionPermissionControllers.CompareAndDelete(sessionID, controller)
+}
+
+func SetSessionPermissionMode(sessionID, mode string) error {
+	if sessionID == "" || !isValidSessionID(sessionID) {
+		return fmt.Errorf("invalid session id")
+	}
+	if !validAgentPermissionMode(mode) {
+		return fmt.Errorf("invalid agent permission mode")
+	}
+	lock := sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	if _, err := os.Stat(filepath.Join(sessionsDir(), sessionID, "session.json")); err != nil {
+		return err
+	}
+	runtime, err := loadRuntimeLocked(sessionID)
+	if err != nil {
+		return err
+	}
+	runtime.PermissionMode = mode
+	runtime.AlwaysAllow = false
+	if err = writeRuntimeLocked(sessionID, runtime); err != nil {
+		return err
+	}
+	if value, ok := sessionPermissionControllers.Load(sessionID); ok {
+		value.(*sessionPermissionController).allowSession.Store(mode == AgentPermissionAllowSession)
+	}
+	return nil
 }
 
 type agentRuntimeTurn struct {
@@ -46,12 +153,14 @@ type agentRuntimeTurn struct {
 	UserEntryID       string         `json:"userEntryID"`
 	TargetUserEntryID string         `json:"targetUserEntryID,omitempty"`
 	UserContent       string         `json:"userContent,omitempty"`
+	UserBlockHTML     *string        `json:"userBlockHTML,omitempty"`
 	UserReferences    *[]Reference   `json:"userReferences,omitempty"`
 	UserEditorContext *EditorContext `json:"userEditorContext,omitempty"`
 	BaseRevision      int64          `json:"baseRevision"`
 	State             string         `json:"state"`
 	Delta             []AgentMessage `json:"delta,omitempty"`
 	DraftContent      string         `json:"draftContent,omitempty"`
+	DraftRoundID      string         `json:"draftRoundID,omitempty"`
 	SnapshotIDs       []string       `json:"snapshotIDs,omitempty"`
 	PromptTokens      int            `json:"promptTokens,omitempty"`
 	CompletionTokens  int            `json:"completionTokens,omitempty"`
@@ -63,9 +172,12 @@ type agentRuntimeTurn struct {
 }
 
 type runtimeCompaction struct {
+	Version           int    `json:"version"`
 	Summary           string `json:"summary"`
 	CoveredEntryCount int    `json:"coveredEntryCount"`
+	NextEntryID       string `json:"nextEntryID"`
 	CoveredDigest     string `json:"coveredDigest"`
+	UpdatedAt         int64  `json:"updatedAt"`
 }
 
 func runtimePath(sessionID string) string {
@@ -130,7 +242,7 @@ func writeRuntimeLocked(sessionID string, runtime *agentRuntime) error {
 	return filelock.WriteFile(runtimePath(sessionID), data)
 }
 
-func beginRuntimeTurn(sessionID string, turn *agentRuntimeTurn, alwaysAllow bool) error {
+func beginRuntimeTurn(sessionID string, turn *agentRuntimeTurn) error {
 	if sessionID == "" || turn == nil {
 		return nil
 	}
@@ -171,7 +283,6 @@ func beginRuntimeTurn(sessionID string, turn *agentRuntimeTurn, alwaysAllow bool
 	if findRuntimeUserAnchor(session, turn.UserEntryID) < 0 {
 		return fmt.Errorf("agent runtime user entry not found")
 	}
-	runtime.AlwaysAllow = runtime.AlwaysAllow || alwaysAllow
 	runtime.ActiveTurn = turn
 	return writeRuntimeLocked(sessionID, runtime)
 }
@@ -188,7 +299,7 @@ func isTurnCommittedLocked(sessionID, turnID string) (bool, error) {
 	return meta.LastCommittedTurnID == turnID, nil
 }
 
-func saveRuntimeTurn(sessionID string, turn *agentRuntimeTurn, alwaysAllow bool) error {
+func saveRuntimeTurn(sessionID string, turn *agentRuntimeTurn) error {
 	if sessionID == "" || turn == nil {
 		return nil
 	}
@@ -212,9 +323,26 @@ func saveRuntimeTurn(sessionID string, turn *agentRuntimeTurn, alwaysAllow bool)
 	if runtime.ActiveTurn != nil && runtime.ActiveTurn.TurnID != turn.TurnID {
 		return fmt.Errorf("agent runtime turn changed")
 	}
-	runtime.AlwaysAllow = runtime.AlwaysAllow || alwaysAllow
 	turn.UpdatedAt = time.Now().UnixMilli()
 	runtime.ActiveTurn = turn
+	return writeRuntimeLocked(sessionID, runtime)
+}
+
+func saveRuntimeCompaction(sessionID string, compaction *runtimeCompaction) error {
+	if sessionID == "" || compaction == nil {
+		return errContextCannotBeCompacted
+	}
+	if !isValidSessionID(sessionID) {
+		return fmt.Errorf("invalid session id")
+	}
+	lock := sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	runtime, err := loadRuntimeLocked(sessionID)
+	if err != nil {
+		return err
+	}
+	runtime.Compaction = cloneRuntimeCompaction(compaction)
 	return writeRuntimeLocked(sessionID, runtime)
 }
 
@@ -326,6 +454,13 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 	if turn.Mode == "regenerate" && turn.UserContent != "" {
 		entry, _ := entries[anchor].(map[string]any)
 		entry["content"] = turn.UserContent
+		if turn.UserBlockHTML != nil {
+			if *turn.UserBlockHTML != "" {
+				entry["blockHTML"] = *turn.UserBlockHTML
+			} else {
+				delete(entry, "blockHTML")
+			}
+		}
 		if turn.UserReferences != nil {
 			if len(*turn.UserReferences) > 0 {
 				entry["references"] = *turn.UserReferences
@@ -341,7 +476,6 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 	}
 
 	// 当前 turn 的 assistant 内容以 runtime 为权威；前端只补充 thinking/confirm/question 等 UI 条目。
-	// 用权威 assistant 逐个替换前端占位可尽量保留 UI 条目的相对位置；缺少占位时再追加到末尾。
 	authoritative := make([]any, 0, len(turn.Delta)+1)
 	for i, message := range turn.Delta {
 		if message.Role != "assistant" {
@@ -355,6 +489,12 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 		if message.Content != "" {
 			entry["content"] = message.Content
 		}
+		if message.ReasoningContent != "" {
+			entry["reasoningContent"] = message.ReasoningContent
+		}
+		if message.RoundID != "" {
+			entry["roundID"] = message.RoundID
+		}
 		if len(message.ToolCalls) > 0 {
 			calls := make([]map[string]any, 0, len(message.ToolCalls))
 			for _, call := range message.ToolCalls {
@@ -366,43 +506,53 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 						result = toolUnknownResult
 					}
 				}
-				calls = append(calls, map[string]any{
+				persistedCall := map[string]any{
 					"name":      call.Name,
 					"arguments": call.Arguments,
 					"result":    result,
 					"state":     call.State,
-				})
+				}
+				if call.ID != "" {
+					persistedCall["id"] = call.ID
+				}
+				if call.ArgumentsJSON != "" {
+					persistedCall["argumentsJSON"] = call.ArgumentsJSON
+				}
+				if len(call.Attachments) > 0 {
+					persistedCall["attachments"] = call.Attachments
+				}
+				calls = append(calls, persistedCall)
 			}
 			entry["toolCalls"] = calls
 		}
 		authoritative = append(authoritative, entry)
 	}
 	if turn.DraftContent != "" {
-		authoritative = append(authoritative, map[string]any{
+		draft := map[string]any{
 			"id":        fmt.Sprintf("runtime_draft_%s", turn.TurnID),
 			"type":      "assistant",
 			"content":   turn.DraftContent,
 			"timestamp": turn.UpdatedAt,
-		})
+		}
+		if turn.DraftRoundID != "" {
+			draft["roundID"] = turn.DraftRoundID
+		}
+		authoritative = append(authoritative, draft)
 	}
 
 	// regenerate 在启动前已经把旧回答截断到目标 user，因此 user 之后的 UI 条目都属于当前 turn。
+	// assistant 是模型协议消息，数量与前端展示占位并非一一对应。保留 UI 条目后按运行时顺序追加
+	// 权威 assistant，避免按占位序号替换造成思考卡片与中间回复错位。
 	merged := append([]any(nil), entries[:anchor+1]...)
-	authoritativeIndex := 0
 	for _, raw := range entries[anchor+1:] {
 		entry, _ := raw.(map[string]any)
 		typeName, _ := entry["type"].(string)
 		switch typeName {
-		case "assistant":
-			if authoritativeIndex < len(authoritative) {
-				merged = append(merged, authoritative[authoritativeIndex])
-				authoritativeIndex++
-			}
 		case "thinking", "confirm", "question", "snapshot", "rollback":
 			merged = append(merged, raw)
 		}
 	}
-	merged = append(merged, authoritative[authoritativeIndex:]...)
+	merged = append(merged, authoritative...)
 
 	existingSnapshots := map[string]bool{}
 	for _, raw := range merged {

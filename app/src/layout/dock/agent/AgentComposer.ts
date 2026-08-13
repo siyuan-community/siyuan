@@ -1,16 +1,23 @@
 import {Protyle} from "../../../protyle";
 import {Constants} from "../../../constants";
-import {App} from "../../../index";
+import type {App} from "../../../index";
 import {escapeHtml} from "../../../util/escape";
 import {fetchPost} from "../../../util/fetch";
 import {hintRef} from "../../../protyle/hint/extend";
 import {genEmptyElement} from "../../../block/util";
 import {blockRender} from "../../../protyle/render/blockRender";
+import {focusBlock} from "../../../protyle/util/selection";
+
+export interface AgentComposerData {
+    text: string;
+    blockHTML: string;
+    references: { id: string; title: string }[];
+}
 
 interface ComposerHandle {
-    focus: () => void;
+    focus: (toEnd?: boolean) => void;
     destroy: () => void;
-    getSendData: () => { text: string; blockHTML: string; references: { id: string; title: string }[] };
+    getSendData: () => AgentComposerData;
     clear: () => void;
     pushHistory: (text: string) => void;
     getHistory: () => string[];
@@ -22,6 +29,15 @@ interface ComposerHandle {
 }
 
 type OnChangeCallback = () => void;
+
+interface ComposerOptions {
+    initialContent?: string;
+    initialBlockHTML?: string;
+    submitMode?: "enter" | "mod-enter";
+    placeholder?: string;
+    onCancel?: () => void;
+    enableHistory?: boolean;
+}
 
 const resetEmbedBlocks = (element: HTMLElement) => {
     element.querySelectorAll<HTMLElement>('[data-type="NodeBlockQueryEmbed"]').forEach((embedElement) => {
@@ -126,9 +142,12 @@ class ComposerHistory {
     }
 }
 
-export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: OnChangeCallback): ComposerHandle {
+export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: OnChangeCallback,
+                              options: ComposerOptions = {}): ComposerHandle {
     const history = new ComposerHistory();
     const L = window.siyuan.languages;
+    const submitMode = options.submitMode || "enter";
+    const enableHistory = options.enableHistory !== false;
 
     const app: App = window.siyuan.ws.app;
     const protyle = new Protyle(app, host, {
@@ -169,12 +188,25 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
     // 类方法（focus/insert/destroy）在 Protyle 实例上，内部数据属性在 IProtyle 上。
     const p = protyle.protyle;
     const wysiwyg = p.wysiwyg!;
+    wysiwyg.element.setAttribute("data-readonly", "false");
 
-    wysiwyg.element.innerHTML = "";
-    const emptyElement = genEmptyElement(false, false);
-    emptyElement.firstElementChild.classList.add("protyle-wysiwyg--empty");
-    emptyElement.firstElementChild.setAttribute("placeholder", L.agentInputPlaceholder);
-    wysiwyg.element.appendChild(emptyElement);
+    const setEmptyContent = () => {
+        wysiwyg.element.innerHTML = "";
+        const emptyElement = genEmptyElement(false, false);
+        emptyElement.firstElementChild.classList.add("protyle-wysiwyg--empty");
+        emptyElement.firstElementChild.setAttribute("placeholder", options.placeholder || L.agentInputPlaceholder);
+        wysiwyg.element.appendChild(emptyElement);
+    };
+    if (options.initialBlockHTML) {
+        wysiwyg.element.innerHTML = options.initialBlockHTML;
+        resetEmbedBlocks(wysiwyg.element);
+        blockRender(p, wysiwyg.element);
+    } else if (options.initialContent) {
+        wysiwyg.element.innerHTML = p.lute.Md2BlockDOM(options.initialContent);
+        blockRender(p, wysiwyg.element);
+    } else {
+        setEmptyContent();
+    }
 
     const updatePlaceholder = () => {
         const isEmpty = (wysiwyg.element.textContent || "").replace(new RegExp(Constants.ZWSP, "g"), "").trim() === "";
@@ -193,6 +225,9 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
 
     // capture 阶段拦截 hint 选择、Enter 发送、历史翻页；undo/redo 交给 protyle 的 keydown（调 LocalUndo）。
     wysiwyg.element.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (event.isComposing) {
+            return;
+        }
         // hint 面板可见时，Enter/方向键主动调 hint.select 完成选择，避免 capture 与冒泡的时序问题。
         const hintEl = p.hint?.element;
         if (hintEl && !hintEl.classList.contains("fn__none")) {
@@ -205,16 +240,26 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
             return;
         }
 
-        // Enter 发送（Shift+Enter 让 protyle 走软换行/分块）
-        if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        // 底部输入框使用 Enter 发送，历史消息编辑使用 Ctrl/Cmd+Enter 确认。
+        const enterToSubmit = submitMode === "enter" && event.key === "Enter" &&
+            !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+        const modEnterToSubmit = submitMode === "mod-enter" && event.key === "Enter" &&
+            (event.ctrlKey || event.metaKey);
+        if (enterToSubmit || modEnterToSubmit) {
             event.preventDefault();
             event.stopPropagation();
             onSend();
             return;
         }
+        if (event.key === "Escape" && options.onCancel) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.onCancel();
+            return;
+        }
 
         // ↑ 翻历史：仅在空输入或已处于历史浏览时触发
-        if (event.key === "ArrowUp" && !event.shiftKey) {
+        if (enableHistory && event.key === "ArrowUp" && !event.shiftKey) {
             const isEmpty = (wysiwyg.element.textContent || "").replace(new RegExp(Constants.ZWSP, "g"), "").trim() === "";
             if ((history.isBrowsing() || isEmpty) && history.has()) {
                 event.preventDefault();
@@ -226,7 +271,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
             }
         }
         // ↓ 翻历史：仅浏览中触发
-        if (event.key === "ArrowDown" && history.isBrowsing()) {
+        if (enableHistory && event.key === "ArrowDown" && history.isBrowsing()) {
             event.preventDefault();
             event.stopPropagation();
             const target = history.navigateDown();
@@ -239,7 +284,8 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
         }
 
         // 用户开始新输入时退出历史浏览
-        if (history.isBrowsing() && event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (enableHistory && history.isBrowsing() && event.key.length === 1 &&
+            !event.ctrlKey && !event.metaKey && !event.altKey) {
             history.resetCursor();
         }
     }, true);
@@ -255,7 +301,11 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
     };
 
     return {
-        focus: () => protyle.focus(),
+        focus: (toEnd = false) => {
+            if (!toEnd || !focusBlock(wysiwyg.element.lastElementChild, wysiwyg.element, false)) {
+                protyle.focus();
+            }
+        },
         destroy: () => {
             contentObserver.disconnect();
             protyle.destroy();
@@ -271,11 +321,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
             return {text: getMarkdown(), blockHTML: getBlockHTML(), references};
         },
         clear: () => {
-            wysiwyg.element.innerHTML = "";
-            const emptyElement = genEmptyElement(false, false);
-            emptyElement.firstElementChild.classList.add("protyle-wysiwyg--empty");
-            emptyElement.firstElementChild.setAttribute("placeholder", L.agentInputPlaceholder);
-            wysiwyg.element.appendChild(emptyElement);
+            setEmptyContent();
             p.undo.clear();
             updatePlaceholder();
             history.resetCursor();

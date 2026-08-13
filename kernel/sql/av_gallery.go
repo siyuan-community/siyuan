@@ -26,15 +26,19 @@ func RenderAttributeViewGallery(attrView *av.AttributeView, view *av.View, query
 	}
 
 	ret = &av.Gallery{
-		BaseInstance:        av.NewViewBaseInstance(view),
-		CoverFrom:           view.Gallery.CoverFrom,
-		CoverFromAssetKeyID: view.Gallery.CoverFromAssetKeyID,
-		CardAspectRatio:     view.Gallery.CardAspectRatio,
-		CardSize:            view.Gallery.CardSize,
-		FitImage:            view.Gallery.FitImage,
-		DisplayFieldName:    view.Gallery.DisplayFieldName,
-		Fields:              []*av.GalleryField{},
-		Cards:               []*av.GalleryCard{},
+		BaseInstance:         av.NewViewBaseInstance(view),
+		CoverFrom:            view.Gallery.CoverFrom,
+		CoverFromAssetKeyID:  view.Gallery.CoverFromAssetKeyID,
+		CardAspectRatio:      view.Gallery.CardAspectRatio,
+		CardAspectRatioValue: view.Gallery.CardAspectRatioValue,
+		CardSize:             view.Gallery.CardSize,
+		CardWidth:            view.Gallery.CardWidth,
+		CardLayout:           view.Gallery.CardLayout,
+		FitImage:             view.Gallery.FitImage,
+		DisplayFieldName:     view.Gallery.DisplayFieldName,
+		DisplayEmptyFields:   view.Gallery.DisplayEmptyFields,
+		Fields:               []*av.GalleryField{},
+		Cards:                []*av.GalleryCard{},
 	}
 
 	// 组装字段
@@ -60,6 +64,7 @@ func RenderAttributeViewGallery(attrView *av.AttributeView, view *av.View, query
 				Calc:         field.Calc,
 				Options:      key.Options,
 				NumberFormat: key.NumberFormat,
+				DateFormat:   key.DateFormat,
 				Template:     key.Template,
 				Relation:     key.Relation,
 				Rollup:       key.Rollup,
@@ -67,6 +72,7 @@ func RenderAttributeViewGallery(attrView *av.AttributeView, view *av.View, query
 				Created:      key.Created,
 				Updated:      key.Updated,
 			},
+			FullRow: field.FullRow,
 		})
 	}
 
@@ -126,11 +132,14 @@ func RenderAttributeViewGallery(attrView *av.AttributeView, view *av.View, query
 			if nil != field.Date {
 				filedDateIsTime = field.Date.FillSpecificTime
 			}
-			fillAttributeViewBaseValue(fieldValue.BaseValue, field.ID, cardID, field.NumberFormat, field.Template, filedDateIsTime)
+			fillAttributeViewBaseValue(fieldValue.BaseValue, field.ID, cardID, field.NumberFormat, field.DateFormat,
+				field.Template, filedDateIsTime)
 			galleryCard.Values = append(galleryCard.Values, fieldValue)
 		}
 
 		fillAttributeViewGalleryCardCover(attrView, view, cardValues, &galleryCard, cardID, luteEngine, boundTrees)
+		galleryCard.CoverPosition = attrView.GetCardCoverPosition(cardID,
+			av.CardCoverSource(view.Gallery.CoverFrom, view.Gallery.CoverFromAssetKeyID), galleryCard.CoverURL)
 		ret.Cards = append(ret.Cards, &galleryCard)
 	}
 

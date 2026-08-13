@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,9 +17,11 @@
 package api
 
 import (
-	"strings"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 )
 
@@ -39,18 +41,21 @@ func TestPreserveMCPServerIDsForOlderFrontend(t *testing.T) {
 	}
 }
 
-func TestRenderMCPOAuthCallbackPage(t *testing.T) {
-	page := string(renderMCPOAuthCallbackPage("zh-CN", "已收到<script>", "返回思源 & 查看状态", true))
-	for _, expected := range []string{`lang="zh-CN"`, "已收到&lt;script&gt;", "返回思源 &amp; 查看状态"} {
-		if !strings.Contains(page, expected) {
-			t.Fatalf("OAuth callback page does not contain %q: %s", expected, page)
-		}
+func TestMCPOAuthCallbackRejectsRemoteClientThroughLocalProxy(t *testing.T) {
+	engine := gin.New()
+	if err := engine.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(page, "window.close") || strings.Contains(page, "已收到<script>") {
-		t.Fatalf("OAuth callback page contains unsafe or auto-close content: %s", page)
-	}
-	failurePage := string(renderMCPOAuthCallbackPage("en", "Authorization failed", "Try again", false))
-	if !strings.Contains(failurePage, `class="mark mark--error"`) {
-		t.Fatalf("OAuth failure callback page does not use the error state: %s", failurePage)
+	engine.RemoteIPHeaders = []string{"X-Forwarded-For"}
+	engine.GET("/api/ai/mcp/oauth/callback/:flowID", mcpOAuthCallback)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/ai/mcp/oauth/callback/test-flow", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	request.Header.Set("X-Forwarded-For", "192.0.2.10")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusForbidden)
 	}
 }

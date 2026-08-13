@@ -1,7 +1,8 @@
 .protyle {
   &-toolbar {
     background-color: var(--b3-theme-background);
-    z-index: 5; // higher than .layout__resize--lr
+    // 需高于 .layout__resize
+    z-index: 7;
     position: fixed;
     box-shadow: var(--b3-dialog-shadow);
     border-radius: var(--b3-border-radius);
@@ -34,7 +35,12 @@
         color: var(--b3-theme-primary);
       }
 
-      &:hover {
+      &:disabled {
+        opacity: .38;
+        cursor: not-allowed;
+      }
+
+      &:hover:not(:disabled) {
         background-color: var(--b3-list-hover);
       }
 
@@ -59,7 +65,7 @@
     box-shadow: var(--b3-dialog-shadow);
     border: 1px solid var(--b3-theme-surface-lighter);
     background-color: var(--b3-menu-background);
-    z-index: 5;
+    z-index: 7;
     overflow: auto;
     max-height: min(402px, 40vh);
     // 不能使用，否则 hint emoji 出现双滚动条 box-sizing: border-box;
@@ -107,7 +113,6 @@
     max-width: 248px;
     overflow: auto;
     max-height: calc(80vh - 24px);
-    scrollbar-gutter: stable;
 
     &__style {
       background-color: var(--b3-theme-background);

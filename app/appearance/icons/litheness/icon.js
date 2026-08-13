@@ -1,5 +1,23 @@
 document.body.insertAdjacentHTML('afterbegin', `<svg id="iconsLitheness" style="position: absolute; width: 0; height: 0; overflow: hidden;">
 <defs>
+  <symbol id="iconAlignTop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="rotate(90 12 12)"><path d="M21 5H3"/><path d="M15 12H3"/><path d="M17 19H3"/></g>
+  </symbol>
+  <symbol id="iconAlignMiddle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="rotate(90 12 12)"><path d="M21 5H3"/><path d="M17 12H7"/><path d="M19 19H5"/></g>
+  </symbol>
+  <symbol id="iconAlignBottom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="rotate(90 12 12)"><path d="M21 5H3"/><path d="M21 12H9"/><path d="M21 19H7"/></g>
+  </symbol>
+  <symbol id="iconTableCellsSplit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 15V9"/><path d="M3 15h18"/><path d="M3 9h18"/><rect width="18" height="18" x="3" y="3" rx="2"/>
+  </symbol>
+  <symbol id="iconTableCellsMerge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 21v-6"/><path d="M12 9V3"/><path d="M3 15h18"/><path d="M3 9h18"/><rect width="18" height="18" x="3" y="3" rx="2"/>
+  </symbol>
+  <symbol id="iconScale" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3v18"/><path d="m19 8 3 8a5 5 0 0 1-6 0zV7"/><path d="M3 7h1a17 17 0 0 0 8-2 17 17 0 0 0 8 2h1"/><path d="m5 8 3 8a5 5 0 0 1-6 0zV7"/><path d="M7 21h10"/>
+  </symbol>
   <symbol id="iconDatabaseBackup" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 12a9 3 0 0 0 5 2.69"/><path d="M21 9.3V5"/><path d="M3 5v14a9 3 0 0 0 6.47 2.88"/><path d="M12 12v4h4"/><path d="M13 20a5 5 0 0 0 9-3 4.5 4.5 0 0 0-4.5-4.5c-1.33 0-2.54.54-3.41 1.41L12 16"/>
   </symbol>
@@ -8,6 +26,9 @@ document.body.insertAdjacentHTML('afterbegin', `<svg id="iconsLitheness" style="
   </symbol>
   <symbol id="iconBrain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/>
+  </symbol>
+  <symbol id="iconAtom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="1"/><path d="M20.2 20.2c2.04-2.03.02-7.36-4.5-11.9-4.54-4.52-9.87-6.54-11.9-4.5-2.04 2.03-.02 7.36 4.5 11.9 4.54 4.52 9.87 6.54 11.9 4.5Z"/><path d="M15.7 15.7c4.52-4.54 6.54-9.87 4.5-11.9-2.03-2.04-7.36-.02-11.9 4.5-4.52 4.54-6.54 9.87-4.5 11.9 2.03 2.04 7.36.02 11.9-4.5Z"/>
   </symbol>
   <symbol id="iconPictureInPicture" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <path d="M2 10h6V4"/><path d="m2 4 6 6"/><path d="M21 10V7a2 2 0 0 0-2-2h-7"/><path d="M3 14v2a2 2 0 0 0 2 2h3"/><rect x="12" y="14" width="10" height="7" rx="1"/>
@@ -375,6 +396,9 @@ document.body.insertAdjacentHTML('afterbegin', `<svg id="iconsLitheness" style="
   <symbol id="iconHand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <path d="M22 14a8 8 0 0 1-8 8"/><path d="M18 11v-1a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V9a2 2 0 0 0-2-2a2 2 0 0 0-2 2v1"/><path d="M10 9.5V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v10"/><path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
   </symbol>
+  <symbol id="iconShieldCheck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>
+  </symbol>
   <symbol id="iconSiYuan" viewBox="-2 -2 36 36">
     <path fill="#d23e31" d="M8.667 2.812c-0.221 0.219-0.396 0.417-0.39 0.438s-0.004 0.030-0.022 0.020c-0.047-0.029-0.397 0.337-0.362 0.376 0.016 0.018 0.011 0.022-0.013 0.008-0.045-0.025-0.244 0.173-0.244 0.243 0 0.023-0.013 0.033-0.029 0.023-0.037-0.023-0.127 0.074-0.096 0.104 0.013 0.013 0.002 0.023-0.023 0.023-0.060 0-0.234 0.174-0.234 0.234 0 0.025-0.010 0.036-0.023 0.024-0.024-0.024-0.336 0.264-0.753 0.692-0.7 0.72-1.286 1.291-1.304 1.274-0.012-0.012-0.021 0.009-0.021 0.046s-0.017 0.055-0.038 0.042c-0.035-0.021-0.055 0.029-0.042 0.105 0.002 0.016-0.017 0.024-0.043 0.019s-0.043 0.013-0.037 0.041c0.006 0.028-0.006 0.041-0.025 0.029s-0.128 0.075-0.24 0.193c-0.316 0.333-0.72 0.734-1.024 1.017-0.152 0.142-0.265 0.258-0.251 0.258s-0.030 0.047-0.1 0.105c-0.249 0.205-0.689 0.678-0.729 0.783-0.014 0.037-0.052 0.067-0.084 0.067s-0.059 0.027-0.059 0.059-0.014 0.051-0.030 0.041c-0.039-0.024-0.738 0.647-0.706 0.678 0.013 0.013 0.002 0.024-0.024 0.024s-0.134 0.090-0.239 0.2c-0.502 0.524-0.802 0.831-0.814 0.831-0.007 0-0.16 0.147-0.341 0.326l-0.328 0.326-0 9.032c-0 6.176 0.012 9.055 0.039 9.106 0.058 0.108 0.118 0.089 0.247-0.076 0.063-0.081 0.128-0.139 0.143-0.129s0.029-0.013 0.029-0.049 0.009-0.057 0.021-0.045c0.020 0.020 2.899-2.819 4.934-4.866 0.173-0.174 0.796-0.796 1.384-1.381s1.058-1.082 1.044-1.104c-0.013-0.022-0.008-0.029 0.012-0.017 0.052 0.032 0.25-0.159 0.218-0.21-0.015-0.024-0.008-0.031 0.016-0.016 0.043 0.027 0.199-0.114 0.199-0.181 0-0.020 0.009-0.028 0.021-0.017 0.071 0.072 0.863-0.833 0.842-0.963-0.012-0.074-0.022-4.185-0.022-9.136s-0.013-9.001-0.029-8.999-0.209 0.183-0.429 0.402zM22.214 2.895c-0.268 0.268-0.487 0.51-0.487 0.54s-0.011 0.042-0.023 0.029c-0.018-0.019-1.229 1.165-2.765 2.703-0.084 0.084-0.771 0.774-1.527 1.532l-1.374 1.379v9.15c0 5.033 0.009 9.15 0.021 9.15 0.042 0 0.203-0.183 0.181-0.206-0.013-0.013 0.001-0.023 0.031-0.024s0.166-0.124 0.302-0.275c0.136-0.15 0.358-0.377 0.492-0.505s0.487-0.478 0.783-0.78c0.296-0.302 0.647-0.654 0.78-0.783 0.679-0.66 1.153-1.132 1.139-1.132-0.009 0 0.141-0.16 0.333-0.356s0.362-0.35 0.378-0.341 0.029-0.015 0.029-0.051 0.011-0.055 0.023-0.042c0.029 0.029 0.129-0.067 0.129-0.125 0-0.023 0.013-0.036 0.029-0.027 0.027 0.016 0.23-0.17 0.21-0.192-0.005-0.006 0.003-0.014 0.019-0.018 0.053-0.014 0.116-0.088 0.099-0.117-0.010-0.016 0.011-0.029 0.045-0.029s0.051-0.017 0.038-0.038c-0.013-0.021-0.008-0.038 0.011-0.038s0.407-0.369 0.862-0.819l0.827-0.819v-9.068c0-4.988-0.011-9.095-0.023-9.128-0.036-0.094-0.041-0.089-0.559 0.428z"></path>
     <path d="M9.126 2.368c0 0.021 0.026 0.038 0.057 0.038s0.057-0.017 0.057-0.038c0-0.021-0.026-0.038-0.057-0.038s-0.057 0.017-0.057 0.038zM9.228 2.431c-0.014 0.014-0.025 4.134-0.024 9.156l0.002 9.13 1.626 1.604c1.36 1.341 3.41 3.366 4.223 4.17 0.11 0.109 0.347 0.353 0.525 0.542s0.346 0.345 0.372 0.346c0.038 0.002 0.048-1.851 0.048-9.145v-9.147l-0.176-0.161c-0.097-0.088-0.282-0.269-0.411-0.4-0.204-0.207-0.758-0.763-1.557-1.561-0.123-0.123-0.465-0.47-0.759-0.769s-0.534-0.535-0.534-0.523-0.116-0.1-0.258-0.249c-0.142-0.149-0.524-0.536-0.85-0.86-0.654-0.651-0.8-0.798-1.597-1.604-0.537-0.543-0.58-0.579-0.631-0.528zM22.859 2.491c-0.013 0.047-0.023 4.164-0.023 9.149l-0 9.063 4.487 4.484c3.557 3.554 4.507 4.484 4.583 4.484h0.095v-18.218l-4.525-4.524c-2.489-2.488-4.54-4.524-4.559-4.524s-0.044 0.039-0.057 0.086z"></path>
@@ -527,6 +551,9 @@ document.body.insertAdjacentHTML('afterbegin', `<svg id="iconsLitheness" style="
   </symbol>  
   <symbol id="iconRefresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>
+  </symbol>
+  <symbol id="iconDices" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/>
   </symbol>
   <symbol id="iconUnlock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>

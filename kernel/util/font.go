@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,8 @@
 package util
 
 import (
+	"encoding/binary"
+	"errors"
 	"os"
 	"sort"
 	"strconv"
@@ -27,8 +29,6 @@ import (
 	"github.com/ConradIrwin/font/sfnt"
 	"github.com/flopp/go-findfont"
 	"github.com/siyuan-note/logging"
-	textUnicode "golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
 )
 
 var (
@@ -75,8 +75,7 @@ func loadFonts() (ret []*Font) {
 				//LogInfof("[%s] [%s]", fontPath, family)
 			}
 		} else if strings.HasSuffix(strings.ToLower(fontPath), ".otf") || strings.HasSuffix(strings.ToLower(fontPath), ".ttf") {
-			f := parseTTFFontFamily(fontPath)
-			if nil != f {
+			for _, f := range parseTTFFontFamily(fontPath) {
 				if existFont(f, ret) {
 					continue
 				}
@@ -115,15 +114,12 @@ func parseTTCFontFamily(fontPath string) (ret []*Font) {
 	}
 
 	for _, f := range fonts {
-		font := parseFont(f)
-		if nil != font {
-			ret = append(ret, font)
-		}
+		ret = append(ret, parseFont(f)...)
 	}
 	return
 }
 
-func parseTTFFontFamily(fontPath string) *Font {
+func parseTTFFontFamily(fontPath string) (ret []*Font) {
 	defer logging.Recover()
 
 	fontFile, err := os.Open(fontPath)
@@ -141,40 +137,87 @@ func parseTTFFontFamily(fontPath string) *Font {
 	return parseFont(font)
 }
 
-func parseFont(font *sfnt.Font) *Font {
-	t, err := font.NameTable()
+func parseFont(font *sfnt.Font) (ret []*Font) {
+	defaultFont, err := parseFontInfo(font)
 	if err != nil {
-		//logging.LogErrorf("parse font name table failed: %s", err)
+		return nil
+	}
+	ret = append(ret, defaultFont)
+	ret = append(ret, parseFontVariations(font, defaultFont.Family)...)
+	return
+}
+
+func parseFontVariations(font *sfnt.Font, family string) (ret []*Font) {
+	defer logging.Recover()
+
+	// 可变字体通过 fvar 表声明字重等可变轴，named instances 提供了命名的字重实例
+	table, err := font.Table(sfnt.MustNamedTag("fvar"))
+	if err != nil {
+		return nil
+	}
+	buf := table.Bytes()
+	if len(buf) < 16 {
+		return nil
+	}
+	axesArrayOffset := int(binary.BigEndian.Uint16(buf[4:6]))
+	axisCount := int(binary.BigEndian.Uint16(buf[8:10]))
+	axisSize := int(binary.BigEndian.Uint16(buf[10:12]))
+	instanceCount := int(binary.BigEndian.Uint16(buf[12:14]))
+	instanceSize := int(binary.BigEndian.Uint16(buf[14:16]))
+	if axisSize < 20 || instanceSize < 4+axisCount*4 || len(buf) < axesArrayOffset+axisCount*axisSize+instanceCount*instanceSize {
 		return nil
 	}
 
-	var family, subfamily string
-	for _, e := range t.List() {
-		if sfnt.NameFontFamily == e.NameID && (sfnt.PlatformLanguageID(1033) == e.LanguageID || sfnt.PlatformLanguageID(2052) == e.LanguageID) {
-			v, _, err := transform.Bytes(textUnicode.UTF16(textUnicode.BigEndian, textUnicode.IgnoreBOM).NewDecoder(), e.Value)
-			if err == nil {
-				family = strings.TrimSpace(string(v))
-			}
-		}
-		if sfnt.NamePreferredFamily == e.NameID && (sfnt.PlatformLanguageID(1033) == e.LanguageID || sfnt.PlatformLanguageID(2052) == e.LanguageID) {
-			v, _, err := transform.Bytes(textUnicode.UTF16(textUnicode.BigEndian, textUnicode.IgnoreBOM).NewDecoder(), e.Value)
-			if err == nil {
-				family = strings.TrimSpace(string(v))
-			}
-		}
-		if sfnt.NameFontSubfamily == e.NameID && (sfnt.PlatformLanguageID(1033) == e.LanguageID || sfnt.PlatformLanguageID(2052) == e.LanguageID) {
-			v, _, err := transform.Bytes(textUnicode.UTF16(textUnicode.BigEndian, textUnicode.IgnoreBOM).NewDecoder(), e.Value)
-			if err == nil {
-				subfamily = strings.TrimSpace(string(v))
-			}
-		}
-		if sfnt.NamePreferredSubfamily == e.NameID && (sfnt.PlatformLanguageID(1033) == e.LanguageID || sfnt.PlatformLanguageID(2052) == e.LanguageID) {
-			v, _, err := transform.Bytes(textUnicode.UTF16(textUnicode.BigEndian, textUnicode.IgnoreBOM).NewDecoder(), e.Value)
-			if err == nil {
-				subfamily = strings.TrimSpace(string(v))
-			}
+	// 找到 wght 轴在实例坐标中的位置
+	wghtAxisIndex := -1
+	for i := 0; i < axisCount; i++ {
+		base := axesArrayOffset + i*axisSize
+		if "wght" == string(buf[base:base+4]) {
+			wghtAxisIndex = i
+			break
 		}
 	}
+	if wghtAxisIndex < 0 {
+		return nil
+	}
+
+	t, err := font.NameTable()
+	if err != nil {
+		return nil
+	}
+	entries := t.List()
+	instancesBase := axesArrayOffset + axisCount*axisSize
+	for i := 0; i < instanceCount; i++ {
+		base := instancesBase + i*instanceSize
+		subfamilyNameID := binary.BigEndian.Uint16(buf[base : base+2])
+		// wght 坐标是 16.16 定点数，取整后即为 CSS font-weight
+		weight := int(float64(int32(binary.BigEndian.Uint32(buf[base+4+wghtAxisIndex*4:base+8+wghtAxisIndex*4])))/65536 + 0.5)
+		if weight < 1 || 1000 < weight {
+			continue
+		}
+		subfamily := selectFontName(entries, sfnt.NameID(subfamilyNameID))
+		if "" == subfamily {
+			continue
+		}
+
+		displayName := family
+		if !strings.EqualFold(subfamily, "Regular") {
+			displayName = family + " " + subfamily
+		}
+		ret = append(ret, &Font{Family: family, Weight: weight, DisplayName: displayName})
+	}
+	return
+}
+
+func parseFontInfo(font *sfnt.Font) (*Font, error) {
+	t, err := font.NameTable()
+	if err != nil {
+		return nil, err
+	}
+
+	entries := t.List()
+	family := selectFontName(entries, sfnt.NamePreferredFamily, sfnt.NameFontFamily)
+	subfamily := selectFontName(entries, sfnt.NamePreferredSubfamily, sfnt.NameFontSubfamily)
 
 	weight := 400
 	os2, err := font.OS2Table()
@@ -223,17 +266,53 @@ func parseFont(font *sfnt.Font) *Font {
 		}
 	}
 
-	if family != "" && !strings.HasPrefix(family, ".") {
-		displayName := family
-		if subfamily != "" && !strings.EqualFold(subfamily, "Regular") {
-			displayName = family + " " + subfamily
-		}
+	if family == "" || strings.HasPrefix(family, ".") {
+		return nil, errors.New("font family is empty")
+	}
 
-		return &Font{
-			Family:      family,
-			Weight:      weight,
-			DisplayName: displayName,
+	displayName := family
+	if subfamily != "" && !strings.EqualFold(subfamily, "Regular") {
+		displayName = family + " " + subfamily
+	}
+
+	return &Font{
+		Family:      family,
+		Weight:      weight,
+		DisplayName: displayName,
+	}, nil
+}
+
+func selectFontName(entries []*sfnt.NameEntry, nameIDs ...sfnt.NameID) string {
+	for _, nameID := range nameIDs {
+		var selected string
+		selectedScore := 4
+		for _, entry := range entries {
+			if entry.NameID != nameID {
+				continue
+			}
+
+			value := strings.Trim(strings.TrimSpace(entry.String()), "\x00")
+			if value == "" {
+				continue
+			}
+
+			score := 3
+			switch {
+			case entry.LanguageID == sfnt.PlatformLanguageID(1033):
+				score = 0
+			case entry.LanguageID == sfnt.PlatformLanguageID(2052):
+				score = 1
+			case entry.PlatformID == sfnt.PlatformUnicode:
+				score = 2
+			}
+			if score < selectedScore {
+				selected = value
+				selectedScore = score
+			}
+		}
+		if selected != "" {
+			return selected
 		}
 	}
-	return nil
+	return ""
 }

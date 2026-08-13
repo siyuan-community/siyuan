@@ -48,21 +48,38 @@ export const commonClick = (event: MouseEvent & {
 
     const avElement = hasClosestByClassName(event.target, "protyle-attr--av");
     if (avElement) {
-        if (data) {
-            if (protyle.databaseAttributePanel) {
-                protyle.databaseAttributePanel.toggle();
-            } else {
+        const avIDElement = event.target.closest("[data-av-id]") as HTMLElement;
+        const avID = avIDElement && avElement.contains(avIDElement) ? avIDElement.dataset.avId : "";
+        const databaseAttributePanel = window.siyuan.config.editor.databaseAttrShow &&
+            window.siyuan.config.editor.databaseAttrClickMode === 0 &&
+            protyle.databaseAttributePanel;
+        if (!databaseAttributePanel) {
+            if (data) {
                 openFileAttr(data, "av", protyle);
+            } else {
+                openAttr(avElement.parentElement.parentElement, "av", protyle);
+            }
+        } else if (data) {
+            if (avID) {
+                databaseAttributePanel.expand(avID, true);
+            } else {
+                databaseAttributePanel.toggle();
             }
         } else {
             const blockElement = hasClosestBlock(avElement);
             const blockID = blockElement ? blockElement.getAttribute("data-node-id") : "";
-            if (!protyle.databaseAttributePanel) {
-                openAttr(avElement.parentElement.parentElement, "av", protyle);
-            } else if (blockID && protyle.block.showAll && blockID === protyle.block.id) {
-                protyle.databaseAttributePanel?.toggle();
+            if (blockID && protyle.block.showAll && blockID === protyle.block.id) {
+                if (avID) {
+                    databaseAttributePanel.expand(avID, true);
+                } else {
+                    databaseAttributePanel.toggle();
+                }
             } else if (blockID) {
-                zoomOut({protyle, id: blockID});
+                zoomOut({
+                    protyle,
+                    id: blockID,
+                    callback: avID ? () => databaseAttributePanel.expand(avID, true) : undefined,
+                });
             }
         }
         event.stopPropagation();

@@ -6,6 +6,8 @@ export const destroy = (protyle: IProtyle) => {
         return;
     }
     hideElements(["util"], protyle);
+    protyle.hint?.destroy();
+    protyle.preview?.destroy();
     if (isSupportCSSHL()) {
         protyle.highlight.markHL.clear();
         protyle.highlight.mark.clear();
@@ -17,17 +19,20 @@ export const destroy = (protyle: IProtyle) => {
     protyle.element.classList.remove("protyle");
     protyle.element.removeAttribute("style");
     if (protyle.wysiwyg) {
+        protyle.wysiwyg.tableControl?.destroy();
         protyle.wysiwyg.lastHTMLs = {};
     }
     if (protyle.undo) {
         protyle.undo.clear();
     }
-    try {
-        protyle.ws.send("closews", {});
-    } catch (e) {
-        setTimeout(() => {
+    if (protyle.ws) {
+        try {
             protyle.ws.send("closews", {});
-        }, 10240);
+        } catch (e) {
+            setTimeout(() => {
+                protyle.ws?.send("closews", {});
+            }, 10240);
+        }
     }
     protyle.app.plugins.forEach(item => {
         item.eventBus.emit("destroy-protyle", {

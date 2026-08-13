@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -187,13 +187,14 @@ func BatchSetBlockAttrs(blockAttrs []map[string]any) (err error) {
 	for boxID, icon := range boxIcons {
 		box := &Box{ID: boxID}
 		boxConf := box.GetConf()
+		oldIcon := boxConf.Icon
 		boxConf.Icon = icon
 		if err = box.SaveConf(boxConf); err != nil {
 			return
 		}
-	}
-	if 0 < len(boxIcons) {
-		ReloadFiletree()
+		if oldIcon != icon {
+			pushNotebookIconChanged(boxID, icon)
+		}
 	}
 
 	IncSync()
@@ -232,10 +233,11 @@ func SetBlockAttrs(id string, nameValues map[string]string) (err error) {
 		if icon, ok := nameValues["icon"]; ok {
 			box := &Box{ID: tree.Box}
 			boxConf := box.GetConf()
+			oldIcon := boxConf.Icon
 			boxConf.Icon = icon
 			err = box.SaveConf(boxConf)
-			if nil == err {
-				ReloadFiletree()
+			if nil == err && oldIcon != icon {
+				pushNotebookIconChanged(tree.Box, icon)
 			}
 		}
 	}
@@ -342,6 +344,12 @@ func setNodeAttrs0(node *ast.Node, nameValues map[string]string, boxID string) (
 	}
 	oldAttrs = parse.IAL2Map(node.KramdownIAL)
 	newAttrsUnEsc := parse.IAL2MapUnEsc(node.KramdownIAL)
+	for name := range nameValues {
+		if "fold" == strings.ToLower(name) {
+			delete(newAttrsUnEsc, "heading-fold")
+			break
+		}
+	}
 
 	for name, value := range nameValues {
 		value = util.RemoveInvalidRetainCtrl(value)
@@ -464,6 +472,11 @@ func normalizeIconValue(value string) string {
 		}
 	}
 	if allASCII {
+		if !util.IsValidIconUnicode(value) {
+			// 非法图标值，置空以删除该属性，防止存储可执行标记
+			// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-vx5w-qrvp-mmcq
+			return ""
+		}
 		return value
 	}
 
@@ -471,7 +484,11 @@ func normalizeIconValue(value string) string {
 	for _, r := range value {
 		parts = append(parts, strconv.FormatInt(int64(r), 16))
 	}
-	return strings.Join(parts, "-")
+	ret := strings.Join(parts, "-")
+	if !util.IsValidIconUnicode(ret) {
+		return ""
+	}
+	return ret
 }
 
 func pushBlockAttrs(oldAttrs map[string]string, node *ast.Node) {

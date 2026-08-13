@@ -1,9 +1,6 @@
-export type IToolEffects = {
-    localRead?: boolean;
-    localWrite?: boolean;
-    dataEgress?: boolean;
-    externalCost?: boolean;
-};
+import {buildAgentConfirmEvent, IToolEffects} from "./agentConfirmEvent";
+
+export type {IToolEffects} from "./agentConfirmEvent";
 
 export type ISSEResult = {
     type: "turn";
@@ -14,9 +11,12 @@ export type ISSEResult = {
 } | {
     type: "thinking";
     reasoning: string;
+    roundID?: string;
 } | {
     type: "tool_call";
     name: string;
+    callID?: string;
+    roundID?: string;
     arguments: Record<string, unknown>;
 } | {
     type: "confirm";
@@ -24,9 +24,12 @@ export type ISSEResult = {
     arguments: Record<string, unknown>;
     confirmID: string;
     effects?: IToolEffects;
+    forced?: boolean;
 } | {
     type: "tool_result";
     name: string;
+    callID?: string;
+    roundID?: string;
     result: string;
 } | {
     type: "error";
@@ -59,10 +62,16 @@ export type ISSEResult = {
 } | {
     type: "snapshot";
     snapshotID: string;
+    roundID?: string;
 } | {
-    type: "frontend_tool_call";
+    type: "permission";
+    permissionMode: "confirm" | "allowSession";
+} | {
+    type: "browser_capability_call";
     callID: string;
     name: string;
+    capabilityID: string;
+    generation: number;
     arguments: Record<string, unknown>;
 };
 
@@ -99,9 +108,22 @@ export async function fetchAgentSSE(
     reasoningEffort?: string,
     regenerate?: boolean,
     editorContext?: IEditorContext,
-    pluginActions?: Array<{name: string; description: string}>,
+    frontendCapabilities?: Array<{
+        id: string;
+        title?: string;
+        description: string;
+        inputSchema: Record<string, unknown>;
+        outputSchema?: Record<string, unknown>;
+        effects?: IToolEffects;
+        actionEffects?: Record<string, IToolEffects>;
+        source: "native" | "plugin";
+        ownerId?: string;
+        ownerName?: string;
+        generation: number;
+    }>,
     userEntryID?: string,
     contentRevision?: number,
+    blockHTML?: string,
 ): Promise<void> {
     let errorReported = false;
     const reportError = async (err: Error) => {
@@ -122,9 +144,10 @@ export async function fetchAgentSSE(
         if (reasoningEffort) { body.reasoningEffort = reasoningEffort; }
         if (regenerate) { body.regenerate = regenerate; }
         if (editorContext) { body.editorContext = editorContext; }
-        if (pluginActions && pluginActions.length > 0) { body.pluginActions = pluginActions; }
+        if (frontendCapabilities && frontendCapabilities.length > 0) { body.frontendCapabilities = frontendCapabilities; }
         if (userEntryID) { body.userEntryID = userEntryID; }
         if (typeof contentRevision === "number") { body.contentRevision = contentRevision; }
+        if (blockHTML !== undefined) { body.blockHTML = blockHTML; }
 
         const response = await fetch("/api/ai/agent/chat", {
             method: "POST",
@@ -256,24 +279,32 @@ function buildSSEResult(event: string, data: Record<string, unknown>): ISSEResul
         case "content":
             return {type: "content", token: data.token as string};
         case "thinking":
-            return {type: "thinking", reasoning: data.reasoning as string};
+            return {
+                type: "thinking",
+                reasoning: data.reasoning as string,
+                roundID: data.roundID as string || undefined,
+            };
         case "tool_call":
             return {
                 type: "tool_call",
                 name: data.name as string,
+                callID: data.callID as string || undefined,
+                roundID: data.roundID as string || undefined,
                 arguments: (data.arguments || {}) as Record<string, unknown>,
             };
         case "confirm":
+            return buildAgentConfirmEvent(data);
+        case "permission":
             return {
-                type: "confirm",
-                name: data.name as string,
-                arguments: (data.arguments || {}) as Record<string, unknown>,
-                confirmID: data.confirmID as string,
+                type: "permission",
+                permissionMode: data.permissionMode as "confirm" | "allowSession",
             };
         case "tool_result":
             return {
                 type: "tool_result",
                 name: data.name as string,
+                callID: data.callID as string || undefined,
+                roundID: data.roundID as string || undefined,
                 result: data.result as string,
             };
         case "error":
@@ -307,12 +338,18 @@ function buildSSEResult(event: string, data: Record<string, unknown>): ISSEResul
         case "reasoning":
             return {type: "reasoning", token: data.token as string};
         case "snapshot":
-            return {type: "snapshot", snapshotID: data.snapshotID as string};
-        case "frontend_tool_call":
             return {
-                type: "frontend_tool_call",
+                type: "snapshot",
+                snapshotID: data.snapshotID as string,
+                roundID: data.roundID as string || undefined,
+            };
+        case "browser_capability_call":
+            return {
+                type: "browser_capability_call",
                 callID: data.callID as string,
                 name: data.name as string,
+                capabilityID: data.capabilityID as string,
+                generation: data.generation as number,
                 arguments: (data.arguments || {}) as Record<string, unknown>,
             };
         default:

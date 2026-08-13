@@ -1,11 +1,12 @@
 import {Tree} from "../../util/Tree";
 import {fetchPost} from "../../util/fetch";
+import {confirmBlockRef} from "../../util/checkBlockRef";
 import {hasClosestBlock, hasClosestByClassName} from "../../protyle/util/hasClosest";
-import {isInAndroid, isInHarmony, setStorageVal, writeText} from "../../protyle/util/compatibility";
+import {setStorageVal, writeBlockDOMClipboard} from "../../protyle/util/compatibility";
 import {Constants} from "../../constants";
 import {MenuItem} from "../../menus/Menu";
 import {getPreviousBlock} from "../../protyle/wysiwyg/getBlock";
-import {App} from "../../index";
+import type {App} from "../../index";
 import {checkFold} from "../../util/noRelyPCFunction";
 import {transaction, turnsIntoTransaction} from "../../protyle/wysiwyg/transaction";
 import {mathRender} from "../../protyle/render/mathRender";
@@ -18,6 +19,11 @@ import {getDocDisplayName, isEncryptedBox} from "../../util/pathName";
 import {dragOverScroll, stopScrollAnimation} from "../../boot/globalEvent/dragover";
 import {escapeHtml} from "../../util/escape";
 import {unicode2Emoji} from "../../emoji";
+import {bindMousePointerTouchBridge, isMousePointerTouchEvent} from "../util/mousePointerTouchBridge";
+import {
+    operationsMayChangeOutline,
+    transactionsMayChangeRootHeadingNumberSetting
+} from "../../protyle/util/headingNumberCore";
 
 export class MobileOutline extends Model {
     public tree: Tree;
@@ -76,16 +82,13 @@ export class MobileOutline extends Model {
             } else {
                 filterIconElement.classList.remove("toolbar__icon--active");
             }
-            if (inputElement.dataset.value !== value) {
+        });
+        inputElement.addEventListener("input", (event: InputEvent) => {
+            if (!event.isComposing) {
                 this.setFilter();
             }
         });
-        inputElement.addEventListener("keydown", (event: KeyboardEvent) => {
-            if (!event.isComposing && event.key === "Enter") {
-                inputElement.dataset.value = inputElement.value;
-                this.setFilter();
-            }
-        });
+        inputElement.addEventListener("compositionend", () => this.setFilter());
         this.tree = new Tree({
             element: this.element.lastElementChild as HTMLElement,
             data: null,
@@ -229,9 +232,18 @@ export class MobileOutline extends Model {
                 startY: touch.clientY,
                 isDragging: false,
                 ghostElement: null,
-                startTime: Date.now(),
+                startTime: Date.now() - (isMousePointerTouchEvent(event) ? Constants.TIMEOUT_LONGPRESS : 0),
                 selectItem: null,
             };
+            if (!isMousePointerTouchEvent(event)) {
+                const state = this.touchDragState;
+                window.setTimeout(() => {
+                    if (this.touchDragState !== state) {
+                        return;
+                    }
+                    this.startTouchDrag(state, state.startX, state.startY, true);
+                }, Constants.TIMEOUT_LONGPRESS);
+            }
         }, {passive: false});
 
         this.element.addEventListener("touchmove", (event: TouchEvent) => {
@@ -249,16 +261,7 @@ export class MobileOutline extends Model {
                 }
                 if (Math.abs(touch.clientX - state.startX) < Constants.SIZE_DRAG_THRESHOLD &&
                     Math.abs(touch.clientY - state.startY) < Constants.SIZE_DRAG_THRESHOLD) return;
-                state.isDragging = true;
-
-                // 创建 ghost 元素，跟随手指移动
-                state.selectedElement.style.opacity = "0.38";
-                const ghostElement = state.selectedElement.cloneNode(true) as HTMLElement;
-                ghostElement.setAttribute("id", "dragGhost");
-                ghostElement.firstElementChild.setAttribute("style", "padding-left:4px");
-                ghostElement.setAttribute("style", `border-radius: var(--b3-border-radius);background-color: var(--b3-list-hover);pointer-events:none;position: fixed; top: ${touch.clientY}px; left: ${touch.clientX}px; z-index:999997;`);
-                document.body.append(ghostElement);
-                state.ghostElement = ghostElement;
+                this.startTouchDrag(state, touch.clientX, touch.clientY, !isMousePointerTouchEvent(event));
             }
 
             // 进入拖拽后阻止原生滚动，避免列表伴随手指滚动
@@ -369,7 +372,7 @@ export class MobileOutline extends Model {
             this.touchDragState = null;
         });
 
-        this.element.addEventListener("touchcancel", () => {
+        const cancelTouchDrag = () => {
             stopScrollAnimation();
             if (this.touchDragState?.ghostElement) {
                 this.touchDragState.ghostElement.remove();
@@ -379,7 +382,32 @@ export class MobileOutline extends Model {
             }
             this.clearDragIndicators();
             this.touchDragState = null;
-        });
+        };
+        this.element.addEventListener("touchcancel", cancelTouchDrag);
+        this.element.addEventListener("pointercancel", cancelTouchDrag);
+        window.addEventListener("blur", cancelTouchDrag);
+        bindMousePointerTouchBridge(this.element);
+    }
+
+    private startTouchDrag(state: MobileOutline["touchDragState"], clientX: number, clientY: number, vibrate = false) {
+        if (state.isDragging) {
+            return;
+        }
+        state.isDragging = true;
+        state.selectedElement.style.opacity = "0.38";
+        const ghostElement = state.selectedElement.cloneNode(true) as HTMLElement;
+        ghostElement.setAttribute("id", "dragGhost");
+        ghostElement.firstElementChild.setAttribute("style", "padding-left:4px");
+        ghostElement.setAttribute("style", `border-radius: var(--b3-border-radius);background-color: var(--b3-list-hover);pointer-events:none;position: fixed; top: ${clientY}px; left: ${clientX}px; z-index:999997;`);
+        document.body.append(ghostElement);
+        state.ghostElement = ghostElement;
+        if (vibrate) {
+            if (window.webkit?.messageHandlers.vibrate) {
+                window.webkit.messageHandlers.vibrate.postMessage("");
+            } else if (navigator.vibrate) {
+                navigator.vibrate(Constants.TIMEOUT_VIBRATION_DURATION);
+            }
+        }
     }
 
     // 清理拖拽指示线
@@ -394,6 +422,11 @@ export class MobileOutline extends Model {
             switch (data.cmd) {
                 case "savedoc":
                     this.onTransaction(data);
+                    break;
+                case "transactions":
+                    if (transactionsMayChangeRootHeadingNumberSetting(data.data, this.blockId)) {
+                        this.reload();
+                    }
                     break;
                 case "rename":
                     if (this.blockId === data.data.id) {
@@ -712,6 +745,8 @@ export class MobileOutline extends Model {
             });
         }
         this.saveExpendIds();
+        window.siyuan.storage[Constants.LOCAL_OUTLINE].expandLevel = targetLevel;
+        setStorageVal(Constants.LOCAL_OUTLINE, window.siyuan.storage[Constants.LOCAL_OUTLINE]);
     }
 
     /**
@@ -725,6 +760,7 @@ export class MobileOutline extends Model {
                 id: `heading${i}`,
                 icon: `iconH${i}`,
                 label: window.siyuan.languages[`heading${i}`],
+                current: window.siyuan.storage[Constants.LOCAL_OUTLINE].expandLevel === i,
                 click: () => this.expandToLevel(i)
             }).element);
         }
@@ -790,29 +826,12 @@ export class MobileOutline extends Model {
         if (data.data.rootID !== this.blockId) {
             return;
         }
-        let needReload = false;
         const ops = data.data.sources[0];
-        ops.doOperations.find((item: IOperation) => {
-            if (item.action === "update" &&
-                (this.element.querySelector(`.b3-list-item[data-node-id="${item.id}"]`) || item.data.indexOf('data-type="NodeHeading"') > -1)) {
-                needReload = true;
-                return true;
-            } else if (item.action === "insert" && item.data.indexOf('data-type="NodeHeading"') > -1) {
-                needReload = true;
-                return true;
-            } else if (item.action === "delete" || item.action === "move") {
-                needReload = true;
-                return true;
-            }
-        });
-        if (!needReload && ops.undoOperations) {
-            ops.undoOperations.find((item: IOperation) => {
-                if (item.action === "update" && item.data?.indexOf('data-type="NodeHeading"') > -1) {
-                    needReload = true;
-                    return true;
-                }
-            });
-        }
+        const headingIDs = new Set(Array.from(this.element.querySelectorAll<HTMLElement>(
+            ".b3-list-item[data-node-id]"
+        )).map(item => item.dataset.nodeId!));
+        const needReload = operationsMayChangeOutline(ops.doOperations, headingIDs) ||
+            operationsMayChangeOutline(ops.undoOperations, headingIDs);
         if (needReload) {
             this.reload(() => {
                 // https://github.com/siyuan-note/siyuan/issues/8372
@@ -1047,15 +1066,9 @@ export class MobileOutline extends Model {
                 const data = this.getProtyleAndBlockElement(element);
                 fetchPost("/api/block/getHeadingChildrenDOM", {
                     id,
-                    removeFoldAttr: data.blockElement.getAttribute("fold") !== "1"
-                }, (response) => {
-                    if (isInAndroid()) {
-                        window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                    } else if (isInHarmony()) {
-                        window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                    } else {
-                        writeText(response.data + Constants.ZWSP);
-                    }
+                    removeFoldAttr: false
+                }, async (response) => {
+                    await writeBlockDOMClipboard(data.protyle.lute, response.data);
                 });
             }
         }).element);
@@ -1070,18 +1083,30 @@ export class MobileOutline extends Model {
                     const data = this.getProtyleAndBlockElement(element);
                     fetchPost("/api/block/getHeadingChildrenDOM", {
                         id,
-                        removeFoldAttr: data.blockElement.getAttribute("fold") !== "1"
+                        removeFoldAttr: false
                     }, (response) => {
-                        if (isInAndroid()) {
-                            window.JSAndroid.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                        } else if (isInHarmony()) {
-                            window.JSHarmony.writeHTMLClipboard(data.protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
-                        } else {
-                            writeText(response.data + Constants.ZWSP);
-                        }
                         fetchPost("/api/block/getHeadingDeleteTransaction", {
                             id,
-                        }, (deleteResponse) => {
+                        }, async (deleteResponse) => {
+                            const deletedIDs = deleteResponse.data.doOperations.map(
+                                (operation: IOperation) => operation.id);
+                            if (!await confirmBlockRef({
+                                scope: "blocks",
+                                ids: deletedIDs,
+                                deletedIDs,
+                                notebook: data.protyle.notebookId,
+                            }, data.protyle)) {
+                                return;
+                            }
+                            if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
+                                return;
+                            }
+                            if (!await writeBlockDOMClipboard(data.protyle.lute, response.data)) {
+                                return;
+                            }
+                            if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
+                                return;
+                            }
                             deleteResponse.data.doOperations.forEach((operation: IOperation) => {
                                 data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
                                     itemElement.remove();
@@ -1118,7 +1143,19 @@ export class MobileOutline extends Model {
                     const data = this.getProtyleAndBlockElement(element);
                     fetchPost("/api/block/getHeadingDeleteTransaction", {
                         id,
-                    }, (response) => {
+                    }, async (response) => {
+                        const deletedIDs = response.data.doOperations.map((operation: IOperation) => operation.id);
+                        if (!await confirmBlockRef({
+                            scope: "blocks",
+                            ids: deletedIDs,
+                            deletedIDs,
+                            notebook: data.protyle.notebookId,
+                        }, data.protyle)) {
+                            return;
+                        }
+                        if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
+                            return;
+                        }
                         response.data.doOperations.forEach((operation: IOperation) => {
                             data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
                                 itemElement.remove();

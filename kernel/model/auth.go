@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -19,10 +19,12 @@ package model
 import (
 	"crypto/rand"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-note/logging"
 )
 
@@ -42,7 +44,8 @@ const (
 
 	ClaimsContextKey = "claims"
 
-	iss = "siyuan-kernel" // token 的发行者
+	iss                    = "siyuan-kernel"         // token 的发行者
+	publishServiceAudience = "siyuan-publish-server" // 发布服务 token 的受众
 
 	ClaimsKeyRole string = "role"
 )
@@ -89,6 +92,14 @@ func DeleteSession(sessionID string) {
 }
 
 func InitPublishAccounts() {
+	if nil == Conf.Publish {
+		Conf.Publish = conf.NewPublish()
+	}
+	if nil == Conf.Publish.Auth {
+		// 防御 conf.json 中 auth 为 null 的历史坏配置，避免启动时解引用空指针崩溃
+		// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-rp9f-c2fj-h648
+		Conf.Publish.Auth = conf.NewPublish().Auth
+	}
 	accountsMap = AccountsMap{
 		"": &Account{}, // 匿名用户
 	}
@@ -113,10 +124,10 @@ func InitPublishJWT() {
 		t := jwt.NewWithClaims(
 			jwt.SigningMethodHS256,
 			jwt.MapClaims{
-				"iss": iss,                     // token 的发行者
-				"sub": username,                // token 代表的主体
-				"aud": "siyuan-publish-server", // token 的受众
-				"jti": uuid.New().String(),     // token 的唯一标识
+				"iss": iss,                    // token 的发行者
+				"sub": username,               // token 代表的主体
+				"aud": publishServiceAudience, // token 的受众
+				"jti": uuid.New().String(),    // token 的唯一标识
 
 				ClaimsKeyRole: RoleReader, // 角色
 			},
@@ -191,8 +202,10 @@ func IsPublishServiceToken(token *jwt.Token) bool {
 		return false
 	}
 	claims := GetTokenClaims(token)
-	if tokenIssuer, ok := claims["iss"].(string); ok {
-		return tokenIssuer == iss
+	tokenIssuer, ok := claims["iss"].(string)
+	if !ok || tokenIssuer != iss {
+		return false
 	}
-	return false
+	audience, err := claims.GetAudience()
+	return err == nil && slices.Contains(audience, publishServiceAudience)
 }

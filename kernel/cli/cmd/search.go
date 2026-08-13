@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -187,10 +187,14 @@ func printSearchResult(blocks []*model.Block, matchedBlockCount, matchedRootCoun
 }
 
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	if maxLen < 1 {
+		return "..."
+	}
+	return string(runes[:maxLen]) + "..."
 }
 
 func stringSliceToMap(s []string) map[string]bool {

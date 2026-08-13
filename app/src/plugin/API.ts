@@ -11,7 +11,7 @@ import {Tab} from "../layout/Tab";
 /// #endif
 import {saveExportFile, updateHotkeyTip} from "../protyle/util/compatibility";
 import * as platformUtils from "./platformUtils";
-import {App} from "../index";
+import type {App} from "../index";
 import {Constants} from "../constants";
 import {Setting} from "./Setting";
 import {Menu} from "./Menu";
@@ -326,6 +326,7 @@ const openEmoji = (options: {
     dynamicIconURL?: string
     hideDynamicIcon?: boolean
     hideCustomIcon?: boolean
+    targetID?: string
 }) => {
     let dynamicImgElement: HTMLImageElement;
     if (options.dynamicIconURL) {
@@ -334,7 +335,8 @@ const openEmoji = (options: {
     }
     openEmojiPanel("", "av", options.position, options.selectedCB, dynamicImgElement, {
         dynamic: options.hideDynamicIcon,
-        custom: options.hideCustomIcon
+        custom: options.hideCustomIcon,
+        targetID: options.targetID,
     });
 };
 

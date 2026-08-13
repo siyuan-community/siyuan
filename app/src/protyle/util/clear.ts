@@ -2,6 +2,16 @@ import {updateHeader} from "../render/av/row";
 import {resetAVRowSelect} from "../render/av/virtualScroll";
 import {hasClosestByClassName} from "./hasClosest";
 import {Constants} from "../../constants";
+import {clearAVCellSelectionState, clearAVItemSelectionState} from "../render/av/selectionState";
+
+const getAVElements = (element: Element) => {
+    const elements: HTMLElement[] = [];
+    if (element.classList.contains("av")) {
+        elements.push(element as HTMLElement);
+    }
+    element.querySelectorAll<HTMLElement>(".av").forEach(item => elements.push(item));
+    return elements;
+};
 
 export const clearBlockElement = (element: Element, keepRefcount = false) => {
     element.classList.remove("protyle-wysiwyg--select", "protyle-wysiwyg--hl");
@@ -25,6 +35,7 @@ export const clearSelect = (types: ("av" | "img" | "cell" | "row" | "galleryItem
             item.querySelector(".av__drag-fill")?.remove();
             item.classList.remove("av__cell--select", "av__cell--active");
         });
+        getAVElements(element).forEach(clearAVCellSelectionState);
     }
     if (types.includes("row")) {
         const clearedBodies = new Set<HTMLElement>();
@@ -39,12 +50,16 @@ export const clearSelect = (types: ("av" | "img" | "cell" | "row" | "galleryItem
             }
             updateHeader(item);
         });
+        resetAVBodySelect(element, "table");
+        getAVElements(element).forEach(clearAVItemSelectionState);
     }
     if (types.includes("galleryItem")) {
         const clearedBodies = new Set<HTMLElement>();
         element.querySelectorAll(".av__gallery-item--select").forEach((item: HTMLElement) => {
             clearGalleryItem(item, clearedBodies);
         });
+        resetAVBodySelect(element, "gallery");
+        getAVElements(element).forEach(clearAVItemSelectionState);
     }
     if (types.includes("av")) {
         const clearedBodies = new Set<HTMLElement>();
@@ -65,6 +80,11 @@ export const clearSelect = (types: ("av" | "img" | "cell" | "row" | "galleryItem
                 item.classList.remove("av__cell--select", "av__cell--active");
             }
         });
+        resetAVBodySelect(element, "all");
+        getAVElements(element).forEach(avElement => {
+            clearAVCellSelectionState(avElement);
+            clearAVItemSelectionState(avElement);
+        });
     }
     if (types.includes("img")) {
         element.querySelectorAll(".img--select").forEach((item: HTMLElement) => {
@@ -72,6 +92,24 @@ export const clearSelect = (types: ("av" | "img" | "cell" | "row" | "galleryItem
         });
     }
 
+};
+
+const resetAVBodySelect = (element: Element, type: "table" | "gallery" | "all") => {
+    const avElements = element.classList.contains("av") ? [element] : Array.from(element.querySelectorAll(".av"));
+    avElements.forEach((avElement: HTMLElement) => {
+        const avType = avElement.dataset.avType;
+        if ((type === "table" && avType !== "table") || (type === "gallery" && avType === "table")) {
+            return;
+        }
+        avElement.querySelectorAll(".av__body").forEach((bodyElement: HTMLElement) => {
+            resetAVRowSelect(bodyElement, []);
+        });
+        const itemElement = avElement.querySelector(
+            ".av__row:not(.av__row--header):not(.av__row--footer):not(.av__row--util), .av__gallery-item") as HTMLElement;
+        if (itemElement) {
+            updateHeader(itemElement);
+        }
+    });
 };
 
 const clearGalleryItem = (item: HTMLElement, clearedBodies: Set<HTMLElement>) => {

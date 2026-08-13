@@ -3,7 +3,7 @@ import {shell} from "electron";
 /// #endif
 import {confirmDialog} from "../dialog/confirmDialog";
 import {getSearch, isMobile, isValidCustomAttrName} from "../util/functions";
-import {isEncryptedBox, isLocalPath, movePathTo, moveToPath, pathPosix} from "../util/pathName";
+import {getAssetExtension, isEncryptedBox, isLocalPath, movePathTo, moveToPath, pathPosix} from "../util/pathName";
 import {MenuItem} from "./Menu";
 import {onExport, saveExport} from "../protyle/export";
 import {exportMarkdownZip} from "../protyle/export/exportMd";
@@ -28,7 +28,7 @@ import {rename, replaceFileName} from "../editor/rename";
 import * as dayjs from "dayjs";
 import {Constants} from "../constants";
 import {exportImage} from "../protyle/export/util";
-import {App} from "../index";
+import type {App} from "../index";
 import {renderAVAttribute} from "../protyle/render/av/blockAttr";
 import {openAssetNewWindow} from "../window/openNewWindow";
 import {copyTextByType} from "../protyle/toolbar/util";
@@ -853,9 +853,10 @@ export const openMenu = (app: App, src: string, onlyMenu: boolean, showAccelerat
     });
     /// #else
     if (isLocalPath(src)) {
-        if (Constants.SIYUAN_ASSETS_EXTS.includes(pathPosix().extname(src).split("?")[0]) &&
-            (!src.endsWith(".pdf") ||
-                (src.endsWith(".pdf") && !src.startsWith("file://")))
+        const extension = getAssetExtension(src);
+        if (Constants.SIYUAN_ASSETS_EXTS.includes(extension) &&
+            (extension !== ".pdf" ||
+                (extension === ".pdf" && !src.startsWith("file://")))
         ) {
             submenu.push({
                 id: "insertRight",
@@ -1009,7 +1010,7 @@ export const renameMenu = (options: {
     }).element;
 };
 
-export const movePathToMenu = (paths: string[]) => {
+export const movePathToMenu = (paths: string[], sourceNotebookIds: string[] = []) => {
     return new MenuItem({
         id: "move",
         label: window.siyuan.languages.move,
@@ -1027,6 +1028,7 @@ export const movePathToMenu = (paths: string[]) => {
                 paths,
                 flashcard: false,
                 rootIDs,
+                sourceNotebookIds,
             });
         }
     }).element;

@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,12 +17,17 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"image"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -192,63 +197,7 @@ func getEmojiConf(c *gin.Context) {
 	custom["items"] = items
 	if gulu.File.IsDir(customConfDir) {
 		model.ClearCustomEmojis()
-		customEmojis, err := os.ReadDir(customConfDir)
-		if err != nil {
-			logging.LogErrorf("read custom emojis failed: %s", err)
-		} else {
-			for _, customEmoji := range customEmojis {
-				name := customEmoji.Name()
-				if strings.HasPrefix(name, ".") {
-					continue
-				}
-
-				if !util.IsValidUploadFileName(html.UnescapeString(name)) {
-					emojiFullName := filepath.Join(customConfDir, name)
-					name = util.FilterUploadEmojiFileName(name)
-					fullPathFilteredName := filepath.Join(customConfDir, name)
-					// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-					logging.LogWarnf("renaming invalid custom emoji file [%s] to [%s]", name, fullPathFilteredName)
-					if removeErr := filelock.Rename(emojiFullName, fullPathFilteredName); nil != removeErr {
-						logging.LogErrorf("renaming invalid custom emoji file to [%s] failed: %s", fullPathFilteredName, removeErr)
-					}
-				}
-
-				if customEmoji.IsDir() {
-					// 子级
-					subCustomEmojis, err := os.ReadDir(filepath.Join(customConfDir, name))
-					if err != nil {
-						logging.LogErrorf("read custom emojis failed: %s", err)
-						continue
-					}
-
-					for _, subCustomEmoji := range subCustomEmojis {
-						if subCustomEmoji.IsDir() {
-							continue
-						}
-
-						subName := subCustomEmoji.Name()
-						if strings.HasPrefix(subName, ".") {
-							continue
-						}
-
-						if !util.IsValidUploadFileName(html.UnescapeString(subName)) {
-							emojiFullName := filepath.Join(customConfDir, name, subName)
-							fullPathFilteredName := filepath.Join(customConfDir, name, util.FilterUploadEmojiFileName(subName))
-							// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
-							logging.LogWarnf("renaming invalid custom emoji file [%s] to [%s]", subName, fullPathFilteredName)
-							if removeErr := filelock.Rename(emojiFullName, fullPathFilteredName); nil != removeErr {
-								logging.LogErrorf("renaming invalid custom emoji file to [%s] failed: %s", fullPathFilteredName, removeErr)
-							}
-						}
-
-						addCustomEmoji(name+"/"+subName, &items)
-					}
-					continue
-				}
-
-				addCustomEmoji(name, &items)
-			}
-		}
+		readCustomEmojis(customConfDir, "", &items)
 	}
 	custom["items"] = items
 	conf = append([]map[string]any{custom}, conf...)
@@ -257,7 +206,42 @@ func getEmojiConf(c *gin.Context) {
 	return
 }
 
-func addCustomEmoji(name string, items *[]map[string]any) {
+func readCustomEmojis(rootDir, relativeDir string, items *[]map[string]any) {
+	dir := filepath.Join(rootDir, filepath.FromSlash(relativeDir))
+	customEmojis, err := os.ReadDir(dir)
+	if err != nil {
+		logging.LogErrorf("read custom emojis failed: %s", err)
+		return
+	}
+
+	for _, customEmoji := range customEmojis {
+		name := customEmoji.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		if !util.IsValidUploadFileName(html.UnescapeString(name)) {
+			oldPath := filepath.Join(dir, name)
+			name = util.FilterUploadEmojiFileName(name)
+			newPath := filepath.Join(dir, name)
+			// XSS through emoji name https://github.com/siyuan-note/siyuan/issues/15034
+			logging.LogWarnf("renaming invalid custom emoji file [%s] to [%s]", oldPath, newPath)
+			if renameErr := filelock.Rename(oldPath, newPath); nil != renameErr {
+				logging.LogErrorf("renaming invalid custom emoji file to [%s] failed: %s", newPath, renameErr)
+				continue
+			}
+		}
+
+		relativePath := filepath.ToSlash(filepath.Join(relativeDir, name))
+		if customEmoji.IsDir() {
+			readCustomEmojis(rootDir, relativePath, items)
+			continue
+		}
+		appendCustomEmoji(relativePath, items)
+	}
+}
+
+func appendCustomEmoji(name string, items *[]map[string]any) {
 	ext := filepath.Ext(name)
 	nameWithoutExt := strings.TrimSuffix(name, ext)
 	emoji := map[string]any{
@@ -271,6 +255,160 @@ func addCustomEmoji(name string, items *[]map[string]any) {
 
 	imgSrc := "/emojis/" + name
 	model.AddCustomEmoji(nameWithoutExt, imgSrc)
+}
+
+const maxCustomEmojiSize = 10 * 1024 * 1024
+
+func addCustomEmoji(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	data, err := readCustomEmojiData(c)
+	if err != nil {
+		ret.Code = http.StatusBadRequest
+		ret.Msg = err.Error()
+		return
+	}
+	if len(data) > maxCustomEmojiSize {
+		ret.Code = http.StatusRequestEntityTooLarge
+		ret.Msg = "custom emoji file is too large"
+		return
+	}
+
+	data, ext, err := normalizeCustomEmojiData(data)
+	if err != nil {
+		ret.Code = http.StatusBadRequest
+		ret.Msg = err.Error()
+		return
+	}
+	relativePath, err := normalizeCustomEmojiPath(c.PostForm("name"), ext)
+	if err != nil {
+		ret.Code = http.StatusBadRequest
+		ret.Msg = err.Error()
+		return
+	}
+
+	emojisDir := filepath.Join(util.DataDir, "emojis")
+	emojiPath := util.GetUniqueFilename(filepath.Join(emojisDir, filepath.FromSlash(relativePath)))
+	if err = os.MkdirAll(filepath.Dir(emojiPath), 0755); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	if err = filelock.WriteFile(emojiPath, data); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
+	model.IncSync()
+	relativePath, _ = filepath.Rel(emojisDir, emojiPath)
+	relativePath = filepath.ToSlash(relativePath)
+	ret.Data = map[string]any{"path": relativePath}
+}
+
+func readCustomEmojiData(c *gin.Context) ([]byte, error) {
+	fileHeader, fileErr := c.FormFile("file")
+	if fileErr == nil {
+		file, err := fileHeader.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		return io.ReadAll(io.LimitReader(file, maxCustomEmojiSize+1))
+	}
+
+	rawURL := strings.TrimSpace(c.PostForm("url"))
+	if rawURL == "" {
+		return nil, fmt.Errorf("field [file] or [url] must not be empty")
+	}
+	return downloadCustomEmojiData(rawURL)
+}
+
+func downloadCustomEmojiData(rawURL string) ([]byte, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		return nil, fmt.Errorf("invalid custom emoji URL")
+	}
+
+	response, err := util.NewCustomReqClient().R().Get(parsedURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("download custom emoji failed: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download custom emoji failed with status %d", response.StatusCode)
+	}
+	if response.ContentLength > maxCustomEmojiSize {
+		return nil, fmt.Errorf("custom emoji file is too large")
+	}
+
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxCustomEmojiSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read custom emoji response failed: %w", err)
+	}
+	return data, nil
+}
+
+func normalizeCustomEmojiData(data []byte) (normalized []byte, ext string, err error) {
+	if len(data) == 0 {
+		return nil, "", fmt.Errorf("custom emoji file must not be empty")
+	}
+
+	raster := true
+	switch http.DetectContentType(data) {
+	case "image/png":
+		ext = ".png"
+	case "image/jpeg":
+		ext = ".jpg"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	default:
+		raster = false
+	}
+	if raster {
+		config, _, decodeErr := image.DecodeConfig(bytes.NewReader(data))
+		if decodeErr != nil || config.Width < 1 || config.Height < 1 || config.Width > 16384 || config.Height > 16384 ||
+			int64(config.Width)*int64(config.Height) > 100*1000*1000 {
+			return nil, "", fmt.Errorf("invalid custom emoji image")
+		}
+		return data, ext, nil
+	}
+
+	sanitizedSVG, sanitizeErr := util.SanitizeSVG(string(data))
+	if sanitizeErr == nil {
+		return []byte(sanitizedSVG), ".svg", nil
+	}
+	return nil, "", fmt.Errorf("unsupported custom emoji image format")
+}
+
+func normalizeCustomEmojiPath(name, ext string) (string, error) {
+	name = strings.TrimSpace(strings.ReplaceAll(name, "\\", "/"))
+	parts := strings.Split(name, "/")
+	if len(parts) == 0 {
+		return "", fmt.Errorf("custom emoji name must not be empty")
+	}
+
+	lastIndex := len(parts) - 1
+	switch strings.ToLower(filepath.Ext(parts[lastIndex])) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
+		parts[lastIndex] = strings.TrimSuffix(parts[lastIndex], filepath.Ext(parts[lastIndex]))
+	}
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." || part == ".." {
+			return "", fmt.Errorf("invalid custom emoji name")
+		}
+		part = util.FilterUploadFileName(part)
+		if part == "" || part == "." || part == ".." {
+			return "", fmt.Errorf("invalid custom emoji name")
+		}
+		parts[i] = part
+	}
+	parts[lastIndex] += ext
+	return strings.Join(parts, "/"), nil
 }
 
 func checkUpdate(c *gin.Context) {
@@ -333,6 +471,11 @@ func exportConf(c *gin.Context) {
 	}
 	if nil != clonedConf.Editor {
 		clonedConf.Editor.Emoji = []string{}
+		if strings.HasPrefix(clonedConf.Editor.FontFamily, util.CustomFontFamilyPrefix) {
+			clonedConf.Editor.FontFamily = ""
+			clonedConf.Editor.FontWeight = 400
+			clonedConf.Editor.FontFamilyDisplay = ""
+		}
 	}
 	if nil != clonedConf.Export {
 		clonedConf.Export.PandocBin = ""
@@ -346,7 +489,7 @@ func exportConf(c *gin.Context) {
 		clonedConf.System.OSPlatform = ""
 		clonedConf.System.Container = ""
 		clonedConf.System.IsMicrosoftStore = false
-		clonedConf.System.IsInsider = false
+		clonedConf.System.UpdateChannel = ""
 		clonedConf.System.MicrosoftDefenderExcluded = false
 	}
 	clonedConf.Sync = nil
@@ -538,6 +681,10 @@ func importConf(c *gin.Context) {
 		return
 	}
 	preserveImportedAISecrets(importedConf.AI, model.Conf.AI)
+	if nil != importedConf.System && nil != model.Conf.System {
+		// 更新通道是应用级全局设置，导入工作空间配置时保持不变。
+		importedConf.System.UpdateChannel = model.Conf.System.UpdateChannel
+	}
 
 	model.Conf.FileTree = importedConf.FileTree
 	model.Conf.Tag = importedConf.Tag
@@ -619,9 +766,7 @@ func getConf(c *gin.Context) {
 	}
 
 	if model.IsReadOnlyRoleContext(c) {
-		publishAccess := model.GetPublishAccess()
-		publishIgnore := model.GetInvisiblePublishAccess(publishAccess)
-		maskedConf = model.FilterConfByPublishIgnore(publishIgnore, maskedConf)
+		maskedConf.UILayout = &conf.UILayout{}
 	}
 
 	// 浏览器环境下不返回工作空间绝对路径，避免泄露用户名等敏感信息
@@ -710,6 +855,16 @@ func setAPIToken(c *gin.Context) {
 	}
 
 	token := arg["token"].(string)
+	token = util.RemoveInvalid(token)
+	token = strings.TrimSpace(token)
+
+	// 仅校验新设置的 token，清空（禁用 API token 鉴权）不做长度限制 https://github.com/siyuan-note/siyuan/security/advisories/GHSA-m6w6-p7pc-fpg2
+	if 0 < len(token) && 8 > len(token) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(356)
+		return
+	}
+
 	model.Conf.Api.Token = token
 	model.Conf.Save()
 }
@@ -730,7 +885,8 @@ func setAccessAuthCode(c *gin.Context) {
 	}
 
 	aac := arg["accessAuthCode"].(string)
-	if model.MaskedAccessAuthCode == aac {
+	masked := model.MaskedAccessAuthCode == aac
+	if masked {
 		aac = model.Conf.AccessAuthCode
 	}
 
@@ -745,6 +901,29 @@ func setAccessAuthCode(c *gin.Context) {
 		return
 	}
 
+	// 仅校验新设置的密码，掩码回填的已有密码和清空（禁用锁屏）不做长度限制，避免用户被锁定 https://github.com/siyuan-note/siyuan/security/advisories/GHSA-w3xh-mmmh-r54v
+	if !masked && 0 < len(aac) && 8 > len(aac) {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(355)
+		return
+	}
+	if aac == "" {
+		currentOIDC := model.Conf.GetOIDC()
+		var err error
+		if util.IsMobileContainer() && currentOIDC.Enabled {
+			err = model.ValidateOIDCMobileConfiguration(currentOIDC)
+		} else if !model.IsLocalRequest(c) {
+			err = model.ValidateOIDCConfigurationChange(c.Request.Context(), currentOIDC, true, false,
+				util.SiYuanAccessAuthCodeBypass)
+		}
+		if err != nil {
+			ret.Code = -1
+			ret.Msg = model.Conf.Language(369)
+			logging.LogWarnf("reject clearing the last usable access authentication method [ip=%s]: %s", c.ClientIP(), err)
+			return
+		}
+	}
+
 	model.Conf.AccessAuthCode = aac
 	model.Conf.Save()
 
@@ -757,6 +936,48 @@ func setAccessAuthCode(c *gin.Context) {
 		util.ReloadUI()
 	}()
 	return
+}
+
+func setOIDC(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	config := conf.NewOIDC()
+	if err := c.ShouldBindJSON(config); err != nil {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(369)
+		logging.LogWarnf("bind OIDC configuration failed [ip=%s]: %s", c.ClientIP(), err)
+		return
+	}
+	currentConfig := model.Conf.GetOIDC()
+	config.Normalize()
+	requireRemoteAuthentication := util.ContainerDocker == util.Container || !model.IsLocalRequest(c)
+	if err := model.ValidateOIDCConfigurationChange(c.Request.Context(), config, requireRemoteAuthentication,
+		model.Conf.AccessAuthCode != "", util.SiYuanAccessAuthCodeBypass); err != nil {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(369)
+		logging.LogErrorf("validate OIDC configuration change failed [ip=%s]: %s", c.ClientIP(), err)
+		return
+	}
+	configurationChanged := !reflect.DeepEqual(currentConfig, config)
+	if configurationChanged && config.Enabled {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(369)
+		logging.LogWarnf("reject unverified OIDC configuration change [ip=%s]", c.ClientIP())
+		return
+	}
+	model.Conf.SetOIDC(config)
+	masked, err := model.GetMaskedConf()
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = model.Conf.Language(369)
+		logging.LogErrorf("get masked configuration after setting OIDC failed: %s", err)
+		return
+	}
+	ret.Data = masked.OIDC
+	if configurationChanged {
+		util.CloseOIDCSessions()
+	}
 }
 
 func setFollowSystemLockScreen(c *gin.Context) {
@@ -781,6 +1002,114 @@ func getSysFonts(c *gin.Context) {
 
 	fonts := util.LoadSysFonts()
 	ret.Data = fonts
+}
+
+func getCustomFonts(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	ret.Data = util.LoadCustomFonts()
+}
+
+func importCustomFont(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, util.MaxCustomFontSize+1024*1024)
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			ret.Code = http.StatusRequestEntityTooLarge
+			ret.Msg = "font file is too large"
+		} else {
+			ret.Code = http.StatusBadRequest
+			ret.Msg = "Field [file] must not be empty"
+		}
+		return
+	}
+	if util.MaxCustomFontSize < fileHeader.Size {
+		ret.Code = http.StatusRequestEntityTooLarge
+		ret.Msg = "font file is too large"
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		ret.Code = http.StatusBadRequest
+		ret.Msg = err.Error()
+		return
+	}
+	defer file.Close()
+
+	tempFile, err := util.CreateCustomFontTemp()
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	tempPath := tempFile.Name()
+	defer util.DiscardCustomFontTemp(tempPath)
+
+	written, copyErr := io.Copy(tempFile, io.LimitReader(file, util.MaxCustomFontSize+1))
+	closeErr := tempFile.Close()
+	if copyErr != nil {
+		ret.Code = http.StatusBadRequest
+		ret.Msg = copyErr.Error()
+		return
+	}
+	if closeErr != nil {
+		ret.Code = -1
+		ret.Msg = closeErr.Error()
+		return
+	}
+	if util.MaxCustomFontSize < written {
+		ret.Code = http.StatusRequestEntityTooLarge
+		ret.Msg = "font file is too large"
+		return
+	}
+
+	font, _, err := util.InstallCustomFont(tempPath)
+	if err != nil {
+		ret.Code = http.StatusBadRequest
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = font
+}
+
+func removeCustomFont(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	id, _ := arg["id"].(string)
+	font, err := util.RemoveCustomFont(id)
+	if err != nil {
+		if os.IsNotExist(err) {
+			ret.Code = http.StatusNotFound
+		} else {
+			ret.Code = http.StatusBadRequest
+		}
+		ret.Msg = err.Error()
+		return
+	}
+
+	var editor *conf.Editor
+	if model.Conf.Editor.FontFamily == font.Family {
+		model.Conf.Editor.FontFamily = ""
+		model.Conf.Editor.FontWeight = 400
+		model.Conf.Editor.FontFamilyDisplay = ""
+		model.Conf.Save()
+		editor = model.Conf.Editor
+	}
+	ret.Data = map[string]any{
+		"font":   font,
+		"editor": editor,
+	}
 }
 
 func version(c *gin.Context) {
@@ -874,11 +1203,7 @@ func setAppearanceMode(c *gin.Context) {
 
 	mode := int(arg["mode"].(float64))
 	model.Conf.Appearance.Mode = mode
-	if 0 == mode {
-		model.Conf.Appearance.ThemeJS = gulu.File.IsExist(filepath.Join(util.ThemesPath, model.Conf.Appearance.ThemeLight, "theme.js"))
-	} else {
-		model.Conf.Appearance.ThemeJS = gulu.File.IsExist(filepath.Join(util.ThemesPath, model.Conf.Appearance.ThemeDark, "theme.js"))
-	}
+	model.LoadThemes()
 	model.Conf.Save()
 
 	ret.Data = map[string]any{
@@ -1096,6 +1421,27 @@ func setDownloadInstallPkg(c *gin.Context) {
 	downloadInstallPkg := arg["downloadInstallPkg"].(bool)
 	model.Conf.System.DownloadInstallPkg = downloadInstallPkg
 	model.Conf.Save()
+}
+
+func setUpdateChannel(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	updateChannel, ok := arg["updateChannel"].(string)
+	if !ok {
+		ret.Code = -1
+		ret.Msg = "update channel is invalid"
+		return
+	}
+	if err := model.SetUpdateChannel(updateChannel); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+	}
 }
 
 func setNetworkProxy(c *gin.Context) {

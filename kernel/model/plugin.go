@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -175,7 +175,14 @@ func loadPetals(frontend string, isPublish, isKernel bool) (ret []*Petal) {
 	var petalNames []string
 	petals := getPetals()
 	for _, petal := range petals {
-		_, petal.Version, petal.DisplayName, petal.Incompatible, petal.DisabledInPublish, petal.DisallowInstall, petal.Kernel.Incompatible = bazaar.ParseInstalledPlugin(petal.Name, frontend)
+		found, version, displayName, incompatible, disabledInPublish, disallowInstall, kernelIncompatible :=
+			bazaar.ParseInstalledPlugin(petal.Name, frontend)
+		if !found {
+			logging.LogWarnf("plugin [%s] manifest is invalid, skip loading", petal.Name)
+			continue
+		}
+		petal.Version, petal.DisplayName, petal.Incompatible, petal.DisabledInPublish, petal.DisallowInstall,
+			petal.Kernel.Incompatible = version, displayName, incompatible, disabledInPublish, disallowInstall, kernelIncompatible
 		if !petal.Enabled {
 			// disabled plugin
 			continue

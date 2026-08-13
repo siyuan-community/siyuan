@@ -9,6 +9,9 @@ import {getAllModels} from "../layout/getAll";
 import {setStorageVal} from "../protyle/util/compatibility";
 import type {Tab} from "../layout/Tab";
 import {setTitle} from "./processTitle";
+/// #if !MOBILE
+import {removeBlockPanelEditors} from "../block/panelRemoval";
+/// #endif
 
 export const reloadSync = (
     app: App,
@@ -30,10 +33,13 @@ export const reloadSync = (
             window.siyuan.mobile.popEditor.reload(false, updateReadonly);
         }
     }
+    window.siyuan.mobile.tabs?.removeRoots(data.removeRootIDs);
     if (document.getElementById("empty").classList.contains("fn__none") &&
         window.siyuan.mobile.editor && window.siyuan.mobile.editor.protyle) {
         if (data.removeRootIDs.includes(window.siyuan.mobile.editor.protyle.block.rootID)) {
-            setEmpty(app);
+            if (!window.siyuan.mobile.tabs) {
+                setEmpty(app);
+            }
         } else {
             window.siyuan.mobile.editor.reload(false, updateReadonly);
             const docInfoParam: IObject = {
@@ -54,9 +60,10 @@ export const reloadSync = (
         }
     }
     setNoteBook(() => {
-        window.siyuan.mobile.docks.file.init(false);
+        window.siyuan.mobile.docks.file?.init(false);
     });
     /// #else
+    removeBlockPanelEditors({rootIDs: data.removeRootIDs});
     const allModels = getAllModels();
     const updateTitle = (rootID: string, tab: Tab, protyle?: IProtyle) => {
         const docInfoParam: IObject = {
@@ -130,6 +137,11 @@ export const reloadSync = (
         }
     });
     allModels.backlink.forEach(item => {
+        if (item.type === "bottom") {
+            item.markDirty();
+            item.refreshIfVisible();
+            return;
+        }
         if (item.type === "local" && data.removeRootIDs.includes(item.rootId)) {
             item.parent.parent.removeTab(item.parent.id, false, false);
         } else {

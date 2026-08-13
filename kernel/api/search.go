@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -177,7 +177,7 @@ func findReplace(c *gin.Context) {
 		return
 	}
 
-	_, _, _, paths, boxes, types, subTypes, method, orderBy, groupBy := parseSearchBlockArgs(arg)
+	_, _, _, paths, boxes, types, subTypes, method, _, _ := parseSearchBlockArgs(arg)
 
 	k := arg["k"].(string)
 	r := arg["r"].(string)
@@ -197,7 +197,17 @@ func findReplace(c *gin.Context) {
 		}
 	}
 
-	err := model.FindReplace(k, r, replaceTypes, ids, paths, boxes, types, subTypes, method, orderBy, groupBy)
+	boxID := ""
+	if 1 == len(boxes) && model.IsEncryptedBox(boxes[0]) {
+		boxID = boxes[0]
+		if err := holdEncryptedBoxRequest(c, boxID); err != nil {
+			ret.Code = 1
+			ret.Msg = err.Error()
+			return
+		}
+	}
+
+	err := model.FindReplaceInBox(k, r, replaceTypes, ids, paths, boxes, types, subTypes, method, boxID)
 	if err != nil {
 		ret.Code = 1
 		ret.Msg = err.Error()
@@ -327,6 +337,10 @@ func getEmbedBlock(c *gin.Context) {
 	if nil != breadcrumbArg {
 		breadcrumb = breadcrumbArg.(bool)
 	}
+	notebook := ""
+	if notebookArg, ok := arg["notebook"].(string); ok && model.IsEncryptedBox(notebookArg) {
+		notebook = notebookArg
+	}
 
 	isReadOnlyRole := model.IsReadOnlyRoleContext(c)
 	var blocks []*model.EmbedBlock
@@ -340,7 +354,11 @@ func getEmbedBlock(c *gin.Context) {
 		blocks = model.GetEmbedBlockForPublish(embedBlockID, includeIDs, headingMode, breadcrumb)
 		blocks = model.FilterEmbedBlocksByPublishAccess(c, publishAccess, blocks)
 	} else {
-		blocks = model.GetEmbedBlock(embedBlockID, includeIDs, headingMode, breadcrumb)
+		if notebook == "" {
+			blocks = model.GetEmbedBlock(embedBlockID, includeIDs, headingMode, breadcrumb)
+		} else {
+			blocks = model.GetEmbedBlockInBox(embedBlockID, includeIDs, headingMode, breadcrumb, notebook)
+		}
 	}
 	ret.Data = map[string]any{
 		"blocks": blocks,
@@ -458,6 +476,22 @@ func searchRefBlock(c *gin.Context) {
 		return
 	}
 
+	notebook, _ := arg["notebook"].(string)
+	if isEncryptedNotebookDeniedForPublish(c, notebook) {
+		ret.Data = map[string]any{
+			"blocks": []*model.Block{},
+			"newDoc": false,
+			"k":      util.EscapeHTML(arg["k"].(string)),
+			"reqId":  reqId,
+		}
+		return
+	}
+	if err := holdEncryptedBoxRequest(c, notebook); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+
 	isSquareBrackets := false
 	if isSquareBracketsArg := arg["isSquareBrackets"]; nil != isSquareBracketsArg {
 		isSquareBrackets = isSquareBracketsArg.(bool)
@@ -475,7 +509,7 @@ func searchRefBlock(c *gin.Context) {
 	// 加密笔记本内的块引搜索走 InBox 版（只搜该 box 自己的加密 db，阻止跨加密边界引用）
 	var blocks []*model.Block
 	var newDoc bool
-	if notebook, ok := arg["notebook"].(string); ok && notebook != "" && model.IsEncryptedBox(notebook) {
+	if notebook != "" && model.IsEncryptedBox(notebook) {
 		blocks, newDoc = model.SearchRefBlockInBox(id, rootID, keyword, beforeLen, isSquareBrackets, isDatabase, notebook)
 	} else {
 		blocks, newDoc = model.SearchRefBlock(id, rootID, keyword, beforeLen, isSquareBrackets, isDatabase)
@@ -510,14 +544,38 @@ func fullTextSearchBlock(c *gin.Context) {
 		return
 	}
 
+	notebook, _ := arg["notebook"].(string)
+	if isEncryptedNotebookDeniedForPublish(c, notebook) {
+		ret.Data = map[string]any{
+			"blocks":            []*model.Block{},
+			"matchedBlockCount": 0,
+			"matchedRootCount":  0,
+			"pageCount":         0,
+			"docMode":           false,
+		}
+		return
+	}
+
 	var blocks []*model.Block
 	var matchedBlockCount, matchedRootCount, pageCount int
 	var docMode bool
+	searchHPath := true
+	if value, ok := arg["searchHPath"].(bool); ok {
+		searchHPath = value
+	}
 	// 加密笔记本的全文搜索走 InBox 版（查加密 content db + blocks_fts）
-	if notebook, ok := arg["notebook"].(string); ok && notebook != "" && model.IsEncryptedBox(notebook) {
-		blocks, matchedBlockCount, matchedRootCount, pageCount, docMode = model.FullTextSearchBlockInBox(query, boxes, paths, types, subTypes, method, orderBy, groupBy, page, pageSize, notebook)
+	if notebook != "" && model.IsEncryptedBox(notebook) {
+		if err := holdEncryptedBoxRequest(c, notebook); err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+		blocks, matchedBlockCount, matchedRootCount, pageCount, docMode = model.FullTextSearchBlockInBoxWithHPathContext(c.Request.Context(), query, boxes, paths, types, subTypes, method, orderBy, groupBy, page, pageSize, notebook, searchHPath)
 	} else {
-		blocks, matchedBlockCount, matchedRootCount, pageCount, docMode = model.FullTextSearchBlock(query, boxes, paths, types, subTypes, method, orderBy, groupBy, page, pageSize)
+		blocks, matchedBlockCount, matchedRootCount, pageCount, docMode = model.FullTextSearchBlockInBoxWithHPathContext(c.Request.Context(), query, boxes, paths, types, subTypes, method, orderBy, groupBy, page, pageSize, "", searchHPath)
+	}
+	if c.Request.Context().Err() != nil {
+		return
 	}
 	if model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()

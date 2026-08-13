@@ -1,4 +1,4 @@
-// SiYuan - Refactor your thinking
+// SiYuan - From thought to insight, with agents
 // Copyright (c) 2020-present, b3log.org
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,6 +21,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/88250/go-humanize"
@@ -98,6 +99,14 @@ func refreshDocInfo(tree *parse.Tree) {
 	refreshDocInfoWithSize(tree, filesys.TreeSize(tree))
 }
 
+func refreshDocInfoWithoutParent(tree *parse.Tree) {
+	if nil == tree {
+		return
+	}
+
+	refreshDocInfo0(tree, filesys.TreeSize(tree))
+}
+
 func refreshDocInfoWithSize(tree *parse.Tree, size uint64) {
 	if nil == tree {
 		return
@@ -142,6 +151,13 @@ func refreshBoxDocInfoByBoxID(boxID string) {
 		return
 	}
 	util.BroadcastByType("filetree", "reloadNotebookInfo", 0, "", boxID)
+}
+
+func pushNotebookIconChanged(boxID, icon string) {
+	util.BroadcastByType("filetree", "notebookIconChanged", 0, "", map[string]any{
+		"boxID": boxID,
+		"icon":  icon,
+	})
 }
 
 func refreshDocInfo0(tree *parse.Tree, size uint64) {
@@ -310,7 +326,8 @@ func refreshDynamicRefTexts0(updatedDefNodes map[string]*ast.Node, updatedTrees 
 	var changedNodes []*ast.Node
 	var refs []*sql.Ref
 	for _, updateNode := range updatedDefNodes {
-		refs, changedNodes = getRefsCacheByDefNode(updateNode)
+		boxID := updatedNodeBoxID(updateNode, updatedTrees)
+		refs, changedNodes = getRefsCacheByDefNode(updateNode, boxID)
 		for _, ref := range refs {
 			if refIDs, ok := treeRefNodeIDs[ref.RootID]; !ok {
 				refIDs = hashset.New()
@@ -355,7 +372,7 @@ func refreshDynamicRefTexts0(updatedDefNodes map[string]*ast.Node, updatedTrees 
 				for _, defNode := range changedDefNodes {
 					switch defNode.refType {
 					case "ref-d":
-						task.AppendAsyncTaskWithDelay(task.SetRefDynamicText, 200*time.Millisecond, util.PushSetRefDynamicText, refTreeID, n.ID, defNode.id, defNode.refText, refTree.Box)
+						appendSetRefDynamicTextTask(refTreeID, n.ID, defNode.id, defNode.refText, refTree.Box)
 					}
 				}
 				return ast.WalkContinue
@@ -377,6 +394,44 @@ func refreshDynamicRefTexts0(updatedDefNodes map[string]*ast.Node, updatedTrees 
 		indexWriteTreeUpsertQueue(tree)
 	}
 	return
+}
+
+func updatedNodeBoxID(updateNode *ast.Node, updatedTrees map[string]*parse.Tree) string {
+	rootID := treenode.TreeRoot(updateNode).ID
+	if updatedTree := updatedTrees[rootID]; nil != updatedTree {
+		return updatedTree.Box
+	}
+	return updateNode.Box
+}
+
+var (
+	setRefDynamicTextTaskLock     sync.Mutex
+	setRefDynamicTextTaskSequence uint64
+	setRefDynamicTextLatestTasks  = map[string]uint64{}
+)
+
+func appendSetRefDynamicTextTask(rootID, blockID, defBlockID, refText, boxID string) {
+	key := rootID + "\x00" + blockID + "\x00" + defBlockID
+	setRefDynamicTextTaskLock.Lock()
+	setRefDynamicTextTaskSequence++
+	sequence := setRefDynamicTextTaskSequence
+	setRefDynamicTextLatestTasks[key] = sequence
+	setRefDynamicTextTaskLock.Unlock()
+
+	task.AppendAsyncTaskWithDelay(task.SetRefDynamicText, 200*time.Millisecond, pushLatestRefDynamicText,
+		key, sequence, rootID, blockID, defBlockID, refText, boxID)
+}
+
+func pushLatestRefDynamicText(key string, sequence uint64, rootID, blockID, defBlockID, refText, boxID string) {
+	setRefDynamicTextTaskLock.Lock()
+	latest := setRefDynamicTextLatestTasks[key] == sequence
+	if latest {
+		delete(setRefDynamicTextLatestTasks, key)
+	}
+	setRefDynamicTextTaskLock.Unlock()
+	if latest {
+		util.PushSetRefDynamicText(rootID, blockID, defBlockID, refText, boxID)
+	}
 }
 
 func updateAttributeViewBlockText(updatedDefNodes map[string]*ast.Node) {
