@@ -1,8 +1,8 @@
 name: Lock closed issues and PRs
 
 on:
-  schedule:
-    - cron: "0 0 * * *" # 每天 UTC 00:00（北京时间 08:00）运行一次
+  # schedule:
+  #   - cron: "0 0 * * *" # 每天 UTC 00:00（北京时间 08:00）运行一次
   workflow_dispatch: # 允许手动触发
 
 permissions:
@@ -11,7 +11,6 @@ permissions:
 
 jobs:
   lock:
-    if: ${{ github.repository_owner == 'siyuan-note' }}
     runs-on: ubuntu-latest
     steps:
       - uses: dessant/lock-threads@v6
