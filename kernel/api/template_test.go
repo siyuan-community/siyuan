@@ -26,8 +26,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // TestRenderTemplatePathRestriction 验证 /api/template/render 拒绝读取 <data>/templates/ 目录之外的路径，

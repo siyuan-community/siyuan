@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
 )
 
 func TestGetInstalledBazaarPackageRatingsFiltersOfficialPackages(t *testing.T) {

@@ -23,10 +23,10 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 var (

@@ -28,9 +28,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/util"
 	"golang.org/x/sync/singleflight"
 )
 

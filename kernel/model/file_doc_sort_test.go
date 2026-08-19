@@ -24,10 +24,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/filesys"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 const setDocSortModeTestEnv = "SIYUAN_TEST_SET_DOC_SORT_MODE"

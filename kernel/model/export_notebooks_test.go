@@ -26,8 +26,8 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestExportNotebookMarkdownPathsKeepsDuplicateNamesSeparate(t *testing.T) {

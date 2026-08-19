@@ -16,7 +16,7 @@
 
 package model
 
-import "github.com/siyuan-note/siyuan/kernel/util"
+import "github.com/siyuan-community/siyuan/kernel/util"
 
 // defaultRerankCandidateCount 向量召回后默认送入重排的候选文档数，与 conf.defaultRerank 保持一致。
 const defaultRerankCandidateCount = 30

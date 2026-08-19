@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"golang.org/x/sync/singleflight"
 )
 

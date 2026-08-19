@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"github.com/sashabaranov/go-openai"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 const (

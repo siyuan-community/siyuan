@@ -17,8 +17,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // TestHistoryRouteBlocksSensitiveSnapshots 验证 /history 路由拒绝历史快照中的敏感文件副本

@@ -28,7 +28,7 @@ import (
 	"runtime"
 
 	"github.com/disintegration/imaging"
-	goheic "github.com/siyuan-note/siyuan/kernel/heif/internal/h265heic"
+	goheic "github.com/siyuan-community/siyuan/kernel/heif/internal/h265heic"
 )
 
 const (

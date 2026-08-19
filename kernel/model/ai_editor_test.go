@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestAIEditorActionsCRUD(t *testing.T) {

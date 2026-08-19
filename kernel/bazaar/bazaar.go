@@ -128,7 +128,7 @@ func buildBazaarPackageWithMetadata(repo *StageRepo, bazaarStats map[string]*baz
 	pkg.HInstallSize = humanize.BytesCustomCeil(uint64(pkg.InstallSize), 2)
 	stats := bazaarStats[pkg.Name]
 	if nil == stats {
-		stats = bazaarStats[strings.ToLower(repoURLHash[0])] // 兼容旧版索引中的 owner/repo 下载统计
+		stats = bazaarStats[strings.ToLower(repoPath)] // 兼容旧版索引中的 owner/repo 下载统计
 	}
 	if nil != stats {
 		pkg.Downloads = stats.Downloads

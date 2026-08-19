@@ -19,7 +19,7 @@ package sql
 import (
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/av"
 )
 
 func TestRenderGroupViewWithSource(t *testing.T) {

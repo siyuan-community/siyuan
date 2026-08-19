@@ -15,9 +15,9 @@ import (
 
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/render"
-	"github.com/siyuan-note/siyuan/kernel/cache"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestLoadTreeWithFixRepairsInvalidListChildren(t *testing.T) {

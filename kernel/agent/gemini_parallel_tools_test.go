@@ -27,9 +27,9 @@ import (
 	"testing"
 	"time"
 
-	kernelConf "github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/mcp/tools"
-	kernelModel "github.com/siyuan-note/siyuan/kernel/model"
+	kernelConf "github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/mcp/tools"
+	kernelModel "github.com/siyuan-community/siyuan/kernel/model"
 )
 
 const testGeminiThoughtSignatureFallback = "skip_thought_signature_validator"

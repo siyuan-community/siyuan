@@ -27,8 +27,8 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
 
 func TestSetBazaarPackageRatingArgumentValidation(t *testing.T) {

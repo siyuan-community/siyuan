@@ -37,6 +37,7 @@ def main [
     print 'Building Kernel'
     cd ($PROJECT_ROOT | path join 'kernel')
     go version
+    go mod tidy
 
     $env.GO111MODULE = 'on'
     $env.GOPROXY = 'https://mirrors.aliyun.com/goproxy/,https://goproxy.cn,direct'
