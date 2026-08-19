@@ -36,6 +36,7 @@ import {hideElements} from "../protyle/ui/hideElements";
 import {Protyle} from "../protyle";
 import {getAllEditor} from "../layout/getAll";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
+import {isBrowserRenderableImagePath} from "../util/imageURL";
 
 const bindAttrInput = (inputElement: HTMLInputElement, id: string) => {
     inputElement.addEventListener("change", () => {
@@ -803,6 +804,8 @@ export const exportMd = (id: string) => {
                         id,
                         keepFold: localData.keepFold,
                         merge: localData.mergeSubdocs,
+                        mergeDocHeadingMode: localData.mergeDocHeadingMode,
+                        mergeContentHeadingMode: localData.mergeContentHeadingMode,
                     }, async response => {
                         const servePath = window.location.protocol + "//" + window.location.host + "/";
                         const html = await onExport(response, undefined, servePath, {type: "pdf", id});
@@ -853,8 +856,9 @@ export const openMenu = (app: App, src: string, onlyMenu: boolean, showAccelerat
     });
     /// #else
     if (isLocalPath(src)) {
-        const extension = getAssetExtension(src);
+        const extension = getAssetExtension(src).toLowerCase();
         if (Constants.SIYUAN_ASSETS_EXTS.includes(extension) &&
+            isBrowserRenderableImagePath(src) &&
             (extension !== ".pdf" ||
                 (extension === ".pdf" && !src.startsWith("file://")))
         ) {

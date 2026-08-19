@@ -19,6 +19,7 @@ package api
 import (
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -421,6 +422,7 @@ func setNotebookConf(c *gin.Context) {
 	}
 
 	boxConf := box.GetConf()
+	oldSortMode := boxConf.SortMode
 	// 深拷贝加密相关字段，防止反序列化请求体时被覆盖
 	// BoxCrypt 是指针，UnmarshalJSON 会修改同一指针对象，必须用 model 层辅助函数深拷贝
 	savedBoxCrypt := model.DeepCopyBoxEncryption(boxConf.BoxCrypt)
@@ -456,6 +458,9 @@ func setNotebookConf(c *gin.Context) {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
+	}
+	if oldSortMode != boxConf.SortMode {
+		model.PushDocSortModeChanged("notebook", notebook, "", "/", &boxConf.SortMode)
 	}
 	ret.Data = boxConf
 }
@@ -519,11 +524,25 @@ func lsNotebooks(c *gin.Context) {
 				}
 			}
 		}
+		sortNotebooksBySubFileCount(notebooks, model.Conf.FileTree.Sort)
 	}
 
 	ret.Data = map[string]any{
 		"notebooks":     notebooks,
 		"boxDocEnabled": boxDocEnabled,
+	}
+}
+
+func sortNotebooksBySubFileCount(notebooks []*model.Box, sortMode int) {
+	switch sortMode {
+	case util.SortModeSubDocCountASC:
+		sort.SliceStable(notebooks, func(i, j int) bool {
+			return notebooks[i].SubFileCount < notebooks[j].SubFileCount
+		})
+	case util.SortModeSubDocCountDESC:
+		sort.SliceStable(notebooks, func(i, j int) bool {
+			return notebooks[i].SubFileCount > notebooks[j].SubFileCount
+		})
 	}
 }
 

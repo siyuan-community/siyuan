@@ -34,7 +34,7 @@ import {highlightRender} from "../render/highlightRender";
 import {assetMenu, imgMenu} from "../../menus/protyle";
 import {hideElements} from "../ui/hideElements";
 import {fetchPost} from "../../util/fetch";
-import {stripSearchMark} from "../../util/escape";
+import {escapeHtml, escapeSearchHighlight, stripSearchMark} from "../../util/escape";
 import {getDisplayName, isEncryptedBox, pathPosix} from "../../util/pathName";
 import {
     addEmoji,
@@ -44,7 +44,8 @@ import {
     unicode2Emoji,
 } from "../../emoji";
 import {blockRender} from "../render/blockRender";
-import {uploadFiles} from "../upload";
+import {getUploadInsertRange, uploadFiles} from "../upload";
+import {createUploadInsertPosition} from "../upload/insertPosition";
 /// #if !MOBILE
 import {openFileById} from "../../editor/util";
 /// #endif
@@ -59,7 +60,12 @@ import {updateAttrViewCellAnimation} from "../render/av/action";
 import {setFold} from "../util/blockFold";
 import {getIconValueKind} from "../../emoji/iconValue";
 import {getCreateTargetContext, isSameCreateTargetContext} from "./createTargetContext";
-import {getBlockHintTriggerOffset} from "./blockHintRange";
+import {
+    endsWithMultiCharHintPrefix,
+    getBlockHintTriggerOffset,
+    getBlockRefStaticText,
+    shouldIgnoreHintTrigger,
+} from "./blockHintRange";
 
 const genEmojiInsertHTML = (value: string) => {
     const kind = getIconValueKind(value);
@@ -273,6 +279,10 @@ export class Hint {
         // https://github.com/siyuan-note/siyuan/issues/5083
         if (this.splitChar === "/" || this.splitChar === "、") {
             clearTimeout(this.timeId);
+            const blockElement = hasClosestBlock(protyle.toolbar.range.startContainer);
+            if (!this.enableSlash || !blockElement || isInEmbedBlock(blockElement)) {
+                return;
+            }
             if (protyle.lite) {
                 protyle.options.hint.extend.find((item) => {
                     if (item.key === "/" && item.hint) {
@@ -280,25 +290,25 @@ export class Hint {
                         return true;
                     }
                 });
-            } else {
-                const blockElement = hasClosestBlock(protyle.toolbar.range.startContainer);
-                if (this.enableSlash && !isMobile() && blockElement && !isInEmbedBlock(blockElement)) {
-                    const slashData = hintSlash(key, protyle);
-                    if (slashData.length === 0) {
-                        this.genHTML(slashData, protyle, true, "hint");
-                        return;
+            } else if (!isMobile()) {
+                const slashData = hintSlash(key, protyle);
+                if (slashData.length === 0) {
+                    if (endsWithMultiCharHintPrefix(key, protyle.options.hint.extend.map((item) => item.key))) {
+                        this.enableExtend = false;
                     }
-                    const createTarget = this.prepareCreateTarget(protyle, "doc");
-                    if (createTarget.result !== undefined) {
-                        this.genHTML(hintSlash(key, protyle, createTarget.result), protyle, true, "hint");
-                    } else {
-                        this.genLoading(protyle);
-                        createTarget.promise.then((isCurrentSubDoc) => {
-                            if (createTarget.isCurrent()) {
-                                this.genHTML(hintSlash(key, protyle, isCurrentSubDoc), protyle, true, "hint");
-                            }
-                        });
-                    }
+                    this.genHTML(slashData, protyle, true, "hint");
+                    return;
+                }
+                const createTarget = this.prepareCreateTarget(protyle, "doc");
+                if (createTarget.result !== undefined) {
+                    this.genHTML(hintSlash(key, protyle, createTarget.result), protyle, true, "hint");
+                } else {
+                    this.genLoading(protyle);
+                    createTarget.promise.then((isCurrentSubDoc) => {
+                        if (createTarget.isCurrent()) {
+                            this.genHTML(hintSlash(key, protyle, isCurrentSubDoc), protyle, true, "hint");
+                        }
+                    });
                 }
             }
             return;
@@ -344,17 +354,34 @@ export class Hint {
 
     public bindUploadEvent(protyle: IProtyle, element: HTMLElement) {
         element.querySelectorAll('input[type="file"]').forEach(item => {
+            const captureInsertPosition = () => {
+                let range = protyle.toolbar.range;
+                if (!range || !protyle.wysiwyg.element.contains(range.startContainer) ||
+                    !protyle.wysiwyg.element.contains(range.endContainer)) {
+                    range = getEditorRange(protyle.wysiwyg.element);
+                }
+                range = range.cloneRange();
+                if (this.lastIndex > -1) {
+                    range.setStart(range.startContainer, this.lastIndex);
+                }
+                return createUploadInsertPosition(range,
+                    getUndoFocusContext(protyle.wysiwyg.element, range, true));
+            };
+            let insertPosition = captureInsertPosition();
+            item.addEventListener("click", () => {
+                insertPosition = captureInsertPosition();
+            });
             item.addEventListener("change", (event: InputEvent & { target: HTMLInputElement }) => {
                 if (event.target.files.length === 0) {
                     return;
                 }
-                const range = getEditorRange(protyle.wysiwyg.element);
-                if (this.lastIndex > -1) {
-                    range.setStart(range.startContainer, this.lastIndex);
-                }
+                const range = getUploadInsertRange(protyle, insertPosition);
                 range.deleteContents();
+                range.collapse(true);
                 uploadFiles(protyle, event.target.files, event.target, undefined, undefined, {
                     htmlAsIframe: event.target.dataset.uploadMode === "html-iframe",
+                    insertPosition: createUploadInsertPosition(range,
+                        getUndoFocusContext(protyle.wysiwyg.element, range, true)),
                 });
                 hideElements(["hint", "toolbar"], protyle);
             });
@@ -494,9 +521,9 @@ export class Hint {
                     let blockRefHTML;
                     if (source === "av") {
                         // av 搜索时需要获取值 https://github.com/siyuan-note/siyuan/issues/12020
-                        let refText = item.name ? stripSearchMark(item.name) : item.refText.replace(new RegExp(Constants.ZWSP, "g"), "");
+                        let refText = item.name ? stripSearchMark(escapeSearchHighlight(item.name)) : item.refText.replace(new RegExp(Constants.ZWSP, "g"), "");
                         if (nodeElement) {
-                            refText = item.ial["custom-sy-av-s-text-" + nodeElement.getAttribute("data-av-id")] || refText;
+                            refText = escapeHtml(item.ial["custom-sy-av-s-text-" + nodeElement.getAttribute("data-av-id")] || "") || refText;
                         }
                         blockRefHTML = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${refText}</span>`;
                     } else {
@@ -721,7 +748,7 @@ ${genHintItemHTML(item)}
             tempElement = tempElement.firstElementChild as HTMLDivElement;
             if (refIsS) {
                 const selectedText = range.toString();
-                const staticText = selectedText.substring(this.splitChar.length);
+                const staticText = getBlockRefStaticText(selectedText, this.splitChar, this.lastIndex > -1);
                 if (staticText) {
                     tempElement.setAttribute("data-subtype", "s");
                     tempElement.innerText = staticText;
@@ -1051,15 +1078,22 @@ ${genHintItemHTML(item)}
                     highlightRender(nodeElement);
                 } else if (value.startsWith("<iframe") || value.startsWith("<video") || value.startsWith("<audio")) {
                     protyle.gutter.renderMenu(protyle, nodeElement);
-                    const rect = nodeElement.getBoundingClientRect();
-                    window.siyuan.menus.menu.popup({
-                        x: rect.left,
-                        y: rect.top,
-                        isLeft: true
-                    });
                     const itemElement = window.siyuan.menus.menu.element.querySelector('[data-id="assetVideo"], [data-id="assetAudio"], [data-id="assetIFrame"]');
-                    itemElement.classList.add("b3-menu__item--show");
-                    window.siyuan.menus.menu.showSubMenu(itemElement.querySelector(".b3-menu__submenu"));
+                    if (isMobile()) {
+                        // 移动端将资源子菜单内容提升为底部菜单根内容。
+                        const subMenuItemsElement = itemElement.querySelector(":scope > .b3-menu__submenu > .b3-menu__items");
+                        window.siyuan.menus.menu.element.lastElementChild.replaceChildren(...Array.from(subMenuItemsElement.children));
+                        window.siyuan.menus.menu.fullscreen();
+                    } else {
+                        const rect = nodeElement.getBoundingClientRect();
+                        window.siyuan.menus.menu.popup({
+                            x: rect.left,
+                            y: rect.top,
+                            isLeft: true
+                        });
+                        itemElement.classList.add("b3-menu__item--show");
+                        window.siyuan.menus.menu.showSubMenu(itemElement.querySelector(".b3-menu__submenu"));
+                    }
                     window.siyuan.menus.menu.element.querySelector("textarea").focus();
                 } else if (value === "---") {
                     focusBlock(nodeElement);
@@ -1161,8 +1195,10 @@ ${genHintItemHTML(item)}
                     Constants.BLOCK_HINT_CLOSE_KEYS[item.key]);
             }
             if (this.lastIndex < currentLastIndex) {
-                this.splitChar = item.key;
-                this.lastIndex = currentLastIndex;
+                if (!shouldIgnoreHintTrigger(this.splitChar, item.key, Constants.BLOCK_HINT_KEYS)) {
+                    this.splitChar = item.key;
+                    this.lastIndex = currentLastIndex;
+                }
             }
         });
         if (this.lastIndex === -1) {

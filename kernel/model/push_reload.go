@@ -83,6 +83,9 @@ func PushReloadPlugin(uninstallPluginNameSet, unloadPluginNameSet, reloadPluginS
 		"reloadPlugins":     slices[2], // 插件启用，或插件代码变更
 		"dataChangePlugins": slices[3], // 插件存储数据变更
 	}
+	if 0 < len(slices[0])+len(slices[1])+len(slices[2]) {
+		util.ReloadPublishServiceSessions()
+	}
 
 	if "" == excludeApp {
 		util.BroadcastByType("main", "reloadPlugin", 0, "", payload)
@@ -467,12 +470,17 @@ func updateAttributeViewBlockText(updatedDefNodes map[string]*ast.Node) {
 			for _, blockValue := range blockValues.Values {
 				if blockValue.Block.ID == updatedDefNode.ID {
 					newIcon, newContent := getNodeAvBlockText(updatedDefNode, avID)
+					newRefSubtype := getNodeAvBlockRefSubtype(updatedDefNode, avID)
 					if newIcon != blockValue.Block.Icon {
 						blockValue.Block.Icon = newIcon
 						changedAv = true
 					}
 					if newContent != blockValue.Block.Content {
 						blockValue.Block.Content = util.UnescapeHTML(newContent)
+						changedAv = true
+					}
+					if newRefSubtype != blockValue.Block.RefSubtype {
+						blockValue.Block.RefSubtype = newRefSubtype
 						changedAv = true
 					}
 					break

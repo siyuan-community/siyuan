@@ -79,6 +79,8 @@ export interface AgentSession {
             toolCalls?: Array<{name: string; result?: string}>
         }>;
         reasoningContent?: string;
+        responseOutput?: Array<Record<string, unknown>>;
+        responseOutputTokens?: number;
         roundID?: string;
         toolCalls?: Array<{
             id?: string;
@@ -86,7 +88,12 @@ export interface AgentSession {
             arguments?: Record<string, unknown>;
             argumentsJSON?: string;
             result?: string;
-            state?: string
+            state?: string;
+            providerData?: {
+                google?: {
+                    thoughtSignature?: string
+                }
+            }
         }>;
         duration?: number;
         timestamp?: number;

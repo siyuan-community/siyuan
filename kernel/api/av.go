@@ -232,6 +232,7 @@ func setAttrViewGroup(c *gin.Context) {
 	avID := arg["avID"].(string)
 	blockID := arg["blockID"].(string)
 	groupArg := arg["group"].(map[string]any)
+	ignoreRows, _ := arg["ignoreRows"].(bool)
 
 	data, err := gulu.JSON.MarshalJSON(groupArg)
 	if nil != err {
@@ -257,7 +258,7 @@ func setAttrViewGroup(c *gin.Context) {
 		return
 	}
 
-	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, "", false, false, "", "")
+	ret = renderAttrView(blockID, avID, "", "", 1, -1, nil, "", false, ignoreRows, "", "")
 	if ret.Code == 0 && model.IsReadOnlyRoleContext(c) {
 		publishAccess := model.GetPublishAccess()
 		retDataMap := ret.Data.(map[string]any)
@@ -936,6 +937,46 @@ func createAttributeViewItem(c *gin.Context) {
 		return
 	}
 	result, err := model.CreateAttributeViewItem(avID, blockID, viewID, templateID, previousID, groupID)
+	setCreateAttributeViewItemResult(ret, result, err, app, session)
+}
+
+func createAttributeViewItemWithMarkdown(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	var avID, blockID, viewID, templateID, previousID, groupID, title, markdown, tags, clippingHref, app, session string
+	var withMath, listDocTree bool
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("avID", &avID, true, true),
+		util.BindJsonArg("blockID", &blockID, true, true),
+		util.BindJsonArg("viewID", &viewID, false, false),
+		util.BindJsonArg("templateID", &templateID, true, true),
+		util.BindJsonArg("previousID", &previousID, false, false),
+		util.BindJsonArg("groupID", &groupID, false, false),
+		util.BindJsonArg("title", &title, true, true),
+		util.BindJsonArg("markdown", &markdown, true, false),
+		util.BindJsonArg("tags", &tags, false, false),
+		util.BindJsonArg("withMath", &withMath, false, false),
+		util.BindJsonArg("clippingHref", &clippingHref, false, false),
+		util.BindJsonArg("listDocTree", &listDocTree, false, false),
+		util.BindJsonArg("app", &app, false, false),
+		util.BindJsonArg("session", &session, false, false),
+	) {
+		return
+	}
+	result, err := model.CreateAttributeViewItemWithMarkdown(avID, blockID, viewID, templateID, previousID, groupID,
+		&model.CreateAttributeViewItemMarkdown{
+			Title: title, Markdown: markdown, Tags: tags, WithMath: withMath, ClippingHref: clippingHref,
+			ListDocTree: listDocTree,
+		})
+	setCreateAttributeViewItemResult(ret, result, err, app, session)
+}
+
+func setCreateAttributeViewItemResult(ret *gulu.Result, result *model.CreateAttributeViewItemResult, err error, app, session string) {
 	if nil != err {
 		if errors.Is(err, model.ErrBoxNotFound) {
 			ret.Code = 1

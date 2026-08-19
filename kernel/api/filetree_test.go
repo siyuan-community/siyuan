@@ -30,7 +30,9 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/gin-gonic/gin"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -66,6 +68,43 @@ func TestSetSortRejectsInvalidRequest(t *testing.T) {
 				t.Fatalf("unmarshal response failed: %v", err)
 			}
 			if response.Code != -1 {
+				t.Fatalf("invalid request returned code %d: %s", response.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestSetDocSortModeRejectsInvalidRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.POST("/api/filetree/setDocSortMode", setDocSortMode)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty", body: `{}`},
+		{name: "missing sort mode", body: `{"id":"20260718000001-abcdefg"}`},
+		{name: "invalid ID", body: `{"id":"invalid","sortMode":0}`},
+		{name: "fractional sort mode", body: `{"id":"20260718000001-abcdefg","sortMode":1.5}`},
+		{name: "string sort mode", body: `{"id":"20260718000001-abcdefg","sortMode":"1"}`},
+		{name: "notebook fallback mode", body: `{"id":"20260718000001-abcdefg","sortMode":15}`},
+		{name: "internal unassigned mode", body: `{"id":"20260718000001-abcdefg","sortMode":256}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/filetree/setDocSortMode", strings.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			engine.ServeHTTP(recorder, request)
+
+			response := &struct {
+				Code int `json:"code"`
+			}{}
+			if err := json.Unmarshal(recorder.Body.Bytes(), response); nil != err {
+				t.Fatalf("unmarshal response failed: %v", err)
+			}
+			if -1 != response.Code {
 				t.Fatalf("invalid request returned code %d: %s", response.Code, recorder.Body.String())
 			}
 		})
@@ -495,19 +534,106 @@ func TestPublishReaderCannotBrowseEncryptedNotebook(t *testing.T) {
 	docRequest := httptest.NewRequest(
 		http.MethodPost,
 		"/api/filetree/getDoc",
-		strings.NewReader(`{"id":"`+docID+`","notebook":"`+boxID+`"}`),
+		strings.NewReader(`{"id":"`+docID+`","notebook":"`+boxID+`","includeDocInfo":true}`),
 	)
 	docRequest.Header.Set("Content-Type", "application/json")
 	engine.ServeHTTP(docRecorder, docRequest)
 
 	docResponse := &struct {
-		Code int `json:"code"`
+		Code int            `json:"code"`
+		Data map[string]any `json:"data"`
 	}{}
 	if err := json.Unmarshal(docRecorder.Body.Bytes(), docResponse); err != nil {
 		t.Fatalf("unmarshal document response failed: %v", err)
 	}
 	if docResponse.Code != 3 {
 		t.Fatalf("publish reader accessed encrypted document: %s", docRecorder.Body.String())
+	}
+	if _, ok := docResponse.Data["docInfo"]; ok {
+		t.Fatalf("publish reader received encrypted document info: %s", docRecorder.Body.String())
+	}
+}
+
+func TestGetDocOptionallyReturnsEmbeddedDocInfo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const boxID = "20260812000000-boxinfo"
+	originalConf := model.Conf
+	originalDataDir := util.DataDir
+	originalBlockTreeDBPath := util.BlockTreeDBPath
+	tempDir := t.TempDir()
+	util.DataDir = filepath.Join(tempDir, "data")
+	util.BlockTreeDBPath = filepath.Join(tempDir, "blocktree.db")
+	model.Conf = model.NewAppConf()
+	model.Conf.Editor = conf.NewEditor()
+	model.Conf.Export = conf.NewExport()
+	model.Conf.FileTree = conf.NewFileTree()
+	model.Conf.NotebookCrypto = conf.NewNotebookCrypto()
+	model.Conf.Sync = conf.NewSync()
+
+	box := &model.Box{ID: boxID}
+	boxConf := conf.NewBoxConf()
+	boxConf.Name = "Embedded document info test"
+	boxConf.Closed = false
+	if err := box.SaveConf(boxConf); nil != err {
+		t.Fatalf("save test notebook config failed: %v", err)
+	}
+	treenode.InitBlockTree(true)
+	tree := treenode.NewTree(boxID, "/20260812000001-docinfo.sy", "/Document", "Document")
+	if _, err := filesys.WriteTree(tree); nil != err {
+		t.Fatalf("write test tree failed: %v", err)
+	}
+	treenode.UpsertBlockTree(tree)
+	t.Cleanup(func() {
+		cache.RemoveTreeData(tree.ID)
+		cache.RemoveDocIAL(tree.Path)
+		treenode.CloseDatabase()
+		model.Conf = originalConf
+		util.DataDir = originalDataDir
+		util.BlockTreeDBPath = originalBlockTreeDBPath
+		if "" != originalBlockTreeDBPath {
+			treenode.InitBlockTree(false)
+		}
+	})
+
+	engine := gin.New()
+	engine.POST("/api/filetree/getDoc", getDoc)
+	request := func(body string) (data map[string]json.RawMessage) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/filetree/getDoc", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		engine.ServeHTTP(recorder, req)
+		response := &struct {
+			Code int                        `json:"code"`
+			Msg  string                     `json:"msg"`
+			Data map[string]json.RawMessage `json:"data"`
+		}{}
+		if err := json.Unmarshal(recorder.Body.Bytes(), response); nil != err {
+			t.Fatalf("unmarshal document response failed: %v", err)
+		}
+		if 0 != response.Code {
+			t.Fatalf("get document failed with code %d and message %q: %s", response.Code, response.Msg, recorder.Body.String())
+		}
+		return response.Data
+	}
+
+	withoutInfo := request(`{"id":"` + tree.ID + `"}`)
+	if _, ok := withoutInfo["docInfo"]; ok {
+		t.Fatalf("document info should be absent by default: %s", withoutInfo["docInfo"])
+	}
+
+	withInfo := request(`{"id":"` + tree.Root.FirstChild.ID + `","includeDocInfo":true}`)
+	infoJSON, ok := withInfo["docInfo"]
+	if !ok {
+		t.Fatal("requested embedded document info is absent")
+	}
+	info := &model.BlockInfo{}
+	if err := json.Unmarshal(infoJSON, info); nil != err {
+		t.Fatalf("unmarshal embedded document info failed: %v", err)
+	}
+	if info.ID != tree.ID || info.RootID != tree.ID || info.Name != "Document" {
+		t.Fatalf("unexpected embedded document info: %#v", info)
 	}
 }
 

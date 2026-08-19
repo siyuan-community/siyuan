@@ -7,7 +7,7 @@ import {Constants} from "../constants";
 /// #if !BROWSER
 import * as path from "path";
 /// #endif
-import {getFrontend, isBrowser} from "../util/functions";
+import {getFrontend, isBrowser, isMobile} from "../util/functions";
 import {setStorageVal, writeText} from "../protyle/util/compatibility";
 import {hasClosestByAttribute, hasClosestByClassName} from "../protyle/util/hasClosest";
 import {Plugin} from "../plugin";
@@ -20,14 +20,31 @@ import {useShell} from "../util/pathName";
 import {switchSettingPanelSubTab} from "./setting/mount";
 import {isThemeFrontendSupported} from "../util/themeCompatibility";
 import {
+    applyBazaarPackageRatingToItem,
+    beginBazaarRatingSubmission,
+    beginBazaarRatingRequest,
     getBazaarBackendSystemLabels,
     getBazaarCompatibilityData,
     getBazaarCompatibilityFieldVisibility,
     getBazaarFundingItems,
     getBazaarKernelSystemLabels,
     getBazaarPackageInvalidLanguageKey,
+    getBazaarRatingErrorLanguageKey,
+    getBazaarRatingMutationVersion,
     getBazaarThemeModeLabels,
+    isBazaarPackageRatingEditable,
+    isBazaarPackageRatingLoaded,
+    isBazaarPluginEnabledInPublish,
+    isBazaarRatingRemovalAvailable,
+    isLatestBazaarRatingRequest,
+    isBazaarRatingMutationVersionCurrent,
+    normalizeBazaarPackageRatingResponse,
+    normalizeBazaarPackageRatingsResponse,
+    normalizeBazaarRating,
+    normalizeBazaarUserRating,
+    sortBazaarPackagesByRating,
 } from "../util/bazaarPackage";
+import {Dialog} from "../dialog";
 
 /** 集市 Tab 侧栏 / 全局搜索索引文案 */
 export const collectBazaarTabSearchStrings = (): string[] => [
@@ -51,6 +68,9 @@ export const mountBazaarTab = (root: HTMLElement, keywords?: string, app?: App) 
         }
     } else {
         bazaar.element = root;
+    }
+    if (bazaar._syncRatingUser()) {
+        bazaar._refreshVisibleRatingUI();
     }
     if (keywords) {
         switchSettingPanelSubTab(root, keywords, [
@@ -77,6 +97,8 @@ export const bazaar = {
     _updateState: "idle" as "idle" | "loading" | "loaded" | "error",
     _updateRequestID: 0,
     _localPackageUploading: false,
+    _ratingUserID: "",
+    _ratingUserChangeHandler: undefined as (() => void) | undefined,
     genHTML() {
         if (!window.siyuan.config.bazaar.trust) {
             return `<div class="fn__flex-column" style="margin: 0 48px;">
@@ -145,7 +167,7 @@ export const bazaar = {
     <div class="config-bazaar__panel" data-type="downloaded" data-init="true">
         <div class="fn__flex config-bazaar__title config-bazaar__title--downloaded">
             <div class="fn__flex config-bazaar__tabs">
-                <button data-type="myUpdate" class="b3-button b3-button--outline">${window.siyuan.languages.update}</button>
+                <button data-type="myUpdate" class="b3-button b3-button--outline config-bazaar__update-tab">${window.siyuan.languages.update}<span data-type="update-tab-count" class="config-bazaar__update-count fn__none"></span></button>
                 <button data-type="myPlugin" class="b3-button">${window.siyuan.languages.plugin}</button>
                 <button data-type="myTheme" class="b3-button b3-button--outline">${window.siyuan.languages.theme}</button>
                 <button data-type="myIcon" class="b3-button b3-button--outline">${window.siyuan.languages.icon}</button>
@@ -190,6 +212,8 @@ export const bazaar = {
                 <option ${localSort.theme === "1" ? "selected" : ""} value="1">${window.siyuan.languages.sortByUpdateTimeAsc}</option>
                 <option ${localSort.theme === "2" ? "selected" : ""} value="2">${window.siyuan.languages.sortByDownloadsDesc}</option>
                 <option ${localSort.theme === "3" ? "selected" : ""} value="3">${window.siyuan.languages.sortByDownloadsAsc}</option>
+                <option ${localSort.theme === "4" ? "selected" : ""} value="4">${window.siyuan.languages.sortByRatingDesc}</option>
+                <option ${localSort.theme === "5" ? "selected" : ""} value="5">${window.siyuan.languages.sortByRatingAsc}</option>
             </select>
             <div class="fn__space"></div>
             <select id="bazaarSelect" class="b3-select">
@@ -216,6 +240,8 @@ export const bazaar = {
                 <option ${localSort.template === "1" ? "selected" : ""} value="1">${window.siyuan.languages.sortByUpdateTimeAsc}</option>
                 <option ${localSort.template === "2" ? "selected" : ""} value="2">${window.siyuan.languages.sortByDownloadsDesc}</option>
                 <option ${localSort.template === "3" ? "selected" : ""} value="3">${window.siyuan.languages.sortByDownloadsAsc}</option>
+                <option ${localSort.template === "4" ? "selected" : ""} value="4">${window.siyuan.languages.sortByRatingDesc}</option>
+                <option ${localSort.template === "5" ? "selected" : ""} value="5">${window.siyuan.languages.sortByRatingAsc}</option>
             </select>
             <div class="fn__space"></div>
             <input class="b3-text-field" placeholder="${window.siyuan.languages.enterKey} ${window.siyuan.languages.search}">
@@ -236,6 +262,8 @@ export const bazaar = {
                 <option ${localSort.plugin === "1" ? "selected" : ""} value="1">${window.siyuan.languages.sortByUpdateTimeAsc}</option>
                 <option ${localSort.plugin === "2" ? "selected" : ""} value="2">${window.siyuan.languages.sortByDownloadsDesc}</option>
                 <option ${localSort.plugin === "3" ? "selected" : ""} value="3">${window.siyuan.languages.sortByDownloadsAsc}</option>
+                <option ${localSort.plugin === "4" ? "selected" : ""} value="4">${window.siyuan.languages.sortByRatingDesc}</option>
+                <option ${localSort.plugin === "5" ? "selected" : ""} value="5">${window.siyuan.languages.sortByRatingAsc}</option>
             </select>
             <div class="fn__space"></div>
             <input class="b3-text-field" placeholder="${window.siyuan.languages.enterKey} ${window.siyuan.languages.search}">
@@ -256,6 +284,8 @@ export const bazaar = {
                 <option ${localSort.icon === "1" ? "selected" : ""} value="1">${window.siyuan.languages.sortByUpdateTimeAsc}</option>
                 <option ${localSort.icon === "2" ? "selected" : ""} value="2">${window.siyuan.languages.sortByDownloadsDesc}</option>
                 <option ${localSort.icon === "3" ? "selected" : ""} value="3">${window.siyuan.languages.sortByDownloadsAsc}</option>
+                <option ${localSort.icon === "4" ? "selected" : ""} value="4">${window.siyuan.languages.sortByRatingDesc}</option>
+                <option ${localSort.icon === "5" ? "selected" : ""} value="5">${window.siyuan.languages.sortByRatingAsc}</option>
             </select>
             <div class="fn__space"></div>
             <input class="b3-text-field" placeholder="${window.siyuan.languages.enterKey} ${window.siyuan.languages.search}">
@@ -276,6 +306,8 @@ export const bazaar = {
                 <option ${localSort.widget === "1" ? "selected" : ""} value="1">${window.siyuan.languages.sortByUpdateTimeAsc}</option>
                 <option ${localSort.widget === "2" ? "selected" : ""} value="2">${window.siyuan.languages.sortByDownloadsDesc}</option>
                 <option ${localSort.widget === "3" ? "selected" : ""} value="3">${window.siyuan.languages.sortByDownloadsAsc}</option>
+                <option ${localSort.widget === "4" ? "selected" : ""} value="4">${window.siyuan.languages.sortByRatingDesc}</option>
+                <option ${localSort.widget === "5" ? "selected" : ""} value="5">${window.siyuan.languages.sortByRatingAsc}</option>
             </select>
             <div class="fn__space"></div>
             <input class="b3-text-field" placeholder="${window.siyuan.languages.enterKey} ${window.siyuan.languages.search}">
@@ -292,18 +324,19 @@ export const bazaar = {
 <div id="configBazaarReadme" class="config-bazaar__readme config__view"></div>
 </div>`;
     },
-    _genFundingHTML(funding: string): string {
+    _genFundingHTML(funding: string, reserveSpace = true): string {
         if (!funding) {
             return "";
         }
+        const space = reserveSpace ? '<span class="fn__space--small"></span>' : "";
         try {
             const url = new URL(funding);
             if (!["http:", "https:", "mailto:"].includes(url.protocol)) {
                 throw new Error("not an allowed URL protocol");
             }
-            return `<span class="fn__space--small"></span><a target="_blank" href="${escapeAttr(funding)}" class="block__icon block__icon--show ariaLabel" data-position="north" aria-label="${window.siyuan.languages.sponsor} ${escapeAttr(funding)}"><svg class="ft__pink"><use xlink:href="#iconHeart"></use></svg></a>`;
+            return `${space}<a target="_blank" href="${escapeAttr(funding)}" class="block__icon block__icon--show ariaLabel" data-position="north" aria-label="${window.siyuan.languages.sponsor} ${escapeAttr(funding)}"><svg class="ft__pink"><use xlink:href="#iconHeart"></use></svg></a>`;
         } catch (e) {
-            return `<span class="fn__space--small"></span><span data-type="copy-funding" data-funding="${escapeAttr(funding)}" class="block__icon block__icon--show ariaLabel" data-position="north" aria-label="${window.siyuan.languages.sponsor} ${escapeAttr(funding)}"><svg class="ft__pink"><use xlink:href="#iconHeart"></use></svg></span>`;
+            return `${space}<span data-type="copy-funding" data-funding="${escapeAttr(funding)}" class="block__icon block__icon--show ariaLabel" data-position="north" aria-label="${window.siyuan.languages.sponsor} ${escapeAttr(funding)}"><svg class="ft__pink"><use xlink:href="#iconHeart"></use></svg></span>`;
         }
     },
     _genReadmeFundingHTML(funding: string): string {
@@ -435,6 +468,147 @@ export const bazaar = {
 ${primaryAction ? '<div class="fn__hr"></div>' : ""}
 <button class="b3-button b3-button--remove fn__block" data-type="uninstall">${window.siyuan.languages.uninstall}</button>`;
     },
+    _getRatingKey(bazaarType: TBazaarType, packageName: string) {
+        return `${bazaarType}:${packageName}`;
+    },
+    _syncRatingUser() {
+        const userID = window.siyuan.user ? `${window.siyuan.config.cloudRegion}:${window.siyuan.user.userId}` : "";
+        if (bazaar._ratingUserID !== userID) {
+            bazaar._ratingUserID = userID;
+            bazaar._data.userRatings.clear();
+            bazaar._data.userRatingKeys.clear();
+            bazaar._data.userRatingLoadingKeys.clear();
+            bazaar._data.userRatingSubmitRequestIDs.clear();
+            return true;
+        }
+        return false;
+    },
+    _refreshVisibleRatingUI() {
+        const keys = new Set<string>();
+        bazaar.element?.querySelectorAll<HTMLElement>("[data-package-type][data-name]").forEach((element) => {
+            const bazaarType = element.dataset.packageType as TBazaarType;
+            const packageName = element.dataset.name;
+            if (bazaarType && packageName) {
+                keys.add(bazaar._getRatingKey(bazaarType, packageName));
+            }
+        });
+        keys.forEach((key) => {
+            const separator = key.indexOf(":");
+            bazaar._refreshRatingUI(key.slice(0, separator) as TBazaarType, key.slice(separator + 1));
+        });
+        const sideElement = bazaar.element?.querySelector("#configBazaarReadme.config__view--show .item__side");
+        const bazaarType = sideElement?.getAttribute("data-package-type") as TBazaarType;
+        const packageName = sideElement?.getAttribute("data-name");
+        const from = sideElement?.getAttribute("data-from") as "downloaded" | "updated" | "bazaar";
+        if (bazaarType && packageName && from) {
+            bazaar._loadReadmeRating(bazaarType, packageName, from);
+        }
+    },
+    _bindRatingUserChange() {
+        if (bazaar._ratingUserChangeHandler) {
+            window.removeEventListener("siyuan-login-success", bazaar._ratingUserChangeHandler);
+        }
+        bazaar._ratingUserChangeHandler = () => {
+            bazaar._syncRatingUser();
+            bazaar._refreshVisibleRatingUI();
+        };
+        window.addEventListener("siyuan-login-success", bazaar._ratingUserChangeHandler);
+    },
+    _getRatingSummaryText(rating?: IBazaarRating) {
+        const normalized = normalizeBazaarRating(rating);
+        if (!normalized) {
+            return window.siyuan.languages.bazaarNoRatings;
+        }
+        return window.siyuan.languages.bazaarRatingSummary
+            .replace("${average}", normalized.average.toLocaleString(undefined, {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+            }))
+            .replace("${count}", normalized.count.toLocaleString());
+    },
+    _genRatingStarsHTML(value: number) {
+        const activePercentage = Math.max(0, Math.min(100, value / 5 * 100));
+        const inactiveStars = Array.from({length: 5}, () => '<svg class="config-bazaar__rating-star config-bazaar__rating-star--outline"><use xlink:href="#iconStar"></use></svg>').join("");
+        const activeStars = Array.from({length: 5}, () => '<svg class="config-bazaar__rating-star"><use xlink:href="#iconStar"></use></svg>').join("");
+        return `<span class="config-bazaar__rating-stars" aria-hidden="true">
+    ${inactiveStars}
+    <span class="config-bazaar__rating-stars--active" style="width: ${activePercentage}%">${activeStars}</span>
+</span>`;
+    },
+    _genCardRatingHTML(item: Pick<IBazaarItem, "rating">, loaded = true) {
+        const rating = normalizeBazaarRating(item.rating);
+        const hidden = !loaded || !rating;
+        const summary = bazaar._getRatingSummaryText(rating);
+        const average = rating?.average.toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+        });
+        return `<span data-rating-card-slot data-position="north" class="ariaLabel block__icon block__icon--show block__icon--text${hidden ? " fn__none" : ""}" aria-label="${escapeAttr(summary)}">
+    <svg aria-hidden="true"><use xlink:href="#iconStar"></use></svg>
+    <span class="fn__space--small"></span>
+    <span>${escapeHtml(average || "")}</span>
+</span>`;
+    },
+    _genRatePackageActionHTML(loaded: boolean) {
+        return `<span data-rating-card-slot data-position="north" data-type="rate-package" class="ariaLabel block__icon block__icon--show${loaded ? "" : " fn__none"}" aria-label="${escapeAttr(window.siyuan.languages.bazaarRatePackage)}">
+    <svg aria-hidden="true"><use xlink:href="#iconStar"></use></svg>
+</span>`;
+    },
+    _genRatingDistributionHTML(rating?: IBazaarRating) {
+        const normalized = normalizeBazaarRating(rating);
+        return [5, 4, 3, 2, 1].map((star) => {
+            const count = normalized?.distribution[star - 1] || 0;
+            const ratio = normalized ? Math.min(1, count / normalized.count) : 0;
+            const percentage = ratio * 100;
+            const percentageText = new Intl.NumberFormat(undefined, {
+                style: "percent",
+                maximumFractionDigits: 0,
+            }).format(ratio);
+            const label = window.siyuan.languages.bazaarRatingDistributionLabel
+                .replace("${star}", star.toString())
+                .replace("${count}", count.toLocaleString());
+            return `<div class="config-bazaar__rating-row" aria-label="${escapeAttr(`${label} ${percentageText}`)}">
+    <span>${star}</span>
+    <svg class="config-bazaar__rating-star" aria-hidden="true"><use xlink:href="#iconStar"></use></svg>
+    <span class="config-bazaar__rating-track" aria-hidden="true"><span style="width: ${percentage}%"></span></span>
+    <span>${escapeHtml(percentageText)}</span>
+    <span>${count.toLocaleString()}</span>
+</div>`;
+        }).join("");
+    },
+    _genReadmeRatingHTML(bazaarType: TBazaarType, item: IBazaarItem, loaded: boolean) {
+        if (!loaded) {
+            return "";
+        }
+        bazaar._syncRatingUser();
+        const rating = normalizeBazaarRating(item.rating);
+        const summary = bazaar._getRatingSummaryText(rating);
+        const userRating = bazaar._data.userRatings.get(bazaar._getRatingKey(bazaarType, item.name)) || 0;
+        let action = "";
+        if (item.installed) {
+            if (window.siyuan.user) {
+                const actionText = userRating ? window.siyuan.languages.bazaarYourRatingValue.replace("${rating}", userRating.toString()) :
+                    window.siyuan.languages.bazaarRatePackage;
+                action = `<button type="button" class="config-bazaar__rating-action" data-type="rate-package" aria-label="${escapeAttr(actionText)}">
+    ${bazaar._genRatingStarsHTML(userRating)}
+    <span>${escapeHtml(actionText)}</span>
+</button>`;
+            } else {
+                action = `<div class="config-bazaar__rating-tip">${window.siyuan.languages.bazaarRatingLoginTip}</div>`;
+            }
+        } else {
+            action = `<div class="config-bazaar__rating-tip">${window.siyuan.languages.bazaarRatingInstallTip}</div>`;
+        }
+        return `<section class="item__meta-section config-bazaar__rating-detail">
+    <div class="item__meta-title">${window.siyuan.languages.bazaarRating}</div>
+    <div class="config-bazaar__rating-summary" aria-label="${escapeAttr(summary)}">
+        ${bazaar._genRatingStarsHTML(rating?.average || 0)}
+        <span>${escapeHtml(summary)}</span>
+    </div>
+    <div class="config-bazaar__rating-distribution">${bazaar._genRatingDistributionHTML(rating)}</div>
+    ${action}
+</section>`;
+    },
     _genCardHTML(item: IBazaarItem, bazaarType: TBazaarType) {
         const showSwitch = item.installed && !item.current && ["icons", "themes"].includes(bazaarType);
         const showDisable = item.installed && item.current && ["icons", "themes"].includes(bazaarType);
@@ -455,7 +629,8 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
                 <span class="fn__space--small"></span>
                 ${formatCount(item.downloads)}
             </span>
-            <span class="fn__space--small"></span>
+            ${bazaar._genCardRatingHTML(item,
+                isBazaarPackageRatingLoaded("bazaar", false, item.ratingAvailable))}
             <span class="block__icon block__icon--show block__icon--text">
                 <svg><use xlink:href="#iconAccount"></use></svg>
                 <span class="fn__space--small"></span>
@@ -520,6 +695,8 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
     _genUpdateItemHTML(item: IUpdatedBazaarItem, bazaarType: TBazaarType) {
         const installed = item.installed;
         const available = item.available;
+        const ratingLoaded = isBazaarPackageRatingLoaded("updated", bazaar._data.downloadedRatingKeys.has(
+            bazaar._getRatingKey(bazaarType, installed.name)));
         return `<div class="b3-card" data-name="${escapeAttr(installed.name)}" data-package-type="${bazaarType}" data-package-source="updated">
     <div class="b3-card__img"><img src="${installed.iconURL}" loading="lazy" onerror="this.src='/stage/images/icon.png'"/></div>
     <div class="fn__flex-1 fn__flex-column">
@@ -530,11 +707,12 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
     </div>
     <div class="b3-card__actions b3-card__actions--right">
         ${bazaar._genIncompatibleChipHTML(available, "bazaar", bazaarType)}
-        ${bazaar._genFundingHTML(installed.preferredFunding)}
+        ${bazaar._genFundingHTML(installed.preferredFunding, false)}
         <span data-position="north" class="ariaLabel block__icon block__icon--show${isBrowser() ? " fn__none" : ""}" data-type="open" aria-label="${window.siyuan.languages.showInFolder}">
             <svg><use xlink:href="#iconFolder"></use></svg>
         </span>
         ${bazaar._genUpdateButtonHTML(available, bazaarType)}
+        ${bazaar._genRatePackageActionHTML(ratingLoaded)}
     </div>
 </div>`;
     },
@@ -551,11 +729,21 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
     _isUpdatePanelActive() {
         return !bazaar.element.querySelector('[data-type="myUpdate"]')?.classList.contains("b3-button--outline");
     },
+    _syncUpdateTabCounter() {
+        const counterElement = bazaar.element?.querySelector('[data-type="update-tab-count"]');
+        if (!counterElement) {
+            return;
+        }
+        const count = this._updateState === "loaded" ? this._getUpdatedItems().length : 0;
+        counterElement.classList.toggle("fn__none", count === 0);
+        counterElement.textContent = count.toString();
+    },
     _checkUpdate(force = false) {
         if (!force && ["loading", "loaded"].includes(this._updateState)) {
             return;
         }
         this._updateState = "loading";
+        this._syncUpdateTabCounter();
         const requestID = ++this._updateRequestID;
         if (this._isUpdatePanelActive()) {
             this._renderUpdatePanel();
@@ -566,6 +754,7 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
             }
             if (response.code !== 0 || !response.data) {
                 this._updateState = "error";
+                this._syncUpdateTabCounter();
                 if (this._isUpdatePanelActive()) {
                     this._renderUpdatePanel();
                 }
@@ -573,6 +762,7 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
             }
             this._data.update = response.data;
             this._updateState = "loaded";
+            this._syncUpdateTabCounter();
             this._syncDownloadedUpdateButtons();
             if (this._isUpdatePanelActive()) {
                 this._renderUpdatePanel();
@@ -608,6 +798,7 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
         counterElement.textContent = items.length.toString();
         installAllElement?.classList.toggle("fn__none", !items.some(({item}) => !item.available.disallowUpdate));
         contentElement.innerHTML = items.map(({type, item}) => this._genUpdateItemHTML(item, type)).join("");
+        this._loadUpdatedRatings();
     },
     _syncDownloadedUpdateButtons() {
         bazaar.element.querySelectorAll("#configBazaarDownloaded .b3-card[data-package-source='downloaded']").forEach((card) => {
@@ -687,6 +878,8 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
                         // @ts-ignore
                         hasSetting = plugin && (plugin.setting || plugin.__proto__.hasOwnProperty("openSetting"));
                     }
+                    const showPublishSwitch = bazaarType === "plugins" && window.siyuan.config.publish.enable;
+                    const publishEnabled = isBazaarPluginEnabledInPublish(bazaarItem);
                     const available = bazaar._getUpdatedItem(bazaarType, bazaarItem.name)?.available;
                     return `<div data-name="${escapeAttr(bazaarItem.name)}" data-package-type="${bazaarType}" data-package-source="downloaded" class="b3-card${bazaarItem.current ? " b3-card--current" : ""}">
     <div class="b3-card__img"><img src="${bazaarItem.iconURL}" loading="lazy" onerror="this.src='/stage/images/icon.png'"/></div>
@@ -694,12 +887,19 @@ ${primaryAction ? '<div class="fn__hr"></div>' : ""}
         <div class="b3-card__info b3-card__info--left fn__flex-1">
             ${escapeHtml(bazaarItem.preferredName)}
             <div class="b3-card__desc" title="${escapeAttr(bazaarItem.preferredDesc)}">${escapeHtml(bazaarItem.preferredDesc)}</div>
+            ${showPublishSwitch ? `<div class="fn__hr--b"></div>
+            <label data-type="plugin-publish-enable-label" class="config-bazaar__publish-switch" title="${escapeAttr(bazaarItem.disabledInPublish ? window.siyuan.languages.pluginDisabledInPublishTip : window.siyuan.languages.publishService)}">
+                <input data-type="plugin-publish-enable" data-position="north" class="b3-switch fn__flex-center" type="checkbox"${publishEnabled ? " checked" : ""}${bazaarItem.disabledInPublish ? " disabled" : ""}>
+                <span class="fn__space--small"></span>
+                <span class="fn__flex-center ft__on-surface">${window.siyuan.languages.publishService}</span>
+            </label>` : ""}
         </div>
     </div>
     <div class="b3-card__actions b3-card__actions--right">
         ${bazaar._genUpdateButtonHTML(available, bazaarType, true)}
+        ${bazaar._genRatePackageActionHTML(bazaar._data.downloadedRatingKeys.has(bazaar._getRatingKey(bazaarType, bazaarItem.name)))}
         ${bazaar._genIncompatibleChipHTML(bazaarItem, "installed", bazaarType)}
-        ${bazaar._genFundingHTML(bazaarItem.preferredFunding)}
+        ${bazaar._genFundingHTML(bazaarItem.preferredFunding, false)}
         ${hasSetting ? `<span data-position="north" class="ariaLabel block__icon block__icon--show${window.siyuan.config.bazaar.petalDisabled ? " fn__none" : ""}" data-type="setting" aria-label="${window.siyuan.languages.config}">
             <svg><use xlink:href="#iconSettings"></use></svg>
         </span>` : ""}
@@ -730,7 +930,9 @@ type="checkbox">
             }
             bazaar._data.downloadedDefault = response.data.packages;
             bazaar._data.downloaded = packages;
+            bazaar._data.downloadedType = bazaarType;
             contentElement.innerHTML = html ? html : `<ul class="b3-list b3-list--background"><li class="b3-list--empty">${window.siyuan.languages.emptyContent}</li></ul>`;
+            bazaar._loadDownloadedRatings(bazaarType, response.data.packages);
             const sideElement = bazaar.element.querySelector("#configBazaarReadme.config__view--show .item__side");
             // 仅刷新「已下载」详情，避免通过 URI 打开的在线详情被本地数据覆盖
             if (sideElement?.getAttribute("data-from") === "downloaded" &&
@@ -757,6 +959,16 @@ type="checkbox">
         plugins: [] as IBazaarItem[],
         downloadedDefault: [] as IBazaarItem[],
         downloaded: [] as IBazaarItem[],
+        downloadedType: undefined as TBazaarType | undefined,
+        downloadedRatingKeys: new Set<string>(),
+        ratings: new Map<string, IBazaarRating>(),
+        userRatings: new Map<string, number>(),
+        userRatingKeys: new Set<string>(),
+        userRatingLoadingKeys: new Set<string>(),
+        userRatingSubmittingKeys: new Set<string>(),
+        userRatingSubmitRequestIDs: new Map<string, number>(),
+        ratingBatchRequestIDs: new Map<TBazaarType, number>(),
+        ratingMutationVersions: new Map<string, number>(),
         details: new Map<string, IBazaarPackageDetail>(),
         update: {
             themes: [] as IUpdatedBazaarItem[],
@@ -804,6 +1016,17 @@ type="checkbox">
         const available = detail?.available || updatedDetail?.available ||
             (from === "downloaded" ? bazaar._getUpdatedItem(bazaarType, data.name)?.available : data);
         const displayData = from === "downloaded" ? installed || data : available || data;
+        const ratingKey = bazaar._getRatingKey(bazaarType, displayData.name);
+        const ratingLoaded = isBazaarPackageRatingLoaded(from, bazaar._data.downloadedRatingKeys.has(ratingKey),
+            displayData.ratingAvailable);
+        if (from !== "bazaar" && ratingLoaded) {
+            const rating = bazaar._data.ratings.get(ratingKey);
+            if (rating) {
+                displayData.rating = rating;
+            } else {
+                delete displayData.rating;
+            }
+        }
         const compatibilityData = getBazaarCompatibilityData(from, installed, available, data);
         const resourceData = available || displayData;
         bazaar._setPackageDetail(bazaarType, data.name, {installed, available});
@@ -882,6 +1105,7 @@ type="checkbox">
             ${installSection}
             ${marketSection}
             ${compatibilitySection}
+            <div data-type="rating-detail-slot">${bazaar._genReadmeRatingHTML(bazaarType, displayData, ratingLoaded)}</div>
             <section class="item__meta-section item__resources">
                 <div class="item__meta-title">${window.siyuan.languages.bazaarResources}</div>
                 <div class="fn__flex">
@@ -952,6 +1176,7 @@ type="checkbox">
             });
         }
         readmeElement.classList.add("config__view--show");
+        bazaar._loadReadmeRating(bazaarType, displayData.name, from);
         if (needsPackageDetail) {
             bazaar._fetchPackageDetail(bazaarType, data.name, (packageDetail) => {
                 const sideElement = readmeElement.querySelector(".item__side");
@@ -1081,6 +1306,428 @@ type="checkbox">
         contentElement.append(fragment);
         bazaar._data.downloaded = packages;
     },
+    _applyPackageRating(bazaarType: TBazaarType, packageName: string, rating?: IBazaarRating) {
+        const key = bazaar._getRatingKey(bazaarType, packageName);
+        if (rating) {
+            bazaar._data.ratings.set(key, rating);
+        } else {
+            bazaar._data.ratings.delete(key);
+        }
+        const updateItem = (item?: IBazaarItem) => {
+            applyBazaarPackageRatingToItem(item, packageName, rating);
+        };
+        bazaar._data[bazaarType].forEach(updateItem);
+        if (bazaar._data.downloadedType === bazaarType) {
+            bazaar._data.downloadedDefault.forEach(updateItem);
+            bazaar._data.downloaded.forEach(updateItem);
+        }
+        bazaar._data.update[bazaarType].forEach((item) => {
+            updateItem(item.installed);
+            updateItem(item.available);
+        });
+        const detail = bazaar._getPackageDetail(bazaarType, packageName);
+        updateItem(detail?.installed);
+        updateItem(detail?.available);
+        bazaar._refreshRatingUI(bazaarType, packageName);
+    },
+    _applyPackageRatingResponse(bazaarType: TBazaarType, packageName: string, data: {
+        ratingAvailable?: unknown;
+        rating?: Partial<IBazaarRating> | null;
+    }) {
+        const key = bazaar._getRatingKey(bazaarType, packageName);
+        const publicRating = normalizeBazaarPackageRatingResponse(data);
+        if (publicRating.loaded) {
+            bazaar._data.downloadedRatingKeys.add(key);
+            bazaar._applyPackageRating(bazaarType, packageName, publicRating.rating);
+        } else {
+            bazaar._data.downloadedRatingKeys.delete(key);
+            bazaar._refreshRatingUI(bazaarType, packageName);
+        }
+        return publicRating.loaded;
+    },
+    _getRatingItem(bazaarType: TBazaarType, packageName: string, from: "downloaded" | "updated" | "bazaar") {
+        const detail = bazaar._getPackageDetail(bazaarType, packageName);
+        if (from === "downloaded") {
+            return detail?.installed || (bazaar._data.downloadedType === bazaarType ?
+                bazaar._data.downloaded.find((item) => item.name === packageName) : undefined);
+        }
+        if (from === "updated") {
+            return detail?.available || bazaar._getUpdatedItem(bazaarType, packageName)?.available;
+        }
+        return detail?.available || bazaar._data[bazaarType].find((item) => item.name === packageName);
+    },
+    _refreshRatingUI(bazaarType: TBazaarType, packageName: string) {
+        bazaar._syncRatingUser();
+        bazaar.element?.querySelectorAll(`.b3-card[data-package-type="${bazaarType}"]`).forEach((card) => {
+            if (card.getAttribute("data-name") !== packageName) {
+                return;
+            }
+            const source = card.getAttribute("data-package-source") as "downloaded" | "updated" | "bazaar";
+            const item = bazaar._getRatingItem(bazaarType, packageName, source);
+            const slot = card.querySelector<HTMLElement>("[data-rating-card-slot]");
+            if (item && slot) {
+                const key = bazaar._getRatingKey(bazaarType, packageName);
+                const loaded = isBazaarPackageRatingLoaded(source, bazaar._data.downloadedRatingKeys.has(key),
+                    item.ratingAvailable);
+                if (source === "bazaar") {
+                    const rating = loaded ? normalizeBazaarRating(item.rating) : undefined;
+                    slot.classList.toggle("fn__none", !rating);
+                    if (rating) {
+                        slot.setAttribute("aria-label", bazaar._getRatingSummaryText(rating));
+                        const averageElement = slot.lastElementChild;
+                        if (averageElement) {
+                            averageElement.textContent = rating.average.toLocaleString(undefined, {
+                                minimumFractionDigits: 1,
+                                maximumFractionDigits: 1,
+                            });
+                        }
+                    }
+                } else {
+                    slot.classList.toggle("fn__none", !loaded);
+                }
+            }
+        });
+        const sideElement = bazaar.element?.querySelector("#configBazaarReadme.config__view--show .item__side");
+        if (sideElement?.getAttribute("data-package-type") !== bazaarType ||
+            sideElement.getAttribute("data-name") !== packageName) {
+            return;
+        }
+        const from = sideElement.getAttribute("data-from") as "downloaded" | "updated" | "bazaar";
+        const item = bazaar._getRatingItem(bazaarType, packageName, from);
+        const slot = sideElement.querySelector('[data-type="rating-detail-slot"]');
+        if (item && slot) {
+            const key = bazaar._getRatingKey(bazaarType, packageName);
+            const loaded = isBazaarPackageRatingLoaded(from, bazaar._data.downloadedRatingKeys.has(key),
+                item.ratingAvailable);
+            const displayItem = from === "bazaar" ? item : {...item, rating: bazaar._data.ratings.get(key)};
+            slot.innerHTML = bazaar._genReadmeRatingHTML(bazaarType, displayItem, loaded);
+        }
+    },
+    _loadDownloadedRatings(bazaarType: TBazaarType, packages: IBazaarItem[]) {
+        const packageNames = packages.filter((item) => !item.invalidReason).map((item) => item.name);
+        if (packageNames.length === 0) {
+            return;
+        }
+        const requestID = (bazaar._data.ratingBatchRequestIDs.get(bazaarType) || 0) + 1;
+        bazaar._data.ratingBatchRequestIDs.set(bazaarType, requestID);
+        const mutationVersions = new Map(packageNames.map((packageName) => {
+            const key = bazaar._getRatingKey(bazaarType, packageName);
+            return [packageName, getBazaarRatingMutationVersion(bazaar._data.ratingMutationVersions, key)];
+        }));
+        fetchPost("/api/bazaar/getBazaarPackageRatings", {
+            packageType: bazaarType,
+            packageNames,
+        }, response => {
+            if (response.code !== 0 || bazaar._data.ratingBatchRequestIDs.get(bazaarType) !== requestID ||
+                !bazaar.element?.isConnected) {
+                return;
+            }
+            const ratings = normalizeBazaarPackageRatingsResponse(packageNames, response.data);
+            if (!ratings) {
+                return;
+            }
+            ratings.forEach((ratingResponse, packageName) => {
+                const key = bazaar._getRatingKey(bazaarType, packageName);
+                if (isBazaarRatingMutationVersionCurrent(bazaar._data.ratingMutationVersions, key,
+                    mutationVersions.get(packageName) || 0)) {
+                    bazaar._applyPackageRatingResponse(bazaarType, packageName, ratingResponse);
+                }
+            });
+        });
+    },
+    _loadUpdatedRatings() {
+        (["plugins", "themes", "icons", "templates", "widgets"] as TBazaarType[]).forEach((bazaarType) => {
+            const items = bazaar._data.update[bazaarType];
+            if (items.length && !items.every((item) => bazaar._data.downloadedRatingKeys.has(
+                bazaar._getRatingKey(bazaarType, item.installed.name)))) {
+                bazaar._loadDownloadedRatings(bazaarType, items.map((item) => item.installed));
+            }
+        });
+    },
+    _fetchPackageRating(bazaarType: TBazaarType, packageName: string, callback?: () => void, silent = true) {
+        bazaar._syncRatingUser();
+        const requestedUserID = bazaar._ratingUserID;
+        const key = bazaar._getRatingKey(bazaarType, packageName);
+        const loadingKey = `${requestedUserID}|${key}`;
+        bazaar._data.userRatingLoadingKeys.add(loadingKey);
+        let handled = false;
+        fetchPost("/api/bazaar/getBazaarPackageRating", {
+            packageType: bazaarType,
+            packageName,
+        }, response => {
+            handled = true;
+            bazaar._syncRatingUser();
+            if (requestedUserID !== bazaar._ratingUserID) {
+                return;
+            }
+            if (response.code !== 0 || !response.data) {
+                if (!silent) {
+                    const languageKey = getBazaarRatingErrorLanguageKey(response.data);
+                    showMessage(languageKey ? window.siyuan.languages[languageKey] :
+                        response.msg || window.siyuan.languages.bazaarRatingFailed);
+                }
+                return;
+            }
+            const userRating = response.data.userRating;
+            bazaar._data.userRatings.set(key, normalizeBazaarUserRating(userRating) || 0);
+            bazaar._data.userRatingKeys.add(key);
+            if (!bazaar._applyPackageRatingResponse(bazaarType, packageName, response.data)) {
+                if (!silent) {
+                    showMessage(window.siyuan.languages.bazaarRatingFailed);
+                }
+                return;
+            }
+            callback?.();
+        }).finally(() => {
+            bazaar._data.userRatingLoadingKeys.delete(loadingKey);
+            if (!handled && !silent && requestedUserID === bazaar._ratingUserID) {
+                showMessage(window.siyuan.languages.bazaarRatingFailed);
+            }
+        });
+    },
+    _loadReadmeRating(bazaarType: TBazaarType, packageName: string, from: "downloaded" | "updated" | "bazaar") {
+        bazaar._syncRatingUser();
+        const key = bazaar._getRatingKey(bazaarType, packageName);
+        const loadingKey = `${bazaar._ratingUserID}|${key}`;
+        if (bazaar._getRatingItem(bazaarType, packageName, from)?.installed && window.siyuan.user &&
+            !bazaar._data.userRatingKeys.has(key) &&
+            !bazaar._data.userRatingLoadingKeys.has(loadingKey)) {
+            bazaar._fetchPackageRating(bazaarType, packageName);
+        }
+    },
+    _submitPackageRating(bazaarType: TBazaarType, packageName: string, rating: number, callback: (success: boolean) => void) {
+        bazaar._syncRatingUser();
+        const removing = rating === 0;
+        const failureMessage = removing ? window.siyuan.languages.bazaarRemoveRatingFailed :
+            window.siyuan.languages.bazaarRatingFailed;
+        if (normalizeBazaarUserRating(rating) === undefined) {
+            showMessage(failureMessage);
+            callback(false);
+            return;
+        }
+        const requestedUserID = bazaar._ratingUserID;
+        const key = bazaar._getRatingKey(bazaarType, packageName);
+        const requestKey = `${requestedUserID}|${key}`;
+        if (!beginBazaarRatingSubmission(bazaar._data.userRatingSubmittingKeys, requestKey)) {
+            showMessage(window.siyuan.languages.loading);
+            callback(false);
+            return;
+        }
+        const requestID = beginBazaarRatingRequest(bazaar._data.userRatingSubmitRequestIDs, requestKey);
+        let handled = false;
+        let settled = false;
+        const isLatestRequest = () => requestedUserID === bazaar._ratingUserID &&
+            isLatestBazaarRatingRequest(bazaar._data.userRatingSubmitRequestIDs, requestKey, requestID);
+        const settle = (success: boolean) => {
+            if (!settled) {
+                settled = true;
+                callback(success);
+            }
+        };
+        fetchPost("/api/bazaar/setBazaarPackageRating", {
+            packageType: bazaarType,
+            packageName,
+            rating,
+        }, response => {
+            handled = true;
+            bazaar._syncRatingUser();
+            if (!isLatestRequest()) {
+                settle(false);
+                return;
+            }
+            if (response.code !== 0 || !response.data) {
+                const languageKey = getBazaarRatingErrorLanguageKey(response.data);
+                showMessage(languageKey ? window.siyuan.languages[languageKey] :
+                    response.msg || failureMessage);
+                settle(false);
+                return;
+            }
+            const userRating = response.data.userRating;
+            bazaar._data.userRatings.set(key, normalizeBazaarUserRating(userRating) ?? rating);
+            bazaar._data.userRatingKeys.add(key);
+            beginBazaarRatingRequest(bazaar._data.ratingMutationVersions, key);
+            bazaar._applyPackageRatingResponse(bazaarType, packageName, response.data);
+            const sortValue = window.siyuan.storage[Constants.LOCAL_BAZAAR][bazaar._type2tabType(bazaarType)];
+            if (["4", "5"].includes(sortValue)) {
+                bazaar._renderBazaarCards(
+                    bazaar.element.querySelector({
+                        plugins: "#configBazaarPlugin",
+                        themes: "#configBazaarTheme",
+                        icons: "#configBazaarIcon",
+                        templates: "#configBazaarTemplate",
+                        widgets: "#configBazaarWidget",
+                    }[bazaarType]),
+                    bazaar._sortPackages(bazaar._data[bazaarType], sortValue),
+                    bazaarType,
+                    bazaarType === "themes" ? (bazaar.element.querySelector("#bazaarSelect") as HTMLSelectElement)?.value : undefined,
+                );
+            }
+            showMessage(removing ? window.siyuan.languages.bazaarRatingRemoved :
+                window.siyuan.languages.bazaarRatingSubmitted);
+            settle(true);
+        }).finally(() => {
+            bazaar._data.userRatingSubmittingKeys.delete(requestKey);
+            if (settled) {
+                return;
+            }
+            bazaar._syncRatingUser();
+            if (!handled && isLatestRequest()) {
+                showMessage(failureMessage);
+            }
+            settle(false);
+        });
+    },
+    _openRatingDialog(bazaarType: TBazaarType, packageName: string) {
+        bazaar._syncRatingUser();
+        if (!window.siyuan.user) {
+            showMessage(window.siyuan.languages.bazaarRatingLoginTip);
+            return;
+        }
+        const key = bazaar._getRatingKey(bazaarType, packageName);
+        const submitKey = `${bazaar._ratingUserID}|${key}`;
+        if (bazaar._data.userRatingSubmittingKeys.has(submitKey)) {
+            showMessage(window.siyuan.languages.loading);
+            return;
+        }
+        if (!bazaar._data.userRatingKeys.has(key)) {
+            const loadingKey = `${bazaar._ratingUserID}|${key}`;
+            if (bazaar._data.userRatingLoadingKeys.has(loadingKey)) {
+                showMessage(window.siyuan.languages.loading);
+                return;
+            }
+            bazaar._fetchPackageRating(bazaarType, packageName, () => {
+                bazaar._openRatingDialog(bazaarType, packageName);
+            }, false);
+            return;
+        }
+        const previousActiveElement = document.activeElement as HTMLElement;
+        let selectedRating = bazaar._data.userRatings.get(key) || 0;
+        const canRemoveRating = isBazaarRatingRemovalAvailable(selectedRating);
+        const buttons = [1, 2, 3, 4, 5].map((rating) => {
+            const label = window.siyuan.languages.bazaarRatingStarLabel.replace("${star}", rating.toString());
+            return `<button type="button" role="radio" data-rating-value="${rating}" aria-checked="${selectedRating === rating}" aria-label="${escapeAttr(label)}" tabindex="${selectedRating === rating || (!selectedRating && rating === 1) ? "0" : "-1"}">
+    <svg class="config-bazaar__rating-star config-bazaar__rating-star--outline" aria-hidden="true"><use xlink:href="#iconStar"></use></svg>
+</button>`;
+        }).join("");
+        const dialog = new Dialog({
+            title: window.siyuan.languages.bazaarRatePackage,
+            content: `<div class="b3-dialog__content">
+    <div class="config-bazaar__rating-picker" role="radiogroup" aria-label="${escapeAttr(window.siyuan.languages.bazaarYourRating)}">${buttons}</div>
+</div>
+<div class="b3-dialog__action">
+    ${canRemoveRating ? `<button type="button" class="b3-button b3-button--remove" data-type="rating-remove">${window.siyuan.languages.bazaarRemoveRating}</button><div class="fn__space"></div>` : ""}
+    <button type="button" class="b3-button b3-button--cancel" data-type="rating-cancel">${window.siyuan.languages.cancel}</button>
+    <div class="fn__space"></div>
+    <button type="button" class="b3-button b3-button--text" data-type="rating-confirm"${selectedRating ? "" : " disabled"}>${window.siyuan.languages.confirm}</button>
+</div>`,
+            width: isMobile() ? "92vw" : "360px",
+            destroyCallback: () => {
+                if (previousActiveElement?.isConnected) {
+                    previousActiveElement.focus({preventScroll: true});
+                }
+            },
+        });
+        const picker = dialog.element.querySelector(".config-bazaar__rating-picker") as HTMLElement;
+        const cancelButton = dialog.element.querySelector('[data-type="rating-cancel"]') as HTMLButtonElement;
+        const confirmButton = dialog.element.querySelector('[data-type="rating-confirm"]') as HTMLButtonElement;
+        const removeButton = dialog.element.querySelector('[data-type="rating-remove"]') as HTMLButtonElement | null;
+        let submitting = false;
+        const setSubmitting = (value: boolean) => {
+            submitting = value;
+            picker.querySelectorAll<HTMLButtonElement>("[data-rating-value]").forEach((button) => {
+                button.disabled = value;
+            });
+            if (removeButton) {
+                removeButton.disabled = value;
+            }
+            cancelButton.disabled = value;
+            confirmButton.disabled = value || !selectedRating;
+        };
+        const highlightRating = (rating: number) => {
+            picker.querySelectorAll<HTMLButtonElement>("[data-rating-value]").forEach((button) => {
+                button.classList.toggle("config-bazaar__rating-picker--active", Number(button.dataset.ratingValue) <= rating);
+            });
+        };
+        const selectRating = (rating: number, focus = false) => {
+            if (submitting) {
+                return;
+            }
+            selectedRating = rating;
+            highlightRating(rating);
+            picker.querySelectorAll<HTMLButtonElement>("[data-rating-value]").forEach((button) => {
+                const value = Number(button.dataset.ratingValue);
+                button.setAttribute("aria-checked", (value === rating).toString());
+                button.tabIndex = value === rating ? 0 : -1;
+                if (focus && value === rating) {
+                    button.focus();
+                }
+            });
+            confirmButton.disabled = false;
+        };
+        if (selectedRating) {
+            selectRating(selectedRating);
+        }
+        picker.addEventListener("click", (event) => {
+            const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-rating-value]");
+            if (button) {
+                selectRating(Number(button.dataset.ratingValue));
+            }
+        });
+        picker.addEventListener("mouseover", (event) => {
+            const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-rating-value]");
+            if (button) {
+                highlightRating(Number(button.dataset.ratingValue));
+            }
+        });
+        picker.addEventListener("mouseleave", () => highlightRating(selectedRating));
+        picker.addEventListener("keydown", (event: KeyboardEvent) => {
+            if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                return;
+            }
+            let next = selectedRating || Number((event.target as HTMLElement).closest<HTMLElement>("[data-rating-value]")?.dataset.ratingValue) || 1;
+            if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
+                next = next === 1 ? 5 : next - 1;
+            } else if (["ArrowRight", "ArrowDown"].includes(event.key)) {
+                next = next === 5 ? 1 : next + 1;
+            } else {
+                next = event.key === "Home" ? 1 : 5;
+            }
+            selectRating(next, true);
+            event.preventDefault();
+        });
+        cancelButton.addEventListener("click", () => {
+            if (!submitting) {
+                dialog.destroy();
+            }
+        });
+        removeButton?.addEventListener("click", () => {
+            if (submitting) {
+                return;
+            }
+            setSubmitting(true);
+            bazaar._submitPackageRating(bazaarType, packageName, 0, (success) => {
+                if (success) {
+                    dialog.destroy();
+                } else {
+                    setSubmitting(false);
+                }
+            });
+        });
+        confirmButton.addEventListener("click", () => {
+            if (!selectedRating || submitting) {
+                return;
+            }
+            setSubmitting(true);
+            bazaar._submitPackageRating(bazaarType, packageName, selectedRating, (success) => {
+                if (success) {
+                    dialog.destroy();
+                } else {
+                    setSubmitting(false);
+                }
+            });
+        });
+        (picker.querySelector('[tabindex="0"]') as HTMLButtonElement)?.focus({preventScroll: true});
+    },
     _refreshReadmeDetail(bazaarType: TBazaarType, packageName: string) {
         const sideElement = bazaar.element.querySelector("#configBazaarReadme.config__view--show .item__side");
         if (sideElement?.getAttribute("data-package-type") !== bazaarType ||
@@ -1155,6 +1802,20 @@ type="checkbox">
                 return;
             }
             loadPlugin(app, response.data).then(callback);
+        });
+    },
+    _setPluginPublishEnabled(item: IBazaarItem, enabled: boolean, callback: () => void) {
+        fetchPost("/api/petal/setPetalPublishEnabled", {
+            packageName: item.name,
+            enabled,
+        }, response => {
+            if (response.code !== 0) {
+                showMessage(response.msg);
+                callback();
+                return;
+            }
+            item.userDisabledInPublish = !enabled;
+            callback();
         });
     },
     _resolveThemeAppearanceMode(item: IBazaarItem) {
@@ -1314,7 +1975,7 @@ type="checkbox">
             if (response.code !== 0) {
                 if (data?.reason === "package-exists" && data.packageName) {
                     confirmDialog("⚠️ " + window.siyuan.languages.update,
-                        window.siyuan.languages.confirmOverwriteLocalBazaarPackage.replace("${name}", data.packageName), () => {
+                        window.siyuan.languages.confirmOverwriteLocalBazaarPackage.replace("${name}", escapeHtml(data.packageName)), () => {
                             bazaar._installLocalPackage(file, app, true);
                         });
                 } else if (data?.reason === "package-incompatible") {
@@ -1334,6 +1995,7 @@ type="checkbox">
             bazaar._data.details.delete(bazaar._getDetailKey(data.packageType, data.packageName));
             bazaar._data.update[data.packageType] = bazaar._data.update[data.packageType].filter((item) =>
                 item.installed.name !== data.packageName);
+            bazaar._syncUpdateTabCounter();
             bazaar.switchBazaarTab(app, data.packageType, "downloaded");
             if (data.packageType === "plugins" && !data.updated) {
                 if (window.siyuan.config.bazaar.petalDisabled) {
@@ -1435,6 +2097,8 @@ type="checkbox">
         this._updateState = "idle";
         this._updateRequestID++;
         this._data.details.clear();
+        this._syncRatingUser();
+        this._bindRatingUserChange();
         (["plugins", "themes", "icons", "templates", "widgets"] as TBazaarType[]).forEach((type) => {
             this._data.update[type] = [];
         });
@@ -1442,6 +2106,9 @@ type="checkbox">
         this._checkUpdate(true);
         this._bindLocalPackageEvent(app);
         bazaar.element.firstElementChild.addEventListener("click", (event) => {
+            if (bazaar._syncRatingUser()) {
+                bazaar._refreshVisibleRatingUI();
+            }
             let target = event.target as HTMLElement;
             const packageElement = hasClosestByAttribute(target, "data-name", null);
             let pkgType: TBazaarType | undefined;
@@ -1473,7 +2140,15 @@ type="checkbox">
                 if (target.tagName === "A") {
                     break;
                 }
-                if (type === "copy-funding") {
+                const packageInstalled = Boolean(installedItem) ||
+                    (packageSource === "bazaar" && pkgItem?.installed === true);
+                if (type === "rate-package" && pkgType && packageName &&
+                    isBazaarPackageRatingEditable(packageSource, packageInstalled)) {
+                    bazaar._openRatingDialog(pkgType, packageName);
+                    event.preventDefault();
+                    event.stopPropagation();
+                    break;
+                } else if (type === "copy-funding") {
                     const funding = target.getAttribute("data-funding");
                     if (funding) {
                         writeText(funding);
@@ -1637,7 +2312,7 @@ type="checkbox">
                         widgets: "/api/bazaar/uninstallBazaarWidget",
                     };
                     const uninstallName = installedItem.name;
-                    confirmDialog("⚠️ " + window.siyuan.languages.uninstall, window.siyuan.languages.confirmUninstall.replace("${name}", uninstallName), () => {
+                    confirmDialog("⚠️ " + window.siyuan.languages.uninstall, window.siyuan.languages.confirmUninstall.replace("${name}", escapeHtml(uninstallName)), () => {
                         fetchPost(uninstallAPI[pkgType], {
                             packageName: uninstallName,
                             keyword: (bazaar.element.querySelector(`.config-bazaar__panel[data-type="${bazaar._type2tabType(pkgType)}"] .b3-text-field`) as HTMLInputElement).value,
@@ -1728,6 +2403,20 @@ type="checkbox">
                                 });
                                 saveLayout();
                             }
+                        });
+                    }
+                    event.stopPropagation();
+                    break;
+                } else if (type === "plugin-publish-enable-label") {
+                    event.stopPropagation();
+                    break;
+                } else if (type === "plugin-publish-enable" && installedItem) {
+                    if (!target.hasAttribute("disabled")) {
+                        target.setAttribute("disabled", "disabled");
+                        const enabled = (target as HTMLInputElement).checked;
+                        bazaar._setPluginPublishEnabled(installedItem, enabled, () => {
+                            target.removeAttribute("disabled");
+                            this._genMyHTML("plugins", app, true);
                         });
                     }
                     event.stopPropagation();
@@ -1885,6 +2574,9 @@ type="checkbox">
         // 下载次数升序
         if (sortValue === "3") {
             return sorted.sort((a, b) => (b.downloads < a.downloads ? 1 : -1));
+        }
+        if (["4", "5"].includes(sortValue)) {
+            return sortBazaarPackagesByRating(sorted, sortValue === "4");
         }
         return sorted;
     },

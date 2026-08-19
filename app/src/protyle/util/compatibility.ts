@@ -12,6 +12,7 @@ import type {App} from "../../index";
 import {genUUID} from "../../util/genID";
 import {buildBlockDOMClipboardData} from "./blockDOMClipboard";
 import {buildWebClipboardHTML, getTextSiyuanFromTextHTML} from "./clipboardData";
+import {prepareExternalClipboardHTML} from "./richClipboard";
 
 export {encodeBase64, getTextSiyuanFromTextHTML} from "./clipboardData";
 
@@ -460,7 +461,11 @@ export const writeClipboardData = async (data: IClipboardWriteData, options: ICl
 
 export const writeBlockDOMClipboard = async (lute: Lute, blockDOM: string) => {
     const {textPlain, textHTML, textSiyuan} = buildBlockDOMClipboardData(lute, blockDOM);
-    const result = await writeClipboardData({textPlain, textHTML, textSiyuan});
+    const result = await writeClipboardData({
+        textPlain,
+        textHTML: prepareExternalClipboardHTML(textHTML),
+        textSiyuan,
+    });
     if (result.error) {
         console.log("Write block DOM clipboard error:", result.error);
     }
@@ -681,7 +686,6 @@ export const getLocalStorage = (cb: () => void) => {
             annoColor: "var(--b3-pdf-background1)"
         };
         defaultStorage[Constants.LOCAL_LAYOUTS] = [];   // {name: "", layout:{}, time: number, filespaths: IFilesPath[]}
-        defaultStorage[Constants.LOCAL_AI] = [];   // {name: "", memo: ""}
         defaultStorage[Constants.LOCAL_PLUGIN_DOCKS] = {};  // { pluginName: {dockId: IPluginDockTab}}
         defaultStorage[Constants.LOCAL_PLUGINTOPUNPIN] = [];
         defaultStorage[Constants.LOCAL_OUTLINE] = {
@@ -712,7 +716,12 @@ export const getLocalStorage = (cb: () => void) => {
             downloadedTemplate: "0",
             downloadedWidget: "0",
         };
-        defaultStorage[Constants.LOCAL_EXPORTWORD] = {removeAssets: false, mergeSubdocs: false};
+        defaultStorage[Constants.LOCAL_EXPORTWORD] = {
+            removeAssets: false,
+            mergeSubdocs: false,
+            mergeDocHeadingMode: "flat",
+            mergeContentHeadingMode: "preserve",
+        };
         defaultStorage[Constants.LOCAL_EXPORTPDF] = {
             landscape: false,
             marginType: "0",
@@ -721,6 +730,8 @@ export const getLocalStorage = (cb: () => void) => {
             removeAssets: true,
             keepFold: false,
             mergeSubdocs: false,
+            mergeDocHeadingMode: "flat",
+            mergeContentHeadingMode: "preserve",
             watermark: false,
             paged: true
         };
@@ -768,7 +779,7 @@ export const getLocalStorage = (cb: () => void) => {
         [Constants.LOCAL_EXPORTIMG, Constants.LOCAL_SEARCHKEYS, Constants.LOCAL_PDFTHEME, Constants.LOCAL_BAZAAR,
             Constants.LOCAL_EXPORTWORD, Constants.LOCAL_EXPORTPDF, Constants.LOCAL_DOCINFO, Constants.LOCAL_MOBILE_TABS,
             Constants.LOCAL_FONTSTYLES,
-            Constants.LOCAL_SEARCHDATA, Constants.LOCAL_ZOOM, Constants.LOCAL_LAYOUTS, Constants.LOCAL_AI,
+            Constants.LOCAL_SEARCHDATA, Constants.LOCAL_ZOOM, Constants.LOCAL_LAYOUTS,
             Constants.LOCAL_PLUGINTOPUNPIN, Constants.LOCAL_SEARCHASSET, Constants.LOCAL_FLASHCARD,
             Constants.LOCAL_DIALOGPOSITION, Constants.LOCAL_SEARCHUNREF, Constants.LOCAL_HISTORY,
             Constants.LOCAL_OUTLINE, Constants.LOCAL_FILEPOSITION, Constants.LOCAL_FILESPATHS, Constants.LOCAL_IMAGES,

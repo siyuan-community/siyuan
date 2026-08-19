@@ -17,6 +17,8 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -1176,6 +1178,47 @@ func setSort(c *gin.Context) {
 	}
 }
 
+func setDocSortMode(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	request := &struct {
+		ID       string          `json:"id"`
+		SortMode json.RawMessage `json:"sortMode"`
+	}{}
+	if err := c.ShouldBindJSON(request); nil != err {
+		ret.Code = -1
+		ret.Msg = fmt.Sprintf("Parses request [%s] failed: %s", c.Request.URL.Path, err)
+		return
+	}
+	if util.InvalidIDPattern(request.ID, ret) {
+		return
+	}
+	if 0 == len(request.SortMode) {
+		ret.Code = -1
+		ret.Msg = "Field [sortMode] is required"
+		return
+	}
+
+	var sortMode *int
+	if !bytes.Equal(bytes.TrimSpace(request.SortMode), []byte("null")) {
+		value := 0
+		if err := json.Unmarshal(request.SortMode, &value); nil != err {
+			ret.Code = -1
+			ret.Msg = fmt.Sprintf("Field [sortMode] must be an integer or null: %s", err)
+			return
+		}
+		sortMode = &value
+	}
+
+	result, err := model.SetDocSortMode(request.ID, sortMode)
+	ret.Data = result
+	if nil != err {
+		ret.Code = -1
+		ret.Msg = err.Error()
+	}
+}
+
 func parseSortItems(field string, items []*sortRequestItem, ret *gulu.Result) (retItems []*model.SortItem, ok bool) {
 	ids := map[string]struct{}{}
 	for i, item := range items {
@@ -1255,9 +1298,10 @@ func listDocsByPath(c *gin.Context) {
 
 	if isEncryptedNotebookDeniedForPublish(c, notebook) {
 		ret.Data = map[string]any{
-			"box":   notebook,
-			"path":  p,
-			"files": []*model.File{},
+			"box":               notebook,
+			"path":              p,
+			"files":             []*model.File{},
+			"effectiveSortMode": model.Conf.FileTree.Sort,
 		}
 		return
 	}
@@ -1266,6 +1310,16 @@ func listDocsByPath(c *gin.Context) {
 	sortMode := util.SortModeUnassigned
 	if nil != sortParam {
 		sortMode = int(sortParam.(float64))
+	}
+	effectiveSortMode := sortMode
+	if util.SortModeUnassigned == effectiveSortMode {
+		var resolveErr error
+		effectiveSortMode, resolveErr = model.ResolveDocTreeSortMode(notebook, p)
+		if nil != resolveErr {
+			ret.Code = -1
+			ret.Msg = resolveErr.Error()
+			return
+		}
 	}
 	flashcard := false
 	if arg["flashcard"] != nil {
@@ -1284,7 +1338,7 @@ func listDocsByPath(c *gin.Context) {
 		showHidden = arg["showHidden"].(bool)
 	}
 
-	files, totals, err := model.ListDocTree(notebook, p, sortMode, flashcard, showHidden, maxListCount)
+	files, totals, err := model.ListDocTree(notebook, p, effectiveSortMode, flashcard, showHidden, maxListCount)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
@@ -1319,9 +1373,10 @@ func listDocsByPath(c *gin.Context) {
 	}
 
 	ret.Data = map[string]any{
-		"box":   notebook,
-		"path":  p,
-		"files": files,
+		"box":               notebook,
+		"path":              p,
+		"files":             files,
+		"effectiveSortMode": effectiveSortMode,
 	}
 }
 
@@ -1352,6 +1407,10 @@ func getDoc(c *gin.Context) {
 		ret.Code = 1
 		ret.Msg = err.Error()
 		return
+	}
+	includeDocInfo, _ := arg["includeDocInfo"].(bool)
+	if includeDocInfo && model.IsReadOnlyRoleContext(c) {
+		includeDocInfo = isBlockPublishAccessible(c, id, requestedNotebook)
 	}
 	idx := arg["index"]
 	index := 0
@@ -1429,14 +1488,15 @@ func getDoc(c *gin.Context) {
 	var isBacklinkExpand bool
 	var keywords []string
 	var headingNumbers map[string]string
+	var docInfo *model.BlockInfo
 	var err error
 	// 加密笔记本的打开文档走 InBox 版（查加密 blocktree + content db）
 	if requestedNotebook != "" && model.IsEncryptedBox(requestedNotebook) {
-		blockCount, content, parentID, parent2ID, rootID, typ, eof, scroll, boxID, docPath, isBacklinkExpand, keywords, headingNumbers, err =
-			model.GetDocInBox(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight, requestedNotebook)
+		blockCount, content, parentID, parent2ID, rootID, typ, eof, scroll, boxID, docPath, isBacklinkExpand, keywords, headingNumbers, docInfo, err =
+			model.GetDocInBox(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight, includeDocInfo, requestedNotebook)
 	} else {
-		blockCount, content, parentID, parent2ID, rootID, typ, eof, scroll, boxID, docPath, isBacklinkExpand, keywords, headingNumbers, err =
-			model.GetDoc(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight)
+		blockCount, content, parentID, parent2ID, rootID, typ, eof, scroll, boxID, docPath, isBacklinkExpand, keywords, headingNumbers, docInfo, err =
+			model.GetDoc(startID, endID, id, index, query, queryTypes, querySubTypes, queryMethod, mode, size, isBacklink, originalRefBlockIDs, highlight, includeDocInfo)
 	}
 	if errors.Is(err, model.ErrBlockNotFound) {
 		ret.Code = 3
@@ -1462,9 +1522,16 @@ func getDoc(c *gin.Context) {
 			headingNumbers = nil
 			scroll = false // 避免长页面可通过滚动无限刷出多个锁
 		}
+		if nil != docInfo {
+			if publishAccessRequired {
+				docInfo = nil
+			} else {
+				docInfo = model.FilterBlockInfoByPublishAccess(c, publishAccess, docInfo)
+			}
+		}
 	}
 
-	ret.Data = map[string]any{
+	data := map[string]any{
 		"id":                    id,
 		"mode":                  mode,
 		"parentID":              parentID,
@@ -1484,6 +1551,10 @@ func getDoc(c *gin.Context) {
 		"publishAccessRequired": publishAccessRequired,
 		"reqId":                 arg["reqId"],
 	}
+	if nil != docInfo {
+		data["docInfo"] = docInfo
+	}
+	ret.Data = data
 }
 
 func setPublishAccess(c *gin.Context) {

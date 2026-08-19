@@ -557,6 +557,7 @@ func setFiletree(c *gin.Context) {
 		return
 	}
 
+	oldSortMode := model.Conf.FileTree.Sort
 	param, err := gulu.JSON.MarshalJSON(arg)
 	if err != nil {
 		ret.Code = -1
@@ -618,6 +619,9 @@ func setFiletree(c *gin.Context) {
 
 	model.Conf.FileTree = fileTree
 	model.Conf.Save()
+	if oldSortMode != fileTree.Sort {
+		model.PushDocSortModeChanged("global", "", "", "/", &fileTree.Sort)
+	}
 	if oldBoxDocEnabled != model.IsBoxDocEnabled() {
 		model.RefreshBoxDocFeature()
 	}
@@ -759,6 +763,7 @@ func setAppearance(c *gin.Context) {
 	util.Lang = model.Conf.Lang
 	model.Conf.Save()
 	model.InitAppearance()
+	model.WatchThemes()
 
 	ret.Data = model.Conf.Appearance
 	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
@@ -865,6 +870,7 @@ func setTheme(c *gin.Context) {
 	}
 
 	model.InitAppearance()
+	model.WatchThemes()
 	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
 }
 

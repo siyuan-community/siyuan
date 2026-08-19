@@ -18,7 +18,20 @@ import {callMobileAppShowKeyboard, canInput, keyboardLockUntil} from "./mobileAp
 import {isNotEditBlock} from "../../protyle/wysiwyg/getBlock";
 import {getMirror, getUndoRootID, hasUndoStateMirror, initMirror} from "../../protyle/undo/globalUndo";
 import {getMobilePluginToolbarItems} from "./pluginToolbar";
-import {hasVisibleSelectionText} from "./touchSelection";
+import {
+    getMovingSelectionEndpoint,
+    hasFixedSelectionEndpointChanged,
+    hasVisibleSelectionText,
+    type TSelectionEndpoint,
+} from "./touchSelection";
+
+type TAndroidBoundedSelection = {
+    container: HTMLElement,
+    anchorNode: Node,
+    anchorOffset: number,
+    focusNode: Node,
+    focusOffset: number,
+};
 
 let renderKeyboardToolbarTimeout: number;
 let scrollSelectionIntoViewTimeout: number;
@@ -26,14 +39,9 @@ let clearRenderGutterAfterScroll: () => void;
 let showUtil = false;
 let preventRender = false;
 let preventRenderTimeout: number;
-let restoringAndroidReadonlySelection = false;
-let lastAndroidReadonlySelection: {
-    container: HTMLElement,
-    anchorNode: Node,
-    anchorOffset: number,
-    focusNode: Node,
-    focusOffset: number,
-};
+let restoringAndroidBoundedSelection = false;
+let lastAndroidBoundedSelection: TAndroidBoundedSelection | undefined;
+let androidMovingSelectionEndpoint: TSelectionEndpoint | undefined;
 
 export const updateMobilePluginToolbar = (protyle: IProtyle) => {
     const currentProtyle = getCurrentEditor()?.protyle;
@@ -60,53 +68,155 @@ export const updateMobilePluginToolbar = (protyle: IProtyle) => {
     });
 };
 
-const preserveAndroidReadonlySelection = () => {
-    if (!isInAndroid() || restoringAndroidReadonlySelection) {
-        return false;
+const clearAndroidBoundedSelection = () => {
+    lastAndroidBoundedSelection = undefined;
+    androidMovingSelectionEndpoint = undefined;
+};
+
+export const resetAndroidBoundedSelectionGesture = () => {
+    androidMovingSelectionEndpoint = undefined;
+};
+
+const getAndroidBoundedSelection = (selection: Selection, container: HTMLElement): TAndroidBoundedSelection => ({
+    container,
+    anchorNode: selection.anchorNode,
+    anchorOffset: selection.anchorOffset,
+    focusNode: selection.focusNode,
+    focusOffset: selection.focusOffset,
+});
+
+const hasSelectionPointChanged = (node: Node, offset: number, previousNode: Node, previousOffset: number) =>
+    node !== previousNode || offset !== previousOffset;
+
+const restoreAndroidBoundedSelection = (selection: Selection, restored: TAndroidBoundedSelection) => {
+    lastAndroidBoundedSelection = restored;
+    restoringAndroidBoundedSelection = true;
+    try {
+        selection.setBaseAndExtent(
+            restored.anchorNode,
+            restored.anchorOffset,
+            restored.focusNode,
+            restored.focusOffset,
+        );
+    } finally {
+        window.setTimeout(() => {
+            restoringAndroidBoundedSelection = false;
+        });
     }
+    return true;
+};
+
+const getAndroidSelectionContainer = (selection: Selection) => {
+    const previousContainer = lastAndroidBoundedSelection?.container;
+    if (previousContainer?.classList.contains("agent-chat__body") &&
+        (previousContainer.contains(selection.anchorNode) || previousContainer.contains(selection.focusNode))) {
+        return previousContainer;
+    }
+    const anchorAgentBody = hasClosestByClassName(selection.anchorNode, "agent-chat__body", true);
+    const focusAgentBody = hasClosestByClassName(selection.focusNode, "agent-chat__body", true);
+    if (anchorAgentBody && anchorAgentBody === focusAgentBody) {
+        return anchorAgentBody;
+    }
+
     const protyle = getCurrentEditor()?.protyle;
     const previewVisible = protyle && !protyle.preview.element.classList.contains("fn__none");
     if (!protyle || (!protyle.disabled && !previewVisible)) {
-        lastAndroidReadonlySelection = undefined;
+        return;
+    }
+    return previewVisible ? protyle.preview.previewElement : protyle.wysiwyg.element;
+};
+
+const preserveAndroidBoundedSelection = () => {
+    if (!isInAndroid() || restoringAndroidBoundedSelection) {
         return false;
     }
     const selection = getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed ||
         !selection.anchorNode || !selection.focusNode) {
-        lastAndroidReadonlySelection = undefined;
+        clearAndroidBoundedSelection();
         return false;
     }
-    const container = previewVisible ? protyle.preview.previewElement : protyle.wysiwyg.element;
+    const container = getAndroidSelectionContainer(selection);
+    if (!container) {
+        clearAndroidBoundedSelection();
+        return false;
+    }
     const contains = (node: Node) => node === container || container.contains(node);
     const anchorInside = contains(selection.anchorNode);
     const focusInside = contains(selection.focusNode);
+    const current = getAndroidBoundedSelection(selection, container);
+    const previous = lastAndroidBoundedSelection;
+    const previousAvailable = previous?.container === container &&
+        previous.anchorNode.isConnected && previous.focusNode.isConnected &&
+        contains(previous.anchorNode) && contains(previous.focusNode);
+    if (container.classList.contains("agent-chat__body")) {
+        if (!previousAvailable) {
+            androidMovingSelectionEndpoint = undefined;
+            if (anchorInside && focusInside) {
+                lastAndroidBoundedSelection = current;
+            } else {
+                clearAndroidBoundedSelection();
+            }
+            return false;
+        }
+        const anchorChanged = hasSelectionPointChanged(
+            current.anchorNode,
+            current.anchorOffset,
+            previous.anchorNode,
+            previous.anchorOffset,
+        );
+        const focusChanged = hasSelectionPointChanged(
+            current.focusNode,
+            current.focusOffset,
+            previous.focusNode,
+            previous.focusOffset,
+        );
+        androidMovingSelectionEndpoint = getMovingSelectionEndpoint(
+            androidMovingSelectionEndpoint,
+            anchorChanged,
+            focusChanged,
+        );
+        if (!androidMovingSelectionEndpoint) {
+            if (anchorInside && focusInside) {
+                lastAndroidBoundedSelection = current;
+                return false;
+            }
+            return restoreAndroidBoundedSelection(selection, previous);
+        }
+        const movingAnchor = androidMovingSelectionEndpoint === "anchor";
+        const movingEndpointInside = movingAnchor ? anchorInside : focusInside;
+        if (!movingEndpointInside || hasFixedSelectionEndpointChanged(
+            androidMovingSelectionEndpoint,
+            anchorChanged,
+            focusChanged,
+        )) {
+            return restoreAndroidBoundedSelection(selection, {
+                container,
+                anchorNode: movingAnchor && anchorInside ? current.anchorNode : previous.anchorNode,
+                anchorOffset: movingAnchor && anchorInside ? current.anchorOffset : previous.anchorOffset,
+                focusNode: !movingAnchor && focusInside ? current.focusNode : previous.focusNode,
+                focusOffset: !movingAnchor && focusInside ? current.focusOffset : previous.focusOffset,
+            });
+        }
+        lastAndroidBoundedSelection = current;
+        return false;
+    }
+    androidMovingSelectionEndpoint = undefined;
     if (anchorInside && focusInside) {
-        lastAndroidReadonlySelection = {
-            container,
-            anchorNode: selection.anchorNode,
-            anchorOffset: selection.anchorOffset,
-            focusNode: selection.focusNode,
-            focusOffset: selection.focusOffset,
-        };
+        lastAndroidBoundedSelection = current;
         return false;
     }
-    const previous = lastAndroidReadonlySelection;
-    if (!previous || previous.container !== container || anchorInside === focusInside ||
-        !previous.anchorNode.isConnected || !previous.focusNode.isConnected) {
-        lastAndroidReadonlySelection = undefined;
+    if (!previousAvailable || anchorInside === focusInside) {
+        clearAndroidBoundedSelection();
         return false;
     }
-    restoringAndroidReadonlySelection = true;
-    selection.setBaseAndExtent(
-        anchorInside ? selection.anchorNode : previous.anchorNode,
-        anchorInside ? selection.anchorOffset : previous.anchorOffset,
-        focusInside ? selection.focusNode : previous.focusNode,
-        focusInside ? selection.focusOffset : previous.focusOffset,
-    );
-    window.setTimeout(() => {
-        restoringAndroidReadonlySelection = false;
+    return restoreAndroidBoundedSelection(selection, {
+        container,
+        anchorNode: anchorInside ? current.anchorNode : previous.anchorNode,
+        anchorOffset: anchorInside ? current.anchorOffset : previous.anchorOffset,
+        focusNode: focusInside ? current.focusNode : previous.focusNode,
+        focusOffset: focusInside ? current.focusOffset : previous.focusOffset,
     });
-    return true;
 };
 
 const preventKeyboardToolbarRender = () => {
@@ -712,7 +822,11 @@ export const hideKeyboardToolbarByApp = () => {
     hideKeyboardToolbar();
     const editor = getCurrentEditor();
     const selection = getSelection();
-    if (!editor || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    if (!editor) {
+        return;
+    }
+    hideElements(["util"], editor.protyle);
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
         return;
     }
     const range = selection.getRangeAt(0);
@@ -759,7 +873,7 @@ export const initKeyboardToolbar = () => {
         viewportHandler();
     }
     document.addEventListener("selectionchange", () => {
-        if (preserveAndroidReadonlySelection()) {
+        if (preserveAndroidBoundedSelection()) {
             return;
         }
         if (preventRender || (getCurrentEditor()?.protyle?.toolbar.isMultiSelectMode())) {
@@ -894,7 +1008,7 @@ export const initKeyboardToolbar = () => {
             event.preventDefault();
         }
     });
-    toolbarElement.addEventListener(isInAndroid() || isInHarmony() ? "touchend" : "click", (event) => {
+    toolbarElement.addEventListener(isInAndroid() || isInHarmony() ? "touchend" : "click", async (event) => {
         if (moved) {
             return;
         }
@@ -1077,21 +1191,17 @@ export const initKeyboardToolbar = () => {
             return;
         } else if (type === "outdent") {
             if (nodeElement.classList.contains("code-block")) {
-                if (range.toString() !== "") {
-                    tabCodeBlock(protyle, nodeElement, range, true);
-                }
+                tabCodeBlock(protyle, nodeElement, range, true);
             } else {
-                listOutdent(protyle, [nodeElement.parentElement], range);
+                await listOutdent(protyle, [nodeElement.parentElement], range);
             }
             focusByRange(range);
             return;
         } else if (type === "indent") {
             if (nodeElement.classList.contains("code-block")) {
-                if (range.toString() !== "") {
-                    tabCodeBlock(protyle, nodeElement, range);
-                }
+                tabCodeBlock(protyle, nodeElement, range);
             } else {
-                listIndent(protyle, [nodeElement.parentElement], range);
+                await listIndent(protyle, [nodeElement.parentElement], range);
             }
             focusByRange(range);
             return;

@@ -194,6 +194,10 @@
       }
     }
 
+    & > [data-type="text"] {
+      align-self: flex-start;
+    }
+
     [placeholder]:empty::after {
       color: var(--b3-empty-color);
       content: attr(placeholder);
@@ -223,6 +227,10 @@
     &:hover {
       background-color: var(--b3-theme-surface-light);
     }
+  }
+
+  textarea.b3-text-field--text {
+    field-sizing: content;
   }
 
   .b3-chip {

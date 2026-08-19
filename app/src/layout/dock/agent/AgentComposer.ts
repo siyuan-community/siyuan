@@ -7,6 +7,8 @@ import {hintRef} from "../../../protyle/hint/extend";
 import {genEmptyElement} from "../../../block/util";
 import {blockRender} from "../../../protyle/render/blockRender";
 import {focusBlock} from "../../../protyle/util/selection";
+import {matchHotKey} from "../../../protyle/util/hotKey";
+import {isSkillHintRequestActive, shouldYieldSkillHint} from "./agentHintState";
 
 export interface AgentComposerData {
     text: string;
@@ -30,10 +32,12 @@ interface ComposerHandle {
 
 type OnChangeCallback = () => void;
 
+const AGENT_HINT_OVERLAY_CLASS = "protyle-hint--agent-overlay";
+const skillHintRequestIDs = new WeakMap<IProtyle, number>();
+
 interface ComposerOptions {
     initialContent?: string;
     initialBlockHTML?: string;
-    submitMode?: "enter" | "mod-enter";
     placeholder?: string;
     onCancel?: () => void;
     enableHistory?: boolean;
@@ -51,11 +55,42 @@ const resetEmbedBlocks = (element: HTMLElement) => {
     });
 };
 
+const prepareAgentHint = (protyle: IProtyle) => {
+    if (protyle.hint.element.classList.contains("fn__none")) {
+        protyle.hint.element.style.zIndex = (++window.siyuan.zIndex).toString();
+    }
+};
+
+const hintAgentRef = (key: string, protyle: IProtyle, source: THintSource): IHintData[] => {
+    prepareAgentHint(protyle);
+    return hintRef(key, protyle, source);
+};
+
 // / 技能菜单：异步拉取 lsSkills，选中后把技能名作为纯文本插入（value 即技能名）。
 // 返回 [] 占位，数据在 fetch 回调里通过 protyle.hint.genHTML 填充（与 hintRef 异步模式一致）。
 const hintSkill = (key: string, protyle: IProtyle): IHintData[] => {
+    const requestID = (skillHintRequestIDs.get(protyle) || 0) + 1;
+    skillHintRequestIDs.set(protyle, requestID);
+    if (shouldYieldSkillHint(key, protyle.options.hint.extend.map((item) => item.key))) {
+        protyle.hint.enableExtend = false;
+        protyle.hint.genHTML([], protyle, true, "hint");
+        return [];
+    }
+    prepareAgentHint(protyle);
     protyle.hint.genLoading(protyle);
     fetchPost("/api/ai/agent/lsSkills", {}, (response) => {
+        // 异步响应返回时输入状态可能已变化，避免 Esc 或其他提示触发后重新打开旧菜单。
+        if (!isSkillHintRequestActive({
+            requestID,
+            currentRequestID: skillHintRequestIDs.get(protyle),
+            enableExtend: protyle.hint.enableExtend,
+            enableSlash: protyle.hint.enableSlash,
+            splitChar: protyle.hint.splitChar,
+            hidden: protyle.hint.element.classList.contains("fn__none"),
+            connected: protyle.hint.element.isConnected,
+        })) {
+            return;
+        }
         const rawSkills = (response && response.data) ? response.data : [];
         const q = key.toLowerCase();
         const dataList: IHintData[] = rawSkills
@@ -146,7 +181,6 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
                               options: ComposerOptions = {}): ComposerHandle {
     const history = new ComposerHistory();
     const L = window.siyuan.languages;
-    const submitMode = options.submitMode || "enter";
     const enableHistory = options.enableHistory !== false;
 
     const app: App = window.siyuan.ws.app;
@@ -164,16 +198,16 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
             // / 技能菜单（覆盖默认的块插入菜单 hintSlash）；[[ 块引用由 protyle 默认 extend 提供
             extend: [{
                 key: "((",
-                hint: hintRef,
+                hint: hintAgentRef,
             }, {
                 key: "【【",
-                hint: hintRef,
+                hint: hintAgentRef,
             }, {
                 key: "（（",
-                hint: hintRef,
+                hint: hintAgentRef,
             }, {
                 key: "[[",
-                hint: hintRef,
+                hint: hintAgentRef,
             }, {
                 key: "/",
                 hint: hintSkill,
@@ -188,6 +222,10 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
     // 类方法（focus/insert/destroy）在 Protyle 实例上，内部数据属性在 IProtyle 上。
     const p = protyle.protyle;
     const wysiwyg = p.wysiwyg!;
+    const hintElement = p.hint.element;
+    // Hint 使用视口坐标定位，挂到顶层可避免受浮动 Dock 的变换坐标系和裁剪影响。
+    hintElement.classList.add(AGENT_HINT_OVERLAY_CLASS);
+    document.body.appendChild(hintElement);
     wysiwyg.element.setAttribute("data-readonly", "false");
 
     const setEmptyContent = () => {
@@ -223,7 +261,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
     });
     contentObserver.observe(wysiwyg.element, {childList: true, characterData: true, subtree: true});
 
-    // capture 阶段拦截 hint 选择、Enter 发送、历史翻页；undo/redo 交给 protyle 的 keydown（调 LocalUndo）。
+    // capture 阶段拦截 hint 选择、发送快捷键、历史翻页；undo/redo 交给 protyle 的 keydown（调 LocalUndo）。
     wysiwyg.element.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.isComposing) {
             return;
@@ -240,12 +278,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
             return;
         }
 
-        // 底部输入框使用 Enter 发送，历史消息编辑使用 Ctrl/Cmd+Enter 确认。
-        const enterToSubmit = submitMode === "enter" && event.key === "Enter" &&
-            !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
-        const modEnterToSubmit = submitMode === "mod-enter" && event.key === "Enter" &&
-            (event.ctrlKey || event.metaKey);
-        if (enterToSubmit || modEnterToSubmit) {
+        if (matchHotKey(window.siyuan.config.keymap.general.agentSend.custom, event)) {
             event.preventDefault();
             event.stopPropagation();
             onSend();
@@ -309,6 +342,7 @@ export function mountComposer(host: HTMLElement, onSend: () => void, onChange?: 
         destroy: () => {
             contentObserver.disconnect();
             protyle.destroy();
+            hintElement.remove();
         },
         getSendData: () => {
             const references: { id: string; title: string }[] = [];

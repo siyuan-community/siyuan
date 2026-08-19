@@ -73,6 +73,7 @@ export abstract class Constants {
     public static readonly CUSTOM_SY_AV_VIEW: string = "custom-sy-av-view";
     public static readonly CUSTOM_SY_AV_VISIBLE_VIEWS: string = "custom-sy-av-visible-views";
     public static readonly CUSTOM_SY_TITLE_EMPTY: string = "custom-sy-title-empty";
+    public static readonly CUSTOM_SY_CODE_TAB_SPACES: string = "custom-sy-code-tab-spaces";
 
     // 临时标记 DOM 属性以辅助完成其功能
     public static readonly ATTRIBUTE_EDITING = "data-editing";
@@ -171,7 +172,6 @@ export abstract class Constants {
     public static readonly LOCAL_BAZAAR = "local-bazaar";
     public static readonly LOCAL_PDFTHEME = "local-pdftheme";
     public static readonly LOCAL_LAYOUTS = "local-layouts";
-    public static readonly LOCAL_AI = "local-ai";
     public static readonly LOCAL_PLUGINTOPUNPIN = "local-plugintopunpin";
     public static readonly LOCAL_FLASHCARD = "local-flashcard";
     public static readonly LOCAL_FILEPOSITION = "local-fileposition";
@@ -457,7 +457,7 @@ export abstract class Constants {
     // 冲突不使用 "⌘S/Q"
     // "⌘", "⇧", "⌥", "⌃"
     // "⌘A", "⌘X", "⌘C", "⌘V", "⌘-", "⌘=", "⌘0", "⇧⌘V", "⌘/", "⇧↑", "⇧↓", "⇧→", "⇧←", "⇧⇥", "⌃D", "⇧⌘→", "⇧⌘←",
-    // "⌘Home", "⌘End", "⇧↩", "↩", "PageUp", "PageDown", "⌫", "⌦", "Escape" 不可自定义
+    // "⌘Home", "⌘End", "⇧↩", "PageUp", "PageDown", "⌫", "⌦", "Escape" 不可自定义
     // "⌥↩" 写死，但可自定义
     public static readonly SIYUAN_KEYMAP: Config.IKeymap = {
         general: {
@@ -475,6 +475,8 @@ export abstract class Constants {
             stickSearch: {default: "⇧⌘F", custom: "⇧⌘F"},
             replace: {default: "⌘R", custom: "⌘R"},
             closeTab: {default: "⌘W", custom: "⌘W"},
+            agentChat: {default: "", custom: ""},
+            agentSend: {default: "⌘↩", custom: "⌘↩"},
             fileTree: {default: "⌃1", custom: "⌃1"},
             outline: {default: "⌃2", custom: "⌃2"},
             bookmark: {default: "⌃3", custom: "⌃3"},
@@ -630,7 +632,7 @@ export abstract class Constants {
             list: {
                 indent: {default: "⇥", custom: "⇥"},
                 outdent: {default: "⇧⇥", custom: "⇧⇥"},
-                checkToggle: {default: "⌘↩", custom: "⌘↩"},
+                checkToggle: {default: "⇧⌘L", custom: "⇧⌘L"},
                 prependListItem: {default: "", custom: ""},
                 appendListItem: {default: "", custom: ""},
             },
@@ -847,7 +849,7 @@ export abstract class Constants {
 </svg>`;
 
     // assets
-    public static readonly SIYUAN_ASSETS_IMAGE: string[] = [".apng", ".ico", ".cur", ".jpg", ".jpe", ".jpeg", ".jfif", ".pjp", ".pjpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".tiff", ".tif"];
+    public static readonly SIYUAN_ASSETS_IMAGE: string[] = [".apng", ".ico", ".cur", ".jpg", ".jpe", ".jpeg", ".jfif", ".pjp", ".pjpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".tiff", ".tif", ".heic", ".heif"];
     public static readonly SIYUAN_ASSETS_AUDIO: string[] = [".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"];
     public static readonly SIYUAN_ASSETS_VIDEO: string[] = [".mov", ".weba", ".mkv", ".mp4", ".webm"];
     public static readonly SIYUAN_ASSETS_EXTS: string[] = [".pdf"].concat(Constants.SIYUAN_ASSETS_IMAGE, Constants.SIYUAN_ASSETS_AUDIO, Constants.SIYUAN_ASSETS_VIDEO);
@@ -880,7 +882,7 @@ export abstract class Constants {
         "base16/summercamp", "base16/summerfruit-dark", "base16/synth-midnight-terminal-dark", "base16/tango", "base16/tender",
         "base16/tomorrow-night", "base16/twilight", "base16/unikitty-dark", "base16/vulcan", "base16/windows-10", "base16/windows-95",
         "base16/windows-high-contrast", "base16/windows-nt", "base16/woodland", "base16/xcode-dusk", "base16/zenburn", "codepen-embed",
-        "cybertopia-cherry", "cybertopia-dimmer", "cybertopia-icecap", "cybertopia-saturated", "dark", "devibeans", "far",
+        "cybertopia-cherry", "cybertopia-dimmer", "cybertopia-icecap", "cybertopia-saturated", "dark", "devibeans", "equinox", "far",
         "felipec", "github-dark", "github-dark-dimmed", "gml", "gradient-dark", "hybrid", "ir-black", "isbl-editor-dark",
         "kimbie-dark", "lioshi", "monokai", "monokai-sublime", "night-owl", "nnfx-dark", "nord", "obsidian", "panda-syntax-dark",
         "paraiso-dark", "pojoaque", "qtcreator-dark", "rainbow", "rose-pine", "rose-pine-moon", "shades-of-purple", "srcery",
@@ -898,7 +900,7 @@ export abstract class Constants {
         "base16/ros-pine-dawn", "base16/sagelight", "base16/shapeshifter", "base16/silk-light", "base16/solar-flare-light",
         "base16/solarized-light", "base16/summerfruit-light", "base16/synth-midnight-terminal-light", "base16/tomorrow",
         "base16/unikitty-light", "base16/windows-10-light", "base16/windows-95-light", "base16/windows-high-contrast-light",
-        "brown-paper", "base16/windows-nt-light", "color-brewer", "docco", "foundation", "github", "googlecode", "gradient-light",
+        "brown-paper", "base16/windows-nt-light", "color-brewer", "docco", "equinox", "foundation", "github", "googlecode", "gradient-light",
         "grayscale", "idea", "intellij-light", "isbl-editor-light", "kimbie-light", "lightfair", "magula", "mono-blue",
         "nnfx-light", "panda-syntax-light", "paraiso-light", "purebasic", "qtcreator-light", "rose-pine-dawn", "routeros",
         "school-book", "stackoverflow-light", "tokyo-night-light", "vs", "xcode", "default"];
@@ -906,7 +908,7 @@ export abstract class Constants {
     public static readonly INLINE_TYPE: string[] = ["block-ref", "kbd", "text", "file-annotation-ref", "a", "strong", "em", "u", "s", "mark", "sup", "sub", "tag", "code", "inline-math", "inline-memo", "clear"];
     public static readonly BLOCK_HINT_KEYS: string[] = ["((", "[[", "（（", "【【"];
     public static readonly BLOCK_HINT_CLOSE_KEYS: Record<string, string> = {"((": "))", "[[": "]]", "（（": "））", "【【": "】】"};
-    // common: "bash", "c", "csharp", "cpp", "css", "diff", "go", "xml", "json", "java", "javascript", "kotlin", "less", "lua", "makefile", "markdown", "objectivec", "php", "php-template", "perl", "plaintext", "python", "python-repl", "r", "ruby", "rust", "scss", "sql", "shell", "swift", "ini", "typescript", "vbnet", "yaml", "properties", "1c", "armasm", "avrasm", "actionscript", "ada", "angelscript", "accesslog", "apache", "applescript", "arcade", "arduino", "asciidoc", "aspectj", "abnf", "autohotkey", "autoit", "awk", "basic", "bnf", "dos", "brainfuck", "cal", "cmake", "csp", "cos", "capnproto", "ceylon", "clean", "clojure", "clojure-repl", "coffeescript", "coq", "crystal", "d", "dns", "dart", "delphi", "dts", "django", "dockerfile", "dust", "erb", "elixir", "elm", "erlang", "erlang-repl", "excel", "ebnf", "fsharp", "fix", "flix", "fortran", "gcode", "gams", "gauss", "glsl", "gml", "gherkin", "golo", "gradle", "groovy", "haml", "hsp", "http", "handlebars", "haskell", "haxe", "hy", "irpf90", "isbl", "inform7", "x86asm", "jboss-cli", "julia", "julia-repl", "ldif", "llvm", "lsl", "latex", "lasso", "leaf", "lisp", "livecodeserver", "livescript", "mel", "mipsasm", "matlab", "maxima", "mercury", "axapta", "routeros", "mizar", "mojolicious", "monkey", "moonscript", "n1ql", "nsis", "nestedtext", "nginx", "nim", "nix", "node-repl", "ocaml", "openscad", "ruleslanguage", "oxygene", "pf", "parser3", "pony", "pgsql", "powershell", "processing", "prolog", "protobuf", "puppet", "purebasic", "profile", "q", "qml", "reasonml", "rib", "rsl", "roboconf", "sas", "sml", "sqf", "step21", "scala", "scheme", "scilab", "smali", "smalltalk", "stan", "stata", "stylus", "subunit", "tp", "taggerscript", "tcl", "tap", "thrift", "twig", "vbscript", "vbscript-html", "vhdl", "vala", "verilog", "vim", "wasm", "mathematica", "wren", "xl", "xquery", "zephir", "crmsh", "dsconfig", "graphql",
+    // common: "bash", "c", "csharp", "cpp", "css", "diff", "go", "xml", "json", "java", "javascript", "kotlin", "less", "lua", "makefile", "markdown", "objectivec", "php", "php-template", "perl", "plaintext", "python", "python-repl", "r", "ruby", "rust", "scss", "sql", "shell", "swift", "ini", "typescript", "vbnet", "yaml", "properties", "1c", "armasm", "avrasm", "actionscript", "ada", "angelscript", "accesslog", "apache", "applescript", "arcade", "arduino", "asciidoc", "aspectj", "abnf", "autohotkey", "autoit", "awk", "basic", "bnf", "dos", "brainfuck", "cal", "cmake", "csp", "cos", "capnproto", "ceylon", "clean", "clojure", "clojure-repl", "coffeescript", "coq", "crystal", "d", "dns", "dart", "delphi", "dts", "django", "dockerfile", "dust", "erb", "elixir", "elm", "erlang", "erlang-repl", "excel", "ebnf", "fsharp", "fix", "flix", "fortran", "freedesktop", "gcode", "gams", "gauss", "glsl", "gml", "gherkin", "golo", "gradle", "groovy", "haml", "hsp", "http", "handlebars", "haskell", "haxe", "hy", "irpf90", "isbl", "inform7", "x86asm", "jboss-cli", "julia", "julia-repl", "ldif", "llvm", "lsl", "latex", "lasso", "leaf", "lisp", "livecodeserver", "livescript", "mel", "mipsasm", "matlab", "maxima", "mercury", "axapta", "routeros", "mizar", "mojolicious", "monkey", "moonscript", "n1ql", "nsis", "nestedtext", "nginx", "nim", "nix", "node-repl", "ocaml", "openscad", "ruleslanguage", "oxygene", "pf", "parser3", "pony", "pgsql", "powershell", "processing", "prolog", "protobuf", "puppet", "purebasic", "profile", "q", "qml", "reasonml", "rib", "rsl", "roboconf", "sas", "sml", "sqf", "step21", "scala", "scheme", "scilab", "smali", "smalltalk", "stan", "stata", "stylus", "subunit", "tp", "taggerscript", "tcl", "tap", "thrift", "twig", "vbscript", "vbscript-html", "vhdl", "vala", "verilog", "vim", "wasm", "mathematica", "wren", "xl", "xquery", "zephir", "crmsh", "dsconfig", "graphql",
     // third: "yul", "solidity", "abap", "hlsl", "gdscript", "moonbit", "mlir"
     public static readonly ALIAS_CODE_LANGUAGES: string[] = [
         "js", "ts", "html", "toml", "c#", "bat"

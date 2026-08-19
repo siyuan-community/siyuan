@@ -1,4 +1,4 @@
-import {getAllModels} from "../getAll";
+import {getAllDocks, getAllModels} from "../getAll";
 import {Tab} from "../Tab";
 import {Graph} from "./Graph";
 import {Outline} from "./Outline";
@@ -13,6 +13,8 @@ import {Editor} from "../../editor";
 import {Constants} from "../../constants";
 import {getDocDisplayName, isEncryptedBox} from "../../util/pathName";
 import {showMessage} from "../../dialog/message";
+import {updateHotkeyTip} from "../../protyle/util/compatibility";
+import {getDockHotkey} from "./hotkey";
 
 export const openBacklink = async (options: {
     app: App,
@@ -201,6 +203,18 @@ export const resetFloatDockSize = () => {
     if (!window.siyuan.layout.bottomDock.pin && window.siyuan.layout.bottomDock.layout.element.style.opacity === "1") {
         window.siyuan.layout.bottomDock.showDock(true);
     }
+};
+
+export const updateDockHotkeys = () => {
+    const docks = getAllDocks();
+    docks.forEach((item) => {
+        const hotkey = getDockHotkey(item);
+        document.querySelectorAll<HTMLElement>(`.dock__item[data-type="${CSS.escape(item.type)}"]`).forEach((element) => {
+            element.setAttribute("aria-label", `<span style='white-space:pre'>${element.dataset.title || ""} ${
+                hotkey ? updateHotkeyTip(hotkey) : ""
+            }${window.siyuan.languages.dockTip}</span>`);
+        });
+    });
 };
 
 export const toggleDockBar = (useElement: Element) => {

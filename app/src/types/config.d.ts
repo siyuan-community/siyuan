@@ -173,6 +173,9 @@ declare namespace Config {
         maxCompletionTokens: number;
         maxToolCallRounds: number;
         capabilityPolicy: ICapabilityPolicy;
+        skills: {
+            userEnabled: string[];
+        };
         approvalPolicy: {
             default: "risk" | "allow";
             overrides: Record<string, {
@@ -227,6 +230,7 @@ declare namespace Config {
         endpoint: string;
         apiKey: string;
         name: string;
+        requestFormat: "cohere" | "dashscope";
         timeout: number;
         candidateCount: number;
     }
@@ -377,12 +381,9 @@ declare namespace Config {
         frontends?: string[];
     }
 
-    export type TEntryVisibilityBase = "simple" | "full";
-
     export interface IEntryVisibilityProfile {
         id: string;
         name: string;
-        base: TEntryVisibilityBase;
         entries: Record<string, boolean>;
         orders: Record<string, string[]>;
     }
@@ -398,6 +399,7 @@ declare namespace Config {
         msgTaskHistoryDatabaseIndexCommitDisabled: boolean;
         msgTaskAssetDatabaseIndexCommitDisabled: boolean;
         msgTaskHistoryGenerateFileDisabled: boolean;
+        msgDataSyncDisabled: boolean;
     }
 
     /**
@@ -410,6 +412,7 @@ declare namespace Config {
         browserCompatibility: boolean;
         selectAllTip?: boolean;
         selectAllIncompleteTip?: boolean;
+        formatPainterTip?: boolean;
     }
 
     /**
@@ -491,6 +494,10 @@ declare namespace Config {
          * Whether to enable the full-width inline strikethrough
          */
         inlineFullWidthStrikethrough: boolean;
+        /**
+         * Whether to enable the full-width task list shortcut
+         */
+        blockFullWidthTaskList: boolean;
         /**
          * Whether to enable the inline mark
          */
@@ -891,6 +898,10 @@ declare namespace Config {
          * Whether to open the file in the current tab
          */
         openFilesUseCurrentTab: boolean;
+        /**
+         * Whether to close tabs by double-clicking
+         */
+        closeTabOnDoubleClick: boolean;
         /**
          * The storage path of the new document created using block references
          */
@@ -1328,6 +1339,8 @@ declare namespace Config {
         stickSearch: IKey;
         replace: IKey;
         closeTab: IKey;
+        agentChat: IKey;
+        agentSend: IKey;
         fileTree: IKey;
         outline: IKey;
         bookmark: IKey;
@@ -1639,8 +1652,10 @@ declare namespace Config {
 
     /**
      * A named secret. The value is AES-encrypted at rest on the kernel side.
-     * The secret is only interpolated when the request destination host is in
-     * the allowed hosts list; an empty list denies all requests.
+     * The secret is only interpolated into HTTP outbound requests when the
+     * destination host is in the allowed hosts list; an empty list denies all
+     * HTTP requests. stdio MCP server environment variables are not restricted
+     * by this list.
      */
     export interface ISecret {
         name: string;
@@ -2015,7 +2030,8 @@ declare namespace Config {
         port: string;
         /**
          * The protocol used by the proxy server
-         * - Empty String: Use the system proxy settings
+         * - Empty String: Direct connection
+         * - `system`: Use the system proxy settings
          * - `http`: HTTP
          * - `https`: HTTPS
          * - `socks5`: SOCKS5
@@ -2025,12 +2041,13 @@ declare namespace Config {
 
     /**
      * The protocol used by the proxy server
-     * - Empty String: Use the system proxy settings
+     * - Empty String: Direct connection
+     * - `system`: Use the system proxy settings
      * - `http`: HTTP
      * - `https`: HTTPS
      * - `socks5`: SOCKS5
      */
-    export type TSystemNetworkProxyScheme = "" | "http" | "https" | "socks5";
+    export type TSystemNetworkProxyScheme = "" | "system" | "http" | "https" | "socks5";
 
     /**
      * The operating system name determined at compile time (obtained using the command `go tool
@@ -2091,10 +2108,6 @@ declare namespace Config {
      * SiYuan dock tab data
      */
     export interface IUILayoutDockTab {
-        /**
-         * Dock tab hotkey
-         */
-        hotkey?: string;
         /**
          * Hotkey description ID
          */

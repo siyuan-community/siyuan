@@ -51,7 +51,7 @@ import {dropEvent} from "../util/editorCommonEvent";
 import {beforeBlockquoteInput, input} from "./input";
 import {
     getContenteditableElement,
-    getEmbedChildOperationContext,
+    getEmbedGutterOperationContext,
     getFirstBlock,
     getLastBlock,
     getNextBlock,
@@ -167,7 +167,7 @@ import {setFold} from "../util/blockFold";
 import {BlockPanel} from "../../block/Panel";
 import {isEncryptedBox, parseSiYuanUriInfo} from "../../util/pathName";
 import {processSiYuanUri} from "../../util/uri";
-import {enhanceRichClipboard, prepareRichClipboardHTML} from "../util/richClipboard";
+import {enhanceRichClipboard, prepareExternalClipboardHTML, prepareRichClipboardHTML} from "../util/richClipboard";
 import {buildBlockDOMClipboardRichData} from "../util/blockDOMClipboard";
 import {addSpellcheckMenuItems, requestSpellcheckContext} from "../../menus/spellcheck";
 import {getAVTemplateInteractiveElement, isAVTemplateLink} from "../render/av/attributeValue";
@@ -184,12 +184,16 @@ import {getAVColumnResizeWidth} from "../render/av/columnWidth";
 import {
     clampBlockDragSelectY,
     getBlockDragSelectBlock,
+    getBlockDragSelectContentBounds,
     getBlockDragSelectProbeX,
     isBlockDragSelectBottomReached,
     isBlockDragSelectTopReached,
     resolveBlockDragSelectStart
 } from "./blockDragSelect";
 import {isCrossBlockTextRange} from "../gutter/multiSelect";
+import {formatPainter} from "../toolbar/FormatPainter";
+import {shouldOpenListItemAttr} from "./listContext";
+import {getBlockEdgeCaretRange, isCaretRangeInsideElement} from "./blockEdgeCaret";
 
 interface IShiftClickBlockPoint {
     blockElement: HTMLElement;
@@ -207,7 +211,7 @@ const refreshGutterByPointer = (protyle: IProtyle, pointerElement: Element | nul
     }
     if (gutterElement) {
         const embedElement = isInEmbedBlock(gutterElement);
-        if (embedElement && !getEmbedChildOperationContext(gutterElement)) {
+        if (embedElement && !getEmbedGutterOperationContext(gutterElement)) {
             gutterElement = embedElement;
         }
     }
@@ -216,6 +220,35 @@ const refreshGutterByPointer = (protyle: IProtyle, pointerElement: Element | nul
     } else {
         hideElements(["gutter"], protyle);
     }
+};
+
+const focusTextBlockEdgeByPoint = (blockElement: HTMLElement, x: number, y: number,
+                                   contentLeft: number, contentRight: number) => {
+    const editableElement = getContenteditableElement(blockElement) as HTMLElement;
+    if (!editableElement || !blockElement.contains(editableElement) ||
+        editableElement.getAttribute("contenteditable") !== "true") {
+        return false;
+    }
+    const editableBlockElement = hasClosestBlock(editableElement);
+    if (!editableBlockElement ||
+        !["NodeParagraph", "NodeHeading"].includes(editableBlockElement.getAttribute("data-type"))) {
+        return false;
+    }
+    const caret = getBlockEdgeCaretRange(x, y, contentLeft, contentRight,
+        editableElement.getBoundingClientRect(), editableElement,
+        (pointX, pointY) => document.caretRangeFromPoint(pointX, pointY));
+    if (!caret) {
+        return false;
+    }
+    focusByRange(caret.range);
+    // Range 可能吸附到目标行的另一端，由浏览器按视觉行移动到点击侧的行边界
+    const selection = getSelection();
+    selection.modify("move", caret.lineBoundaryDirection, "lineboundary");
+    const movedRange = selection.rangeCount > 0 ? selection.getRangeAt(0) : undefined;
+    if (!isCaretRangeInsideElement(movedRange, editableElement)) {
+        return false;
+    }
+    return true;
 };
 
 const getShiftClickBlockByPoint = (wysiwygElement: HTMLElement, startElement: HTMLElement, x: number, y: number) => {
@@ -979,6 +1012,8 @@ export class WYSIWYG {
                     const prepared = prepareRichClipboardHTML(exportedHTML);
                     exportedHTML = prepared.html;
                     clipboardText = prepared.source;
+                } else {
+                    exportedHTML = prepareExternalClipboardHTML(exportedHTML);
                 }
                 const clipboardHTML = (nestedListPaste ? NESTED_LIST_PASTE_MARKER : "") + exportedHTML;
                 const textHTML = `<!--data-siyuan='${encodeBase64(textSiyuan)}'-->${clipboardHTML}`;
@@ -1001,6 +1036,8 @@ export class WYSIWYG {
         });
 
         this.element.addEventListener("mousedown", (event: MouseEvent) => {
+            // 常规划选时排除属性占位，三击时恢复以保留浏览器的整段选择行为
+            this.element.classList.toggle("protyle-wysiwyg--select-attr", event.button === 0 && event.detail > 2);
             if (protyle.toolbar.isMultiSelectMode()) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -1055,8 +1092,10 @@ export class WYSIWYG {
             const avCellElement = hasClosestByClassName(target, "av__cell");
             const wysiwygRect = protyle.wysiwyg.element.getBoundingClientRect();
             const wysiwygStyle = window.getComputedStyle(protyle.wysiwyg.element);
-            const mostLeft = wysiwygRect.left + (parseInt(wysiwygStyle.paddingLeft) || 24) + 1;
-            const mostRight = wysiwygRect.right - (parseInt(wysiwygStyle.paddingRight) || 16) - 2;
+            const contentBounds = getBlockDragSelectContentBounds(wysiwygRect.left, wysiwygRect.right,
+                wysiwygStyle.paddingLeft, wysiwygStyle.paddingRight);
+            const mostLeft = contentBounds.left;
+            const mostRight = contentBounds.right;
             const startsFromPadding = event.clientX < mostLeft - 1 || event.clientX > mostRight + 2 ||
                 event.clientY < wysiwygRect.top + (parseFloat(wysiwygStyle.paddingTop) || 0) ||
                 event.clientY > wysiwygRect.bottom - (parseFloat(wysiwygStyle.paddingBottom) || 0);
@@ -1068,7 +1107,9 @@ export class WYSIWYG {
                 Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select")) : []);
             const rangeBeforePaddingMouseDown = startsFromPadding && getSelection().rangeCount > 0 ?
                 getSelection().getRangeAt(0).cloneRange() : undefined;
-            if (event.shiftKey) {
+            const openListItemAttrByShift = shouldOpenListItemAttr(event.shiftKey, protyle.disabled,
+                hasClosestByClassName(target, "protyle-action"));
+            if (event.shiftKey && !openListItemAttrByShift) {
                 if (!isMobile() && !protyle.disabled && nodeElement?.dataset.avType === "table" &&
                     avCellElement && avCellElement.dataset.id &&
                     selectAVCellRange(nodeElement, avCellElement)) {
@@ -1119,7 +1160,7 @@ export class WYSIWYG {
                         setAVItemAnchor(nodeElement, rowElement as HTMLElement);
                     }
                 } else if (ctrlElement) {
-                    clearSelect(["row", "galleryItem"], this.element);
+                    clearSelect(["img", "row", "galleryItem"], this.element);
                     const embedBlockElement = isInEmbedBlock(ctrlElement);
                     if (embedBlockElement) {
                         ctrlElement = embedBlockElement;
@@ -2430,7 +2471,11 @@ export class WYSIWYG {
                         const blockPoint = getShiftClickBlockByPoint(this.element, nodeElement,
                             mouseUpEvent.clientX, mouseUpEvent.clientY);
                         if (blockPoint) {
-                            focusBlock(blockPoint.blockElement, undefined, blockPoint.toStart);
+                            // 多行文本块左右空白点击需保留纵坐标 https://github.com/siyuan-note/siyuan/issues/18789
+                            if (!focusTextBlockEdgeByPoint(blockPoint.blockElement, mouseUpEvent.clientX,
+                                mouseUpEvent.clientY, mostLeft, mostRight)) {
+                                focusBlock(blockPoint.blockElement, undefined, blockPoint.toStart);
+                            }
                         } else {
                             focusBlock(nodeElement, undefined, mouseUpEvent.clientX < mostLeft);
                         }
@@ -2715,10 +2760,6 @@ export class WYSIWYG {
                                     id: "deleteRows",
                                     icon: "iconTrashcan",
                                     label: window.siyuan.languages["delete-row"],
-                                    disabled: cellSelection.merged,
-                                    action: cellSelection.merged ? "iconInfo" : undefined,
-                                    actionLabel: cellSelection.merged ?
-                                        window.siyuan.languages.splitMergedCellTip : undefined,
                                     click() {
                                         tableSelectElement.removeAttribute("style");
                                         deleteTableRows(protyle, tableBlockElement as HTMLElement,
@@ -2731,10 +2772,6 @@ export class WYSIWYG {
                                     id: "deleteColumns",
                                     icon: "iconTrashcan",
                                     label: window.siyuan.languages["delete-column"],
-                                    disabled: cellSelection.merged,
-                                    action: cellSelection.merged ? "iconInfo" : undefined,
-                                    actionLabel: cellSelection.merged ?
-                                        window.siyuan.languages.splitMergedCellTip : undefined,
                                     click() {
                                         tableSelectElement.removeAttribute("style");
                                         deleteTableColumns(protyle, tableBlockElement as HTMLElement,
@@ -3294,9 +3331,9 @@ export class WYSIWYG {
                     event.clipboardData.setData("text/siyuan", textSiyuan);
                 }
                 // 在 text/html 中插入注释节点，用于右键菜单粘贴时获取 text/siyuan 数据
-                const exportedHTML = blockDOMClipboardRichData?.textHTML ??
+                const exportedHTML = prepareExternalClipboardHTML(blockDOMClipboardRichData?.textHTML ??
                     removeZWJ((selectTableElement || selectTableRange) ? html :
-                        protyle.lute.BlockDOM2HTML(selectAVElement ? textPlain : html));
+                        protyle.lute.BlockDOM2HTML(selectAVElement ? textPlain : html)));
                 const textHTML = `<!--data-siyuan='${encodeBase64(textSiyuan)}'-->${exportedHTML}`;
                 if (!cutClipboardWritten) {
                     event.clipboardData.setData("text/html", textHTML);
@@ -3839,6 +3876,11 @@ export class WYSIWYG {
         });
 
         this.element.addEventListener("beforeinput", async (event: InputEvent) => {
+            if (event.target === this.element &&
+                (event.inputType === "historyUndo" || event.inputType === "historyRedo")) {
+                event.preventDefault();
+                return;
+            }
             const unidentifiedState = isInAndroid() ? takeMobileUnidentifiedKeyState() : undefined;
             if (event.inputType === "deleteContentBackward" && unidentifiedState) {
                 unidentifiedState.placeholder?.remove();
@@ -4110,7 +4152,9 @@ export class WYSIWYG {
                 event.stopPropagation();
                 return;
             }
-            if (event.shiftKey) {
+            const openListItemAttrByShift = shouldOpenListItemAttr(event.shiftKey, protyle.disabled,
+                hasClosestByClassName(event.target, "protyle-action"));
+            if (event.shiftKey && !openListItemAttrByShift) {
                 const selection = getSelection();
                 const focusElement = selection.focusNode && hasClosestBlock(selection.focusNode) as HTMLElement;
                 // mousedown 未命中块间空白时，浏览器会先生成跨块文字选区，在 click 阶段将其转换为块选区
@@ -4590,7 +4634,7 @@ export class WYSIWYG {
                             updateTransaction(protyle, actionElement.parentElement.parentElement, oldHTML);
                         }
                         hideElements(["gutter"], protyle);
-                    } else if (event.shiftKey && !protyle.disabled) {
+                    } else if (shouldOpenListItemAttr(event.shiftKey, protyle.disabled, actionElement)) {
                         openAttr(actionElement.parentElement, "bookmark", protyle);
                     } else if (ctrlIsPressed) {
                         zoomOut({protyle, id: actionId});
@@ -4766,13 +4810,28 @@ export class WYSIWYG {
                     newRange.collapse(false);
                     focusByRange(newRange);
                 }
+                const tripleClickBlockElement = event.detail > 2 && hasClosestBlock(event.target);
+                if (tripleClickBlockElement &&
+                    ["NodeParagraph", "NodeHeading"].includes(tripleClickBlockElement.getAttribute("data-type")) &&
+                    tripleClickBlockElement.querySelector('[data-type~="inline-math"]')) {
+                    // 浏览器完成三击选区后，将行级公式截断的选区补齐到整个段落或标题
+                    const editableElement = getContenteditableElement(tripleClickBlockElement);
+                    setFirstNodeRange(editableElement, newRange);
+                    setLastNodeRange(editableElement, newRange, false);
+                    focusByRange(newRange);
+                }
                 /// #if !MOBILE
                 if (newRange.toString().replace(Constants.ZWSP, "") !== "") {
-                    protyle.toolbar.render(protyle, newRange, event.detail > 0 ? {
-                        x: event.clientX,
-                        y: event.clientY,
-                        detail: event.detail,
-                    } : undefined);
+                    const paintedRange = formatPainter.paint(protyle, newRange);
+                    if (paintedRange) {
+                        newRange = paintedRange;
+                    } else {
+                        protyle.toolbar.render(protyle, newRange, event.detail > 0 ? {
+                            x: event.clientX,
+                            y: event.clientY,
+                            detail: event.detail,
+                        } : undefined);
+                    }
                 } else {
                     // https://github.com/siyuan-note/siyuan/issues/9785
                     protyle.toolbar.range = newRange;

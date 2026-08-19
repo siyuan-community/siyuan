@@ -34,6 +34,7 @@ import {preventScroll} from "../protyle/scroll/preventScroll";
 import {clearOBG} from "../layout/dock/util";
 import {Model} from "../layout/Model";
 import {hideElements} from "../protyle/ui/hideElements";
+import {isBrowserRenderableImagePath} from "../util/imageURL";
 
 const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => {
     if (!options.custom || (options.custom.id && options.custom.id !== type)) {
@@ -90,8 +91,8 @@ export const openFileById = async (options: {
 };
 
 export const openAsset = (app: App, assetPath: string, page: number | string, position?: string) => {
-    const suffix = getAssetExtension(assetPath);
-    if (!Constants.SIYUAN_ASSETS_EXTS.includes(suffix)) {
+    const suffix = getAssetExtension(assetPath).toLowerCase();
+    if (!Constants.SIYUAN_ASSETS_EXTS.includes(suffix) || !isBrowserRenderableImagePath(assetPath)) {
         return;
     }
     openFile({
@@ -224,11 +225,15 @@ export const openFile = async (options: IOpenFileOptions) => {
                 optionsClone[key] = JSON.parse(JSON.stringify(options[key]));
             }
         });
-        hasMatch = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
-            cmd: Constants.SIYUAN_OPEN_FILE,
-            options: JSON.stringify(optionsClone),
-            port: location.port,
-        });
+        try {
+            hasMatch = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
+                cmd: Constants.SIYUAN_OPEN_FILE,
+                options: JSON.stringify(optionsClone),
+                port: location.port,
+            });
+        } catch (e) {
+            console.warn("Check opened file window error:", e);
+        }
         if (hasMatch) {
             if (options.afterOpen) {
                 options.afterOpen();
@@ -491,8 +496,9 @@ const switchEditor = (editor: Editor, options: IOpenFileOptions, allModels: IMod
 const newTab = (options: IOpenFileOptions) => {
     let tab: Tab;
     if (options.assetPath) {
-        const suffix = getAssetExtension(options.assetPath);
-        if (Constants.SIYUAN_ASSETS_EXTS.includes(suffix)) {
+        const suffix = getAssetExtension(options.assetPath).toLowerCase();
+        if (Constants.SIYUAN_ASSETS_EXTS.includes(suffix) &&
+            isBrowserRenderableImagePath(options.assetPath)) {
             let icon = "iconPDF";
             if (Constants.SIYUAN_ASSETS_IMAGE.includes(suffix)) {
                 icon = "iconImage";

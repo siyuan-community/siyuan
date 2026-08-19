@@ -2,6 +2,25 @@ export const isSameDragEditor = (targetEditor: Pick<Element, "contains">, source
     return targetEditor.contains(sourceElement);
 };
 
+export const BLOCK_DRAGOVER_SELECTOR = [
+    ".dragover__left",
+    ".dragover__right",
+    ".dragover__bottom",
+    ".dragover__top",
+    ".dragover__bottom--sibling",
+    ".dragover__top--sibling",
+    ".dragover__bottom--child",
+    ".dragover__top--child",
+].join(", ");
+
+export const getBlockDragoverTarget = (scope: HTMLElement, cachedTarget?: Element) => {
+    const cachedTargetInScope = !!cachedTarget && scope.contains(cachedTarget);
+    if (cachedTargetInScope && cachedTarget.matches(BLOCK_DRAGOVER_SELECTOR)) {
+        return cachedTarget;
+    }
+    return scope.querySelector(BLOCK_DRAGOVER_SELECTOR) || (cachedTargetInScope ? cachedTarget : null);
+};
+
 export const isAttributeViewTitleTarget = (targetNode: Node | null, point?: {x: number, y: number}) => {
     if (!targetNode) {
         return false;
@@ -47,7 +66,11 @@ export const getAVRowDropTarget = (targetElement: HTMLElement | false): HTMLElem
     if (!targetElement || !targetElement.classList.contains("av__row--util")) {
         return targetElement;
     }
-    return targetElement.previousElementSibling as HTMLElement || targetElement;
+    let rowElement = targetElement.previousElementSibling as HTMLElement;
+    while (rowElement && !rowElement.matches(".av__row[data-id], .av__row--header")) {
+        rowElement = rowElement.previousElementSibling as HTMLElement;
+    }
+    return rowElement || targetElement;
 };
 
 export const isSameSiblingMove = <T>(siblings: T[], sources: T[], target: T, isBottom: boolean) => {

@@ -1,7 +1,9 @@
 import {describe, it} from "node:test";
 import * as assert from "node:assert/strict";
 import {
+    BLOCK_DRAGOVER_SELECTOR,
     getAVRowDropTarget,
+    getBlockDragoverTarget,
     getSameSuperBlockEdgeTarget,
     getSuperBlockResizeDropTarget,
     getTopListDragTarget,
@@ -14,11 +16,13 @@ import {
     uniqueDragIds
 } from "./dragDocument";
 
-const createClassElement = (classNames: string[], parentElement: Element = null) => ({
+const createClassElement = (classNames: string[], parentElement: Element = null, dataID = "") => ({
     nodeType: 1,
     classList: {
         contains: (className: string) => classNames.includes(className),
     },
+    matches: (selector: string) => selector === ".av__row[data-id], .av__row--header" &&
+        (classNames.includes("av__row--header") || (classNames.includes("av__row") && !!dataID)),
     parentElement,
     querySelector: (): Element | null => null,
 }) as unknown as Element;
@@ -32,6 +36,15 @@ const createBlockElement = (id: string, parentElement: Element = null) => ({
     getAttribute: (name: string) => name === "data-node-id" ? id : null,
     parentElement
 }) as unknown as Element;
+
+const createDragoverTarget = (active: boolean) => ({
+    matches: (selector: string) => selector === BLOCK_DRAGOVER_SELECTOR && active,
+}) as unknown as Element;
+
+const createDragoverScope = (indicatedTarget: Element | null, containedTargets: Element[]) => ({
+    contains: (target: Element) => containedTargets.includes(target),
+    querySelector: (selector: string) => selector === BLOCK_DRAGOVER_SELECTOR ? indicatedTarget : null,
+}) as unknown as HTMLElement;
 
 const createSuperBlock = (layout = "col") => {
     const children: Element[] = [];
@@ -72,6 +85,38 @@ describe("isSameDragEditor", () => {
         const targetEditor = {contains: (element: Element) => element === sourceElement} as unknown as Element;
 
         assert.equal(isSameDragEditor(targetEditor, sourceElement), true);
+    });
+});
+
+describe("getBlockDragoverTarget", () => {
+    it("uses the visible indicator when the cached target is stale", () => {
+        const cachedTarget = createDragoverTarget(false);
+        const indicatedTarget = createDragoverTarget(true);
+        const scope = createDragoverScope(indicatedTarget, [cachedTarget, indicatedTarget]);
+
+        assert.equal(getBlockDragoverTarget(scope, cachedTarget), indicatedTarget);
+    });
+
+    it("keeps an active cached target when other indicators exist", () => {
+        const cachedTarget = createDragoverTarget(true);
+        const indicatedTarget = createDragoverTarget(true);
+        const scope = createDragoverScope(indicatedTarget, [cachedTarget, indicatedTarget]);
+
+        assert.equal(getBlockDragoverTarget(scope, cachedTarget), cachedTarget);
+    });
+
+    it("falls back to a cached target before its indicator is rendered", () => {
+        const cachedTarget = createDragoverTarget(false);
+        const scope = createDragoverScope(null, [cachedTarget]);
+
+        assert.equal(getBlockDragoverTarget(scope, cachedTarget), cachedTarget);
+    });
+
+    it("ignores a cached target that is no longer in the editor", () => {
+        const cachedTarget = createDragoverTarget(true);
+        const scope = createDragoverScope(null, []);
+
+        assert.equal(getBlockDragoverTarget(scope, cachedTarget), null);
     });
 });
 
@@ -121,11 +166,29 @@ describe("uniqueDragIds", () => {
 
 describe("getAVRowDropTarget", () => {
     it("uses the preceding row for the table utility row", () => {
-        const row = createClassElement(["av__row"]);
+        const row = createClassElement(["av__row"], null, "row-1");
         const utilityRow = createClassElement(["av__row--util"]);
         Object.defineProperty(utilityRow, "previousElementSibling", {value: row});
 
         assert.equal(getAVRowDropTarget(utilityRow as HTMLElement), row);
+    });
+
+    it("skips a virtual bottom spacer before the table utility row", () => {
+        const row = createClassElement(["av__row"], null, "row-1");
+        const spacer = createClassElement(["av__spacer", "av__spacer--bottom"]);
+        const utilityRow = createClassElement(["av__row--util"]);
+        Object.defineProperty(spacer, "previousElementSibling", {value: row});
+        Object.defineProperty(utilityRow, "previousElementSibling", {value: spacer});
+
+        assert.equal(getAVRowDropTarget(utilityRow as HTMLElement), row);
+    });
+
+    it("uses the header as the drop target for an empty table", () => {
+        const header = createClassElement(["av__row--header"]);
+        const utilityRow = createClassElement(["av__row--util"]);
+        Object.defineProperty(utilityRow, "previousElementSibling", {value: header});
+
+        assert.equal(getAVRowDropTarget(utilityRow as HTMLElement), header);
     });
 
     it("keeps regular rows unchanged", () => {

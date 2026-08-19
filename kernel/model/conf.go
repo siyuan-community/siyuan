@@ -36,6 +36,7 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/Xuanwo/go-locale"
 	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/heif"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
@@ -513,6 +514,9 @@ func InitConf() {
 	if nil == Conf.Editor.Markdown.CodeBlockMiddleDot {
 		Conf.Editor.Markdown.CodeBlockMiddleDot = defaultEditor.Markdown.CodeBlockMiddleDot
 	}
+	if nil == Conf.Editor.Markdown.BlockFullWidthTaskList {
+		Conf.Editor.Markdown.BlockFullWidthTaskList = defaultEditor.Markdown.BlockFullWidthTaskList
+	}
 	util.MarkdownSettings = Conf.Editor.Markdown
 
 	if nil == Conf.Export {
@@ -883,7 +887,7 @@ func InitConf() {
 		logging.SetLogLevel(Conf.LogLevel)
 	}
 
-	util.SetNetworkProxy(Conf.System.NetworkProxy.String())
+	util.SetNetworkProxy(Conf.System.NetworkProxy.String(), Conf.System.NetworkProxy.IsSystem())
 
 	go util.InitPandoc(Conf.Export.PandocBin)
 	go util.InitTesseract()
@@ -1471,6 +1475,8 @@ func clearCorruptedNotebooks() {
 }
 
 func clearWorkspaceTemp(preserveInstallPkgs bool) {
+	heif.ClearMemoryCache("")
+	os.RemoveAll(filepath.Join(util.TempDir, "assets-cache"))
 	os.RemoveAll(filepath.Join(util.TempDir, "bazaar"))
 	os.RemoveAll(filepath.Join(util.TempDir, "export"))
 	os.RemoveAll(filepath.Join(util.TempDir, "import"))

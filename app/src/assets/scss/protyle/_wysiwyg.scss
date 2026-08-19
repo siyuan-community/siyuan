@@ -7,6 +7,11 @@
   user-select: auto;
   overflow-x: clip;
 
+  &.protyle--image-animation-paused,
+  .protyle--image-animation-paused & {
+    image-animation: paused;
+  }
+
   &--empty:empty::before {
     color: var(--b3-empty-color);
     content: attr(placeholder);
@@ -881,6 +886,28 @@
   // 复制粘贴序号会状态异常 https://ld246.com/article/1762691143057
   .li > .protyle-action {
     user-select: none;
+  }
+}
+
+body[data-format-painter] .protyle-wysiwyg[data-readonly="false"] {
+  cursor: text;
+}
+
+.protyle-format-painter__cursor {
+  position: fixed;
+  z-index: 9;
+  top: 0;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--b3-theme-on-background);
+  pointer-events: none;
+  will-change: transform;
+
+  svg {
+    display: block;
+    width: 14px;
+    height: 14px;
   }
 }
 

@@ -1204,6 +1204,7 @@ func setAppearanceMode(c *gin.Context) {
 	mode := int(arg["mode"].(float64))
 	model.Conf.Appearance.Mode = mode
 	model.LoadThemes()
+	model.WatchThemes()
 	model.Conf.Save()
 
 	ret.Data = map[string]any{
@@ -1464,7 +1465,7 @@ func setNetworkProxy(c *gin.Context) {
 	model.Conf.Save()
 
 	proxyURL := model.Conf.System.NetworkProxy.String()
-	util.SetNetworkProxy(proxyURL)
+	util.SetNetworkProxy(proxyURL, model.Conf.System.NetworkProxy.IsSystem())
 	util.PushMsg(model.Conf.Language(102), 3000)
 }
 

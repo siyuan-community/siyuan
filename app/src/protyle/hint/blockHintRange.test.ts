@@ -1,6 +1,11 @@
 import {describe, it} from "node:test";
 import * as assert from "node:assert/strict";
-import {getBlockHintTriggerOffset} from "./blockHintRange";
+import {
+    endsWithMultiCharHintPrefix,
+    getBlockHintTriggerOffset,
+    getBlockRefStaticText,
+    shouldIgnoreHintTrigger,
+} from "./blockHintRange";
 
 describe("getBlockHintTriggerOffset", () => {
     it("uses the latest overlapping trigger inside existing closing markers", () => {
@@ -49,5 +54,48 @@ describe("getBlockHintTriggerOffset", () => {
         const triggerOffset = getBlockHintTriggerOffset(text, "", "[[", "]]");
 
         assert.equal(text.substring(triggerOffset + 2), "foo]]");
+    });
+});
+
+describe("getBlockRefStaticText", () => {
+    it("preserves the complete toolbar selection", () => {
+        assert.equal(getBlockRefStaticText("旧的开始", "((", false), "旧的开始");
+        assert.equal(getBlockRefStaticText("((literal", "((", false), "((literal");
+    });
+
+    it("removes the trigger from an inline block hint", () => {
+        assert.equal(getBlockRefStaticText("[[旧的开始", "[[", true), "旧的开始");
+        assert.equal(getBlockRefStaticText("((query", "((", true), "query");
+    });
+});
+
+describe("shouldIgnoreHintTrigger", () => {
+    const blockHintKeys = ["((", "[[", "（（", "【【"];
+
+    it("keeps block reference queries intact when slash hints appear inside them", () => {
+        assert.equal(shouldIgnoreHintTrigger("[[", "、", blockHintKeys), true);
+        assert.equal(shouldIgnoreHintTrigger("((", "/", blockHintKeys), true);
+        assert.equal(shouldIgnoreHintTrigger("[[", "#", blockHintKeys), true);
+        assert.equal(shouldIgnoreHintTrigger("[[", ":", blockHintKeys), true);
+    });
+
+    it("does not block unrelated hint contexts", () => {
+        assert.equal(shouldIgnoreHintTrigger("", "、", blockHintKeys), false);
+        assert.equal(shouldIgnoreHintTrigger("#", "、", blockHintKeys), true);
+        assert.equal(shouldIgnoreHintTrigger("、", "[[", blockHintKeys), false);
+    });
+});
+
+describe("endsWithMultiCharHintPrefix", () => {
+    const hintKeys = ["((", "【【", "[[", "{{", "#", "/", "、", ":"];
+
+    it("ends the current hint when another multi-character hint starts", () => {
+        assert.equal(endsWithMultiCharHintPrefix("2【", hintKeys), true);
+        assert.equal(endsWithMultiCharHintPrefix("query[", hintKeys), true);
+    });
+
+    it("keeps the current hint active for ordinary query text", () => {
+        assert.equal(endsWithMultiCharHintPrefix("2级", hintKeys), false);
+        assert.equal(endsWithMultiCharHintPrefix("2", hintKeys), false);
     });
 });

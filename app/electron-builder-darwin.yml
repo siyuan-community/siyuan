@@ -14,9 +14,9 @@ files:
 afterPack: "./scripts/afterPack.js"
 extraFiles:
   - from: "../LICENSE"
-    to: "LICENSE"
+    to: "Resources/LICENSE"
   - from: "../THIRD_PARTY_NOTICES.md"
-    to: "THIRD_PARTY_NOTICES.md"
+    to: "Resources/THIRD_PARTY_NOTICES.md"
 
 mac:
   identity: "Yunnan Liandi Technology Co., Ltd."
@@ -56,7 +56,9 @@ extraResources:
     filter: "!**/{.DS_Store}"
   - from: "appearance/icons"
     to: "appearance/icons"
-    filter: "!**/{.DS_Store}"
+    filter:
+      - "index.html"
+      - "litheness/**/*"
   - from: "appearance/langs"
     to: "appearance/langs"
     filter: "!**/{.DS_Store}"

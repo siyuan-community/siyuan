@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -172,12 +173,15 @@ type agentRuntimeTurn struct {
 }
 
 type runtimeCompaction struct {
-	Version           int    `json:"version"`
-	Summary           string `json:"summary"`
-	CoveredEntryCount int    `json:"coveredEntryCount"`
-	NextEntryID       string `json:"nextEntryID"`
-	CoveredDigest     string `json:"coveredDigest"`
-	UpdatedAt         int64  `json:"updatedAt"`
+	Version              int               `json:"version"`
+	Protocol             string            `json:"protocol,omitempty"`
+	Summary              string            `json:"summary"`
+	ResponseOutput       []json.RawMessage `json:"responseOutput,omitempty"`
+	ResponseOutputTokens int               `json:"responseOutputTokens,omitempty"`
+	CoveredEntryCount    int               `json:"coveredEntryCount"`
+	NextEntryID          string            `json:"nextEntryID"`
+	CoveredDigest        string            `json:"coveredDigest"`
+	UpdatedAt            int64             `json:"updatedAt"`
 }
 
 func runtimePath(sessionID string) string {
@@ -492,6 +496,12 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 		if message.ReasoningContent != "" {
 			entry["reasoningContent"] = message.ReasoningContent
 		}
+		if len(message.ResponseOutput) > 0 {
+			entry["responseOutput"] = message.ResponseOutput
+		}
+		if message.ResponseOutputTokens > 0 {
+			entry["responseOutputTokens"] = message.ResponseOutputTokens
+		}
 		if message.RoundID != "" {
 			entry["roundID"] = message.RoundID
 		}
@@ -520,6 +530,9 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 				}
 				if len(call.Attachments) > 0 {
 					persistedCall["attachments"] = call.Attachments
+				}
+				if call.ProviderData != nil {
+					persistedCall["providerData"] = call.ProviderData
 				}
 				calls = append(calls, persistedCall)
 			}

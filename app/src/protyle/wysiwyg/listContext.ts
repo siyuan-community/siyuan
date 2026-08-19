@@ -17,6 +17,8 @@ export type TAppendListContext = {
     listItemElement?: HTMLElement,
 };
 
+export const ORDERED_LIST_MAX_NUMBER = 999999999;
+
 const LIST_CONVERSION_TYPES: Record<TListSubtype, Partial<Record<TListSubtype, string>>> = {
     u: {o: "UL2OL", t: "UL2TL"},
     o: {u: "OL2UL", t: "OL2TL"},
@@ -50,6 +52,13 @@ export const getLastListItemElement = (listElement: HTMLElement) => {
 export const getFirstListItemElement = (listElement: HTMLElement) => {
     return Array.from(listElement.children).find((item) =>
         item.getAttribute("data-type") === "NodeListItem") as HTMLElement | undefined;
+};
+
+export const getPreviousListItemID = (listElement: HTMLElement, listItemID: string) => {
+    const listItemElements = Array.from(listElement.children).filter((item) =>
+        item.getAttribute("data-type") === "NodeListItem");
+    const index = listItemElements.findIndex((item) => item.getAttribute("data-node-id") === listItemID);
+    return index > 0 ? listItemElements[index - 1].getAttribute("data-node-id") : undefined;
 };
 
 export const getListContext = (nodeElement: HTMLElement, editorElement: HTMLElement): TListContext | undefined => {
@@ -131,8 +140,36 @@ export const getOrderedListMarkerUpdates = (markers: string[], startIndex?: numb
     });
 };
 
+export const getOrderedListMaxStart = (itemCount: number) => {
+    if (!Number.isInteger(itemCount) || itemCount < 1 || itemCount > ORDERED_LIST_MAX_NUMBER) {
+        return;
+    }
+    return ORDERED_LIST_MAX_NUMBER - itemCount + 1;
+};
+
+export const parseOrderedListStart = (value: string, itemCount: number) => {
+    const maxStart = getOrderedListMaxStart(itemCount);
+    if (maxStart === undefined || !/^\d{1,9}$/.test(value)) {
+        return;
+    }
+    const start = Number(value);
+    if (!Number.isSafeInteger(start) || start > maxStart) {
+        return;
+    }
+    return start;
+};
+
 export const shouldIgnoreListShortcut = (hasBlockSelection: boolean, selectedType?: string) => {
     return hasBlockSelection && selectedType === "NodeListItem";
+};
+
+export const isListItemActionElement = (actionElement: Element | false) => {
+    return !!actionElement && actionElement.parentElement?.getAttribute("data-type") === "NodeListItem";
+};
+
+export const shouldOpenListItemAttr = (shiftKey: boolean, disabled: boolean,
+                                       actionElement: Element | false) => {
+    return shiftKey && !disabled && isListItemActionElement(actionElement);
 };
 
 export const getListConversionType = (sourceSubtype: TListSubtype, targetSubtype: TListSubtype) => {

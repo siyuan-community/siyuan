@@ -37,6 +37,7 @@ import {countBlockWord} from "../../layout/status";
 import {isPaidUser, needSubscribe} from "../../util/needSubscribe";
 import {resize} from "../util/resize";
 import {scrollCenter} from "../../util/highlightById";
+import {consumeGutterFoldRestore} from "../ui/gutterVisibility";
 import {setFold} from "../util/blockFold";
 import {queueTransaction} from "../util/transactionQueue";
 import {
@@ -45,8 +46,9 @@ import {
     queueHeadingNumberRefresh
 } from "../util/headingNumber";
 import {MERMAID_LAYOUT_ATTR} from "../render/mermaidLayout";
-import {getPartialUpdateCleanupElements} from "./transactionUpdate";
+import {getPartialUpdateCleanupElements, shouldDeferCodeBlockCaretRestore} from "./transactionUpdate";
 import {getMoveAffectedEmbedElements, shouldSyncMoveCopies} from "./transactionEmbed";
+import {normalizeHTMLAssetIFrameBlockDOM} from "../../asset/html";
 
 const removeTopElement = (updateElement: Element, protyle: IProtyle) => {
     // 移动到其他文档中，该块需移除
@@ -112,6 +114,7 @@ const syncFoldAndStyleAttrs = (element: Element, operation: IOperation) => {
 };
 
 const getVisibleFoldHeadingHTML = (html: string) => {
+    html = normalizeHTMLAssetIFrameBlockDOM(html);
     if (!html.includes('data-type="NodeHeading"') || !html.includes('fold="1"')) {
         return html;
     }
@@ -609,14 +612,25 @@ const updateBlock = (updateElements: Element[], protyle: IProtyle, operation: IO
         item.previousElementSibling.remove();
 
         const wbrElement = item.querySelector("wbr");
+        const codeElement = item.getAttribute("data-type") === "NodeCodeBlock" ? item.querySelector(".hljs") : undefined;
+        // 未高亮的代码块由 highlightRender 使用 wbr 记录偏移，并在重建 DOM 后恢复光标。
+        const deferCodeBlockCaretRestore = shouldDeferCodeBlockCaretRestore({
+            isRangeBlock,
+            isReplay: isUndo,
+            hasCaret: !!wbrElement,
+            isCodeBlock: !!codeElement,
+            isRendered: codeElement?.getAttribute("data-render") === "true",
+        });
         if (isRangeBlock && isUndo) {
             if (wbrElement) {
-                focusByWbr(item, range);
+                focusByWbr(item, range, deferCodeBlockCaretRestore);
             } else {
                 focusBlock(item);
             }
         }
-        wbrElement?.remove();
+        if (!deferCodeBlockCaretRestore) {
+            wbrElement?.remove();
+        }
         // update 操作会生成新表格并替换旧节点，聚焦后需还原滚动，避免表格跳回开头
         if (tableScrollLeft > 0) {
             (item.firstElementChild as HTMLElement).scrollLeft = tableScrollLeft;
@@ -1284,21 +1298,25 @@ export const turnsIntoOneTransaction = async (options: {
     unfocus?: boolean,
     getOperations?: boolean,
     parentID?: string,
+    widthSourceElement?: HTMLElement,
 }) => {
     let parentElement: Element;
-    let firstChildOldStyle: string;
+    let widthSourceOldStyle: string;
+    let widthSourceElement: HTMLElement;
     const id = Lute.NewNodeID();
     if (options.type === "BlocksMergeSuperBlock") {
         parentElement = genSBElement(options.level, id);
         // 回车生成竖排超级块时，将横向超级块子块的宽度迁移到新超级块，并清除子块宽度
         // https://github.com/siyuan-note/siyuan/issues/9521
-        const firstChild = options.selectsElement[0] as HTMLElement;
-        if (firstChild.style.width) {
-            firstChildOldStyle = firstChild.getAttribute("style") || "";
-            (parentElement as HTMLElement).style.width = firstChild.style.width;
-            (parentElement as HTMLElement).style.flex = firstChild.style.flex;
-            firstChild.style.width = "";
-            firstChild.style.flex = "";
+        widthSourceElement = options.widthSourceElement || options.selectsElement[0] as HTMLElement;
+        if (widthSourceElement.style.width) {
+            (parentElement as HTMLElement).style.width = widthSourceElement.style.width;
+            (parentElement as HTMLElement).style.flex = widthSourceElement.style.flex;
+            if (options.selectsElement.includes(widthSourceElement)) {
+                widthSourceOldStyle = widthSourceElement.getAttribute("style") || "";
+                widthSourceElement.style.width = "";
+                widthSourceElement.style.flex = "";
+            }
         }
     } else if (options.type === "Blocks2Blockquote") {
         parentElement = document.createElement("div");
@@ -1404,17 +1422,16 @@ export const turnsIntoOneTransaction = async (options: {
             blockRender(options.protyle, item);
         }
     });
-    if (firstChildOldStyle !== undefined) {
-        const firstChild = options.selectsElement[0];
+    if (widthSourceOldStyle !== undefined) {
         doOperations.push({
             action: "setAttrs",
-            id: firstChild.getAttribute("data-node-id"),
-            data: JSON.stringify({style: firstChild.getAttribute("style") || ""})
+            id: widthSourceElement.getAttribute("data-node-id"),
+            data: JSON.stringify({style: widthSourceElement.getAttribute("style") || ""})
         });
         undoOperations.splice(undoOperations.length - 1, 0, {
             action: "setAttrs",
-            id: firstChild.getAttribute("data-node-id"),
-            data: JSON.stringify({style: firstChildOldStyle})
+            id: widthSourceElement.getAttribute("data-node-id"),
+            data: JSON.stringify({style: widthSourceOldStyle})
         });
     }
     // 子块移入完成后刷新超级块拖拽手柄
@@ -2098,6 +2115,18 @@ export const transaction = (protyle: IProtyle, doOperations: IOperation[], undoO
     });
 };
 
+const restoreGutterAfterFold = (protyle: IProtyle, id: string) => {
+    if (!consumeGutterFoldRestore(protyle.gutter.element, id)) {
+        return;
+    }
+    window.requestAnimationFrame(() => {
+        const nodeElement = protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`);
+        if (nodeElement) {
+            protyle.gutter.render(protyle, nodeElement);
+        }
+    });
+};
+
 const processFold = (operation: IOperation, protyle: IProtyle) => {
     if (operation.action === "unfoldHeading" || operation.action === "foldHeading") {
         const gutterFoldElement = protyle.gutter.element.querySelector('[data-type="fold"]');
@@ -2147,6 +2176,7 @@ const processFold = (operation: IOperation, protyle: IProtyle) => {
                 protyle.contentElement.scrollTop = scrollTop;
                 protyle.scroll.lastScrollTop = scrollTop;
             }
+            restoreGutterAfterFold(protyle, operation.id);
             return;
         }
         protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach(item => {
@@ -2162,11 +2192,14 @@ const processFold = (operation: IOperation, protyle: IProtyle) => {
         // 折叠移除子块后，刷新折叠标题所在超级块的拖拽手柄（子块数变化）
         refreshSbs(...Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`)));
         // 折叠标题后未触发动态加载 https://github.com/siyuan-note/siyuan/issues/4168
-        if (protyle.wysiwyg.element.lastElementChild.getAttribute("data-eof") !== "2" &&
+        const needsDynamicLoad = protyle.wysiwyg.element.lastElementChild.getAttribute("data-eof") !== "2" &&
             !protyle.scroll.element.classList.contains("fn__none") &&
-            protyle.contentElement.scrollHeight - protyle.contentElement.scrollTop < protyle.contentElement.clientHeight * 2    // https://github.com/siyuan-note/siyuan/issues/7785
-        ) {
-            protyle.scroll.loadDynamic(protyle, 2);
+            // https://github.com/siyuan-note/siyuan/issues/7785
+            protyle.contentElement.scrollHeight - protyle.contentElement.scrollTop < protyle.contentElement.clientHeight * 2;
+        if (!needsDynamicLoad || !protyle.scroll.loadDynamic(protyle, 2, {
+            onFinish: () => restoreGutterAfterFold(protyle, operation.id),
+        })) {
+            restoreGutterAfterFold(protyle, operation.id);
         }
         return;
     }

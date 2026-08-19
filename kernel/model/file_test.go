@@ -44,10 +44,19 @@ func setupFileOperationTest(t *testing.T) *fileOperationTestFixture {
 	originalConf := Conf
 	originalDataDir := util.DataDir
 	originalBlockTreeDBPath := util.BlockTreeDBPath
+	const testLang = "file-operation-test"
+	originalTimeLang, hadTimeLang := util.TimeLangs[testLang]
+	util.TimeLangs[testLang] = map[string]any{
+		"albl": "ago", "blbl": "from now", "now": "now", "1s": "1 second %s", "xs": "%d seconds %s",
+		"1m": "1 minute %s", "xm": "%d minutes %s", "1h": "1 hour %s", "xh": "%d hours %s", "1d": "1 day %s",
+		"xd": "%d days %s", "1w": "1 week %s", "xw": "%d weeks %s", "1M": "1 month %s", "xM": "%d months %s",
+		"1y": "1 year %s", "2y": "2 years %s", "xy": "%d years %s", "max": "a long while %s",
+	}
 	tempDir := t.TempDir()
 	util.DataDir = filepath.Join(tempDir, "data")
 	util.BlockTreeDBPath = filepath.Join(tempDir, "blocktree.db")
 	Conf = NewAppConf()
+	Conf.Lang = testLang
 	Conf.FileTree = conf.NewFileTree()
 	Conf.NotebookCrypto = conf.NewNotebookCrypto()
 	Conf.Sync = conf.NewSync()
@@ -78,6 +87,11 @@ func setupFileOperationTest(t *testing.T) *fileOperationTestFixture {
 		cache.RemoveDocIAL(sourceTree.Path)
 		cache.RemoveDocIAL(targetTree.Path)
 		treenode.CloseDatabase()
+		if hadTimeLang {
+			util.TimeLangs[testLang] = originalTimeLang
+		} else {
+			delete(util.TimeLangs, testLang)
+		}
 		Conf = originalConf
 		util.DataDir = originalDataDir
 		util.BlockTreeDBPath = originalBlockTreeDBPath
@@ -92,6 +106,178 @@ func setupFileOperationTest(t *testing.T) *fileOperationTestFixture {
 		targetPath: targetPath,
 		sourceID:   sourceTree.ID,
 		childID:    sourceTree.Root.FirstChild.ID,
+	}
+}
+
+func TestResolveDocTreeSortModeInheritance(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	Conf.FileTree.Sort = util.SortModeSizeDESC
+	boxConf := fixture.box.GetConf()
+	boxConf.SortMode = util.SortModeCreatedASC
+	if err := fixture.box.SaveConf(boxConf); nil != err {
+		t.Fatalf("save notebook sort mode failed: %v", err)
+	}
+
+	parentTree, err := LoadTreeByBlockID(util.GetTreeID(fixture.targetPath))
+	if nil != err {
+		t.Fatalf("load parent document failed: %v", err)
+	}
+	parentTree.Root.SetIALAttr(DocSortModeAttr, "3")
+	if _, err = filesys.WriteTree(parentTree); nil != err {
+		t.Fatalf("write parent document sort mode failed: %v", err)
+	}
+	treenode.UpsertBlockTree(parentTree)
+
+	childID := "20260718000003-abcdefg"
+	childPath := strings.TrimSuffix(parentTree.Path, ".sy") + "/" + childID + ".sy"
+	childTree := treenode.NewTree(fixture.box.ID, childPath, parentTree.HPath+"/Child", "Child")
+	if _, err = filesys.WriteTree(childTree); nil != err {
+		t.Fatalf("write child document failed: %v", err)
+	}
+	treenode.UpsertBlockTree(childTree)
+	t.Cleanup(func() {
+		cache.RemoveTreeData(childTree.ID)
+		cache.RemoveDocIAL(childTree.Path)
+	})
+
+	for _, listPath := range []string{childTree.Path, strings.TrimSuffix(childTree.Path, ".sy")} {
+		mode, resolveErr := ResolveDocTreeSortMode(fixture.box.ID, listPath)
+		if nil != resolveErr {
+			t.Fatalf("resolve inherited sort mode for [%s] failed: %v", listPath, resolveErr)
+		}
+		if util.SortModeUpdatedDESC != mode {
+			t.Fatalf("unexpected inherited sort mode for [%s]: got %d, want %d", listPath, mode, util.SortModeUpdatedDESC)
+		}
+	}
+
+	childTree.Root.SetIALAttr(DocSortModeAttr, "6")
+	if _, err = filesys.WriteTree(childTree); nil != err {
+		t.Fatalf("write child document override failed: %v", err)
+	}
+	cache.RemoveDocIALInBox(childTree.Path, childTree.Box)
+	mode, err := ResolveDocTreeSortMode(fixture.box.ID, childTree.Path)
+	if nil != err || util.SortModeCustom != mode {
+		t.Fatalf("child override was not resolved: mode=%d, err=%v", mode, err)
+	}
+
+	mode, err = ResolveDocTreeSortMode(fixture.box.ID, "/")
+	if nil != err || util.SortModeCreatedASC != mode {
+		t.Fatalf("notebook fallback was not resolved: mode=%d, err=%v", mode, err)
+	}
+	boxConf.SortMode = util.SortModeFileTree
+	if err = fixture.box.SaveConf(boxConf); nil != err {
+		t.Fatalf("save notebook inherited sort mode failed: %v", err)
+	}
+	mode, err = ResolveDocTreeSortMode(fixture.box.ID, "/")
+	if nil != err || util.SortModeSizeDESC != mode {
+		t.Fatalf("global fallback was not resolved: mode=%d, err=%v", mode, err)
+	}
+
+	files, _, err := ListDocTree(fixture.box.ID, "/", util.SortModeNameASC, false, false, 128)
+	if nil != err {
+		t.Fatalf("list root documents failed: %v", err)
+	}
+	for _, file := range files {
+		if file.ID == parentTree.ID {
+			if nil == file.ChildrenSortMode || util.SortModeUpdatedDESC != *file.ChildrenSortMode {
+				t.Fatalf("parent declaration missing from listed file: %#v", file.ChildrenSortMode)
+			}
+			return
+		}
+	}
+	t.Fatalf("parent document [%s] was not listed", parentTree.ID)
+}
+
+func TestCustomSortMaintenanceIgnoresEffectiveModeAndListLimit(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	Conf.FileTree.Sort = util.SortModeNameASC
+	Conf.FileTree.MaxListCount = 1
+	boxConf := fixture.box.GetConf()
+	boxConf.SortMode = util.SortModeFileTree
+	if err := fixture.box.SaveConf(boxConf); nil != err {
+		t.Fatalf("save notebook sort mode failed: %v", err)
+	}
+
+	extraID := "20260718000003-abcdefg"
+	extraPath := "/" + extraID + ".sy"
+	extraTree := treenode.NewTree(fixture.box.ID, extraPath, "/Extra", "Extra")
+	if _, err := filesys.WriteTree(extraTree); nil != err {
+		t.Fatalf("write extra document failed: %v", err)
+	}
+	treenode.UpsertBlockTree(extraTree)
+	t.Cleanup(func() {
+		cache.RemoveTreeData(extraTree.ID)
+		cache.RemoveDocIAL(extraTree.Path)
+	})
+
+	confPath := filepath.Join(util.DataDir, fixture.box.ID, ".siyuan", "sort.json")
+	if err := writeSortConfMap(confPath, map[string]int{
+		util.GetTreeID(fixture.targetPath): 10,
+		fixture.sourceID:                   20,
+		extraID:                            30,
+	}); nil != err {
+		t.Fatalf("write initial custom sort failed: %v", err)
+	}
+
+	maxID := "20260718000004-abcdefg"
+	fixture.box.addMaxSort("/", maxID)
+	sorts, err := readSortConfMap(confPath)
+	if nil != err {
+		t.Fatalf("read custom sort after append failed: %v", err)
+	}
+	if 31 != sorts[maxID] {
+		t.Fatalf("append used effective display mode instead of custom order: got %d, want 31", sorts[maxID])
+	}
+
+	minID := "20260718000005-abcdefg"
+	fixture.box.addMinSort("/", minID)
+	sorts, err = readSortConfMap(confPath)
+	if nil != err {
+		t.Fatalf("read custom sort after prepend failed: %v", err)
+	}
+	if 9 != sorts[minID] {
+		t.Fatalf("prepend used effective display mode instead of custom order: got %d, want 9", sorts[minID])
+	}
+
+	insertID := "20260718000006-abcdefg"
+	fixture.box.addSort(fixture.sourcePath, insertID)
+	sorts, err = readSortConfMap(confPath)
+	if nil != err {
+		t.Fatalf("read custom sort after adjacent insert failed: %v", err)
+	}
+	if 2 != sorts[insertID] || 3 != sorts[extraID] {
+		t.Fatalf("adjacent insert was truncated by MaxListCount: insert=%d, trailing=%d", sorts[insertID], sorts[extraID])
+	}
+}
+
+func TestGetDocOptionallyIncludesDocInfo(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	Conf.Editor = conf.NewEditor()
+	Conf.Export = conf.NewExport()
+	expected, err := GetDocInfo(fixture.sourceID)
+	if nil != err {
+		t.Fatalf("get standalone document info failed: %v", err)
+	}
+
+	_, _, _, _, rootID, _, _, _, boxID, _, _, _, _, embedded, err := GetDoc(
+		"", "", fixture.sourceID, 0, "", nil, nil, 0, 0, 102400, false, map[string]string{}, true, true)
+	if nil != err {
+		t.Fatalf("get document with embedded info failed: %v", err)
+	}
+	if rootID != fixture.sourceID || boxID != fixture.box.ID {
+		t.Fatalf("unexpected loaded document: root [%s], box [%s]", rootID, boxID)
+	}
+	if !reflect.DeepEqual(embedded, expected) {
+		t.Fatalf("embedded document info differs from standalone result:\nembedded: %#v\nstandalone: %#v", embedded, expected)
+	}
+
+	_, _, _, _, _, _, _, _, _, _, _, _, _, omitted, err := GetDoc(
+		"", "", fixture.sourceID, 0, "", nil, nil, 0, 0, 102400, false, map[string]string{}, true, false)
+	if nil != err {
+		t.Fatalf("get document without embedded info failed: %v", err)
+	}
+	if nil != omitted {
+		t.Fatalf("document info should be omitted unless requested: %#v", omitted)
 	}
 }
 
@@ -231,6 +417,127 @@ func TestCreateDocsByHPathUsesBoxDocAsLogicalRoot(t *testing.T) {
 	}
 	if "/"+docID+".sy" == createdTree.Path {
 		t.Fatalf("configured parent path was discarded: %s", createdTree.Path)
+	}
+}
+
+func TestCreateDocsByHPathUsesExactParentDocument(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+	}{
+		{name: "non-breaking space", title: "Parent\u00a0Document"},
+		{name: "zero-width joiner", title: "Parent \U0001F468\u200d\U0001F4BB"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := setupFileOperationTest(t)
+			parentID := "20260718000005-abcdefg"
+			parentPath := "/" + parentID + ".sy"
+			parentTree := treenode.NewTree(fixture.box.ID, parentPath, "/"+test.title, test.title)
+			if _, err := filesys.WriteTree(parentTree); err != nil {
+				t.Fatalf("write parent document failed: %v", err)
+			}
+			treenode.UpsertBlockTree(parentTree)
+			t.Cleanup(func() {
+				cache.RemoveTreeData(parentTree.ID)
+				cache.RemoveDocIAL(parentTree.Path)
+			})
+
+			childID := "20260718000006-abcdefg"
+			createdID, err := createDocsByHPath(
+				fixture.box.ID,
+				parentTree.HPath+"/Child",
+				"",
+				parentID,
+				childID,
+				false,
+			)
+			if err != nil {
+				t.Fatalf("create child document failed: %v", err)
+			}
+			if childID != createdID {
+				t.Fatalf("unexpected child document ID: got %s, want %s", createdID, childID)
+			}
+
+			childTree := treenode.GetBlockTree(childID)
+			if nil == childTree {
+				t.Fatalf("created child document block tree [%s] not found", childID)
+			}
+			wantPath := strings.TrimSuffix(parentPath, ".sy") + "/" + childID + ".sy"
+			if wantPath != childTree.Path {
+				t.Fatalf("child document created under unexpected parent: got %s, want %s", childTree.Path, wantPath)
+			}
+		})
+	}
+}
+
+func TestCreateDocsByHPathUsesParentIDForDuplicateHPath(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	title := "Parent\u00a0Document"
+	var parents []*parse.Tree
+	for _, parentID := range []string{"20260718000005-abcdefg", "20260718000006-abcdefg"} {
+		parentPath := "/" + parentID + ".sy"
+		parentTree := treenode.NewTree(fixture.box.ID, parentPath, "/"+title, title)
+		if _, err := filesys.WriteTree(parentTree); err != nil {
+			t.Fatalf("write parent document [%s] failed: %v", parentID, err)
+		}
+		treenode.UpsertBlockTree(parentTree)
+		parents = append(parents, parentTree)
+	}
+	t.Cleanup(func() {
+		for _, parentTree := range parents {
+			cache.RemoveTreeData(parentTree.ID)
+			cache.RemoveDocIAL(parentTree.Path)
+		}
+	})
+
+	selectedParent := parents[1]
+	childID := "20260718000007-abcdefg"
+	_, err := createDocsByHPath(
+		fixture.box.ID,
+		selectedParent.HPath+"/Child",
+		"",
+		selectedParent.ID,
+		childID,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("create child document failed: %v", err)
+	}
+
+	childTree := treenode.GetBlockTree(childID)
+	if nil == childTree {
+		t.Fatalf("created child document block tree [%s] not found", childID)
+	}
+	wantPath := strings.TrimSuffix(selectedParent.Path, ".sy") + "/" + childID + ".sy"
+	if wantPath != childTree.Path {
+		t.Fatalf("child document created under unexpected duplicate parent: got %s, want %s", childTree.Path, wantPath)
+	}
+}
+
+func TestCreateDocsByHPathKeepsHPathFallbackForDifferentParent(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	childID := "20260718000005-abcdefg"
+	_, err := createDocsByHPath(
+		fixture.box.ID,
+		"/Target/Child",
+		"",
+		fixture.sourceID,
+		childID,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("create document by configured hpath failed: %v", err)
+	}
+
+	childTree := treenode.GetBlockTree(childID)
+	if nil == childTree {
+		t.Fatalf("created child document block tree [%s] not found", childID)
+	}
+	wantPath := strings.TrimSuffix(fixture.targetPath, ".sy") + "/" + childID + ".sy"
+	if wantPath != childTree.Path {
+		t.Fatalf("configured hpath fallback used unexpected parent: got %s, want %s", childTree.Path, wantPath)
 	}
 }
 

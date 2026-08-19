@@ -37,7 +37,7 @@ const {
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const {pathToFileURL} = require("url");
+const { pathToFileURL } = require("url");
 const gNet = require("net");
 const childProcess = require("child_process");
 const remote = require("@electron/remote/main");
@@ -116,13 +116,13 @@ const popupNativeTextContextMenu = (contents, context, request) => {
                     writeLog("failed to add word to spell checker dictionary");
                 }
             },
-        }), {type: "separator"});
+        }), { type: "separator" });
     }
     template.push(new MenuItem({
         role: "undo", label: request.undo
     }), new MenuItem({
         role: "redo", label: request.redo
-    }), {type: "separator"}, new MenuItem({
+    }), { type: "separator" }, new MenuItem({
         role: "copy", label: request.copy
     }), new MenuItem({
         role: "cut", label: request.cut
@@ -277,7 +277,7 @@ for (let i = argStart; i < process.argv.length; i++) {
 try {
     firstOpen = !fs.existsSync(path.join(confDir, "workspace.json"));
     if (!fs.existsSync(confDir)) {
-        fs.mkdirSync(confDir, {mode: 0o755, recursive: true});
+        fs.mkdirSync(confDir, { mode: 0o755, recursive: true });
     }
 } catch (e) {
     console.error(e);
@@ -379,13 +379,17 @@ const windowNavigate = (currentWindow, windowType) => {
     });
 };
 
-const setProxy = (proxyURL, webContents) => {
-    if (proxyURL.startsWith("://")) {
+const setProxy = (proxyURL, webContents, proxyMode) => {
+    if (proxyMode === "system" || (!proxyMode && proxyURL.startsWith("://"))) {
         console.log("network proxy [system]");
-        return webContents.session.setProxy({mode: "system"});
+        return webContents.session.setProxy({ mode: "system" });
+    }
+    if (proxyMode === "direct") {
+        console.log("network proxy [direct]");
+        return webContents.session.setProxy({ mode: "direct" });
     }
     console.log("network proxy [" + proxyURL + "]");
-    return webContents.session.setProxy({proxyRules: proxyURL});
+    return webContents.session.setProxy({ proxyRules: proxyURL });
 };
 
 const hotKey2Electron = (key) => {
@@ -1085,7 +1089,7 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
         minHeight: 376,
         fullscreenable: true,
         fullscreen: windowState.fullscreen,
-        trafficLightPosition: {x: 8, y: 8},
+        trafficLightPosition: { x: 8, y: 8 },
         webPreferences: {
             nodeIntegration: true,
             webviewTag: true,
@@ -1114,6 +1118,7 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
     const loadMainURL = () => {
         currentWindow.loadURL(getServer(currentKernelPort) + "/stage/build/app/?v=" + Date.now());
     };
+
     // region 🛜 remote
     const applyProxyAndLoad = (proxyPromise) => {
         Promise.race([
@@ -1127,16 +1132,18 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
 
     if (localhost) {
         // set proxy
-        net.fetch(getServer() + "/api/system/getNetwork", {method: "POST"}).then((response) => {
+        net.fetch(getServer(currentKernelPort) + "/api/system/getNetwork", { method: "POST" }).then((response) => {
             return response.json();
         }).then((response) => {
-            applyProxyAndLoad(setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents));
+            const proxyMode = response.data.proxy.scheme === "system" ? "system" : response.data.proxy.scheme === "" ? "direct" : "fixed_servers";
+            const setProxyDone = setProxy(`${response.data.proxy.scheme}://${response.data.proxy.host}:${response.data.proxy.port}`, currentWindow.webContents, proxyMode);
+            applyProxyAndLoad(setProxyDone);
         }).catch((e) => {
             writeLog("getNetwork failed, load main UI without proxy: " + e.message);
             loadMainURL();
         });
     } else {
-        applyProxyAndLoad(setProxy(proxyURL, currentWindow.webContents));
+        applyProxyAndLoad(setProxy(proxyURL, currentWindow.webContents, "fixed_servers"));
     }
     // endregion 🛜 remote
 
@@ -1144,20 +1151,20 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
     currentWindow.webContents.session.webRequest.onBeforeSendHeaders((details, cb) => {
         if (-1 < details.url.toLowerCase().indexOf("bili")) {
             // B 站不移除 Referer https://github.com/siyuan-note/siyuan/issues/94
-            cb({requestHeaders: details.requestHeaders});
+            cb({ requestHeaders: details.requestHeaders });
             return;
         }
 
         if (-1 < details.url.toLowerCase().indexOf("douyin")) {
             // 抖音不移除 Referer，iframe 块内登录依赖 Referer 校验 https://github.com/siyuan-note/siyuan/issues/18070
-            cb({requestHeaders: details.requestHeaders});
+            cb({ requestHeaders: details.requestHeaders });
             return;
         }
 
         if (-1 < details.url.toLowerCase().indexOf("youtube")) {
             // YouTube 设置 Referer https://github.com/siyuan-note/siyuan/issues/16319
             details.requestHeaders["Referer"] = "https://b3log.org/siyuan/";
-            cb({requestHeaders: details.requestHeaders});
+            cb({ requestHeaders: details.requestHeaders });
             return;
         }
 
@@ -1166,7 +1173,7 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
                 delete details.requestHeaders[key];
             }
         }
-        cb({requestHeaders: details.requestHeaders});
+        cb({ requestHeaders: details.requestHeaders });
     });
     currentWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
         for (let key in details.responseHeaders) {
@@ -1178,7 +1185,7 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
                 delete details.responseHeaders[key];
             }
         }
-        cb({responseHeaders: details.responseHeaders});
+        cb({ responseHeaders: details.responseHeaders });
     });
 
     currentWindow.webContents.on("did-finish-load", () => {
@@ -1196,7 +1203,7 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
     });
 
     if (windowState.isDevToolsOpened) {
-        currentWindow.webContents.openDevTools({mode: "bottom"});
+        currentWindow.webContents.openDevTools({ mode: "bottom" });
     }
 
     // 菜单
@@ -1204,18 +1211,18 @@ const initMainWindow = (currentKernelPort = kernelPort) => {
     const template = [{
         label: productName, submenu: [{
             label: `About ${productName}`, role: "about",
-        }, {type: "separator"}, {role: "services"}, {type: "separator"}, {
+        }, { type: "separator" }, { role: "services" }, { type: "separator" }, {
             label: `Hide ${productName}`, role: "hide",
-        }, {role: "hideOthers"}, {role: "unhide"}, {type: "separator"}, {
+        }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, {
             label: `Quit ${productName}`, role: "quit",
         },],
     }, {
-        role: "editMenu", submenu: [{role: "cut"}, {role: "copy"}, {role: "paste"}, {
+        role: "editMenu", submenu: [{ role: "cut" }, { role: "copy" }, { role: "paste" }, {
             role: "pasteAndMatchStyle", accelerator: "CmdOrCtrl+Shift+C"
-        }, {role: "selectAll"},],
+        }, { role: "selectAll" },],
     }, {
         role: "windowMenu",
-        submenu: [{role: "minimize"}, {role: "zoom"}, {role: "togglefullscreen"}, {type: "separator"}, {role: "toggledevtools"}, {type: "separator"}, {role: "front"},],
+        submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "togglefullscreen" }, { type: "separator" }, { role: "toggledevtools" }, { type: "separator" }, { role: "front" },],
     },];
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
@@ -1289,7 +1296,7 @@ const showAppleSiliconWarning = async (lang) => {
     appleSiliconWarningShown = true;
     const languages = loadAppleSiliconWarningLanguages(lang);
     try {
-        const {response} = await dialog.showMessageBox({
+        const { response } = await dialog.showMessageBox({
             type: "warning",
             title: languages.arm64TranslationTitle,
             message: languages.arm64TranslationTitle,
@@ -1357,7 +1364,7 @@ const initKernel = (workspace, port, lang, safeMode) => {
         if (isDevEnv) {
             bootIndex = path.join(appDir, "electron", "boot.html");
         }
-        bootWindow.loadFile(bootIndex, {query: {v: appVer, port: kernelPort}});
+        bootWindow.loadFile(bootIndex, { query: { v: appVer, port: kernelPort } });
         if (openAsHidden) {
             bootWindow.minimize();
         } else {
@@ -1719,6 +1726,63 @@ app.whenReady().then(() => {
         if (data.cmd === "clipboardRead") {
             return clipboard.read(data.format);
         }
+        if (data.cmd === "clipboardReadMathML") {
+            if (typeof data.text !== "string" ||
+                normalizeClipboardText(clipboard.readText()) !== normalizeClipboardText(data.text)) {
+                return "";
+            }
+            const formats = clipboard.availableFormats().filter((format) =>
+                /^mathml(?: presentation)?$/i.test(format));
+            formats.push("MathML", "MathML Presentation");
+            // availableFormats 可能不包含 Office 原生 MathML 格式，需要直接尝试标准格式名
+            for (const format of new Set(formats)) {
+                const buffer = clipboard.readBuffer(format);
+                if (buffer.length === 0 || buffer.length > 1024 * 1024 || buffer.length % 2 !== 0) {
+                    continue;
+                }
+                const mathML = buffer.toString("utf16le")
+                    .replace(/^\uFEFF/, "")
+                    .replace(/\0+$/, "")
+                    .trim();
+                if (/<(?:[A-Za-z_][\w.-]*:)?math(?:\s|>)/i.test(mathML)) {
+                    return mathML;
+                }
+            }
+            return "";
+        }
+        if (data.cmd === "clipboardReadOffice") {
+            if (typeof data.text !== "string" ||
+                normalizeClipboardText(clipboard.readText()) !== normalizeClipboardText(data.text)) {
+                return "";
+            }
+            const buffer = clipboard.readBuffer("Embed Source");
+            const compoundFileSignature = Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+            if (buffer.length === 0 || buffer.length > 8 * 1024 * 1024 ||
+                !buffer.subarray(0, compoundFileSignature.length).equals(compoundFileSignature)) {
+                return "";
+            }
+            return buffer.toString("base64");
+        }
+        if (data.cmd === "clipboardReadWPS") {
+            if (typeof data.text !== "string" ||
+                normalizeClipboardText(clipboard.readText()) !== normalizeClipboardText(data.text)) {
+                return "";
+            }
+            const formats = clipboard.availableFormats().filter((format) =>
+                /kingsoft.*wps.*format/i.test(format));
+            formats.push("Kingsoft WPS Format");
+            for (let version = 6; version <= 20; version++) {
+                formats.push(`Kingsoft WPS ${version}.0 Format`);
+            }
+            // availableFormats 可能不包含 WPS 原生格式，需要尝试常见格式名
+            for (const format of new Set(formats)) {
+                const buffer = clipboard.readBuffer(format);
+                if (buffer.length <= 8 * 1024 * 1024 && buffer[0] === 0x50 && buffer[1] === 0x4b) {
+                    return buffer.toString("base64");
+                }
+            }
+            return "";
+        }
         if (data.cmd === "beginRichClipboard") {
             richClipboardOperation = undefined;
             const text = clipboard.readText();
@@ -1787,10 +1851,10 @@ app.whenReady().then(() => {
             if (data.singleton) {
                 const singleton = `${event.sender.id}:${data.singleton}`;
                 if (openDialogSingletons.has(singleton)) {
-                    return {canceled: true, filePaths: []};
+                    return { canceled: true, filePaths: [] };
                 }
                 openDialogSingletons.add(singleton);
-                const options = {...data};
+                const options = { ...data };
                 delete options.cmd;
                 delete options.singleton;
                 return dialog.showOpenDialog(options).finally(() => {
@@ -1813,7 +1877,7 @@ app.whenReady().then(() => {
             return event.sender.session.availableSpellCheckerLanguages;
         }
         if (data.cmd === "setProxy") {
-            return setProxy(data.proxyURL, event.sender);
+            return setProxy(data.proxyURL, event.sender, data.proxyMode);
         }
         if (data.cmd === "showSaveDialog") {
             return dialog.showSaveDialog(data);
@@ -1847,22 +1911,35 @@ app.whenReady().then(() => {
             }
         }
         if (data.cmd === "siyuan-open-file") {
-            let hasMatch = false;
-            BrowserWindow.getAllWindows().find(item => {
-                const url = new URL(item.webContents.getURL());
-                if (item.webContents.id === event.sender.id || data.port !== url.port) {
-                    return;
+            const options = JSON.parse(data.options);
+            return BrowserWindow.getAllWindows().some(item => {
+                if (item.isDestroyed() || item.webContents.isDestroyed() ||
+                    item.webContents.id === event.sender.id) {
+                    return false;
                 }
-                const ids = decodeURIComponent(url.hash.substring(1)).split("\u200b");
-                const options = JSON.parse(data.options);
+
+                let url;
+                let ids;
+                try {
+                    const currentURL = item.webContents.getURL();
+                    if (!currentURL) {
+                        return false;
+                    }
+                    url = new URL(currentURL);
+                    ids = decodeURIComponent(url.hash.substring(1)).split("\u200b");
+                } catch {
+                    return false;
+                }
+                if (data.port !== url.port) {
+                    return false;
+                }
                 if (ids.includes(options.rootID) || ids.includes(options.assetPath)) {
                     item.focus();
                     item.webContents.send("siyuan-open-file", options);
-                    hasMatch = true;
                     return true;
                 }
+                return false;
             });
-            return hasMatch;
         }
     });
 
@@ -1935,7 +2012,7 @@ app.whenReady().then(() => {
                 shell.openPath(data.filePath);
                 break;
             case "openDevTools":
-                event.sender.openDevTools({mode: "bottom"});
+                event.sender.openDevTools({ mode: "bottom" });
                 break;
             case "unregisterGlobalShortcut":
                 if (data.accelerator) {
@@ -2066,7 +2143,7 @@ app.whenReady().then(() => {
     ipcMain.on("siyuan-export-newwindow", (event, data) => {
         // The PDF/Word export preview window automatically adjusts according to the size of the main window https://github.com/siyuan-note/siyuan/issues/10554
         const wndBounds = getWindowByContentId(event.sender.id).getBounds();
-        const wndScreen = screen.getDisplayNearestPoint({x: wndBounds.x, y: wndBounds.y});
+        const wndScreen = screen.getDisplayNearestPoint({ x: wndBounds.x, y: wndBounds.y });
         const printWin = new BrowserWindow({
             title: "SiYuan",
             show: true,
@@ -2109,11 +2186,11 @@ app.whenReady().then(() => {
     ipcMain.on("siyuan-open-window", (event, data) => {
         const mainWindow = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
         const mainBounds = mainWindow.getBounds();
-        const mainScreen = screen.getDisplayNearestPoint({x: mainBounds.x, y: mainBounds.y});
+        const mainScreen = screen.getDisplayNearestPoint({ x: mainBounds.x, y: mainBounds.y });
         const win = new BrowserWindow({
             title: "SiYuan",
             show: true,
-            trafficLightPosition: {x: 8, y: 13},
+            trafficLightPosition: { x: 8, y: 13 },
             width: Math.floor(data.width || mainScreen.size.width * 0.7),
             height: Math.floor(data.height || mainScreen.size.height * 0.9),
             minWidth: 493,
@@ -2208,7 +2285,7 @@ app.whenReady().then(() => {
             }
             workspaceItem.tray = tray;
         }
-        await net.fetch(getServer(data.port) + "/api/system/uiproc?pid=" + process.pid, {method: "POST"});
+        await net.fetch(getServer(data.port) + "/api/system/uiproc?pid=" + process.pid, { method: "POST" });
     });
     ipcMain.on("siyuan-hotkey", (event, data) => {
         if (!data.hotkeys || data.hotkeys.length === 0) {
@@ -2478,7 +2555,7 @@ app.whenReady().then(() => {
             const currentURL = new URL(item.browserWindow.getURL());
             const server = getServer(currentURL.port);
             writeLog("sync after system resume [" + server + "/api/sync/performSync" + "]");
-            net.fetch(server + "/api/sync/performSync", {method: "POST"});
+            net.fetch(server + "/api/sync/performSync", { method: "POST" });
         });
     });
     powerMonitor.on("shutdown", () => {
@@ -2488,7 +2565,7 @@ app.whenReady().then(() => {
     powerMonitor.on("lock-screen", () => {
         writeLog("system lock-screen");
         BrowserWindow.getAllWindows().forEach(item => {
-            item.webContents.send("siyuan-send-windows", {cmd: "lockscreenByMode"});
+            item.webContents.send("siyuan-send-windows", { cmd: "lockscreenByMode" });
         });
     });
 });
@@ -2602,7 +2679,7 @@ app.on("web-contents-created", (webContentsCreatedEvent, contents) => {
         }
         // 在编辑器内打开链接的处理，比如 iframe 上的打开链接。
         shell.openExternal(details.url);
-        return {action: "deny"};
+        return { action: "deny" };
     });
 });
 

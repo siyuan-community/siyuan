@@ -2,7 +2,9 @@ import {escapeAriaLabel, escapeAttr, escapeHtml} from "../../../util/escape";
 import {unicode2Emoji} from "../../../emoji";
 import {Constants} from "../../../constants";
 import {getCompressURL} from "../../../util/image";
+import {isBrowserRenderableImagePath} from "../../../util/imageURL";
 import {formatDateDisplay, formatDateValue} from "./dateFormat";
+import {getAVBlockRefSubtype} from "./cellValue";
 
 export const createEmptyAVValue = (keyID: string, type: TAVCol, blockID?: string) => ({
     type,
@@ -79,7 +81,7 @@ const genAVRollupHTML = (value: IAVCellValue) => {
             if (value?.isDetached) {
                 html = `<span>${escapeHtml(value.block?.content || window.siyuan.languages.untitled)}</span>`;
             } else {
-                html = `<span data-type="block-ref" data-id="${value.block.id}" data-subtype="s" class="av__celltext--ref">${escapeHtml(value.block?.content || window.siyuan.languages.untitled)}</span>`;
+                html = `<span data-type="block-ref" data-id="${value.block.id}" data-subtype="${getAVBlockRefSubtype(value)}" class="av__celltext--ref">${escapeHtml(value.block?.content || window.siyuan.languages.untitled)}</span>`;
             }
             break;
         case "text":
@@ -141,7 +143,7 @@ export const genAVValueHTML = (value: IAVCellValue, dateFormat: TAVDateFormat = 
             break;
         case "mAsset":
             value.mAsset?.forEach(item => {
-                if (item.type === "image") {
+                if (item.type === "image" && isBrowserRenderableImagePath(item.content)) {
                     html += `<img loading="lazy" class="av__cellassetimg ariaLabel" aria-label="${escapeAriaLabel(item.content)}" src="${getCompressURL(item.content)}">`;
                 } else {
                     html += `<span class="b3-chip b3-chip--middle av__celltext--url ariaLabel" aria-label="${escapeAriaLabel(item.content)}" data-name="${escapeAttr(item.name)}" data-url="${escapeAttr(item.content)}">${escapeHtml(item.name || item.content)}</span>`;
@@ -193,7 +195,7 @@ export const genAVValueHTML = (value: IAVCellValue, dateFormat: TAVDateFormat = 
                     if (item?.isDetached) {
                         html += `<span data-row-id="${rowID}" class="av__cell--relation"><span><svg style="height: 26px"><use xlink:href="#iconLine"></use></svg><span class="fn__space--5"></span></span><span class="av__celltext">${Lute.EscapeHTMLStr(item.block.content || window.siyuan.languages.untitled)}</span></span>`;
                     } else {
-                        html += `<span data-row-id="${rowID}" class="av__cell--relation" data-block-id="${item.block.id}"><span class="b3-menu__avemoji" data-unicode="${escapeAttr(item.block.icon || "")}">${unicode2Emoji(item.block.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file)}</span><span data-type="block-ref" data-id="${item.block.id}" data-subtype="s" class="av__celltext av__celltext--ref">${Lute.EscapeHTMLStr(item.block.content || window.siyuan.languages.untitled)}</span></span>`;
+                        html += `<span data-row-id="${rowID}" class="av__cell--relation" data-block-id="${item.block.id}"><span class="b3-menu__avemoji" data-unicode="${escapeAttr(item.block.icon || "")}">${unicode2Emoji(item.block.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file)}</span><span data-type="block-ref" data-id="${item.block.id}" data-subtype="${getAVBlockRefSubtype(item)}" class="av__celltext av__celltext--ref">${Lute.EscapeHTMLStr(item.block.content || window.siyuan.languages.untitled)}</span></span>`;
                     }
                 }
             });

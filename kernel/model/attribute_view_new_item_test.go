@@ -45,6 +45,27 @@ func TestNewItemPathTitleFallback(t *testing.T) {
 	}
 }
 
+func TestNewItemPrimaryKeyUsesClippedTitleFallback(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 13, 12, 0, 0, 0, time.Local)
+	template := &av.NewItemTemplate{TargetType: av.NewItemTargetDetached}
+	preview, err := resolveAttributeViewNewItemTemplateWithFallback(ast.NewNodeID(), template, createdAt, " Clipped title ")
+	if nil != err {
+		t.Fatalf("resolve clipped title fallback failed: %s", err)
+	}
+	if "Clipped title" != preview.PrimaryKey {
+		t.Fatalf("unexpected clipped title fallback: %q", preview.PrimaryKey)
+	}
+
+	template.PrimaryKeyTemplate = `{{now | date "2006-01-02"}}`
+	preview, err = resolveAttributeViewNewItemTemplateWithFallback(ast.NewNodeID(), template, createdAt, "Clipped title")
+	if nil != err {
+		t.Fatalf("resolve configured primary key failed: %s", err)
+	}
+	if "2026-08-13" != preview.PrimaryKey {
+		t.Fatalf("the configured primary key template should take precedence: %q", preview.PrimaryKey)
+	}
+}
+
 func TestNewItemDocumentPreviewUsesCurrentDatabaseInstance(t *testing.T) {
 	boxID := ast.NewNodeID()
 	template := &av.NewItemTemplate{TargetType: av.NewItemTargetDocument, SaveLocation: &av.NewItemSaveLocation{}}
@@ -255,7 +276,8 @@ func TestNewBoundAttributeViewItemValueUsesDynamicAnchorText(t *testing.T) {
 	if nil != err {
 		t.Fatalf("create bound attribute view item value failed: %s", err)
 	}
-	if bound.IsDetached || docID != bound.Block.ID || "" != bound.Block.Content || "1f4c4" != bound.Block.Icon {
+	if bound.IsDetached || docID != bound.Block.ID || "" != bound.Block.Content || "1f4c4" != bound.Block.Icon ||
+		av.BlockRefSubtypeDynamic != bound.Block.RefSubtype {
 		t.Fatalf("the bound item should use dynamic anchor text: %+v", bound)
 	}
 	if !original.IsDetached || "" != original.Block.ID || "Detached item" != original.Block.Content {

@@ -13,13 +13,23 @@ import {replaceFileName} from "../../editor/rename";
 import {transaction} from "../wysiwyg/transaction";
 import {getAssetExtension, getAssetName, getDisplayName, isEncryptedBox} from "../../util/pathName";
 import {genEmptyElement} from "../../block/util";
-import {updateListOrder} from "../wysiwyg/list";
-import {escapeHtml, stripSearchMark} from "../../util/escape";
+import {getOrderedListStart, updateListOrder} from "../wysiwyg/list";
+import {escapeHtml, escapeSearchHighlight, stripSearchMark} from "../../util/escape";
 import {zoomOut} from "../../menus/protyle";
 import {hideElements} from "../ui/hideElements";
 import {genAssetHTML} from "../../asset/renderAssets";
 import {unicode2Emoji} from "../../emoji";
 import {avRender} from "../render/av/render";
+import {addWidgetCacheVersion} from "../util/widgetCache";
+import {
+    getEntryCatalogNode,
+    getPluginSlashEntryKey,
+    getSlashMenuEntryPath,
+    refreshSlashMenuCatalog,
+    SLASH_MENU_ROOT_PATH,
+} from "../../config/entryVisibility/catalog";
+import {getEntryOrder, isEntryVisible} from "../../config/entryVisibility/runtime";
+import {resolveSlashMenuItems, TSlashMenuItem} from "./slashMenu";
 
 const getHotkeyOrMarker = (hotkey: string, marker: string) => {
     if (hotkey) {
@@ -30,9 +40,8 @@ const getHotkeyOrMarker = (hotkey: string, marker: string) => {
     return "";
 };
 
-export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfiguredCreate: THintSource | boolean = false) => {
-    const hideConfiguredCreate = typeof sourceOrHideConfiguredCreate === "boolean" && sourceOrHideConfiguredCreate;
-    const allList: IHintData[] = [{
+export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
+    return [{
         filter: [window.siyuan.languages.template, "template", "模板", "moban", "muban", "mb"],
         id: "template",
         value: Constants.ZWSP,
@@ -374,12 +383,27 @@ export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfigured
         id: "separator_6",
         html: "separator",
     }];
+};
+
+export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfiguredCreate: THintSource | boolean = false) => {
+    const enabled = isEntryVisible(SLASH_MENU_ROOT_PATH);
+    if (!enabled) {
+        return [];
+    }
+    const hideConfiguredCreate = typeof sourceOrHideConfiguredCreate === "boolean" && sourceOrHideConfiguredCreate;
+    const builtinList = getBuiltinSlashMenuItems(protyle);
+    const allList = builtinList.map<TSlashMenuItem>((item) => ({
+        ...item,
+        entryKey: item.id || "",
+    }));
     let hasPlugin = false;
     protyle.app.plugins.forEach((plugin) => {
         plugin.protyleSlash.forEach(slash => {
             allList.push({
                 filter: slash.filter,
                 id: slash.id,
+                entryKey: getPluginSlashEntryKey(plugin.name, slash.id,
+                    slash.html === "separator" ? "separator" : "entry"),
                 value: `plugin${Constants.ZWSP}${plugin.name}${Constants.ZWSP}${slash.id}`,
                 html: slash.html
             });
@@ -389,24 +413,14 @@ export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfigured
     if (!hasPlugin) {
         allList.pop();
     }
-    const visibleList = hideConfiguredCreate ? allList.filter((item) => item.id !== "newFileRef") : allList;
-    if (key === "") {
-        return visibleList;
-    }
-    return visibleList.filter((item) => {
-        if (!item.filter) {
-            return false;
-        }
-        const match = item.filter.find((filter) => {
-            if (filter.toLowerCase().indexOf(key.toLowerCase()) > -1) {
-                return true;
-            }
-        });
-        if (match) {
-            return true;
-        } else {
-            return false;
-        }
+    refreshSlashMenuCatalog(protyle.app.plugins);
+    return resolveSlashMenuItems(allList.filter((item) =>
+        getEntryCatalogNode(getSlashMenuEntryPath(item.entryKey))), {
+        enabled,
+        hideConfiguredCreate,
+        key,
+        order: getEntryOrder(SLASH_MENU_ROOT_PATH),
+        visible: (entryKey) => isEntryVisible(getSlashMenuEntryPath(entryKey)),
     });
 };
 
@@ -455,13 +469,13 @@ export const genHintItemHTML = (item: IBlock) => {
     }
     let attrHTML = "";
     if (item.name) {
-        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconN"></use></svg><span>${item.name}</span></span><span class="fn__space"></span>`;
+        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconN"></use></svg><span>${escapeSearchHighlight(item.name)}</span></span><span class="fn__space"></span>`;
     }
     if (item.alias) {
-        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconA"></use></svg><span>${item.alias}</span></span><span class="fn__space"></span>`;
+        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconA"></use></svg><span>${escapeSearchHighlight(item.alias)}</span></span><span class="fn__space"></span>`;
     }
     if (item.memo) {
-        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconM"></use></svg><span>${item.memo}</span></span>`;
+        attrHTML += `<span class="fn__flex"><svg class="b3-list-item__hinticon"><use xlink:href="#iconM"></use></svg><span>${escapeSearchHighlight(item.memo)}</span></span>`;
     }
     if (attrHTML) {
         attrHTML = `<div class="fn__flex b3-list-item__meta b3-list-item__showall">${attrHTML}</div>`;
@@ -526,14 +540,14 @@ export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IH
                 createItemCount++;
             }
             response.data.blocks.forEach((item: IBlock) => {
-                const name = item.name ? stripSearchMark(item.name) : item.refText.replace(new RegExp(Constants.ZWSP, "g"), "");
+                const name = item.name ? stripSearchMark(escapeSearchHighlight(item.name)) : item.refText.replace(new RegExp(Constants.ZWSP, "g"), "");
                 let value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="d">${name}</span>`;
                 if (source === "search") {
                     value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${key}${Constants.ZWSP}${name}</span>`;
                 } else if (source === "av") {
                     let refText = name;
                     if (nodeElement) {
-                        refText = item.ial["custom-sy-av-s-text-" + nodeElement.getAttribute("data-av-id")] || refText;
+                        refText = escapeHtml(item.ial["custom-sy-av-s-text-" + nodeElement.getAttribute("data-av-id")] || "") || refText;
                     }
                     value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${refText}</span>`;
                 }
@@ -623,7 +637,8 @@ export const hintRenderWidget = (value: string, protyle: IProtyle) => {
     focusByRange(protyle.toolbar.range);
     // src 地址以 / 结尾
     // Use the path ending with `/` when loading the widget https://github.com/siyuan-note/siyuan/issues/10520
-    insertHTML(protyle.lute.SpinBlockDOM(`<iframe src="/widgets/${value}/" data-subtype="widget" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>`), protyle, true);
+    const src = addWidgetCacheVersion(`/widgets/${value}/`, Constants.SIYUAN_VERSION);
+    insertHTML(protyle.lute.SpinBlockDOM(`<iframe src="${src}" data-subtype="widget" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>`), protyle, true);
     hideElements(["util"], protyle);
 };
 
@@ -646,6 +661,7 @@ export const hintMoveBlock = (pathString: string, sourceElements: Element[], pro
     const doOperations: IOperation[] = [];
     let topSourceElement: Element;
     const parentElement = sourceElements[0].parentElement;
+    const listStart = getOrderedListStart(parentElement);
     let sideElement;
     sourceElements.forEach((item, index) => {
         if (index === sourceElements.length - 1 &&
@@ -673,7 +689,7 @@ export const hintMoveBlock = (pathString: string, sourceElements: Element[], pro
         topSourceElement.remove();
     } else if (parentElement.classList.contains("list") && parentElement.getAttribute("data-subtype") === "o" &&
         parentElement.childElementCount > 1) {
-        updateListOrder(parentElement, 1);
+        updateListOrder(parentElement, listStart);
         Array.from(parentElement.children).forEach((item) => {
             if (item.classList.contains("protyle-attr")) {
                 return;

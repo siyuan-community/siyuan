@@ -71,7 +71,12 @@ func GetDocInfoInBox(blockID, boxID string) (ret *BlockInfo, err error) {
 		}
 		return
 	}
+	ret = getDocInfoByTree(blockID, tree)
+	return
+}
 
+func getDocInfoByTree(blockID string, tree *parse.Tree) (ret *BlockInfo) {
+	boxID := tree.Box
 	title := tree.Root.IALAttr("title")
 	ret = &BlockInfo{ID: blockID, RootID: tree.Root.ID, Name: title}
 	ret.IAL = parse.IAL2Map(tree.Root.KramdownIAL)
@@ -107,8 +112,12 @@ func GetDocInfoInBox(blockID, boxID string) (ret *BlockInfo, err error) {
 	}
 
 	bt := treenode.GetBlockTreeInBox(blockID, boxID)
-	refDefs := queryBlockRefDefsInBox(bt, bt.BoxID)
-	refDefs, _ = buildBacklinkListItemRefsInBox(refDefs, bt.BoxID)
+	refBoxID := boxID
+	if nil != bt {
+		refBoxID = bt.BoxID
+	}
+	refDefs := queryBlockRefDefsInBox(bt, refBoxID)
+	refDefs, _ = buildBacklinkListItemRefsInBox(refDefs, refBoxID)
 	var refIDs []string
 	for _, refDef := range refDefs {
 		refIDs = append(refIDs, refDef.RefID)
@@ -373,6 +382,16 @@ func getNodeAvBlockText(node *ast.Node, avID string) (icon, content string) {
 		content = Conf.language(105)
 	}
 	return
+}
+
+func getNodeAvBlockRefSubtype(node *ast.Node, avID string) av.BlockRefSubtype {
+	if nil == node {
+		return av.BlockRefSubtypeDynamic
+	}
+	if "" != avID && "" != node.IALAttr(av.NodeAttrViewStaticText+"-"+avID) {
+		return av.BlockRefSubtypeStatic
+	}
+	return av.BlockRefSubtypeDynamic
 }
 
 func getNodeRefText0(node *ast.Node, maxLen int, removeLineBreak bool) string {

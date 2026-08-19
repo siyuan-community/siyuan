@@ -1021,7 +1021,7 @@ export const setInsertWbrHTML = (nodeElement: HTMLElement, range: Range, protyle
     }
 };
 
-export const focusByWbr = (element: Element, range: Range) => {
+export const focusByWbr = (element: Element, range: Range, preserveWbr = false) => {
     const wbrElements = element.querySelectorAll("wbr");
     if (wbrElements.length === 0) {
         return;
@@ -1073,7 +1073,9 @@ export const focusByWbr = (element: Element, range: Range) => {
         }
     }
     range.collapse(true);
-    wbrElement.remove();
+    if (!preserveWbr) {
+        wbrElement.remove();
+    }
     focusByRange(range);
     return range;
 };
@@ -1093,7 +1095,8 @@ export const focusByRange = (range: Range) => {
     selection.addRange(range);
 };
 
-export const focusBlock = (element: Element, parentElement?: HTMLElement, toStart = true): false | Range => {
+export const focusBlock = (element: Element, parentElement?: HTMLElement, toStart = true,
+                           focusAVTitle = false): false | Range => {
     if (!element) {
         return false;
     }
@@ -1134,13 +1137,20 @@ export const focusBlock = (element: Element, parentElement?: HTMLElement, toStar
             setRange = true;
         } else if (type === "NodeAttributeView") {
             /// #if !MOBILE
-            const cursorElement = element.querySelector(".av__cursor");
-            if (cursorElement) {
-                range.setStart(cursorElement.firstChild, 0);
+            const titleElement = focusAVTitle && element.querySelector(".av__title:not(.fn__none)");
+            if (titleElement) {
+                range.selectNodeContents(titleElement);
+                range.collapse(toStart);
                 setRange = true;
             } else {
-                element.setAttribute("data-need-focus", "true");
-                return false;
+                const cursorElement = element.querySelector(".av__cursor");
+                if (cursorElement) {
+                    range.setStart(cursorElement.firstChild, 0);
+                    setRange = true;
+                } else {
+                    element.setAttribute("data-need-focus", focusAVTitle ? "zoom" : "true");
+                    return false;
+                }
             }
             /// #else
             return false;

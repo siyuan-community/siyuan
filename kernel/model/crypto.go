@@ -41,6 +41,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/heif"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -1521,6 +1522,8 @@ func lockBoxWithPreparationHeld(boxID string, prepare func()) {
 
 // lockBoxHeld 在已持有 box 写锁的前提下执行该 box 的锁定清理（不含全局缓存刷新）。
 func lockBoxHeld(boxID string) {
+	// 此时已排空在途操作并持有 box 写锁，可以安全清除该笔记本的明文 HEIF 预览缓存。
+	heif.ClearMemoryCache(boxID)
 	RevokeManagedEncryptedExportsForBox(boxID)
 	ClearRichClipboardBox(boxID)
 
@@ -2533,6 +2536,10 @@ func copyAssetDecryptIfEncrypted(srcPath, destPath string) error {
 // 前置：加密功能已启用。创建时需要主密码（临时派生 KEK 用于 wrap DEK，用完即弃）。
 // 创建后直接用生成的 DEK 打开加密 db 并缓存（已解锁状态），调用方随后调 openNotebook 即可挂载。
 func CreateEncryptedBox(name, password string) (id string, err error) {
+	return createEncryptedBox(name, password, EnsureBoxDoc)
+}
+
+func createEncryptedBox(name, password string, initializeBoxDoc func(string) (string, error)) (id string, err error) {
 	notebookCryptoMu.Lock()
 	defer notebookCryptoMu.Unlock()
 
@@ -2553,12 +2560,15 @@ func CreateEncryptedBox(name, password string) (id string, err error) {
 	if err != nil {
 		return "", err
 	}
+	releaseTransition := holdEncryptedBoxTransition(id)
+	defer releaseTransition()
 	setEncryptedBoxState(id, EncryptedBoxStateUnlocking)
 
 	// 若后续步骤失败，清理已创建的 box 目录和加密 db 文件，避免半创建状态
 	createdBoxID := id
 	defer func() {
 		if err != nil {
+			setEncryptedBoxState(createdBoxID, EncryptedBoxStateError)
 			cleanupFailedEncryptedBox(createdBoxID)
 			id = ""
 		}
@@ -2605,14 +2615,15 @@ func CreateEncryptedBox(name, password string) (id string, err error) {
 	cachedDEKs[id] = dek
 	cachedDEKsLock.Unlock()
 
-	if _, err = EnsureBoxDoc(id); err != nil {
-		return "", fmt.Errorf("initialize encrypted notebook document failed: %w", err)
-	}
-
-	// 初始化自动锁定访问时间戳，与 UnlockBox 对称
+	// DEK 和加密数据库就绪后允许内部初始化读取密钥，但在笔记本文档创建完成前不接纳外部请求。
 	newVal := &atomic.Int64{}
 	newVal.Store(time.Now().UnixNano())
 	boxLastAccess.Store(id, newVal)
+	setEncryptedBoxStateWithAdmission(id, EncryptedBoxStateUnlocked, false)
+
+	if _, err = initializeBoxDoc(id); err != nil {
+		return "", fmt.Errorf("initialize encrypted notebook document failed: %w", err)
+	}
 
 	setEncryptedBoxState(id, EncryptedBoxStateUnlocked)
 	IncSync()
@@ -2633,6 +2644,8 @@ func cleanupFailedEncryptedBox(boxID string) {
 		return
 	}
 
+	// 创建失败路径不经过常规锁定流程，防御性清理可能生成的明文 HEIF 预览缓存。
+	heif.ClearMemoryCache(boxID)
 	cachedDEKsLock.Lock()
 	if cachedDEK, ok := cachedDEKs[boxID]; ok {
 		zeroAndClear(cachedDEK)
@@ -2640,6 +2653,7 @@ func cleanupFailedEncryptedBox(boxID string) {
 	}
 	cachedDEKsLock.Unlock()
 	mountedEncryptedBoxes.Delete(boxID)
+	boxLastAccess.Delete(boxID)
 	sql.RemoveEncryptedDBFile(boxID)
 	treenode.RemoveEncryptedBlockTreeDBFile(boxID)
 	removeEncryptedBoxLifecycle(boxID)

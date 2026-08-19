@@ -15,6 +15,7 @@ import {openLink} from "../../../editor/openLink";
 import {previewImages} from "../../../protyle/preview/image";
 import {getDiagramBlock, previewDiagram} from "../../../protyle/preview/diagram";
 import {removeCompressURL} from "../../../util/image";
+import {writeClipboardData} from "../../../protyle/util/compatibility";
 /// #if !MOBILE
 import {openGlobalSearch} from "../../../search/util";
 /// #else
@@ -178,13 +179,21 @@ export const createThinkingCardElement = (step: {
     return el;
 };
 
-export const bindThinkingCardToggle = (el: HTMLElement): void => {
+export const bindThinkingCardToggle = (el: HTMLElement, onLayoutChange?: () => void): void => {
     const header = el.querySelector(".agent-chat__thinking-header") as HTMLElement;
     const body = el.querySelector(".agent-chat__thinking-body") as HTMLElement;
     const expandIcon = el.querySelector(".agent-chat__thinking-arrow--expand") as HTMLElement;
     const contractIcon = el.querySelector(".agent-chat__thinking-arrow--contract") as HTMLElement;
+    const latestElement = el.querySelector(".agent-chat__thinking-latest") as HTMLElement | null;
     if (!header || !body || !expandIcon || !contractIcon) {
         return;
+    }
+    if (onLayoutChange) {
+        body.addEventListener("transitionend", (event) => {
+            if (event.target === body && event.propertyName === "max-height") {
+                onLayoutChange();
+            }
+        });
     }
     header.addEventListener("click", () => {
         el.setAttribute("data-user-interacted", "true");
@@ -209,15 +218,22 @@ export const bindThinkingCardToggle = (el: HTMLElement): void => {
                 body.classList.remove("agent-chat__thinking-body--expanded");
                 expandIcon.classList.remove("fn__none");
                 contractIcon.classList.add("fn__none");
+                latestElement?.classList.remove("fn__none");
+                if (latestElement) {
+                    latestElement.scrollLeft = latestElement.scrollWidth;
+                }
             } else if (isPreview) {
                 body.classList.remove("agent-chat__thinking-body--preview");
                 body.classList.add("agent-chat__thinking-body--expanded");
                 expandIcon.classList.add("fn__none");
                 contractIcon.classList.remove("fn__none");
+                latestElement?.classList.add("fn__none");
             } else {
                 body.classList.add("agent-chat__thinking-body--preview");
+                latestElement?.classList.add("fn__none");
             }
         }
+        onLayoutChange?.();
     });
 };
 
@@ -241,6 +257,18 @@ export const addCopyButtons = (container: HTMLElement): void => {
     });
 };
 
+export const copyAgentText = async (text: string) => {
+    const result = await writeClipboardData({textPlain: text});
+    if (result.error) {
+        console.log("Write Agent clipboard error:", result.error);
+    }
+    if (result.status === "failed") {
+        showMessage(window.siyuan.languages.clipboardPermissionDenied, 7000, "error");
+        return;
+    }
+    showMessage(window.siyuan.languages.copied, 2000);
+};
+
 // 构建单个复制按钮，getText 返回要复制的文本。
 const createCopyButton = (getText: () => string): HTMLElement => {
     const btn = document.createElement("span");
@@ -250,12 +278,7 @@ const createCopyButton = (getText: () => string): HTMLElement => {
     btn.setAttribute("data-position", "4north");
     btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const text = getText();
-        navigator.clipboard.writeText(text).then(() => {
-            showMessage(window.siyuan.languages.copied, 2000);
-        }).catch(() => {
-            showMessage(window.siyuan.languages.copied, 2000);
-        });
+        void copyAgentText(getText());
     });
     return btn;
 };

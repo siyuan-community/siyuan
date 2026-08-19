@@ -137,6 +137,9 @@ func HTML2Tree(htmlStr string, luteEngine *lute.Lute, boxID string) (tree *parse
 }
 
 func ImportSY(zipPath, boxID, toPath string) (err error) {
+	if isSYNotebookBundle(zipPath) {
+		return errors.New(Conf.Language(373))
+	}
 	_, err = importSY(zipPath, boxID, toPath, false, false)
 	return
 }
@@ -158,6 +161,11 @@ func isSYNotebookExport(hasBoxConf, hasBoxDocMeta bool) bool {
 }
 
 func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (createdBoxID string, err error) {
+	return importSY0(zipPath, boxID, toPath, createNotebook, autoDetect, nil, false)
+}
+
+func importSY0(zipPath, boxID, toPath string, createNotebook, autoDetect bool, sharedBlockIDs map[string]string,
+	precreatedBox bool) (createdBoxID string, err error) {
 	util.PushEndlessProgress(Conf.Language(73))
 	defer util.ClearPushProgress(100)
 
@@ -193,7 +201,7 @@ func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (c
 		logging.LogErrorf("read unzip dir [%s] failed: %s", unzipPath, err)
 		return
 	}
-	if 1 != len(entries) || !entries[0].IsDir() || len(syPaths) < 1 {
+	if 1 != len(entries) || !entries[0].IsDir() {
 		logging.LogErrorf("invalid .sy.zip [%v]", entries)
 		err = errors.New(Conf.Language(199))
 		return
@@ -252,12 +260,22 @@ func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (c
 			return
 		}
 	}
+	notebookExport := isSYNotebookExport(hasImportedBoxConf, hasImportedBoxDocMeta)
+	if len(syPaths) < 1 && !notebookExport {
+		logging.LogErrorf("invalid .sy.zip without documents or notebook metadata [unzipRootPath=%s]", unzipRootPath)
+		err = errors.New(Conf.Language(199))
+		return
+	}
 	if autoDetect {
 		if importedMetadataErr != nil {
 			err = errors.New(Conf.Language(199))
 			return
 		}
-		createNotebook = isSYNotebookExport(hasImportedBoxConf, hasImportedBoxDocMeta)
+		createNotebook = notebookExport
+	}
+	if !createNotebook && notebookExport {
+		err = errors.New(Conf.Language(373))
+		return
 	}
 	if autoDetect && !createNotebook && boxID == "" {
 		err = ErrSYTargetNotebookRequired
@@ -271,9 +289,11 @@ func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (c
 		if importedBoxConf != nil && importedBoxConf.Name != "" {
 			name = importedBoxConf.Name
 		}
-		boxID, err = CreateBox(util.RemoveInvalid(name))
-		if err != nil {
-			return "", err
+		if !precreatedBox {
+			boxID, err = CreateBox(util.RemoveInvalid(name))
+			if err != nil {
+				return "", err
+			}
 		}
 		createdBoxID = boxID
 		defer func() {
@@ -311,7 +331,10 @@ func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (c
 	toPath = normalizeBoxDocTarget(boxID, toPath)
 
 	luteEngine := util.NewLute()
-	blockIDs := map[string]string{}
+	blockIDs := sharedBlockIDs
+	if nil == blockIDs {
+		blockIDs = map[string]string{}
+	}
 	trees := map[string]*parse.Tree{}
 	importedBoxDoc := false
 	containsFlashcardAttrs := false
@@ -344,7 +367,10 @@ func importSY(zipPath, boxID, toPath string, createNotebook, autoDetect bool) (c
 
 			// 新 ID 保留时间部分，仅修改随机值，避免时间变化导致更新时间早于创建时间
 			// Keep original creation time when importing .sy.zip https://github.com/siyuan-note/siyuan/issues/9923
-			newNodeID := util.TimeFromID(n.ID) + "-" + util.RandString(7)
+			newNodeID := blockIDs[n.ID]
+			if "" == newNodeID {
+				newNodeID = util.TimeFromID(n.ID) + "-" + util.RandString(7)
+			}
 			if createNotebook && oldRootID == importedBoxDocID && n.ID == importedBoxDocID {
 				newNodeID = boxID
 			}

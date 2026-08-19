@@ -11,6 +11,7 @@ import {updateHotkeyTip} from "../../protyle/util/compatibility";
 import {desktopModeCookie} from "../../util/cookie";
 import {isBrowser, isMobile, objEquals} from "../../util/functions";
 import {exitSiYuan} from "../../dialog/processSystem";
+import {isInMobileApp} from "../../protyle/util/compatibility";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {openByMobile} from "../../editor/openLink";
 import {openSnippets} from "../util/snippets";
@@ -42,6 +43,7 @@ interface IFontItem {
     family: string;
     weight: number;
     displayName: string;
+    aliases?: string[];
 }
 
 const registerAppearanceContentGroup = (tab: SettingTabBuilder) => {
@@ -99,8 +101,9 @@ const registerAppearanceContentGroup = (tab: SettingTabBuilder) => {
 };
 
 const genFontListItemHtml = (item: IFontItem, checked: boolean) => {
+    const searchText = [item.family, item.displayName, ...(item.aliases || [])].join("\n").toLowerCase();
     return `<div class="b3-list-item b3-list-item--narrow" data-id="${escapeAttr(item.id || "")}">
-    <span class="b3-menu__label" data-family="${escapeAttr(item.family)}" data-name="${escapeAttr(item.displayName)}" data-weight="${item.weight || 400}">${escapeHtml(item.displayName)}</span>
+    <span class="b3-menu__label" data-family="${escapeAttr(item.family)}" data-name="${escapeAttr(item.displayName)}" data-search="${escapeAttr(searchText)}" data-weight="${item.weight || 400}">${escapeHtml(item.displayName)}</span>
     ${checked ? '<svg class="b3-menu__checked"><use xlink:href="#iconSelect"></use></svg>' : ""}
     ${item.id && !window.siyuan.config.readonly ? `<span class="b3-menu__action ariaLabel" data-type="delete-font" aria-label="${escapeAttr(window.siyuan.languages.delete)}"><svg><use xlink:href="#iconTrashcan"></use></svg></span>` : ""}
 </div>`;
@@ -129,12 +132,18 @@ const mountAppearanceFontFamily = (root: HTMLElement) => {
 
         const curFamily = fontFamilyEl.dataset.family;
         const curWeight = parseInt(fontFamilyEl.dataset.weight || "400", 10);
+        const fontItems = [...customFonts, ...systemFonts];
+        const selectedFont = fontItems.find((item) => item.family === curFamily && item.weight === curWeight);
+        if (selectedFont) {
+            fontFamilyEl.value = selectedFont.displayName;
+            fontFamilyEl.dataset.display = selectedFont.displayName;
+        }
         const defaultItemHtml = genFontListItemHtml({
             family: "",
             displayName: window.siyuan.languages.default,
             weight: 400,
         }, curFamily === "");
-        const fontItemHtml = [...customFonts, ...systemFonts].map((item) =>
+        const fontItemHtml = fontItems.map((item) =>
             genFontListItemHtml(item, item.family === curFamily && item.weight === curWeight)
         ).join("");
         const canManageCustomFonts = nativeMobile && !window.siyuan.config.readonly;
@@ -194,7 +203,7 @@ const mountAppearanceFontFamily = (root: HTMLElement) => {
                     listElement.querySelectorAll<HTMLElement>(".b3-list-item .b3-menu__label").forEach((item) => {
                         const name = item.dataset.name;
                         item.parentElement.classList.toggle("fn__none", !(!value ||
-                            item.dataset.family.toLowerCase().includes(value) || name.toLowerCase().includes(value)));
+                            item.dataset.search.includes(value)));
                         const idx = name.toLowerCase().indexOf(value);
                         item.replaceChildren(document.createTextNode(name));
                         if (idx !== -1 && value) {
@@ -523,12 +532,20 @@ const registerAppearanceControlsGroup = (tab: SettingTabBuilder) => {
             window.siyuan.languages.msgBrowserCompatibility,
             window.siyuan.languages.msgSelectAllTip,
             window.siyuan.languages.msgSelectAllIncompleteTip,
+            window.siyuan.languages.msgFormatPainterTip,
         ],
         afterMount: mountAppearanceSetNotifications,
     });
     const desktopModeControl = controlBoolean("desktopMode", {
         readConfig: () => desktopModeCookie.read(),
     });
+    const reloadDesktopMode = () => {
+        if (isInMobileApp()) {
+            void exitSiYuan();
+            return;
+        }
+        window.location.replace("/");
+    };
     // Electron 桌面端固定访问 /stage/build/app/，其他客户端可切换桌面和移动界面
     // https://github.com/siyuan-note/siyuan/issues/18559
     if (isBrowser()) {
@@ -554,22 +571,21 @@ const registerAppearanceControlsGroup = (tab: SettingTabBuilder) => {
                     left: {kind: "desc", text: window.siyuan.languages.mobileModeTip},
                     right: desktopModeControl,
                 },
-                {
+                ...(isInMobileApp() ? [{
                     left: {kind: "desc", text: window.siyuan.languages.desktopModeRestartTip},
-                },
+                } as const] : []),
             ]),
             controls: [{
                 control: desktopModeControl,
                 save: (value) => {
                     desktopModeCookie.set(value as boolean);
-                    // 切换桌面/移动模式需要重启应用才能加载对应 bundle，走正常退出流程后由用户手动重启
-                    void exitSiYuan();
+                    reloadDesktopMode();
                 },
             }],
             afterMount: (root) => {
                 root.querySelector("#resetDesktopMode")?.addEventListener("click", () => {
                     desktopModeCookie.remove();
-                    void exitSiYuan();
+                    reloadDesktopMode();
                 });
             },
         });
@@ -610,16 +626,29 @@ const bindFloatWindowModeVisibility = (root: HTMLElement) => {
 };
 /// #endif
 
-const STATUS_BAR_MSG_ITEMS: { key: keyof Config.IAppearanceStatusBar; taskKey: string }[] = [
-    {key: "msgTaskDatabaseIndexCommitDisabled", taskKey: "task.database.index.commit"},
-    {key: "msgTaskAssetDatabaseIndexCommitDisabled", taskKey: "task.asset.database.index.commit"},
-    {key: "msgTaskHistoryDatabaseIndexCommitDisabled", taskKey: "task.history.database.index.commit"},
-    {key: "msgTaskHistoryGenerateFileDisabled", taskKey: "task.history.generateFile"},
+const STATUS_BAR_MSG_ITEMS: { key: keyof Config.IAppearanceStatusBar; getLabel: () => string }[] = [
+    {
+        key: "msgTaskDatabaseIndexCommitDisabled",
+        getLabel: () => window.siyuan.languages._taskAction["task.database.index.commit"]
+    },
+    {
+        key: "msgTaskAssetDatabaseIndexCommitDisabled",
+        getLabel: () => window.siyuan.languages._taskAction["task.asset.database.index.commit"]
+    },
+    {
+        key: "msgTaskHistoryDatabaseIndexCommitDisabled",
+        getLabel: () => window.siyuan.languages._taskAction["task.history.database.index.commit"]
+    },
+    {
+        key: "msgTaskHistoryGenerateFileDisabled",
+        getLabel: () => window.siyuan.languages._taskAction["task.history.generateFile"]
+    },
+    {key: "msgDataSyncDisabled", getLabel: () => window.siyuan.languages.statusBarMsgDataSync},
 ];
 
 const genStatusBarMsgDialogHtml = (): string => {
-    const listItems = STATUS_BAR_MSG_ITEMS.map(({key, taskKey}) =>
-        genListSwitchItemHtml(key, window.siyuan.languages._taskAction[taskKey], !window.siyuan.config.appearance.statusBar[key])
+    const listItems = STATUS_BAR_MSG_ITEMS.map(({key, getLabel}) =>
+        genListSwitchItemHtml(key, getLabel(), !window.siyuan.config.appearance.statusBar[key])
     ).join("");
     return `<div class="fn__hr"></div>
 <div class="b3-label">
@@ -659,7 +688,7 @@ const mountAppearanceSetStatusBar = (root: HTMLElement) => {
 const NOTIFICATIONS_ITEMS: {
     field: keyof Config.IAppearanceNotifications;
     labelKey: "msgDocTreeMaxList" | "msgTagMaxList" | "msgWorkspaceNotSSD" | "msgBrowserCompatibility" |
-        "msgSelectAllTip" | "msgSelectAllIncompleteTip";
+        "msgSelectAllTip" | "msgSelectAllIncompleteTip" | "msgFormatPainterTip";
 }[] = [
     {field: "docTreeMaxList", labelKey: "msgDocTreeMaxList"},
     {field: "tagMaxList", labelKey: "msgTagMaxList"},
@@ -667,6 +696,7 @@ const NOTIFICATIONS_ITEMS: {
     {field: "browserCompatibility", labelKey: "msgBrowserCompatibility"},
     {field: "selectAllTip", labelKey: "msgSelectAllTip"},
     {field: "selectAllIncompleteTip", labelKey: "msgSelectAllIncompleteTip"},
+    {field: "formatPainterTip", labelKey: "msgFormatPainterTip"},
 ];
 
 const genNotificationsDialogHtml = (): string => {
@@ -691,6 +721,7 @@ const readNotificationsFromDialog = (root: HTMLElement): Config.IAppearanceNotif
         browserCompatibility: (root.querySelector("#browserCompatibility") as HTMLInputElement).checked,
         selectAllTip: (root.querySelector("#selectAllTip") as HTMLInputElement).checked,
         selectAllIncompleteTip: (root.querySelector("#selectAllIncompleteTip") as HTMLInputElement).checked,
+        formatPainterTip: (root.querySelector("#formatPainterTip") as HTMLInputElement).checked,
     };
 };
 

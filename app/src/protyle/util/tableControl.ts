@@ -24,6 +24,11 @@ import {
 } from "./tableResize";
 import {applyTableCellStyleHotkey, getTableCellTextStyleMenus} from "../toolbar/tableCell";
 import {getTableCellsInRectangle, getTableDragEdge} from "./tableSelection";
+import {
+    getDistributedTableColumnWidth,
+    isDefaultTableColumnWidth,
+    TABLE_DEFAULT_COLUMN_WIDTH,
+} from "./tableColumnWidth";
 
 type TableSelectionMode = "row" | "column" | "cell";
 type TableAddControlType = "add-row" | "add-column" | "add-both";
@@ -279,7 +284,6 @@ const TABLE_HANDLE_THICKNESS = 16;
 const TABLE_ADD_CONTROL_THICKNESS = 16;
 const TABLE_ADD_CONTROL_GAP = 10;
 const TABLE_EDGE_CONTROL_TRIGGER_SIZE = 8;
-const TABLE_DEFAULT_COLUMN_WIDTH = 60;
 const TABLE_RESIZE_DRAG_THRESHOLD = 4;
 const TABLE_NON_TEXT_CONTENT_SELECTOR = "img, audio, video, iframe, canvas, svg, math, input, textarea, select, button, object, embed";
 
@@ -1421,7 +1425,7 @@ export class TableControl {
             if (this.selection.mode !== "cell") {
                 menu.append(new MenuItem({
                     icon: "iconCopy",
-                    label: window.siyuan.languages.duplicate,
+                    label: window.siyuan.languages.duplicateCopy,
                     disabled: merged,
                     action: merged ? "iconInfo" : undefined,
                     actionLabel: merged ? window.siyuan.languages.splitMergedCellTip : undefined,
@@ -1435,6 +1439,29 @@ export class TableControl {
                             window.siyuan.languages.tableHeaderColumn,
                         checked: isTableHeaderEnabled(this.selection.node, headerType),
                         click: () => toggleTableHeader(this.protyle, this.selection.node, headerType),
+                    }).element);
+                }
+                if (this.selection.mode === "column") {
+                    const columns = this.getSelectedColumns();
+                    menu.append(new MenuItem({
+                        id: "autoFitColWidth",
+                        icon: "iconWidth",
+                        label: window.siyuan.languages.autoFitColWidth,
+                        click: () => this.setSelectedColumnWidth(),
+                    }).element);
+                    menu.append(new MenuItem({
+                        id: "distributeSelectedColWidths",
+                        icon: "iconScale",
+                        label: window.siyuan.languages.distributeSelectedColWidths,
+                        disabled: columns.length < 2,
+                        click: () => this.distributeSelectedColumnWidths(),
+                    }).element);
+                    menu.append(new MenuItem({
+                        id: "useDefaultWidth",
+                        label: window.siyuan.languages.useDefaultWidth,
+                        disabled: columns.length === 0 || columns.every(column =>
+                            isDefaultTableColumnWidth(column.style.width, column.style.minWidth)),
+                        click: () => this.setSelectedColumnWidth(TABLE_DEFAULT_COLUMN_WIDTH),
                     }).element);
                 }
                 menu.append(new MenuItem({type: "separator"}).element);
@@ -1463,9 +1490,6 @@ export class TableControl {
                     icon: "iconTrashcan",
                     label: this.selection.mode === "row" ? window.siyuan.languages["delete-row"] :
                         window.siyuan.languages["delete-column"],
-                    disabled: merged,
-                    action: merged ? "iconInfo" : undefined,
-                    actionLabel: merged ? window.siyuan.languages.splitMergedCellTip : undefined,
                     click: () => this.deleteSelection(false),
                 }).element);
             }
@@ -1698,9 +1722,6 @@ export class TableControl {
             window.siyuan.menus.menu.append(new MenuItem({
                 icon: "iconTrashcan",
                 label: window.siyuan.languages["delete-row"],
-                disabled: cellSelection.merged,
-                action: cellSelection.merged ? "iconInfo" : undefined,
-                actionLabel: cellSelection.merged ? window.siyuan.languages.splitMergedCellTip : undefined,
                 click: () => {
                     if (deleteTableRows(this.protyle, this.selection.node, cellSelection.rowIndexes)) {
                         this.clear();
@@ -1712,9 +1733,6 @@ export class TableControl {
             window.siyuan.menus.menu.append(new MenuItem({
                 icon: "iconTrashcan",
                 label: window.siyuan.languages["delete-column"],
-                disabled: cellSelection.merged,
-                action: cellSelection.merged ? "iconInfo" : undefined,
-                actionLabel: cellSelection.merged ? window.siyuan.languages.splitMergedCellTip : undefined,
                 click: () => {
                     if (deleteTableColumns(this.protyle, this.selection.node, cellSelection.columnIndexes)) {
                         this.clear();
@@ -1724,12 +1742,16 @@ export class TableControl {
         }
         const mergedCell = cells.length === 1 && (cells[0].rowSpan > 1 || cells[0].colSpan > 1);
         if (mergedCell || cells.length > 1) {
+            const mergeDisabledReason = !mergedCell && (!rectangle ?
+                window.siyuan.languages.tableRectangleSelectionRequired :
+                !this.isSelectionInOneSection() ? window.siyuan.languages.tableHeaderBodyMergeUnsupported : undefined);
             window.siyuan.menus.menu.append(new MenuItem({type: "separator"}).element);
             window.siyuan.menus.menu.append(new MenuItem({
                 icon: mergedCell ? "iconTableCellsSplit" : "iconTableCellsMerge",
                 label: mergedCell ? window.siyuan.languages.cancelMerged : window.siyuan.languages.mergeCell,
-                disabled: !mergedCell && (!rectangle || !this.isSelectionInOneSection()),
-                accelerator: !mergedCell && !rectangle ? window.siyuan.languages.tableRectangleSelectionRequired : undefined,
+                disabled: !!mergeDisabledReason,
+                action: mergeDisabledReason ? "iconInfo" : undefined,
+                actionLabel: mergeDisabledReason,
                 click: () => mergedCell ? this.splitCell(cells[0]) : this.mergeCells(),
             }).element);
         }
@@ -1764,6 +1786,60 @@ export class TableControl {
         this.scheduleRender();
     }
 
+    private setSelectedColumnWidth(minWidth?: number) {
+        if (!this.selection || this.selection.mode !== "column") {
+            return;
+        }
+        const oldHTML = this.selection.node.outerHTML;
+        this.getSelectedColumns().forEach(column => {
+            column.style.removeProperty("width");
+            if (minWidth === undefined) {
+                column.style.removeProperty("min-width");
+            } else {
+                column.style.minWidth = `${minWidth}px`;
+            }
+            if (!column.getAttribute("style")) {
+                column.removeAttribute("style");
+            }
+        });
+        if (this.selection.node.outerHTML !== oldHTML) {
+            updateTransaction(this.protyle, this.selection.node, oldHTML);
+        }
+        this.scheduleRender();
+    }
+
+    private distributeSelectedColumnWidths() {
+        if (!this.selection || this.selection.mode !== "column") {
+            return;
+        }
+        const columns = this.getSelectedColumns();
+        if (columns.length < 2) {
+            return;
+        }
+        const grid = this.selectionGrid || buildTableGrid(this.selection.table);
+        const widths = Array.from(this.selection.indexes).sort((a, b) => a - b).map(index =>
+            this.getColumnRect(this.selection.table, grid, index)?.width || TABLE_DEFAULT_COLUMN_WIDTH);
+        const width = getDistributedTableColumnWidth(widths);
+        const oldHTML = this.selection.node.outerHTML;
+        columns.forEach(column => {
+            column.style.width = `${width}px`;
+            column.style.removeProperty("min-width");
+        });
+        if (this.selection.node.outerHTML !== oldHTML) {
+            updateTransaction(this.protyle, this.selection.node, oldHTML);
+        }
+        this.scheduleRender();
+    }
+
+    private getSelectedColumns() {
+        if (!this.selection || this.selection.mode !== "column") {
+            return [];
+        }
+        const columns = this.selection.table.querySelectorAll<HTMLTableColElement>(":scope > colgroup > col");
+        return Array.from(this.selection.indexes).sort((a, b) => a - b)
+            .map(index => columns[index]).filter((column): column is HTMLTableColElement => !!column);
+    }
+
     private clearCells() {
         if (!this.selection) {
             return;
@@ -1785,7 +1861,7 @@ export class TableControl {
     }
 
     private deleteSelection(clearOnly: boolean) {
-        if (!this.selection || !this.canMutateSelection()) {
+        if (!this.selection || (this.selection.mode === "cell" && !this.isRectangle())) {
             return;
         }
         if (clearOnly && this.selection.mode === "cell") {

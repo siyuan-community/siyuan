@@ -111,7 +111,9 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "lock-screen" |
     "mobile-keyboard-show" | "mobile-keyboard-hide" |
     "code-language-update" | "code-language-change" |
-    "kernel-plugin-state-change"
+    "kernel-plugin-state-change" |
+    "before-show-tooltip" | "before-hide-tooltip" |
+    "common-menu-open" | "common-menu-closed"
 type TAVView = "table" | "gallery" | "kanban"
 type TAVAlign = "" | "left" | "center" | "right"
 type TAVDateFormat = "" | "full" | "month-day-year" | "day-month-year" | "year-month-day"
@@ -930,6 +932,14 @@ interface IFile {
     id: string;
     count: number;
     subFileCount: number;
+    childrenSortMode?: number | null;
+}
+
+interface IFileTreeList {
+    files: IFile[];
+    box: string;
+    path: string;
+    effectiveSortMode?: number;
 }
 
 interface IBlockTree {
@@ -1025,6 +1035,14 @@ interface IBazaarFunding {
     custom?: string[];
 }
 
+type TBazaarRatingDistribution = [number, number, number, number, number];
+
+interface IBazaarRating {
+    average: number;
+    count: number;
+    distribution: TBazaarRatingDistribution;
+}
+
 interface IBazaarItem {
     preferredName: string;
     minAppVersion: string;
@@ -1040,6 +1058,8 @@ interface IBazaarItem {
     author: string;
     updated: string;
     downloads: number;
+    ratingAvailable?: boolean;
+    rating?: IBazaarRating;
     disallowInstall: boolean;
     current: boolean;
     installed: boolean;
@@ -1065,6 +1085,7 @@ interface IBazaarItem {
     installedIncompatible?: boolean; // 仅插件/主题
     bazaarIncompatible?: boolean; // 仅插件/主题
     enabled?: boolean; // 仅 plugin
+    userDisabledInPublish?: boolean; // 仅 plugin
     modes?: string[]; // 仅 theme
 }
 
@@ -1321,7 +1342,8 @@ interface IAVCellValue {
     block?: {
         content: string,
         id?: string,
-        icon?: string
+        icon?: string,
+        refSubtype?: "s" | "d"
     }
     url?: {
         content: string

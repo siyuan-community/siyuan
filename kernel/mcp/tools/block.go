@@ -17,6 +17,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -28,7 +29,7 @@ import (
 
 var BlockTool = &Tool{
 	Name:        "block",
-	Description: "Block operations. Actions: get(id), get_kramdown(id), get_children(id), tree_stat(id, by document), dom(id), insert(data, dataType, parentID?, nextID?, previousID?), append(data, dataType, parentID) / prepend(...) add a NEW child — use after block.update when both modifying and adding, update(id, data, dataType, lockType?) replaces ONE block only (no append), delete(id), move(id, parentID, previousID?), breadcrumb(id), batch_get(ids) / batch_kramdown(ids) where ids is comma-separated.",
+	Description: "Block operations. Actions: get(id), get_kramdown(id), get_children(id), tree_stat(id, by document), dom(id), insert(data, dataType, parentID?, nextID?, previousID?), append(data, dataType, parentID) / prepend(...) add a NEW child and return its ID — use after block.update when both modifying and adding, update(id, data, dataType, lockType?) replaces ONE block only (no append), delete(id), move(id, parentID, previousID?), breadcrumb(id), batch_get(ids) / batch_kramdown(ids) where ids is comma-separated.",
 	InputSchema: ToolSchema{
 		Type: "object",
 		Properties: map[string]Property{
@@ -189,6 +190,9 @@ func blockInsert(args map[string]any) (CallToolResult, error) {
 	if v, ok := args["nextID"].(string); ok {
 		nextID = v
 	}
+	if parentID == "" && previousID == "" && nextID == "" {
+		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "parentID, previousID, or nextID is required"}}, IsError: true}, nil
+	}
 	boxID, release, scopeErr := beginBlockToolScope(args, true, parentID, previousID, nextID)
 	if scopeErr != nil {
 		return blockToolError(scopeErr.Error())
@@ -210,18 +214,18 @@ func blockInsert(args map[string]any) (CallToolResult, error) {
 		}
 	}
 
-	transactions := []*model.Transaction{{
-		DoOperations: []*model.Operation{{
-			Action:     "insert",
-			Data:       data,
-			ParentID:   parentID,
-			PreviousID: previousID,
-			NextID:     nextID,
-		}},
-	}}
+	operation := &model.Operation{
+		Action:     "insert",
+		Data:       data,
+		ParentID:   parentID,
+		PreviousID: previousID,
+		NextID:     nextID,
+	}
+	transaction := &model.Transaction{DoOperations: []*model.Operation{operation}}
 
-	model.PerformTransactions(&transactions)
-	model.FlushTxQueue()
+	if err := model.PerformTxSync(transaction); err != nil {
+		return blockToolError("insert block failed: " + err.Error())
+	}
 
 	reloadID := nextID
 	if reloadID == "" {
@@ -236,7 +240,7 @@ func blockInsert(args map[string]any) (CallToolResult, error) {
 		}
 	}
 
-	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "block inserted"}}}, nil
+	return blockWriteSuccess("insert", operation.ID)
 }
 
 func blockAppend(args map[string]any) (CallToolResult, error) {
@@ -266,21 +270,21 @@ func blockAppend(args map[string]any) (CallToolResult, error) {
 		}
 	}
 
-	transactions := []*model.Transaction{{
-		DoOperations: []*model.Operation{{
-			Action:   "appendInsert",
-			Data:     data,
-			ParentID: parentID,
-		}},
-	}}
+	operation := &model.Operation{
+		Action:   "appendInsert",
+		Data:     data,
+		ParentID: parentID,
+	}
+	transaction := &model.Transaction{DoOperations: []*model.Operation{operation}}
 
-	model.PerformTransactions(&transactions)
-	model.FlushTxQueue()
+	if err := model.PerformTxSync(transaction); err != nil {
+		return blockToolError("append block failed: " + err.Error())
+	}
 
 	if bt := treenode.GetBlockTreeInExactBox(parentID, boxID); bt != nil {
 		util.PushReloadProtyle(bt.RootID)
 	}
-	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "block appended"}}}, nil
+	return blockWriteSuccess("append", operation.ID)
 }
 
 func blockPrepend(args map[string]any) (CallToolResult, error) {
@@ -310,21 +314,42 @@ func blockPrepend(args map[string]any) (CallToolResult, error) {
 		}
 	}
 
-	transactions := []*model.Transaction{{
-		DoOperations: []*model.Operation{{
-			Action:   "prependInsert",
-			Data:     data,
-			ParentID: parentID,
-		}},
-	}}
+	operation := &model.Operation{
+		Action:   "prependInsert",
+		Data:     data,
+		ParentID: parentID,
+	}
+	transaction := &model.Transaction{DoOperations: []*model.Operation{operation}}
 
-	model.PerformTransactions(&transactions)
-	model.FlushTxQueue()
+	if err := model.PerformTxSync(transaction); err != nil {
+		return blockToolError("prepend block failed: " + err.Error())
+	}
 
 	if bt := treenode.GetBlockTreeInExactBox(parentID, boxID); bt != nil {
 		util.PushReloadProtyle(bt.RootID)
 	}
-	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "block prepended"}}}, nil
+	return blockWriteSuccess("prepend", operation.ID)
+}
+
+type blockWriteOutput struct {
+	Action string `json:"action"`
+	ID     string `json:"id"`
+}
+
+func blockWriteSuccess(action, id string) (CallToolResult, error) {
+	if id == "" {
+		return blockToolError(action + " block failed: empty block ID")
+	}
+	output := &blockWriteOutput{Action: action, ID: id}
+	serialized, err := json.Marshal(output)
+	if err != nil {
+		return CallToolResult{}, err
+	}
+	return CallToolResult{
+		Content:              []ContentItem{{Type: "text", Text: string(serialized)}},
+		StructuredContent:    output,
+		StructuredContentSet: true,
+	}, nil
 }
 
 func blockUpdate(args map[string]any) (CallToolResult, error) {
@@ -373,15 +398,16 @@ func blockDelete(args map[string]any) (CallToolResult, error) {
 
 	bt := treenode.GetBlockTreeInExactBox(id, boxID)
 
-	transactions := []*model.Transaction{{
+	transaction := &model.Transaction{
 		DoOperations: []*model.Operation{{
 			Action: "delete",
 			ID:     id,
 		}},
-	}}
+	}
 
-	model.PerformTransactions(&transactions)
-	model.FlushTxQueue()
+	if err := model.PerformTxSync(transaction); err != nil {
+		return blockToolError("delete block failed: " + err.Error())
+	}
 
 	if bt != nil {
 		util.PushReloadProtyle(bt.RootID)
@@ -434,17 +460,18 @@ func blockMove(args map[string]any) (CallToolResult, error) {
 		}
 	}
 
-	transactions := []*model.Transaction{{
+	transaction := &model.Transaction{
 		DoOperations: []*model.Operation{{
 			Action:     "move",
 			ID:         id,
 			ParentID:   parentID,
 			PreviousID: previousID,
 		}},
-	}}
+	}
 
-	model.PerformTransactions(&transactions)
-	model.FlushTxQueue()
+	if err := model.PerformTxSync(transaction); err != nil {
+		return blockToolError("move block failed: " + err.Error())
+	}
 
 	if bt := treenode.GetBlockTreeInExactBox(id, boxID); bt != nil {
 		util.PushReloadProtyle(bt.RootID)

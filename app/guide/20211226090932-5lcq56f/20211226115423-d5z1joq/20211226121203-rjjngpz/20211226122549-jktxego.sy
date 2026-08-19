@@ -7,16 +7,39 @@
 		"id": "20211226122549-jktxego",
 		"title": "快捷鍵",
 		"type": "doc",
-		"updated": "20260811122156"
+		"updated": "20260818004044"
 	},
 	"Children": [
+		{
+			"ID": "20260813143408-r6w3j9h",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260813143408-r6w3j9h",
+				"updated": "20260813143408"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "為避免影響正常文字輸入，不能將單一字元或與 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Shift"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " 組合的單一字元設為快捷鍵。"
+				}
+			]
+		},
 		{
 			"ID": "20211226122652-0t4c1qf",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20211226122652-0t4c1qf",
-				"updated": "20260811122156"
+				"updated": "20260818004044"
 			},
 			"Children": [
 				{
@@ -36,7 +59,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20211226122652-4e9hm9i",
-				"updated": "20260811122156"
+				"updated": "20260818004044"
 			},
 			"Children": [
 				{
@@ -552,6 +575,63 @@
 									"Type": "NodeTextMark",
 									"TextMarkType": "kbd",
 									"TextMarkTextContent": "⌘W"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "​"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td"
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "智能體傳送"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "​"
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Ctrl"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "​+"
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "回車"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " / "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "⌘回車"
 								},
 								{
 									"Type": "NodeText",
@@ -11492,7 +11572,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20211226122652-td76oes",
-				"updated": "20260811122156"
+				"updated": "20260815184617"
 			},
 			"Children": [
 				{
@@ -11512,7 +11592,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20211226122652-qj1o02k",
-				"updated": "20260811122156"
+				"updated": "20260815184617"
 			},
 			"Children": [
 				{
@@ -11732,7 +11812,16 @@
 								{
 									"Type": "NodeTextMark",
 									"TextMarkType": "kbd",
-									"TextMarkTextContent": "回車"
+									"TextMarkTextContent": "Shift"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "​+"
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "L"
 								},
 								{
 									"Type": "NodeText",
@@ -11741,7 +11830,7 @@
 								{
 									"Type": "NodeTextMark",
 									"TextMarkType": "kbd",
-									"TextMarkTextContent": "⌘回車"
+									"TextMarkTextContent": "⇧⌘L"
 								},
 								{
 									"Type": "NodeText",
