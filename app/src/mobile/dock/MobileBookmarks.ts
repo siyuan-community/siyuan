@@ -6,6 +6,7 @@ import {openMobileFileById} from "../editor";
 import {openBookmarkMenu} from "../../menus/bookmark";
 import type {App} from "../../index";
 import {checkFold} from "../../util/noRelyPCFunction";
+import {showMobileFilterInput} from "./mobileFilterInput";
 
 export class MobileBookmarks {
     public element: HTMLElement;
@@ -16,8 +17,8 @@ export class MobileBookmarks {
     private updating = false;
     private updatePending = false;
 
-    constructor(app: App) {
-        this.element = document.querySelector('#sidebar [data-type="sidebar-bookmark"]');
+    constructor(app: App, element: HTMLElement) {
+        this.element = element;
         this.element.innerHTML = `<div class="toolbar toolbar--border toolbar--dark">
     <div class="fn__space"></div>
     <div class="toolbar__text">
@@ -86,8 +87,7 @@ export class MobileBookmarks {
                             this.tree.expandAll();
                             break;
                         case "search":
-                            inputElement.classList.remove("fn__none");
-                            inputElement.select();
+                            showMobileFilterInput(inputElement, target);
                             break;
                     }
                 }

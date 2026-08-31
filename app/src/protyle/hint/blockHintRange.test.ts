@@ -4,6 +4,8 @@ import {
     endsWithMultiCharHintPrefix,
     getBlockHintTriggerOffset,
     getBlockRefStaticText,
+    isBlockHintQueryAtCaret,
+    shouldCaptureHintUndoFocus,
     shouldIgnoreHintTrigger,
 } from "./blockHintRange";
 
@@ -57,6 +59,23 @@ describe("getBlockHintTriggerOffset", () => {
     });
 });
 
+describe("isBlockHintQueryAtCaret", () => {
+    it("recognizes an unfinished query around the caret", () => {
+        assert.equal(isBlockHintQueryAtCaret("prefix [[que", "ry", "[[", "]]", 512), true);
+        assert.equal(isBlockHintQueryAtCaret("prefix ((query", "", "((", "))", 512), true);
+    });
+
+    it("keeps a query editable before its closing marker", () => {
+        assert.equal(isBlockHintQueryAtCaret("[[que", "ry]]", "[[", "]]", 512), true);
+    });
+
+    it("rejects text outside a valid query", () => {
+        assert.equal(isBlockHintQueryAtCaret("plain text", "", "[[", "]]", 512), false);
+        assert.equal(isBlockHintQueryAtCaret("[[ query", "", "[[", "]]", 512), false);
+        assert.equal(isBlockHintQueryAtCaret("[[12345", "", "[[", "]]", 5), false);
+    });
+});
+
 describe("getBlockRefStaticText", () => {
     it("preserves the complete toolbar selection", () => {
         assert.equal(getBlockRefStaticText("旧的开始", "((", false), "旧的开始");
@@ -83,6 +102,29 @@ describe("shouldIgnoreHintTrigger", () => {
         assert.equal(shouldIgnoreHintTrigger("", "、", blockHintKeys), false);
         assert.equal(shouldIgnoreHintTrigger("#", "、", blockHintKeys), true);
         assert.equal(shouldIgnoreHintTrigger("、", "[[", blockHintKeys), false);
+    });
+});
+
+describe("shouldCaptureHintUndoFocus", () => {
+    const blockHintKeys = ["((", "[[", "（（", "【【"];
+
+    it("captures block hint focus in all editors", () => {
+        assert.equal(shouldCaptureHintUndoFocus("[[", blockHintKeys, false), true);
+    });
+
+    it("captures slash hint focus in lite editors", () => {
+        assert.equal(shouldCaptureHintUndoFocus("/", blockHintKeys, true), true);
+        assert.equal(shouldCaptureHintUndoFocus("、", blockHintKeys, true), true);
+    });
+
+    it("captures slash emoji focus in regular editors", () => {
+        assert.equal(shouldCaptureHintUndoFocus("/", blockHintKeys, false, "emoji"), true);
+        assert.equal(shouldCaptureHintUndoFocus("、", blockHintKeys, false, "emoji"), true);
+    });
+
+    it("does not change regular editor slash hint focus handling", () => {
+        assert.equal(shouldCaptureHintUndoFocus("/", blockHintKeys, false), false);
+        assert.equal(shouldCaptureHintUndoFocus("#", blockHintKeys, true), false);
     });
 });
 

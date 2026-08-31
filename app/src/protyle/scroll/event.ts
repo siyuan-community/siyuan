@@ -1,16 +1,15 @@
 import {Constants} from "../../constants";
 import {hideElements} from "../ui/hideElements";
 import {isMobile} from "../../util/functions";
-import {hasClosestBlock, hasClosestByClassName} from "../util/hasClosest";
 import {stickyRow} from "../render/av/row";
 import {trimAVRowsSync} from "../render/av/virtualScroll";
-import {pauseImageAnimationTemporarily} from "../util/imageAnimation";
+import {isDocumentBoundaryLoaded} from "../util/documentRange";
+import {getVisibleRootBlockID, isScrolledToBottom} from "./viewport";
 
 let getIndexTimeout: number;
 const avScrollPending = new WeakSet<HTMLElement>();
 export const scrollEvent = (protyle: IProtyle, element: HTMLElement) => {
     element.addEventListener("scroll", () => {
-        pauseImageAnimationTemporarily(protyle.wysiwyg.element, Constants.TIMEOUT_INPUT);
         const elementRect = element.getBoundingClientRect();
         if (!protyle.toolbar.element.classList.contains("fn__none")) {
             const initY = protyle.toolbar.element.getAttribute("data-inity").split(Constants.ZWSP);
@@ -52,24 +51,30 @@ export const scrollEvent = (protyle: IProtyle, element: HTMLElement) => {
         if (protyle.scroll && !protyle.scroll.element.classList.contains("fn__none")) {
             clearTimeout(getIndexTimeout);
             getIndexTimeout = window.setTimeout(() => {
-                let targetElement = document.elementFromPoint(elementRect.left + elementRect.width / 2, elementRect.top + 10);
-                if (targetElement.classList.contains("protyle-wysiwyg")) {
-                    // 恰好定位到块的中间时
-                    targetElement = document.elementFromPoint(elementRect.left + elementRect.width / 2, elementRect.top + 20);
-                }
-                const blockElement = hasClosestBlock(targetElement);
-                if (!blockElement) {
-                    if ((protyle.wysiwyg.element.firstElementChild.getAttribute("data-eof") === "1" ||
-                            // goHome 时 data-eof 不为 1
-                            protyle.wysiwyg.element.firstElementChild.getAttribute("data-node-index") === "0") &&
-                        (hasClosestByClassName(targetElement, "protyle-background") || hasClosestByClassName(targetElement, "protyle-title"))) {
-                        const inputElement = protyle.scroll.element.querySelector(".b3-slider") as HTMLInputElement;
-                        inputElement.value = "1";
-                        protyle.scroll.element.setAttribute("aria-label", `Blocks 1/${protyle.block.blockCount}`);
-                    }
+                if (element.scrollTop <= 1 && isDocumentBoundaryLoaded(protyle.wysiwyg.element, "before")) {
+                    protyle.scroll.setCurrentIndex(protyle, 1, true);
                     return;
                 }
-                protyle.scroll.updateIndex(protyle, blockElement.getAttribute("data-node-id"));
+                if (isScrolledToBottom(element.scrollTop, element.scrollHeight, element.clientHeight) &&
+                    isDocumentBoundaryLoaded(protyle.wysiwyg.element, "after")) {
+                    protyle.scroll.setCurrentIndex(protyle, protyle.block.blockCount, true);
+                    return;
+                }
+                const visibleBlockID = getVisibleRootBlockID(
+                    Array.from(protyle.wysiwyg.element.children).map((item) => {
+                        const rect = item.getBoundingClientRect();
+                        return {
+                            id: item.getAttribute("data-node-id"),
+                            top: rect.top,
+                            bottom: rect.bottom,
+                        };
+                    }),
+                    elementRect.top + 10,
+                    elementRect.bottom,
+                );
+                if (visibleBlockID) {
+                    protyle.scroll.updateIndex(protyle, visibleBlockID);
+                }
             }, Constants.TIMEOUT_LOAD);
         }
 

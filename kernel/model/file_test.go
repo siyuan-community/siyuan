@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
@@ -106,6 +107,51 @@ func setupFileOperationTest(t *testing.T) *fileOperationTestFixture {
 		targetPath: targetPath,
 		sourceID:   sourceTree.ID,
 		childID:    sourceTree.Root.FirstChild.ID,
+	}
+}
+
+func TestListDocTreeUsesPathIDForInvalidPropertiesID(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	ial := filesys.DocIAL(filepath.Join(util.DataDir, fixture.box.ID, fixture.sourcePath))
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "missing"},
+		{name: "short", id: "legacy"},
+		{name: "mismatch", id: "20260718000009-hijklmn"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invalidIAL := make(map[string]string, len(ial))
+			for key, value := range ial {
+				invalidIAL[key] = value
+			}
+			if "" == test.id {
+				delete(invalidIAL, "id")
+			} else {
+				invalidIAL["id"] = test.id
+			}
+			cache.PutDocIALInBox(fixture.sourcePath, fixture.box.ID, invalidIAL)
+			t.Cleanup(func() {
+				cache.RemoveDocIALInBox(fixture.sourcePath, fixture.box.ID)
+			})
+
+			files, _, err := ListDocTree(fixture.box.ID, "/", util.SortModeNameASC, false, false, 128)
+			if nil != err {
+				t.Fatalf("list documents failed: %v", err)
+			}
+			for _, file := range files {
+				if fixture.sourceID == file.ID {
+					if 0 >= file.CTime {
+						t.Fatalf("invalid creation time for recovered document: %d", file.CTime)
+					}
+					return
+				}
+			}
+			t.Fatalf("document [%s] was not listed", fixture.sourceID)
+		})
 	}
 }
 
@@ -329,6 +375,38 @@ func TestValidateCreateDocDoesNotWrite(t *testing.T) {
 	crossBoxPath := path.Join(strings.TrimSuffix(fixture.targetPath, ".sy"), newID+".sy")
 	if err := ValidateCreateDoc(otherBox.ID, crossBoxPath, "Cross notebook"); !errors.Is(err, ErrBlockNotFound) {
 		t.Fatalf("expected cross-notebook parent to return ErrBlockNotFound, got [%v]", err)
+	}
+}
+
+func TestCreateDocByMdConvertsHTMLTagsToTextMarks(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	docID := "20260718000003-abcdefg"
+	docPath := "/" + docID + ".sy"
+	tree, err := CreateDocByMd(fixture.box.ID, docPath, "HTML text marks", "<kbd>Ctrl</kbd> <u>text</u>", nil, nil)
+	if nil != err {
+		t.Fatalf("create document from Markdown failed: %v", err)
+	}
+	t.Cleanup(func() {
+		cache.RemoveTreeData(tree.ID)
+		cache.RemoveDocIAL(tree.Path)
+	})
+
+	foundKbd := false
+	foundUnderline := false
+	ast.Walk(tree.Root, func(node *ast.Node, entering bool) ast.WalkStatus {
+		if !entering || ast.NodeTextMark != node.Type {
+			return ast.WalkContinue
+		}
+		if "kbd" == node.TextMarkType && strings.Contains(node.TextMarkTextContent, "Ctrl") {
+			foundKbd = true
+		}
+		if "u" == node.TextMarkType && strings.Contains(node.TextMarkTextContent, "text") {
+			foundUnderline = true
+		}
+		return ast.WalkContinue
+	})
+	if !foundKbd || !foundUnderline {
+		t.Fatalf("HTML tags were not converted to text marks: kbd=%t, underline=%t", foundKbd, foundUnderline)
 	}
 }
 

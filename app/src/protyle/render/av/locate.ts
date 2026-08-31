@@ -7,6 +7,7 @@ import {scrollCenter} from "../../../util/highlightById";
 import {setAVCellAnchor, setAVItemAnchor} from "./rangeSelect";
 import {updateAVRowSelect} from "./virtualScroll";
 import {getAVLocateViewChange} from "./locateView";
+import {applyAVColorPalette, getAVCustomColors} from "./color";
 
 export interface IAVLocateRequest {
     itemID: string;
@@ -48,7 +49,7 @@ const highlightLocatedItem = (blockElement: HTMLElement, protyle: IProtyle, view
     clearLocatedHighlight(blockElement);
     const token = Symbol();
     highlightTokens.set(blockElement, token);
-    const className = viewType === "table" ? "av__row--locate" : "av__gallery-item--locate";
+    const className = "protyle-wysiwyg--hl";
     const targetQuery = viewType === "table" ? `.av__row[data-id="${itemID}"]` : `.av__gallery-item[data-id="${itemID}"]`;
     requestAnimationFrame(() => {
         if (!blockElement.isConnected || highlightTokens.get(blockElement) !== token) {
@@ -136,7 +137,11 @@ export const queueAVLocateRequest = (blockID: string, request: IAVLocateRequest)
     if (previous) {
         window.clearTimeout(previous.timer);
     }
-    const locateRequest = {...request, select: true, highlight: true};
+    const locateRequest = {
+        ...request,
+        select: request.select ?? false,
+        highlight: request.highlight ?? true,
+    };
     const timer = window.setTimeout(() => {
         if (queuedLocateRequests.get(blockID)?.request === locateRequest) {
             queuedLocateRequests.delete(blockID);
@@ -241,6 +246,7 @@ export const getAVLocateParams = (blockElement: HTMLElement, enabled = true) => 
 export const applyAVRenderContext = (blockElement: HTMLElement, data: IAV) => {
     blockElement.setAttribute(Constants.CUSTOM_SY_AV_VIEW, data.viewID);
     blockElement.setAttribute("data-av-type", data.viewType);
+    applyAVColorPalette(blockElement, getAVCustomColors());
 };
 
 export const persistAVLocateView = (blockElement: HTMLElement, protyle: IProtyle, data: IAV) => {

@@ -2,7 +2,7 @@ import {getIconByType} from "../../editor/getIcon";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {Constants} from "../../constants";
 import {MenuItem} from "../../menus/Menu";
-import {fullscreen, net2LocalAssets, updateReadonly} from "./action";
+import {net2LocalAssets, updateReadonly} from "./action";
 import {openFileAttr} from "../../menus/commonMenuItem";
 import {setEditMode} from "../util/setEditMode";
 import {RecordMedia, RecordMediaInputEndedError} from "../util/RecordMedia";
@@ -31,7 +31,6 @@ import {openTitleMenu} from "../header/openTitleMenu";
 import {emitOpenMenu} from "../../plugin/EventBus";
 import {isInAndroid, isInHarmony, isIPad, isMac, updateHotkeyTip} from "../util/compatibility";
 import {isEncryptedBox} from "../../util/pathName";
-import {resize} from "../util/resize";
 import {listIndent, listOutdent} from "../wysiwyg/list";
 import {improveBreadcrumbAppearance} from "../wysiwyg/renderBacklink";
 import {getCloudURL} from "../../config/util/about";
@@ -39,6 +38,7 @@ import {decodeHTML, escapeAttr, escapeAriaLabel, escapeHtml, escapeSearchHighlig
 import {refreshUndoButtons} from "../undo/globalUndo";
 import {getAllEditor} from "../../layout/getAll";
 import {genEmbedStatTip, type IBlockStat, type IEmbedStat} from "../../layout/status";
+import {mountBreadcrumbButtons} from "../../plugin/breadcrumbButton";
 
 const genDocumentStatLabel = (stat: IBlockStat, statWithEmbed?: IBlockStat, embedStat?: IEmbedStat) => {
     const runeEmbedAttrs = statWithEmbed ? ` class="ariaLabel" data-position="north" aria-label="${escapeAriaLabel(genEmbedStatTip(window.siyuan.languages.runeCountWithEmbed, statWithEmbed.runeCount, embedStat))}"` : "";
@@ -56,6 +56,7 @@ export class Breadcrumb {
     private uploadingRecordFiles = new Set<File>();
     private startingRecord = false;
     private stoppingRecord = false;
+    private mobileMenuLoading = false;
     private previousFocusElement: HTMLElement;
     private previousRange: Range;
 
@@ -75,6 +76,7 @@ export class Breadcrumb {
             `<button class="protyle-breadcrumb__icon" data-type="mobile-menu">${window.siyuan.languages.breadcrumb}</button>` :
             '<div class="protyle-breadcrumb__bar"></div>'}
 <span class="protyle-breadcrumb__space"></span>
+<div class="protyle-breadcrumb__plugin"></div>
 <button class="protyle-breadcrumb__icon fn__none ariaLabel" aria-label="${updateHotkeyTip(window.siyuan.config.keymap.editor.general.exitFocus.custom)}" data-type="exit-focus">${window.siyuan.languages.exitFocus}</button>
 ${padHTML}
 <button class="block__icon fn__flex-center ariaLabel${window.siyuan.config.readonly ? " fn__none" : ""}" aria-label="${window.siyuan.languages.lockEdit}" data-type="readonly" data-subtype="unlock"><svg><use xlink:href="#iconUnlock"></use></svg></button>
@@ -82,8 +84,12 @@ ${padHTML}
 <button class="block__icon fn__flex-center ariaLabel" data-type="more" aria-label="${window.siyuan.languages.more}"><svg><use xlink:href="#iconMore"></use></svg></button>
 <button class="block__icon fn__flex-center fn__none ariaLabel" data-type="context" aria-label="${window.siyuan.languages.context}"><svg><use xlink:href="#iconAlignCenter"></use></svg></button>`;
         this.element = element.firstElementChild as HTMLElement;
+        mountBreadcrumbButtons(protyle, element.querySelector(".protyle-breadcrumb__plugin"));
         element.addEventListener("click", async (event) => {
             let target = event.target as HTMLElement;
+            if (event.composedPath().some(item => item instanceof HTMLElement && item.hasAttribute("data-plugin-name"))) {
+                return;
+            }
             const arrowElement = target.closest(".protyle-breadcrumb__arrow");
             if (arrowElement && this.element.contains(arrowElement)) {
                 const itemElement = arrowElement.previousElementSibling as HTMLElement;
@@ -555,7 +561,7 @@ ${padHTML}
                     return;
                 }
                 this.showRecordUploadRetry(uploadProtyle, file, rootID);
-            });
+            }, {source: "programmatic", target: "editor"});
         } catch (error) {
             this.uploadingRecordFiles.delete(file);
             this.showRecordUploadRetry(uploadProtyle, file, rootID);
@@ -586,10 +592,13 @@ ${padHTML}
     }
 
     private genMobileMenu(protyle: IProtyle) {
-        if (protyle.toolbar.isMultiSelectMode()) {
+        if (protyle.toolbar.isMultiSelectMode() || this.mobileMenuLoading) {
             return;
         }
         const menu = new Menu(Constants.MENU_BREADCRUMB_MOBILE_PATH);
+        if (menu.isOpen) {
+            return;
+        }
         let blockElement: Element;
         if (getSelection().rangeCount > 0) {
             const range = getSelection().getRangeAt(0);
@@ -610,6 +619,7 @@ ${padHTML}
         if (isEncryptedBox(protyle.notebookId)) {
             breadcrumbParam.notebook = protyle.notebookId;
         }
+        this.mobileMenuLoading = true;
         fetchPost("/api/block/getBlockBreadcrumb", breadcrumbParam, (response) => {
             response.data.forEach((item: IBreadcrumb) => {
                 let isCurrent = false;
@@ -628,6 +638,8 @@ ${padHTML}
                 });
             });
             menu.fullscreen();
+        }).finally(() => {
+            this.mobileMenuLoading = false;
         });
     }
 
@@ -680,7 +692,10 @@ ${padHTML}
                         if (event.target.files.length === 0) {
                             return;
                         }
-                        uploadFiles(protyle, event.target.files, event.target);
+                        uploadFiles(protyle, event.target.files, event.target, undefined, undefined, {
+                            source: "file-picker",
+                            target: "editor",
+                        });
                         window.siyuan.menus.menu.remove();
                     });
                     window.siyuan.menus.menu.append(imageUploadMenu);
@@ -696,7 +711,10 @@ ${padHTML}
                     if (event.target.files.length === 0) {
                         return;
                     }
-                    uploadFiles(protyle, event.target.files, event.target);
+                    uploadFiles(protyle, event.target.files, event.target, undefined, undefined, {
+                        source: "file-picker",
+                        target: "editor",
+                    });
                     window.siyuan.menus.menu.remove();
                 });
                 window.siyuan.menus.menu.append(uploadMenu);
@@ -711,7 +729,11 @@ ${padHTML}
                     if (event.target.files.length === 0) {
                         return;
                     }
-                    uploadFiles(protyle, event.target.files, event.target, undefined, undefined, {htmlAsIframe: true});
+                    uploadFiles(protyle, event.target.files, event.target, undefined, undefined, {
+                        htmlAsIframe: true,
+                        source: "file-picker",
+                        target: "editor",
+                    });
                     window.siyuan.menus.menu.remove();
                 });
                 window.siyuan.menus.menu.append(htmlUploadMenu);
@@ -865,12 +887,12 @@ ${padHTML}
             /// #if !MOBILE
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "fullscreen",
-                icon: protyle.element.className.includes("fullscreen") ? "iconFullscreenExit" : "iconFullscreen",
+                icon: protyle.getInstance().isFullscreen() ? "iconFullscreenExit" : "iconFullscreen",
                 accelerator: window.siyuan.config.keymap.editor.general.fullscreen.custom,
                 label: window.siyuan.languages.fullscreen,
                 click: () => {
-                    fullscreen(protyle.element);
-                    resize(protyle);
+                    const editor = protyle.getInstance();
+                    editor.setFullscreen(!editor.isFullscreen());
                 }
             }).element);
             /// #endif
@@ -1026,9 +1048,8 @@ ${padHTML}
                 }).element);
             }
             /// #endif
-            if (protyle?.app?.plugins) {
+            if (protyle) {
                 emitOpenMenu({
-                    plugins: protyle.app.plugins,
                     type: "open-menu-breadcrumbmore",
                     detail: {
                         protyle,

@@ -1,5 +1,5 @@
 import {fetchPost, fetchSyncPost} from "../util/fetch";
-import {unicode2Emoji} from "../emoji";
+import {getFileTreeIconHTML} from "../emoji/fileTreeIcon";
 import {Constants} from "../constants";
 import {escapeHtml} from "../util/escape";
 import {isWindow} from "../util/functions";
@@ -24,7 +24,7 @@ const renderRecentDocsContent = async (data: {
     data.forEach((item) => {
         if (!key || item.title.toLowerCase().includes(key.toLowerCase())) {
             tabHtml += `<li data-index="${index}" data-node-id="${item.rootID}" class="b3-list-item${index === 0 ? " b3-list-item--focus" : ""}">
-    ${unicode2Emoji(item.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file, "b3-list-item__graphic", true)}
+    ${getFileTreeIconHTML(item.icon, "file", "b3-list-item__graphic", true)}
     <span class="b3-list-item__text">${escapeHtml(item.title)}</span>
 </li>`;
             index++;
@@ -103,6 +103,7 @@ export const openRecentDocs = () => {
 <div class="fn__flex-center">
     <select class="b3-select" id="recentDocsSort">
         <option value="viewedAt">${window.siyuan.languages.recentViewed}</option>
+        <option value="created">${window.siyuan.languages.recentCreated}</option>
         <option value="updated">${window.siyuan.languages.recentModified}</option>
         <option value="openAt">${window.siyuan.languages.recentOpened}</option>
         <option value="closedAt">${window.siyuan.languages.recentClosed}</option>

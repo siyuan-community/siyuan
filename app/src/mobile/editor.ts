@@ -15,6 +15,9 @@ import type {App} from "../index";
 import {initMirror} from "../protyle/undo/globalUndo";
 import {getDocByScroll, saveScroll} from "../protyle/scroll/saveScroll";
 import {isEncryptedBox} from "../util/pathName";
+import {bindMobileBarsScroll, pauseMobileBarsScroll} from "./util/mobileBars";
+import {forEachPluginSubscriber} from "../plugin/EventBusCore";
+import {restoreMobileTopBarLayout, updateMobileTopBarLayout} from "./util/mobileTopBar";
 
 export const getCurrentEditor = () => {
     return window.siyuan.mobile.popEditor || window.siyuan.mobile.editor;
@@ -66,6 +69,8 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
             return;
         }
         completed = true;
+        updateMobileTopBarLayout();
+        bindMobileBarsScroll(protyle.contentElement);
         afterOpen?.(protyle);
     };
     const fail = (invalid = false) => {
@@ -117,6 +122,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
                 updateRecentDocSwitchTime(createRecentDocUpdate(rootID, rootID));
             }
             complete(protyle);
+            pauseMobileBarsScroll();
             return;
         }
     }
@@ -203,8 +209,8 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
                         if (updateRecent) {
                             updateRecentDocSwitchTime(createRecentDocUpdate(data.data.rootID, previousRootID));
                         }
-                        app.plugins.forEach(item => {
-                            item.eventBus.emit("switch-protyle", {protyle: window.siyuan.mobile.editor.protyle});
+                        forEachPluginSubscriber("switch-protyle", eventBus => {
+                            eventBus.emit("switch-protyle", {protyle: window.siyuan.mobile.editor.protyle});
                         });
                         complete(window.siyuan.mobile.editor.protyle);
                     }
@@ -245,8 +251,8 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
                                 if (updateRecent) {
                                     updateRecentDocSwitchTime(createRecentDocUpdate(data.data.rootID, previousRootID));
                                 }
-                                app.plugins.forEach(item => {
-                                    item.eventBus.emit("switch-protyle", {protyle: window.siyuan.mobile.editor.protyle});
+                                forEachPluginSubscriber("switch-protyle", eventBus => {
+                                    eventBus.emit("switch-protyle", {protyle: window.siyuan.mobile.editor.protyle});
                                 });
                                 complete(window.siyuan.mobile.editor.protyle);
                             }
@@ -268,6 +274,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
             }
         } else {
             try {
+                restoreMobileTopBarLayout();
                 window.siyuan.mobile.editor = new Protyle(app, document.getElementById("editor"), protyleOptions);
             } catch (error) {
                 console.error(error);

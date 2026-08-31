@@ -94,6 +94,24 @@ func PushReloadPlugin(uninstallPluginNameSet, unloadPluginNameSet, reloadPluginS
 	util.BroadcastByTypeAndExcludeApp(excludeApp, "main", "reloadPlugin", 0, "", payload)
 }
 
+// PushReloadAllEnabledPlugins 向前端推送已启用插件的全局启用或禁用状态。
+func PushReloadAllEnabledPlugins(enabled bool, excludeApp string) {
+	pluginNameSet := hashset.New()
+	for _, petal := range getPetals() {
+		if petal.Enabled {
+			pluginNameSet.Add(petal.Name)
+		}
+	}
+	if pluginNameSet.Empty() {
+		return
+	}
+	if enabled {
+		PushReloadPlugin(nil, nil, pluginNameSet, nil, excludeApp)
+	} else {
+		PushReloadPlugin(nil, pluginNameSet, nil, nil, excludeApp)
+	}
+}
+
 func refreshDocInfo(tree *parse.Tree) {
 	if nil == tree {
 		return
@@ -271,17 +289,17 @@ func refreshRefCount(blockID string) {
 	isDoc := bt.ID == bt.RootID
 	var rootRefIDs []string
 	var refCount, rootRefCount int
-	refIDs := sql.QueryRefIDsByDefID(bt.ID, isDoc)
+	refIDs := sql.QueryRefIDsByDefIDInBox(bt.ID, isDoc, bt.BoxID)
 	if isDoc {
 		rootRefIDs = refIDs
 	} else {
-		rootRefIDs = sql.QueryRefIDsByDefID(bt.RootID, true)
+		rootRefIDs = sql.QueryRefIDsByDefIDInBox(bt.RootID, true, bt.BoxID)
 	}
 	refCount = len(refIDs)
 	rootRefCount = len(rootRefIDs)
 	var defIDs []string
 	if isDoc {
-		defIDs = sql.QueryChildDefIDsByRootDefID(bt.ID)
+		defIDs = sql.QueryChildDefIDsByRootDefIDInBox(bt.ID, bt.BoxID)
 	} else {
 		defIDs = append(defIDs, bt.ID)
 	}

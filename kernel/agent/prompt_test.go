@@ -48,11 +48,60 @@ func TestTurnContextStaysInUserMessage(t *testing.T) {
 }
 
 func TestSystemPromptDocumentsBlockReferenceSyntax(t *testing.T) {
-	if !strings.Contains(systemPrompt, `((<blockID> "<anchor text>"))`) {
-		t.Fatal("system prompt is missing the SiYuan block-reference syntax")
+	if !strings.Contains(systemPrompt, `((<blockID> "<static anchor text>"))`) {
+		t.Fatal("system prompt is missing the static SiYuan block-reference syntax")
 	}
-	if !strings.Contains(systemPrompt, `never use [[<blockID>]]`) {
-		t.Fatal("system prompt does not reject bracketed block IDs")
+	if !strings.Contains(systemPrompt, `((<blockID> '<dynamic anchor text>'))`) {
+		t.Fatal("system prompt is missing the dynamic SiYuan block-reference syntax")
+	}
+	if !strings.Contains(systemPrompt, `for fixed text`) ||
+		!strings.Contains(systemPrompt, `for text that follows the target block's content`) {
+		t.Fatal("system prompt does not explain static and dynamic block-reference behavior")
+	}
+	if !strings.Contains(systemPrompt, `Never use ((<blockID>)) or [[<blockID>]]`) {
+		t.Fatal("system prompt does not reject block references without anchor text or bracketed block IDs")
+	}
+	if !strings.Contains(systemPrompt, `in chat responses use [title](siyuan://blocks/<blockID>)`) {
+		t.Fatal("system prompt does not distinguish note-content block references from chat-response links")
+	}
+}
+
+func TestSystemPromptDocumentsTagRendering(t *testing.T) {
+	for _, instruction := range []string{
+		`render its exact label as <span data-type="tag">label</span>`,
+		`including a leading $, inside the span`,
+		`Never prefix the label with # or use #label# in chat`,
+	} {
+		if !strings.Contains(systemPrompt, instruction) {
+			t.Fatalf("system prompt is missing the tag rendering instruction %q", instruction)
+		}
+	}
+}
+
+func TestSystemPromptUsesSanitizedKernelLogTool(t *testing.T) {
+	for _, instruction := range []string{"sanitized kernel log with the log tool", "Prefer search", "use tail", "read for surrounding line ranges"} {
+		if !strings.Contains(systemPrompt, instruction) {
+			t.Fatalf("system prompt is missing the kernel log instruction %q", instruction)
+		}
+	}
+	if strings.Contains(systemPrompt, `read "temp/siyuan.log"`) {
+		t.Fatal("system prompt still asks the general file tool to read the protected raw kernel log")
+	}
+}
+
+func TestSystemPromptDocumentsSuperBlockLayout(t *testing.T) {
+	for _, instruction := range []string{
+		`"row" means a vertical layout`,
+		`"col" means a horizontal layout`,
+		`{{{col`,
+		`Use {{{row for a vertical super-block`,
+		`Never use data-layout in raw block DOM`,
+		`data-sb-layout="row" or data-sb-layout="col"`,
+		`every child must be complete block DOM with an explicit data-type`,
+	} {
+		if !strings.Contains(systemPrompt, instruction) {
+			t.Fatalf("system prompt is missing the super-block instruction %q", instruction)
+		}
 	}
 }
 

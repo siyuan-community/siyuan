@@ -1,5 +1,6 @@
 import {hasClosestByClassName, hasClosestByTag, hasTopClosestByTag} from "../../protyle/util/hasClosest";
 import {escapeHtml} from "../../util/escape";
+import {getTreeItemTailHTML} from "../../util/treeItemTail";
 import {Model} from "../../layout/Model";
 import {Constants} from "../../constants";
 import {getDocDisplayName, isMoveTargetAllowed, pathPosix, setNoteBook} from "../../util/pathName";
@@ -12,7 +13,12 @@ import {
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {genUUID} from "../../util/genID";
 import {openMobileFileById} from "../editor";
-import {unicode2Emoji} from "../../emoji";
+import {
+    getFileTreeDefaultIconAttr,
+    getFileTreeIconHTML,
+    syncFileTreeItemDefaultIcon,
+    updateFileTreeItemIcon,
+} from "../../emoji/fileTreeIcon";
 import {newNotebook, openEncryptedNotebook} from "../../util/mount";
 import {newFileInTree} from "../../util/newFile";
 import {MenuItem} from "../../menus/Menu";
@@ -66,14 +72,13 @@ export class MobileFiles extends Model {
         startTime: number;
     };
 
-    constructor(app: App) {
+    constructor(app: App, filesElement: HTMLElement) {
         super({app});
         this.connect({
             id: genUUID(),
             type: "filetree",
             msgCallback: this.handleMsgCallback.bind(this)
         });
-        const filesElement = document.querySelector('#sidebar [data-type="sidebar-file"]');
         filesElement.innerHTML = `<div class="toolbar toolbar--border toolbar--dark">
     <div class="fn__space"></div>
     <div class="toolbar__text">${window.siyuan.languages.fileTree}</div>
@@ -194,7 +199,7 @@ export class MobileFiles extends Model {
                         } else if (!isFileTreeCollapsing(liElement)) {
                             this.getLeaf(liElement, notebookId);
                         }
-                        this.setCurrent(target.parentElement);
+                        this.setCurrent(liElement, false);
                         window.siyuan.menus.menu.remove();
                     }
                     event.preventDefault();
@@ -668,12 +673,8 @@ export class MobileFiles extends Model {
             this.element.querySelector<HTMLElement>(
                 `ul[data-url="${data.boxID}"] > li[data-type="navigation-root"]`
             );
-        const iconElement = liElement?.querySelector<HTMLElement>(".b3-list-item__icon");
-        if (iconElement) {
-            const iconHTML = unicode2Emoji(data.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].note);
-            if (iconElement.innerHTML !== iconHTML) {
-                iconElement.innerHTML = iconHTML;
-            }
+        if (liElement) {
+            updateFileTreeItemIcon(liElement, data.icon, "notebook");
         }
     }
 
@@ -760,6 +761,7 @@ export class MobileFiles extends Model {
                 if (hiddenElement) {
                     // 原先无子文档：显示展开箭头
                     hiddenElement.classList.remove("fn__hidden");
+                    syncFileTreeItemDefaultIcon(liElement as HTMLElement);
                 } else if (liElement.querySelector(".b3-list-item__arrow--open")) {
                     // 父文档已展开：刷新子列表
                     this.getLeaf(liElement, notebookId, true);
@@ -795,6 +797,7 @@ export class MobileFiles extends Model {
         } else {
             liElement.querySelector(".b3-list-item__toggle")?.classList.remove("fn__hidden");
         }
+        syncFileTreeItemDefaultIcon(liElement);
         this.updateDocActionElement(liElement);
     }
 
@@ -829,10 +832,12 @@ export class MobileFiles extends Model {
 
     private genNotebook(item: INotebook) {
         const editingPublishAccess = this.actionsElement.querySelector('[data-type="publish-access"]').classList.contains("block__icon--active");
-        // 加密笔记本关闭（锁定）时用 🔒 提示需解锁；打开（解锁）后恢复正常 emoji
-        const iconContent = (item.encrypted && item.closed)
+        // 加密笔记本关闭（锁定）时用 🔒 提示需解锁
+        const locked = item.encrypted && item.closed;
+        const iconContent = locked
             ? "🔒️"
-            : unicode2Emoji(item.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].note);
+            : getFileTreeIconHTML(item.icon, "notebook");
+        const defaultIconAttr = getFileTreeDefaultIconAttr(item.icon, "notebook", locked);
         const isBoxDoc = !item.closed && window.siyuan.config.fileTree.boxDocEnabled;
         const hasChildren = isBoxDoc && item.subFileCount > 0;
         const iconAriaLabel = isBoxDoc ?
@@ -841,7 +846,7 @@ export class MobileFiles extends Model {
         const emojiHTML = `<span class="b3-list-item__icon b3-tooltips b3-tooltips__e${editingPublishAccess && !item.encrypted ? " fn__none" : ""}" aria-label="${iconAriaLabel}">${iconContent}</span>`;
         const switchHTML = `<span class="b3-list-item__switch b3-tooltips b3-tooltips__e${editingPublishAccess && !item.encrypted ? "" : " fn__none"}" aria-label="${window.siyuan.languages.publishAccess}">${getPublishAccessOptionByLevel("public").iconHTML}</span>`;
         if (item.closed) {
-            return `<li data-url="${item.id}" class="b3-list-item"${item.encrypted ? ' data-encrypted="true"' : ""}>
+            return `<li data-url="${item.id}" class="b3-list-item"${item.encrypted ? ' data-encrypted="true"' : ""}${defaultIconAttr}>
     <span class="b3-list-item__toggle fn__hidden">
         <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
     </span>
@@ -854,7 +859,7 @@ export class MobileFiles extends Model {
 </li>`;
         } else {
             return `<ul class="b3-list b3-list--background" data-url="${item.id}" data-sortmode="${item.sortMode}"${item.encrypted ? " data-encrypted=\"true\"" : ""}>
-<li class="b3-list-item" data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}" data-node-id="${window.siyuan.config.fileTree.boxDocEnabled ? item.id : ""}" style="--file-toggle-width:24px">
+<li class="b3-list-item" data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}" data-node-id="${window.siyuan.config.fileTree.boxDocEnabled ? item.id : ""}" style="--file-toggle-width:24px"${defaultIconAttr}>
     <span class="b3-list-item__toggle${isBoxDoc && !hasChildren ? " fn__hidden" : ""}">
         <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
     </span>
@@ -947,14 +952,7 @@ export class MobileFiles extends Model {
                         );
                         parentLiElement.setAttribute("data-count", "0");
                         this.updateDocActionElement(parentLiElement);
-                        const emojiElement = parentLiElement.querySelector(".b3-list-item__icon");
-                        if (emojiElement.innerHTML === unicode2Emoji(
-                            window.siyuan.storage[Constants.LOCAL_IMAGES].folder
-                        )) {
-                            emojiElement.innerHTML = unicode2Emoji(
-                                window.siyuan.storage[Constants.LOCAL_IMAGES].file
-                            );
-                        }
+                        syncFileTreeItemDefaultIcon(parentLiElement);
                     }
                     sourceListElement.remove();
                 } else {
@@ -970,6 +968,7 @@ export class MobileFiles extends Model {
                     parentElement.querySelector(".b3-list-item__arrow").classList.remove(
                         "b3-list-item__arrow--open"
                     );
+                    syncFileTreeItemDefaultIcon(parentElement);
                 }
             }
 
@@ -988,10 +987,7 @@ export class MobileFiles extends Model {
                 );
                 this.updateDocActionElement(targetElement);
             }
-            const emojiElement = targetElement.querySelector(".b3-list-item__icon");
-            if (emojiElement.innerHTML === unicode2Emoji(window.siyuan.storage[Constants.LOCAL_IMAGES].file)) {
-                emojiElement.innerHTML = unicode2Emoji(window.siyuan.storage[Constants.LOCAL_IMAGES].folder);
-            }
+            syncFileTreeItemDefaultIcon(targetElement);
 
             const targetListElement = getFileTreeChildList(targetElement);
             const targetExpanded = Boolean(targetElement.querySelector(".b3-list-item__arrow--open"));
@@ -1090,10 +1086,7 @@ export class MobileFiles extends Model {
                         }
                         parentElement.setAttribute("data-count", "0");
                         this.updateDocActionElement(parentElement);
-                        const emojiElement = iconElement.parentElement.nextElementSibling;
-                        if (emojiElement.innerHTML === unicode2Emoji(window.siyuan.storage[Constants.LOCAL_IMAGES].folder)) {
-                            emojiElement.innerHTML = unicode2Emoji(window.siyuan.storage[Constants.LOCAL_IMAGES].file);
-                        }
+                        syncFileTreeItemDefaultIcon(parentElement);
                     }
                     targetElement.parentElement.remove();
                 } else {
@@ -1167,8 +1160,8 @@ export class MobileFiles extends Model {
         if (window.siyuan.config.fileTree.sort !== 6) {
             return;
         }
-        setNoteBook(() => {
-            this.init(false);
+        setNoteBook((notebooks) => {
+            reorderFileTreeNotebooks(this.element, this.closeElement.lastElementChild, notebooks);
         });
     }
 
@@ -1289,10 +1282,7 @@ export class MobileFiles extends Model {
         const arrowElement = liElement.querySelector(".b3-list-item__arrow");
         arrowElement.classList.add("b3-list-item__arrow--open");
         arrowElement.parentElement.classList.remove("fn__hidden");
-        const emojiElement = liElement.querySelector(".b3-list-item__icon");
-        if (emojiElement.textContent === unicode2Emoji(window.siyuan.storage[Constants.LOCAL_IMAGES].file)) {
-            emojiElement.textContent = unicode2Emoji(window.siyuan.storage[Constants.LOCAL_IMAGES].folder);
-        }
+        syncFileTreeItemDefaultIcon(liElement as HTMLElement);
         const effectiveSortMode = getResponseEffectiveSortMode(data, data.box);
         liElement.insertAdjacentHTML("afterend", `<ul ${FILE_TREE_EFFECTIVE_SORT_MODE}="${effectiveSortMode}">${fileHTML}</ul>`);
         this.restoreMovedExpandedItems(liElement.nextElementSibling, data.box);
@@ -1455,21 +1445,22 @@ export class MobileFiles extends Model {
         }
         const paddingLeft = (item.path.split("/").length - 1) * 20;
         const editingPublishAccess = this.actionsElement.querySelector('[data-type="publish-access"]').classList.contains("block__icon--active");
-        return `<li data-node-id="${item.id}" data-name="${Lute.EscapeHTMLStr(item.name)}" data-count="${item.subFileCount}" ${FILE_TREE_CHILDREN_SORT_MODE}="${item.childrenSortMode ?? ""}" data-type="navigation-file"
-class="b3-list-item" data-path="${item.path}" style="--file-toggle-width:${paddingLeft + 20}px" >
-    <span style="padding-left: ${paddingLeft}px" class="b3-list-item__toggle${item.subFileCount === 0 ? " fn__hidden" : ""}">
-        <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
-    </span>
-    <span class="b3-list-item__icon"${editingPublishAccess ? " fn__none" : ""}>${unicode2Emoji(item.icon || (item.subFileCount === 0 ? window.siyuan.storage[Constants.LOCAL_IMAGES].file : window.siyuan.storage[Constants.LOCAL_IMAGES].folder))}</span>
-    <span class="b3-list-item__switch${editingPublishAccess ? "" : " fn__none"}">${getPublishAccessOptionByLevel("public").iconHTML}</span>
-    <span class="b3-list-item__text">${getDocDisplayName(item.name, item.titleEmpty, true)}</span>
-    <span data-type="more-file" class="b3-list-item__action b3-tooltips b3-tooltips__nw" aria-label="${window.siyuan.languages.more}">
+        const defaultIcon = item.subFileCount === 0 ? "file" : "folder";
+        const actionHTML = `<span data-type="more-file" class="b3-list-item__action b3-tooltips b3-tooltips__nw" aria-label="${window.siyuan.languages.more}">
         <svg><use xlink:href="#iconMore"></use></svg>
     </span>
     <span data-type="new" class="b3-list-item__action b3-tooltips b3-tooltips__nw${window.siyuan.config.readonly ? " fn__none" : ""}" aria-label="${window.siyuan.languages.newSubDoc}">
         <svg><use xlink:href="#iconAdd"></use></svg>
+    </span>`;
+        return `<li data-node-id="${item.id}" data-name="${Lute.EscapeHTMLStr(item.name)}" data-count="${item.subFileCount}" ${FILE_TREE_CHILDREN_SORT_MODE}="${item.childrenSortMode ?? ""}" data-type="navigation-file"
+class="b3-list-item" data-path="${item.path}" style="--file-toggle-width:${paddingLeft + 20}px"${getFileTreeDefaultIconAttr(item.icon, defaultIcon)}>
+    <span style="padding-left: ${paddingLeft}px" class="b3-list-item__toggle${item.subFileCount === 0 ? " fn__hidden" : ""}">
+        <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
     </span>
-    ${countHTML}
+    <span class="b3-list-item__icon"${editingPublishAccess ? " fn__none" : ""}>${getFileTreeIconHTML(item.icon, defaultIcon)}</span>
+    <span class="b3-list-item__switch${editingPublishAccess ? "" : " fn__none"}">${getPublishAccessOptionByLevel("public").iconHTML}</span>
+    <span class="b3-list-item__text">${getDocDisplayName(item.name, item.titleEmpty, true)}</span>
+    ${getTreeItemTailHTML(countHTML, actionHTML, true)}
 </li>`;
     };
 

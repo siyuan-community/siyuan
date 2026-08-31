@@ -314,6 +314,10 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+
+      &[data-dragging="true"] {
+        opacity: .38;
+      }
     }
   }
 

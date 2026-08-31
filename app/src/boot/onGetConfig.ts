@@ -23,17 +23,20 @@ import {initStatus} from "../layout/status";
 import {showMessage} from "../dialog/message";
 import {replaceLocalPath} from "../editor/rename";
 import {initBar} from "../layout/topBar";
+import {openSetting} from "../config";
+import {mountHelp} from "../util/mount";
 import {openChangelog} from "./openChangelog";
 import type {App} from "../index";
 import {initWindowEvent} from "./globalEvent/event";
 import {sendGlobalShortcut} from "./globalEvent/keydown";
 import {closeWindow} from "../window/closeWin";
-import {correctHotkey} from "./globalEvent/commonHotkey";
+import {correctHotkey, syncAppMenuShortcuts} from "./globalEvent/commonHotkey";
 import {recordBeforeResizeTop} from "../protyle/util/resize";
 import {processSiYuanUri} from "../util/uri";
 import {getAllEditor} from "../layout/getAll";
 import {openDesktopOnboarding} from "../onboarding";
 import {ensureUILayout} from "../util/ensureUILayout";
+import {dispatchPluginGlobalShortcut} from "../plugin/globalShortcut";
 
 export const onGetConfig = (isStart: boolean, app: App) => {
     correctHotkey(app);
@@ -187,6 +190,12 @@ export const initWindow = async (app: App) => {
         }
         openFile(data);
     });
+    ipcRenderer.on(Constants.SIYUAN_OPEN_SETTING, () => {
+        openSetting(app);
+    });
+    ipcRenderer.on(Constants.SIYUAN_OPEN_HELP, () => {
+        mountHelp();
+    });
     ipcRenderer.on(Constants.SIYUAN_SAVE_CLOSE, (event, close) => {
         if (isWindow()) {
             closeWindow(app);
@@ -195,22 +204,12 @@ export const initWindow = async (app: App) => {
         }
     });
     ipcRenderer.on(Constants.SIYUAN_SEND_WINDOWS, (e, ipcData: IWebSocketData) => {
-        onWindowsMsg(ipcData, app);
+        onWindowsMsg(ipcData);
     });
     ipcRenderer.on(Constants.SIYUAN_HOTKEY, (e, data) => {
-        let matchCommand = false;
-        app.plugins.find(item => {
-            item.commands.find(command => {
-                if (command.globalCallback && data.hotkey === command.customHotkey) {
-                    matchCommand = true;
-                    command.globalCallback();
-                    return true;
-                }
-            });
-            if (matchCommand) {
-                return true;
-            }
-        });
+        if (!isWindow()) {
+            dispatchPluginGlobalShortcut(app.plugins, data.hotkey);
+        }
     });
     ipcRenderer.on(Constants.SIYUAN_EXPORT_PDF, async (e, ipcData) => {
         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -253,6 +252,8 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
             fetchPost("/api/export/exportHTML", {
                 id: ipcData.rootId,
                 pdf: true,
+                addTitle: ipcData.addTitle,
+                customTitle: ipcData.customTitle,
                 removeAssets: ipcData.removeAssets,
                 merge: ipcData.mergeSubdocs,
                 mergeDocHeadingMode: ipcData.mergeDocHeadingMode,
@@ -404,6 +405,7 @@ ${response.data.replace("%pages", "<span class=totalPages></span>").replace("%pa
             }
         });
     }
+    syncAppMenuShortcuts();
     /// #else
     if (!isWindow()) {
         document.querySelector(".toolbar").classList.add("toolbar--browser");

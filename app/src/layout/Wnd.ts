@@ -42,19 +42,22 @@ import {hideAllElements} from "../protyle/ui/hideElements";
 import {focusByOffset, getSelectionOffset} from "../protyle/util/selection";
 import {Custom} from "./dock/Custom";
 import type {App} from "../index";
-import {pauseImageAnimation, resumeImageAnimation} from "../protyle/util/imageAnimation";
-import {unicode2Emoji} from "../emoji";
+import {getFileTreeIconHTML} from "../emoji/fileTreeIcon";
 import {closeWindow} from "../window/closeWin";
 import {newCenterEmptyTab, resizeTabs, setTabPosition} from "./tabUtil";
-import {fullscreen} from "../protyle/breadcrumb/action";
-import {setPadding} from "../protyle/ui/initUI";
 import {setPosition} from "../util/setPosition";
 import {clearOBG} from "./dock/util";
 import {recordBeforeResizeTop} from "../protyle/util/resize";
 import {sanitizeClosedTabs, setStorageVal} from "../protyle/util/compatibility";
 import {setTitle} from "../util/processTitle";
 import {dragOverScroll} from "../boot/globalEvent/dragover";
-import {clearTabDragPreview, findNextTabId, reorderTabItems} from "./tabDrag";
+import {
+    clearTabDragPreview,
+    clearTabHoverSwitch,
+    findNextTabId,
+    reorderTabItems,
+    scheduleTabHoverSwitch
+} from "./tabDrag";
 
 const createDragTabPlaceholder = () => {
     const dragTab = window.siyuan.dragTab;
@@ -185,7 +188,9 @@ export class Wnd {
         });
         const tabHeadersElement = this.headersElement.parentElement;
         tabHeadersElement.addEventListener("dragleave", (event: DragEvent) => {
-            if (!event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB)) {
+            const isBlockDrag = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_BLOCK);
+            const isTabDrag = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB);
+            if (!isBlockDrag && !isTabDrag) {
                 return;
             }
             const relatedTarget = event.relatedTarget;
@@ -195,13 +200,34 @@ export class Wnd {
             const rect = tabHeadersElement.getBoundingClientRect();
             if (event.clientX < rect.left || event.clientX > rect.right ||
                 event.clientY < rect.top || event.clientY > rect.bottom) {
-                clearTabDragPreview(tabHeadersElement);
+                if (isBlockDrag) {
+                    clearTabHoverSwitch();
+                }
+                if (isTabDrag) {
+                    clearTabDragPreview(tabHeadersElement);
+                }
             }
         });
-        tabHeadersElement.addEventListener("dragover", function (event: DragEvent & {
+        tabHeadersElement.addEventListener("dragover", (event: DragEvent & {
             target: HTMLElement
-        }) {
-            const it = this as HTMLElement;
+        }) => {
+            const it = event.currentTarget as HTMLElement;
+            if (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_BLOCK)) {
+                const tabHeaderElement = hasClosestByAttribute(event.target, "data-type", "tab-header");
+                if (!tabHeaderElement || !this.headersElement.contains(tabHeaderElement) ||
+                    tabHeaderElement.classList.contains("item--focus")) {
+                    clearTabHoverSwitch();
+                    return;
+                }
+                scheduleTabHoverSwitch(tabHeaderElement.dataset.id, () => {
+                    if (this.headersElement.contains(tabHeaderElement) &&
+                        !tabHeaderElement.classList.contains("item--focus") && !pdfIsLoading(this.element)) {
+                        this.switchTab(tabHeaderElement, true);
+                    }
+                }, Constants.TIMEOUT_TAB_SWITCH);
+                return;
+            }
+            clearTabHoverSwitch();
             const isFileDrag = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_FILE);
             const isTabDrag = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB);
             if (!isFileDrag && !isTabDrag) {
@@ -276,6 +302,7 @@ export class Wnd {
         tabHeadersElement.addEventListener("drop", function (event: DragEvent & {
             target: HTMLElement
         }) {
+            clearTabHoverSwitch();
             const it = this as HTMLElement;
             if (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_FILE)) {
                 // 文档树拖拽
@@ -541,12 +568,10 @@ export class Wnd {
                         }
                     }
                     item.panelElement.classList.remove("fn__none");
-                    resumeImageAnimation(item.panelElement, Constants.TIMEOUT_INPUT);
                 }
                 currentTab = item;
             } else {
                 item.headElement?.classList.remove("item--focus");
-                pauseImageAnimation(item.panelElement);
                 if (!item.panelElement.classList.contains("fn__none")) {
                     // 必须现判断，否则会触发 observer.observe(this.element, {attributeFilter: ["class"]}); 导致 https://ld246.com/article/1641198819303
                     item.panelElement.classList.add("fn__none");
@@ -571,7 +596,7 @@ export class Wnd {
 
         if (currentTab && target === currentTab.headElement) {
             if (currentTab.model instanceof Graph) {
-                currentTab.model.onGraph(false);
+                currentTab.model.onGraph();
             } else if (currentTab.model instanceof Asset && currentTab.model.pdfObject && currentTab.model.pdfObject.pdfViewer) {
                 // https://github.com/siyuan-note/siyuan/issues/5655
                 currentTab.model.pdfObject.pdfViewer.container.focus();
@@ -616,9 +641,8 @@ export class Wnd {
                     resize,
                 });
             }
-            if (window.siyuan.editorIsFullscreen && !currentTab.model.editor.protyle.element.className.includes("fullscreen")) {
-                fullscreen(currentTab.model.editor.protyle.element);
-                setPadding(currentTab.model.editor.protyle);
+            if (window.siyuan.editorIsFullscreen) {
+                currentTab.model.editor.setFullscreen(true);
             }
         } else {
             clearOBG();
@@ -728,7 +752,7 @@ export class Wnd {
                 }
             } else if (!graphicElement) {
                 // 没有图标的文档
-                iconHTML = unicode2Emoji(window.siyuan.storage[Constants.LOCAL_IMAGES].file, "b3-menu__icon", true);
+                iconHTML = getFileTreeIconHTML("", "file", "b3-menu__icon", true);
             }
             window.siyuan.menus.menu.append(new MenuItem({
                 label: escapeHtml(item.querySelector(".item__text").textContent),

@@ -6,6 +6,8 @@ import {Constants} from "../constants";
 import {getTopBarHeight} from "../layout/getTopBarHeight";
 import {electronUndo} from "../protyle/undo";
 import {escapeAttr} from "../util/escape";
+import {setMenuInputCurrent} from "./menuKeyboard";
+import {forEachPluginSubscriber} from "../plugin/EventBusCore";
 /// #if !MOBILE
 import {applyMenuEntryVisibility} from "../config/entryVisibility/runtime";
 /// #endif
@@ -84,6 +86,15 @@ export class Menu {
 
         this.element = element || document.getElementById("commonMenu");
         this.element.querySelector(".b3-menu__title .b3-menu__label").innerHTML = window.siyuan.languages.back;
+        const activateKeymapInput = (event: Event) => {
+            const target = event.target as HTMLElement;
+            if (["INPUT", "TEXTAREA"].includes(target.tagName) &&
+                target.hasAttribute(Constants.ATTRIBUTE_MENU_KEYMAP)) {
+                setMenuInputCurrent(this.element, target);
+            }
+        };
+        this.element.addEventListener("focusin", activateKeymapInput);
+        this.element.addEventListener("pointerdown", activateKeymapInput);
         if (isMobile()) {
             this.element.addEventListener("touchstart", this.handleSheetTouchStart, {passive: true});
             this.element.addEventListener("touchmove", this.handleSheetTouchMove, {passive: false});
@@ -464,8 +475,8 @@ export class Menu {
         if (this.element.id !== "commonMenu") {
             return;
         }
-        window.siyuan.ws?.app?.plugins?.forEach((plugin) => {
-            plugin.eventBus.emit(type, {
+        forEachPluginSubscriber(type, eventBus => {
+            eventBus.emit(type, {
                 menu: this.element,
                 ...detail,
             });

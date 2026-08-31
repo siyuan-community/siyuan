@@ -25,24 +25,37 @@ import (
 )
 
 // TestIsForbiddenAbsPath 覆盖 HTTP 文件 API 与 MCP 文件工具共用的敏感路径黑名单：
-// conf/conf.json、data/snippets/conf.json、data/templates 目录以及 data/.siyuan/publishAccess.json。
+// conf 目录下的 conf.json 与 TLS 密钥材料、data/snippets/conf.json、data/templates 目录、
+// data/.siyuan/publishAccess.json、笔记本目录下的 .siyuan 内部文件以及 temp 目录下的
+// siyuan.log 日志文件。
 func TestIsForbiddenAbsPath(t *testing.T) {
 	tmpWorkspace := t.TempDir()
-	origWorkspace, origConf, origData := WorkspaceDir, ConfDir, DataDir
+	origWorkspace, origConf, origData, origTemp, origLog := WorkspaceDir, ConfDir, DataDir, TempDir, LogPath
 	WorkspaceDir = tmpWorkspace
 	ConfDir = filepath.Join(tmpWorkspace, "conf")
 	DataDir = filepath.Join(tmpWorkspace, "data")
-	t.Cleanup(func() { WorkspaceDir, ConfDir, DataDir = origWorkspace, origConf, origData })
+	TempDir = filepath.Join(tmpWorkspace, "temp")
+	LogPath = filepath.Join(TempDir, "siyuan.log")
+	t.Cleanup(func() {
+		WorkspaceDir, ConfDir, DataDir, TempDir, LogPath = origWorkspace, origConf, origData, origTemp, origLog
+	})
 
 	cases := []struct {
 		name string
 		rel  string // 相对工作空间的路径
 	}{
 		{"conf", filepath.Join("conf", "conf.json")},
+		{"tls ca cert", filepath.Join("conf", TLSCACertFilename)},
+		{"tls ca key", filepath.Join("conf", TLSCAKeyFilename)},
+		{"tls cert", filepath.Join("conf", TLSCertFilename)},
+		{"tls key", filepath.Join("conf", TLSKeyFilename)},
 		{"snippets conf", filepath.Join("data", "snippets", "conf.json")},
 		{"templates dir", filepath.Join("data", "templates")},
 		{"templates file", filepath.Join("data", "templates", "a.txt")},
 		{"publish access", filepath.Join("data", ".siyuan", "publishAccess.json")},
+		{"notebook conf", filepath.Join("data", "20210808180117-6v0mkxr", ".siyuan", "conf.json")},
+		{"notebook sort", filepath.Join("data", "20210808180117-6v0mkxr", ".siyuan", "sort.json")},
+		{"log", filepath.Join("temp", "siyuan.log")},
 	}
 	for _, c := range cases {
 		abs := filepath.Join(tmpWorkspace, c.rel)
@@ -56,6 +69,8 @@ func TestIsForbiddenAbsPath(t *testing.T) {
 		filepath.Join(tmpWorkspace, "data", "assets", "image.png"),
 		filepath.Join(tmpWorkspace, "data", "snippets", "custom.css"),
 		filepath.Join(tmpWorkspace, "data", "plugins", "example", "main.js"),
+		filepath.Join(tmpWorkspace, "data", "20210808180117-6v0mkxr", "20240101.sy"),
+		filepath.Join(tmpWorkspace, "data", "20210808180117-6v0mkxr", "conf.json"),
 		filepath.Join(tmpWorkspace, "temp", "siyuan", "kernel.log"),
 	}
 	for _, p := range allowed {
@@ -71,18 +86,28 @@ func TestIsForbiddenAbsPathCaseInsensitive(t *testing.T) {
 		t.Skip("case-insensitive comparison only on windows/darwin")
 	}
 	tmpWorkspace := t.TempDir()
-	origWorkspace, origConf, origData := WorkspaceDir, ConfDir, DataDir
+	origWorkspace, origConf, origData, origTemp, origLog := WorkspaceDir, ConfDir, DataDir, TempDir, LogPath
 	WorkspaceDir = tmpWorkspace
 	ConfDir = filepath.Join(tmpWorkspace, "conf")
 	DataDir = filepath.Join(tmpWorkspace, "data")
-	t.Cleanup(func() { WorkspaceDir, ConfDir, DataDir = origWorkspace, origConf, origData })
+	TempDir = filepath.Join(tmpWorkspace, "temp")
+	LogPath = filepath.Join(TempDir, "siyuan.log")
+	t.Cleanup(func() {
+		WorkspaceDir, ConfDir, DataDir, TempDir, LogPath = origWorkspace, origConf, origData, origTemp, origLog
+	})
 
 	// 模拟 MCP 工具输入的大小写变体路径（Windows 上 CONF.JSON 与 conf.json 指向同一文件）。
 	cases := []string{
 		filepath.Join(tmpWorkspace, "CONF", "CONF.JSON"),
+		filepath.Join(tmpWorkspace, "CONF", strings.ToUpper(TLSCACertFilename)),
+		filepath.Join(tmpWorkspace, "CONF", strings.ToUpper(TLSCAKeyFilename)),
+		filepath.Join(tmpWorkspace, "CONF", strings.ToUpper(TLSCertFilename)),
+		filepath.Join(tmpWorkspace, "CONF", strings.ToUpper(TLSKeyFilename)),
 		filepath.Join(tmpWorkspace, "DATA", "SNIPPETS", "CONF.JSON"),
 		filepath.Join(tmpWorkspace, "DATA", ".SIYUAN", "PUBLISHACCESS.JSON"),
+		strings.ToUpper(filepath.Join(tmpWorkspace, "data", "20210808180117-6v0mkxr", ".siyuan", "conf.json")),
 		strings.ToUpper(filepath.Join(tmpWorkspace, "data", "templates")),
+		strings.ToUpper(filepath.Join(tmpWorkspace, "temp", "siyuan.log")),
 	}
 	for _, p := range cases {
 		if got := IsForbiddenAbsPath(p); !got {
@@ -121,21 +146,54 @@ func TestIsForbiddenAbsPathSymlinkBypass(t *testing.T) {
 	if got := IsForbiddenAbsPath(link); !got {
 		t.Errorf("IsForbiddenAbsPath(symlink -> publishAccess.json) = false, want true")
 	}
+
+	// 同样验证指向 TLS 私钥的符号链接无法绕过黑名单。
+	tlsKey := filepath.Join(tmpWorkspace, "conf", TLSKeyFilename)
+	if err := os.MkdirAll(filepath.Dir(tlsKey), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(tlsKey, []byte("-----BEGIN EC PRIVATE KEY-----\n"), 0600); err != nil {
+		t.Fatalf("write tls key: %v", err)
+	}
+	tlsKeyLink := filepath.Join(tmpWorkspace, "data", "assets", "leak.pem")
+	if err := os.Symlink(tlsKey, tlsKeyLink); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+	if got := IsForbiddenAbsPath(tlsKeyLink); !got {
+		t.Errorf("IsForbiddenAbsPath(symlink -> key.pem) = false, want true")
+	}
+
+	// 符号链接指向的父目录同样无法绕过黑名单：经由链接目录访问 publishAccess.json 应被拦截。
+	parentLink := filepath.Join(tmpWorkspace, "data", "assets", "siyuan-link")
+	if err := os.Symlink(filepath.Join(DataDir, ".siyuan"), parentLink); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+	if got := IsForbiddenAbsPath(filepath.Join(parentLink, "publishAccess.json")); !got {
+		t.Errorf("IsForbiddenAbsPath(symlinked parent -> publishAccess.json) = false, want true")
+	}
 }
 
 // TestIsForbiddenDataRelPath 覆盖 /history 与 /repo/diff 路由共用的数据相对路径片段匹配黑名单。
 // 历史快照副本位于 HistoryDir 等绝对路径下，无法用 IsForbiddenAbsPath 精确匹配，因此按数据目录下的
-// 相对位置拦截：data/snippets/conf.json、data/templates 目录以及 data/.siyuan/publishAccess.json。
+// 相对位置拦截：data/snippets/conf.json、data/templates 目录、data/.siyuan/publishAccess.json
+// 以及笔记本目录下的 .siyuan 内部文件。
 func TestIsForbiddenDataRelPath(t *testing.T) {
 	forbidden := []string{
 		".siyuan/publishAccess.json",
 		"/.siyuan/publishAccess.json",
 		filepath.Join(".siyuan", "publishAccess.json"),
+		".siyuan/PUBLISHACCESS.JSON",
+		filepath.Join(".SIYUAN", "PublishAccess.json"),
 		"templates",
 		"/templates",
 		filepath.Join("templates", "a.md"),
 		"snippets/conf.json",
 		filepath.Join("snippets", "conf.json"),
+		filepath.Join("20210808180117-6v0mkxr", ".siyuan", "conf.json"),
+		filepath.Join("20210808180117-6v0mkxr", ".siyuan", "sort.json"),
+		filepath.Join("20210808180117-6v0mkxr", ".siyuan"),
+		filepath.Join("20210808180117-6v0mkxr", ".siyuan", "history", "2021-01-01-120000-x.sy"),
+		filepath.Join("20210808180117-6v0mkxr", ".siyuan", "publishAccess.json"),
 	}
 	for _, p := range forbidden {
 		if got := IsForbiddenDataRelPath(p); !got {
@@ -150,9 +208,9 @@ func TestIsForbiddenDataRelPath(t *testing.T) {
 		"assets/image.png",
 		filepath.Join("20210808180117-6v0mkxr", "templates", "a.sy"),
 		filepath.Join("20210808180117-6v0mkxr", "20240101.sy"),
+		filepath.Join("20210808180117-6v0mkxr", "conf.json"),
 		"plugins/example/main.js",
 		".siyuan/publishAccess.json.bak",
-		filepath.Join("20210808180117-6v0mkxr", ".siyuan", "publishAccess.json"),
 	}
 	for _, p := range allowed {
 		if got := IsForbiddenDataRelPath(p); got {
@@ -171,6 +229,7 @@ func TestIsForbiddenDataRelPathCaseInsensitive(t *testing.T) {
 		filepath.Join(".SIYUAN", "PUBLISHACCESS.JSON"),
 		strings.ToUpper(filepath.Join("templates", "A.MD")),
 		filepath.Join("SNIPPETS", "CONF.JSON"),
+		filepath.Join("20210808180117-6v0mkxr", ".SIYUAN", "CONF.JSON"),
 	}
 	for _, p := range cases {
 		if got := IsForbiddenDataRelPath(p); !got {

@@ -7,7 +7,14 @@ import {getOpenNotebookCount, originalPath, pathPosix, useShell} from "../util/p
 import {fetchNewDailyNote, mountHelp, newDailyNote} from "../util/mount";
 import {fetchPost} from "../util/fetch";
 import {Constants} from "../constants";
-import {isInAndroid, isInHarmony, isInMobileApp, isIPad, setStorageVal, writeText} from "../protyle/util/compatibility";
+import {
+    isInAndroid,
+    isInHarmony,
+    isInMobileApp,
+    isIPad,
+    setStorageVal,
+    writeText,
+} from "../protyle/util/compatibility";
 import {openCard} from "../card/openCard";
 import {openSetting} from "../config";
 import {getAllDocks} from "../layout/getAll";
@@ -16,7 +23,7 @@ import {exportLayout, getAllLayout} from "../layout/util";
 import {getDockByType} from "../layout/tabUtil";
 import {exitSiYuan, lockScreen} from "../dialog/processSystem";
 import {showMessage} from "../dialog/message";
-import {unicode2Emoji} from "../emoji";
+import {getFileTreeIconHTML} from "../emoji/fileTreeIcon";
 import {Dock} from "../layout/dock";
 import {escapeAttr, escapeHtml} from "../util/escape";
 import {viewCards} from "../card/viewCards";
@@ -29,6 +36,8 @@ import {openRecentDocs} from "../business/openRecentDocs";
 import * as dayjs from "dayjs";
 import {upDownHint} from "../util/upDownHint";
 import {openDataMigration} from "./dataMigration";
+import {openLink} from "../editor/openLink";
+import {adjustEditorFontSize} from "../util/editorFontSize";
 
 const editLayout = (layoutName?: string) => {
     const dialog = new Dialog({
@@ -137,6 +146,99 @@ const togglePinDock = (id: "switchLeftDock" | "switchRightDock" | "switchBottomD
             dock.togglePin();
         }
     };
+};
+
+const getApplicationZoomSubMenu = () => {
+    const zoom = window.siyuan.storage[Constants.LOCAL_ZOOM];
+    const index = Constants.SIZE_ZOOM.findIndex((item) => item.zoom === zoom);
+    const setApplicationZoom = (type: "zoomIn" | "zoomOut" | "restore") => {
+        void import("../layout/topBar").then(({setZoom}) => setZoom(type));
+    };
+    return [
+        {
+            id: "applicationZoomIn",
+            label: window.siyuan.languages.zoomIn,
+            icon: "iconZoomIn",
+            accelerator: "⌘=",
+            disabled: index >= Constants.SIZE_ZOOM.length - 1,
+            click: () => setApplicationZoom("zoomIn"),
+        },
+        {
+            id: "applicationZoomOut",
+            label: window.siyuan.languages.zoomOut,
+            icon: "iconZoomOut",
+            accelerator: "⌘-",
+            disabled: index <= 0,
+            click: () => setApplicationZoom("zoomOut"),
+        },
+        {
+            id: "resetApplicationZoom",
+            icon: "iconRefresh",
+            label: window.siyuan.languages.reset,
+            accelerator: "⌘0",
+            disabled: zoom === 1,
+            click: () => setApplicationZoom("restore"),
+        },
+    ] as IMenu[];
+};
+
+const getEditorFontSizeSubMenu = () => [
+    {
+        id: "increaseEditorFontSize",
+        label: window.siyuan.languages.increaseEditorFontSize,
+        icon: "iconZoomIn",
+        accelerator: window.siyuan.config.keymap.general.increaseEditorFontSize.custom,
+        disabled: window.siyuan.config.editor.fontSize >= Constants.EDITOR_FONT_SIZE_MAX ||
+            window.siyuan.config.readonly,
+        click: () => {
+            adjustEditorFontSize("increase");
+        },
+    },
+    {
+        id: "decreaseEditorFontSize",
+        label: window.siyuan.languages.decreaseEditorFontSize,
+        icon: "iconZoomOut",
+        accelerator: window.siyuan.config.keymap.general.decreaseEditorFontSize.custom,
+        disabled: window.siyuan.config.editor.fontSize <= Constants.EDITOR_FONT_SIZE_MIN ||
+            window.siyuan.config.readonly,
+        click: () => {
+            adjustEditorFontSize("decrease");
+        },
+    },
+    {
+        icon:"iconRefresh",
+        id: "resetEditorFontSize",
+        label: window.siyuan.languages.resetEditorFontSize,
+        accelerator: window.siyuan.config.keymap.general.resetEditorFontSize.custom,
+        disabled: window.siyuan.config.editor.fontSize === Constants.EDITOR_FONT_SIZE_DEFAULT ||
+            window.siyuan.config.readonly,
+        click: () => {
+            adjustEditorFontSize("reset");
+        },
+    },
+] as IMenu[];
+
+const getZoomSubMenu = () => {
+    const submenu: IMenu[] = [];
+    if (!isBrowser()) {
+        submenu.push({
+            id: "applicationZoom",
+            iconHTML: "",
+            type: "submenu",
+            label: window.siyuan.languages.applicationZoom,
+            accelerator: Math.round(window.siyuan.storage[Constants.LOCAL_ZOOM] * 100) + "%",
+            submenu: getApplicationZoomSubMenu(),
+        });
+    }
+    submenu.push({
+        id: "editorFontSize",
+        iconHTML: "",
+        type: "submenu",
+        label: window.siyuan.languages.editorFontSize,
+        accelerator: window.siyuan.config.editor.fontSize + " px",
+        submenu: getEditorFontSizeSubMenu(),
+    });
+    return submenu;
 };
 
 export const workspaceMenu = (app: App, rect: DOMRect) => {
@@ -302,11 +404,15 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                             if (hasClosestByClassName(event.target as Element, "b3-menu__action")) {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                fetchPost("/api/system/removeWorkspaceDir", {path: item.path}, () => {
-                                    confirmDialog(window.siyuan.languages.deleteOpConfirm, window.siyuan.languages.removeWorkspacePhysically.replace("${x}", item.path), () => {
-                                        fetchPost("/api/system/removeWorkspaceDirPhysically", {path: item.path});
-                                    }, undefined, true);
-                                });
+                                if (item.path === window.siyuan.config.system.workspaceDir) {
+                                    fetchPost("/api/system/removeWorkspaceDir", {path: item.path});
+                                    return;
+                                }
+                                confirmDialog(window.siyuan.languages.deleteOpConfirm, window.siyuan.languages.removeWorkspacePhysically.replace("${x}", item.path), () => {
+                                    fetchPost("/api/system/removeWorkspaceDirPhysically", {path: item.path});
+                                }, () => {
+                                    fetchPost("/api/system/removeWorkspaceDir", {path: item.path});
+                                }, true);
                                 return;
                             }
                             confirmDialog(window.siyuan.languages.confirm, `${pathPosix().basename(window.siyuan.config.system.workspaceDir)} -> ${pathPosix().basename(item.path)}?`, () => {
@@ -449,6 +555,13 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                 submenu: layoutSubMenu
             }).element);
         }
+        window.siyuan.menus.menu.append(new MenuItem({
+            id: "zoomControls",
+            label: window.siyuan.languages.zoom,
+            icon: "iconZoomIn",
+            type: "submenu",
+            submenu: getZoomSubMenu(),
+        }).element);
         window.siyuan.menus.menu.append(new MenuItem({id: "separator_1", type: "separator"}).element);
         if (!window.siyuan.config.readonly) {
             if (getOpenNotebookCount() < 2) {
@@ -467,7 +580,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                     if (!item.closed) {
                         submenu.push({
                             label: escapeHtml(item.name),
-                            iconHTML: unicode2Emoji(item.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].note, "b3-menu__icon", true),
+                            iconHTML: getFileTreeIconHTML(item.icon, "notebook", "b3-menu__icon", true),
                             accelerator: window.siyuan.storage[Constants.LOCAL_DAILYNOTEID] === item.id ? window.siyuan.config.keymap.general.dailyNote.custom : "",
                             click: () => {
                                 fetchNewDailyNote(app, item.id);
@@ -524,7 +637,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                 icon: "iconLock",
                 accelerator: window.siyuan.config.keymap.general.lockScreen.custom,
                 click: () => {
-                    lockScreen(app);
+                    lockScreen();
                 }
             }).element);
             window.siyuan.menus.menu.append(new MenuItem({
@@ -562,10 +675,10 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
             label: window.siyuan.languages.feedback,
             icon: "iconFeedback",
             click: () => {
-                if ("zh-CN" === window.siyuan.config.lang || "zh-TW" === window.siyuan.config.lang) {
-                    window.open("https://ld246.com/article/1649901726096");
+                if ("zh-CN" === window.siyuan.config.lang) {
+                    openLink(app, "https://ld246.com/article/1649901726096");
                 } else {
-                    window.open("https://liuyun.io/article/1686530886208");
+                    openLink(app, "https://liuyun.io/article/1686530886208");
                 }
             }
         }).element);
@@ -575,7 +688,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
             label: window.siyuan.languages.debug,
             icon: "iconBug",
             click: () => {
-                ipcRenderer.send(Constants.SIYUAN_CMD, "openDevTools");
+                ipcRenderer.send(Constants.SIYUAN_CMD, "toggleDevTools");
             }
         }).element);
         /// #endif

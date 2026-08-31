@@ -2218,17 +2218,19 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 		trafficStat.UploadFileCount, trafficStat.DownloadFileCount, trafficStat.UploadChunkCount, trafficStat.DownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.UploadBytes), 2), humanize.BytesCustomCeil(uint64(trafficStat.DownloadBytes), 2),
 		trafficStat.PeerDownloadFileCount, trafficStat.PeerDownloadChunkCount, humanize.BytesCustomCeil(uint64(trafficStat.PeerDownloadBytes), 2), trafficStat.PeerFallbackCount,
 		elapsed.Seconds(),
-		len(mergeResult.Conflicts), len(mergeResult.Upserts), len(mergeResult.Removes))
+		mergeResult.ConflictCount(), len(mergeResult.Upserts), len(mergeResult.Removes))
 
 	//logSyncMergeResult(mergeResult)
 
 	var needReloadFiletree bool
-	if 0 < len(mergeResult.Conflicts) {
+	conflictCount := mergeResult.ConflictCount()
+	if 0 < conflictCount || mergeResult.HasHistory() {
 		luteEngine := util.NewLute()
-		if Conf.Sync.GenerateConflictDoc {
+		if 0 < conflictCount && Conf.Sync.GenerateConflictDoc {
 			// 云端同步发生冲突时生成副本 https://github.com/siyuan-note/siyuan/issues/5687
 
-			for _, file := range mergeResult.Conflicts {
+			conflictCopyFiles := mergeResult.ConflictCopyFiles()
+			for _, file := range conflictCopyFiles {
 				if !strings.HasSuffix(file.Path, ".sy") {
 					continue
 				}
@@ -2274,14 +2276,16 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 				}
 			}
 
-			needReloadFiletree = true
+			needReloadFiletree = 0 < len(conflictCopyFiles)
 		}
 
-		historyDir := filepath.Join(util.HistoryDir, mergeResult.Time.Format("2006-01-02-150405")+"-sync")
-		indexHistoryDir(filepath.Base(historyDir), luteEngine)
+		if mergeResult.HasHistory() {
+			historyDir := filepath.Join(util.HistoryDir, mergeResult.Time.Format("2006-01-02-150405")+"-sync")
+			indexHistoryDir(filepath.Base(historyDir), luteEngine)
+		}
 	}
 
-	if 1 > len(mergeResult.Upserts) && 1 > len(mergeResult.Removes) && 1 > len(mergeResult.Conflicts) { // 没有数据变更
+	if !mergeResult.DataChanged() { // 没有数据变更
 		syncSameCount.Add(1)
 		if 10 < syncSameCount.Load() {
 			syncSameCount.Store(5)
@@ -2300,7 +2304,7 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	var upserts, removes []string
 	var upsertTrees int
 	// 可能需要重新加载部分功能
-	var needReloadFlashcard, needReloadOcrTexts, needReloadPlugin, needReloadSnippet bool
+	var needReloadFlashcard, needReloadInlineStyles, needReloadOcrTexts, needReloadPlugin, needReloadSnippet bool
 	reloadPluginSet := hashset.New()     // 插件代码变更 data/plugins/
 	dataChangePluginSet := hashset.New() // 插件存储数据变更 data/storage/petal/
 	needUnindexBoxes, needIndexBoxes := map[string]bool{}, map[string]bool{}
@@ -2362,6 +2366,10 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			needReloadSnippet = true
 		}
 
+		if isInlineStylesRepoPath(file.Path) {
+			needReloadInlineStyles = true
+		}
+
 		if strings.Contains(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
 			cache.RemoveAVData(strings.TrimSuffix(filepath.Base(file.Path), ".json"))
 		}
@@ -2371,7 +2379,8 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 	// 备份可能在此前同步中已经落盘，或因冲突等原因未出现在 Upserts 中。
 	restoreNotebookCryptoConfigFromBackup()
 
-	removeWidgetDirSet, unloadPluginSet, uninstallPluginSet := hashset.New(), hashset.New(), hashset.New()
+	removePluginDirSet, removeWidgetDirSet := hashset.New(), hashset.New()
+	unloadPluginSet, uninstallPluginSet := hashset.New(), hashset.New()
 	for _, file := range mergeResult.Removes {
 		removes = append(removes, file.Path)
 		if strings.HasPrefix(file.Path, "/storage/riff/") {
@@ -2419,6 +2428,7 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 				needReloadPlugin = true
 				// 删除插件目录：卸载
 				uninstallPluginSet.Add(parts[2])
+				removePluginDirSet.Add(parts[2])
 			}
 		}
 
@@ -2435,6 +2445,10 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 
 		if file.Path == "/snippets/conf.json" {
 			needReloadSnippet = true
+		}
+
+		if isInlineStylesRepoPath(file.Path) {
+			needReloadInlineStyles = true
 		}
 
 		if strings.Contains(file.Path, "/storage/av/") && strings.HasSuffix(file.Path, ".json") {
@@ -2468,13 +2482,16 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 		PushReloadSnippet(Conf.Snippet)
 	}
 
-	for _, widgetDir := range removeWidgetDirSet.Values() {
-		widgetDirPath := filepath.Join(util.DataDir, "widgets", widgetDir.(string))
-		gulu.File.RemoveEmptyDirs(widgetDirPath)
-	}
+	removeEmptyPackageDirs(filepath.Join(util.DataDir, "plugins"), removePluginDirSet)
+	removeEmptyPackageDirs(filepath.Join(util.DataDir, "widgets"), removeWidgetDirSet)
 
 	syncingFiles = sync.Map{}
 	syncingStorages.Store(false)
+	if needReloadInlineStyles && !exit {
+		invalidateWorkspaceAVPaletteCache()
+		util.BroadcastByType("main", "reloadInlineStyles", 0, "", nil)
+		util.ReloadPublishServiceSessions()
+	}
 	removedEncryptedBox := false
 	for boxID := range removedBoxConfs {
 		if IsEncryptedBox(boxID) || removedBoxCryptoBackups[boxID] {
@@ -2535,10 +2552,10 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 		time.Sleep(2 * time.Second)
 		pushSyncStatusBar(fmt.Sprintf(Conf.Language(149), elapsed.Seconds()))
 
-		if 0 < len(mergeResult.Conflicts) {
+		if 0 < mergeResult.ConflictCount() {
 			syConflict := false
-			for _, file := range mergeResult.Conflicts {
-				if strings.HasSuffix(file.Path, ".sy") {
+			for _, path := range mergeResult.ConflictPaths() {
+				if strings.HasSuffix(path, ".sy") {
 					syConflict = true
 					break
 				}
@@ -2550,6 +2567,16 @@ func processSyncMergeResult(exit, byHand bool, mergeResult *dejavu.MergeResult, 
 			}
 		}
 	}()
+}
+
+// removeEmptyPackageDirs 清理同步删除文件后遗留的空集市包目录。
+func removeEmptyPackageDirs(basePath string, dirNames *hashset.Set) {
+	for _, dirName := range dirNames.Values() {
+		dirPath := filepath.Join(basePath, dirName.(string))
+		if err := gulu.File.RemoveEmptyDirs(dirPath); err != nil && !os.IsNotExist(err) {
+			logging.LogWarnf("remove empty marketplace package directory [%s] failed: %s", dirPath, err)
+		}
+	}
 }
 
 func appendLANSyncTrafficStat(message string, trafficStat *dejavu.TrafficStat) string {
@@ -2584,16 +2611,17 @@ func removeLANSyncTrafficStat(message string) string {
 }
 
 func logSyncMergeResult(mergeResult *dejavu.MergeResult) {
-	if 1 > len(mergeResult.Conflicts) && 1 > len(mergeResult.Upserts) && 1 > len(mergeResult.Removes) {
+	if !mergeResult.DataChanged() {
 		return
 	}
 
-	if 0 < len(mergeResult.Conflicts) {
+	conflictPaths := mergeResult.ConflictPaths()
+	if 0 < len(conflictPaths) {
 		logBuilder := bytes.Buffer{}
-		for i, f := range mergeResult.Conflicts {
+		for i, path := range conflictPaths {
 			logBuilder.WriteString("  ")
-			logBuilder.WriteString(f.Path)
-			if i < len(mergeResult.Conflicts)-1 {
+			logBuilder.WriteString(path)
+			if i < len(conflictPaths)-1 {
 				logBuilder.WriteString("\n")
 			}
 		}

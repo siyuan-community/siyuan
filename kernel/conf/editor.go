@@ -18,14 +18,42 @@ package conf
 
 import "github.com/siyuan-community/siyuan/kernel/util"
 
+const (
+	AssetOpenActionFollowTab  = "follow-tab"
+	AssetOpenActionCurrent    = "current"
+	AssetOpenActionRight      = "right"
+	AssetOpenActionBottom     = "bottom"
+	AssetOpenActionBackground = "background"
+	AssetOpenActionNewWindow  = "new-window"
+	AssetOpenActionApp        = "app"
+	AssetOpenActionFolder     = "folder"
+)
+
+type AssetOpen struct {
+	Click      string `json:"click"`      // 单击资源的打开方式
+	CtrlClick  string `json:"ctrlClick"`  // Ctrl 或 Command 加单击资源的打开方式
+	AltClick   string `json:"altClick"`   // Alt 加单击资源的打开方式
+	ShiftClick string `json:"shiftClick"` // Shift 加单击资源的打开方式
+}
+
+// EditorFont 描述编辑器字体及其显示信息。
+type EditorFont struct {
+	Family      string `json:"family"`
+	Weight      int    `json:"weight"`
+	DisplayName string `json:"displayName"`
+}
+
 type Editor struct {
 	AllowSVGScript                  bool           `json:"allowSVGScript"`                  // 允许执行 SVG 内脚本
 	AllowHTMLBLockScript            bool           `json:"allowHTMLBLockScript"`            // 允许执行 HTML 内容中的脚本
+	CursorSurroundingLines          int            `json:"cursorSurroundingLines"`          // 光标上下文行数
 	FontSize                        int            `json:"fontSize"`                        // 字体大小
-	FontSizeScrollZoom              bool           `json:"fontSizeScrollZoom"`              // 字体大小是否支持滚轮缩放
-	FontFamily                      string         `json:"fontFamily"`                      // 字体
-	FontWeight                      int            `json:"fontWeight"`                      // 字重
+	FontSizeScrollZoom              bool           `json:"fontSizeScrollZoom"`              // 保留用于配置兼容，前端不再使用
+	FontFamily                      string         `json:"fontFamily"`                      // 首选字体（兼容旧版本）
+	FontWeight                      int            `json:"fontWeight"`                      // 首选字体字重（兼容旧版本）
 	FontFamilyDisplay               string         `json:"fontFamilyDisplay"`               // 设置面板中展示的字体名称（与 FontFamily/FontWeight 对应，可选）
+	FontFamilies                    []*EditorFont  `json:"fontFamilies"`                    // 按优先级排列的字体
+	CodeFontFamilies                []*EditorFont  `json:"codeFontFamilies"`                // 按优先级排列的等宽字体
 	CodeSyntaxHighlightLineNum      bool           `json:"codeSyntaxHighlightLineNum"`      // 代码块是否显示行号
 	CodeTabSpaces                   int            `json:"codeTabSpaces"`                   // 代码块中 Tab 转换空格数，配置为 0 则表示不转换
 	CodeLineWrap                    bool           `json:"codeLineWrap"`                    // 代码块是否自动折行
@@ -44,6 +72,7 @@ type Editor struct {
 	VirtualBlockRefExclude          string         `json:"virtualBlockRefExclude"`          // 虚拟引用关键字排除列表
 	VirtualBlockRefInclude          string         `json:"virtualBlockRefInclude"`          // 虚拟引用关键字包含列表
 	BlockRefDynamicAnchorTextMaxLen int            `json:"blockRefDynamicAnchorTextMaxLen"` // 块引动态锚文本最大长度
+	AssetOpen                       *AssetOpen     `json:"assetOpen"`                       // 资源打开方式
 	PlantUMLServePath               string         `json:"plantUMLServePath"`               // PlantUML 伺服地址
 	FullWidth                       bool           `json:"fullWidth"`                       // 是否使用最大宽度
 	KaTexMacros                     string         `json:"katexMacros"`                     // KeTex 宏定义
@@ -62,6 +91,7 @@ type Editor struct {
 	OnlySearchForDoc                bool           `json:"onlySearchForDoc"`                // 是否启用 [[ 仅搜索文档块
 	BacklinkExpandCount             int            `json:"backlinkExpandCount"`             // 反向链接默认展开数量
 	BackmentionExpandCount          int            `json:"backmentionExpandCount"`          // 反链提及默认展开数量
+	BacklinkMentionExclude          string         `json:"backlinkMentionExclude"`          // 反链提及关键字排除列表
 	BacklinkContainChildren         bool           `json:"backlinkContainChildren"`         // 反向链接是否包含子块进行计算
 	BacklinkShowBottom              bool           `json:"backlinkShowBottom"`              // 是否在文档底部显示反向链接
 	BacklinkSort                    *int           `json:"backlinkSort"`                    // 反向链接排序方式
@@ -74,8 +104,49 @@ type Editor struct {
 	Markdown                        *util.Markdown `json:"markdown"`                        // Markdown 配置
 }
 
+// NormalizeFontFamilies 清理字体列表并同步兼容旧版本的首选字体字段。
+func (editor *Editor) NormalizeFontFamilies() {
+	if nil == editor.FontFamilies && "" != editor.FontFamily {
+		editor.FontFamilies = []*EditorFont{{
+			Family:      editor.FontFamily,
+			Weight:      editor.FontWeight,
+			DisplayName: editor.FontFamilyDisplay,
+		}}
+	}
+
+	editor.FontFamilies = normalizeEditorFontFamilies(editor.FontFamilies)
+	editor.CodeFontFamilies = normalizeEditorFontFamilies(editor.CodeFontFamilies)
+	if 0 == len(editor.FontFamilies) {
+		editor.FontFamily = ""
+		editor.FontWeight = 400
+		editor.FontFamilyDisplay = ""
+		return
+	}
+
+	editor.FontFamily = editor.FontFamilies[0].Family
+	editor.FontWeight = editor.FontFamilies[0].Weight
+	editor.FontFamilyDisplay = editor.FontFamilies[0].DisplayName
+}
+
+func normalizeEditorFontFamilies(fontFamilies []*EditorFont) []*EditorFont {
+	fonts := make([]*EditorFont, 0, len(fontFamilies))
+	families := map[string]bool{}
+	for _, font := range fontFamilies {
+		if nil == font || "" == font.Family || families[font.Family] {
+			continue
+		}
+		families[font.Family] = true
+		if 1 > font.Weight || 1000 < font.Weight {
+			font.Weight = 400
+		}
+		fonts = append(fonts, font)
+	}
+	return fonts
+}
+
 const (
 	MinDynamicLoadBlocks       = 48
+	MaxCursorSurroundingLines  = 20
 	DefaultHeadingNumberFormat = "decimal-hierarchical"
 )
 
@@ -83,8 +154,44 @@ func NormalizeBacklinkExpandCount(count int) int {
 	return max(-1, count)
 }
 
+func NormalizeCursorSurroundingLines(lines int) int {
+	return max(0, min(MaxCursorSurroundingLines, lines))
+}
+
+func NewAssetOpen() *AssetOpen {
+	return &AssetOpen{
+		Click:      AssetOpenActionFollowTab,
+		CtrlClick:  AssetOpenActionFolder,
+		AltClick:   AssetOpenActionCurrent,
+		ShiftClick: AssetOpenActionApp,
+	}
+}
+
+func NormalizeAssetOpen(assetOpen *AssetOpen) *AssetOpen {
+	defaults := NewAssetOpen()
+	if nil == assetOpen {
+		return defaults
+	}
+	assetOpen.Click = normalizeAssetOpenAction(assetOpen.Click, defaults.Click)
+	assetOpen.CtrlClick = normalizeAssetOpenAction(assetOpen.CtrlClick, defaults.CtrlClick)
+	assetOpen.AltClick = normalizeAssetOpenAction(assetOpen.AltClick, defaults.AltClick)
+	assetOpen.ShiftClick = normalizeAssetOpenAction(assetOpen.ShiftClick, defaults.ShiftClick)
+	return assetOpen
+}
+
+func normalizeAssetOpenAction(action, fallback string) string {
+	switch action {
+	case AssetOpenActionFollowTab, AssetOpenActionCurrent, AssetOpenActionRight, AssetOpenActionBottom,
+		AssetOpenActionBackground, AssetOpenActionNewWindow, AssetOpenActionApp, AssetOpenActionFolder:
+		return action
+	default:
+		return fallback
+	}
+}
+
 func NewEditor() *Editor {
 	return &Editor{
+		CursorSurroundingLines:          0,
 		FontSize:                        16,
 		FontSizeScrollZoom:              false,
 		CodeSyntaxHighlightLineNum:      false,
@@ -103,6 +210,7 @@ func NewEditor() *Editor {
 		Emoji:                           []string{},
 		VirtualBlockRef:                 false,
 		BlockRefDynamicAnchorTextMaxLen: 96,
+		AssetOpen:                       NewAssetOpen(),
 		PlantUMLServePath:               "https://www.plantuml.com/plantuml/svg/~1",
 		FullWidth:                       true,
 		KaTexMacros:                     "{}",

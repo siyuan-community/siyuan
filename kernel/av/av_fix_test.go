@@ -62,8 +62,8 @@ func TestUpgradeSpec7RemovesPersistedCurrentView(t *testing.T) {
 		t.Fatal(err)
 	}
 	UpgradeSpec(attrView)
-	if 7 != attrView.Spec {
-		t.Fatalf("expected spec 7, got %d", attrView.Spec)
+	if CurrentSpec != attrView.Spec {
+		t.Fatalf("expected spec %d, got %d", CurrentSpec, attrView.Spec)
 	}
 	data, err := json.Marshal(attrView)
 	if nil != err {
@@ -75,5 +75,13 @@ func TestUpgradeSpec7RemovesPersistedCurrentView(t *testing.T) {
 	}
 	if _, ok := fields["viewID"]; ok {
 		t.Fatalf("legacy viewID was persisted: %s", data)
+	}
+}
+
+func TestUpgradeSpec8(t *testing.T) {
+	attrView := &AttributeView{Spec: 7}
+	UpgradeSpec(attrView)
+	if CurrentSpec != attrView.Spec {
+		t.Fatalf("expected spec %d, got %d", CurrentSpec, attrView.Spec)
 	}
 }

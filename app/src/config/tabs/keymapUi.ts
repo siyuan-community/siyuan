@@ -10,10 +10,12 @@ import {exportLayout} from "../../layout/util";
 import {updateDockHotkeys} from "../../layout/dock/util";
 import {confirmDialog} from "../../dialog/confirmDialog";
 import {sendGlobalShortcut, sendUnregisterGlobalShortcut} from "../../boot/globalEvent/keydown";
+import {syncAppMenuShortcuts} from "../../boot/globalEvent/commonHotkey";
 import {normalizeSearchText} from "../search/normalize";
 import {genButtonRowHtml, genConfigGroup} from "../render/render";
 import type {Plugin} from "../../plugin";
 import {isDisallowedTextInputHotkey, isReservedKeymap} from "../../util/hotKeyPolicy";
+import {isWindow} from "../../util/functions";
 const keymapToolbarSearchStrings = (): string[] => [
     window.siyuan.languages.keymapTip,
     window.siyuan.languages.keymapTip2,
@@ -58,7 +60,8 @@ const bindKeymapToolbar = (root: HTMLElement) => {
                     cmd: "writeLog",
                     msg: "user reset keymap",
                 });
-                if (window.siyuan.config.keymap.general.toggleWin.default !== window.siyuan.config.keymap.general.toggleWin.custom) {
+                if (!isWindow() && window.siyuan.config.keymap.general.toggleWin.default !==
+                    window.siyuan.config.keymap.general.toggleWin.custom) {
                     ipcRenderer.send(Constants.SIYUAN_CMD, {
                         cmd: "unregisterGlobalShortcut",
                         accelerator: window.siyuan.config.keymap.general.toggleWin.custom,
@@ -643,7 +646,7 @@ const setKeymapFromDom = (root: HTMLElement) => {
                 return;
             }
             /// #if !BROWSER
-            if (command.globalCallback && command.customHotkey && command.customHotkey !== newHotkey) {
+            if (!isWindow() && command.globalCallback && command.customHotkey && command.customHotkey !== newHotkey) {
                 ipcRenderer.send(Constants.SIYUAN_CMD, {
                     cmd: "unregisterGlobalShortcut",
                     accelerator: command.customHotkey,
@@ -664,13 +667,14 @@ const setKeymapFromDom = (root: HTMLElement) => {
             cmd: "writeLog",
             msg: "user update keymap:" + JSON.stringify(window.siyuan.config.keymap),
         });
-        if (oldToggleWin !== window.siyuan.config.keymap.general.toggleWin.custom) {
+        if (!isWindow() && oldToggleWin !== window.siyuan.config.keymap.general.toggleWin.custom) {
             ipcRenderer.send(Constants.SIYUAN_CMD, {
                 cmd: "unregisterGlobalShortcut",
                 accelerator: oldToggleWin,
             });
         }
         sendGlobalShortcut(window.siyuan.ws.app);
+        syncAppMenuShortcuts();
         /// #endif
     });
 };

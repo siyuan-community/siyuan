@@ -508,10 +508,25 @@ declare namespace Config {
         codeBlockMiddleDot: boolean;
     }
 
+    export type TAssetOpenAction = "follow-tab" | "current" | "right" | "bottom" | "background" |
+        "new-window" | "app" | "folder";
+
+    export interface IAssetOpen {
+        click: TAssetOpenAction;
+        ctrlClick: TAssetOpenAction;
+        altClick: TAssetOpenAction;
+        shiftClick: TAssetOpenAction;
+    }
+
     /**
      * SiYuan editor related configuration
      */
     export interface IEditor {
+
+        /**
+         * Asset opening behavior
+         */
+        assetOpen: IAssetOpen;
 
         /**
          * Whether to allow to execute javascript in the SVG
@@ -536,6 +551,10 @@ declare namespace Config {
          * The default number of backlinks to mention
          */
         backmentionExpandCount: number;
+        /**
+         * Backlink mention keyword exclusion list (separated by commas `,`)
+         */
+        backlinkMentionExclude: string;
         /**
          * Whether the backlink contains children
          */
@@ -649,25 +668,29 @@ declare namespace Config {
          */
         floatWindowDelay: number;
         /**
-         * The font used in the editor
+         * 编辑器字体，按优先级从高到低排列
          */
-        fontFamily: string;
+        fontFamilies: Array<{
+            family: string;
+            weight: number;
+            displayName: string;
+        }>;
         /**
-         * The font weight used in the editor, 0 means not set
+         * 编辑器等宽字体，按优先级从高到低排列
          */
-        fontWeight: number;
-        /**
-         * Label shown in Settings for the selected editor font (e.g. PostScript name + subfamily). May be empty; falls back to fontFamily in UI when empty.
-         */
-        fontFamilyDisplay: string;
+        codeFontFamilies: Array<{
+            family: string;
+            weight: number;
+            displayName: string;
+        }>;
         /**
          * The font size used in the editor
          */
         fontSize: number;
         /**
-         * Whether to enable the use of the mouse wheel to adjust the font size of the editor
+         * 使用键盘纵向移动时光标周围至少保留的可见行数
          */
-        fontSizeScrollZoom: boolean;
+        cursorSurroundingLines: number;
         /**
          * Whether the editor uses maximum width
          */
@@ -873,6 +896,10 @@ declare namespace Config {
          * Whether to enable top-level notebook documents
          */
         boxDocEnabled: boolean;
+        /**
+         * Whether to use SVG icons as the default icons for notebooks and documents
+         */
+        useSVGDefaultIcon: boolean;
         /**
          * Whether to close all tabs when starting
          */
@@ -1205,6 +1232,8 @@ declare namespace Config {
         insertBefore: IKey;
         insertBottom: IKey;
         insertRight: IKey;
+        insertSuperBlockLeft: IKey;
+        insertSuperBlockRight: IKey;
         jumpToParentNext: IKey;
         moveToDown: IKey;
         moveToUp: IKey;
@@ -1223,6 +1252,8 @@ declare namespace Config {
         refresh: IKey;
         refTab: IKey;
         rename: IKey;
+        scrollPageDownWithoutMovingCaret: IKey;
+        scrollPageUpWithoutMovingCaret: IKey;
         selectToPageEnd: IKey;
         selectToPageStart: IKey;
         showInFolder: IKey;
@@ -1327,6 +1358,9 @@ declare namespace Config {
     export interface IKeymapGeneral extends IKeys {
         mainMenu: IKey;
         commandPanel: IKey;
+        increaseEditorFontSize: IKey;
+        decreaseEditorFontSize: IKey;
+        resetEditorFontSize: IKey;
         editReadonly: IKey;
         syncNow: IKey;
         enterBack: IKey;
@@ -1375,6 +1409,9 @@ declare namespace Config {
         switchLeftDock: IKey;
         switchRightDock: IKey;
         switchBottomDock: IKey;
+        toggleLeftDockPanel: IKey;
+        toggleRightDockPanel: IKey;
+        toggleBottomDockPanel: IKey;
         toggleDock: IKey;
         splitLR: IKey;
         splitMoveR: IKey;

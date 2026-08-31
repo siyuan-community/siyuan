@@ -43,7 +43,6 @@ func setEditorReadOnly(c *gin.Context) {
 	if !ok {
 		return
 	}
-
 	readOnly := arg["readonly"].(bool)
 
 	oldReadOnly := model.Conf.Editor.ReadOnly
@@ -146,6 +145,8 @@ func setBazaar(c *gin.Context) {
 	if !ok {
 		return
 	}
+	app, _ := arg["app"].(string)
+	delete(arg, "app")
 
 	param, err := gulu.JSON.MarshalJSON(arg)
 	if err != nil {
@@ -164,6 +165,7 @@ func setBazaar(c *gin.Context) {
 	petalsEnabled := model.IsPetalsEnabled()
 	model.Conf.Bazaar = bazaar
 	model.Conf.Save()
+	util.BroadcastByType("main", "setConf", 0, "", model.Conf)
 	newPetalsEnabled := model.IsPetalsEnabled()
 	if petalsEnabled != newPetalsEnabled {
 		if newPetalsEnabled {
@@ -173,9 +175,17 @@ func setBazaar(c *gin.Context) {
 		} else if model.OnKernelPluginsStop != nil {
 			model.OnKernelPluginsStop()
 		}
+		model.PushReloadAllEnabledPlugins(newPetalsEnabled, bazaarPluginReloadExcludeApp(newPetalsEnabled, app))
 	}
 
 	ret.Data = bazaar
+}
+
+func bazaarPluginReloadExcludeApp(enabled bool, app string) string {
+	if enabled {
+		return app
+	}
+	return ""
 }
 
 func setAI(c *gin.Context) {
@@ -439,6 +449,14 @@ func setEditor(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	if _, ok = arg["fontFamilies"]; !ok && editor.FontFamily == model.Conf.Editor.FontFamily &&
+		editor.FontWeight == model.Conf.Editor.FontWeight {
+		editor.FontFamilies = model.Conf.Editor.FontFamilies
+	}
+	if _, ok = arg["codeFontFamilies"]; !ok {
+		editor.CodeFontFamilies = model.Conf.Editor.CodeFontFamilies
+	}
+	editor.NormalizeFontFamilies()
 
 	if "" == editor.PlantUMLServePath {
 		editor.PlantUMLServePath = "https://www.plantuml.com/plantuml/svg/~1"
@@ -460,6 +478,8 @@ func setEditor(c *gin.Context) {
 	} else {
 		*editor.FloatWindowDelay = max(0, min(2000, *editor.FloatWindowDelay))
 	}
+	editor.CursorSurroundingLines = conf.NormalizeCursorSurroundingLines(editor.CursorSurroundingLines)
+	editor.AssetOpen = conf.NormalizeAssetOpen(editor.AssetOpen)
 
 	oldVirtualBlockRef := model.Conf.Editor.VirtualBlockRef
 	oldVirtualBlockRefInclude := model.Conf.Editor.VirtualBlockRefInclude
@@ -567,6 +587,7 @@ func setFiletree(c *gin.Context) {
 
 	fileTree := conf.NewFileTree()
 	fileTree.BoxDocEnabled = nil
+	fileTree.UseSVGDefaultIcon = nil
 	if err = gulu.JSON.UnmarshalJSON(param, fileTree); err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
@@ -577,6 +598,13 @@ func setFiletree(c *gin.Context) {
 			fileTree.BoxDocEnabled = model.Conf.FileTree.BoxDocEnabled
 		} else {
 			fileTree.BoxDocEnabled = new(bool)
+		}
+	}
+	if nil == fileTree.UseSVGDefaultIcon {
+		if nil != model.Conf.FileTree && nil != model.Conf.FileTree.UseSVGDefaultIcon {
+			fileTree.UseSVGDefaultIcon = model.Conf.FileTree.UseSVGDefaultIcon
+		} else {
+			fileTree.UseSVGDefaultIcon = new(bool)
 		}
 	}
 	oldBoxDocEnabled := model.IsBoxDocEnabled()
@@ -749,11 +777,9 @@ func setAppearance(c *gin.Context) {
 	if nil == appearance.EntryVisibility {
 		appearance.EntryVisibility = model.Conf.Appearance.EntryVisibility
 	}
+	appearance.StatusBar = util.NormalizeStatusBar(appearance.StatusBar, util.IsMobileContainer())
 	model.Conf.Appearance = appearance
 	util.StatusBarCfg = model.Conf.Appearance.StatusBar
-	if nil == util.StatusBarCfg {
-		util.StatusBarCfg = &util.StatusBar{}
-	}
 	if nil == model.Conf.Appearance.Notifications {
 		// 旧配置未迁移，按默认全部启用处理
 		model.Conf.Appearance.Notifications = util.NewNotifications()
@@ -767,6 +793,52 @@ func setAppearance(c *gin.Context) {
 
 	ret.Data = model.Conf.Appearance
 	util.BroadcastByType("main", "setAppearance", 0, "", model.Conf.Appearance)
+}
+
+func getBootAppearances(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	appearances := model.GetBootAppearances()
+	selection := model.GetBootAppearanceSelection()
+	current := map[string]string{"provider": "", "appearance": ""}
+	if !util.SafeMode {
+		for _, appearance := range appearances {
+			if appearance.Provider == selection.Provider && appearance.Appearance == selection.Appearance {
+				current["provider"] = selection.Provider
+				current["appearance"] = selection.Appearance
+				break
+			}
+		}
+	}
+	ret.Data = map[string]any{
+		"appearances": appearances,
+		"current":     current,
+	}
+}
+
+func setBootAppearance(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	var provider, appearance string
+	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("provider", &provider, false, false),
+		util.BindJsonArg("appearance", &appearance, false, false),
+	) {
+		return
+	}
+	selection, err := model.SetBootAppearance(provider, appearance)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = selection
 }
 
 func setEntryVisibility(c *gin.Context) {
@@ -982,8 +1054,19 @@ func getCloudUser(c *gin.Context) {
 	if nil != t {
 		token = t.(string)
 	}
-	model.RefreshUser(token)
-	ret.Data = model.Conf.GetUser()
+	user, err := model.RefreshUser(token)
+	ret.Data = user
+	if nil == err {
+		return
+	}
+	if model.IsInvalidUserRefresh(err) {
+		ret.Code = 255
+		ret.Msg = model.Conf.Language(19)
+		ret.Data = nil
+		return
+	}
+	ret.Code = 1
+	ret.Msg = model.Conf.Language(18)
 }
 
 func logoutCloudUser(c *gin.Context) {
@@ -1004,13 +1087,10 @@ func login2faCloudUser(c *gin.Context) {
 
 	token := arg["token"].(string)
 	code := arg["code"].(string)
-	data, err := model.Login2fa(token, code)
-	if err != nil {
-		ret.Code = -1
-		ret.Msg = err.Error()
-		return
-	}
-	ret.Data = data
+	loginResult := model.Login2fa(token, code)
+	ret.Code = loginResult.Code
+	ret.Msg = loginResult.Msg
+	ret.Data = loginResult.Data
 }
 
 func setEmoji(c *gin.Context) {

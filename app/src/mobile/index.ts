@@ -31,8 +31,10 @@ import {
     getLocalStorage,
     initWindowOpenOverride,
     isChromeBrowser,
+    isInAndroid,
     isInIOS,
     isInMobileApp,
+    isIOSDevice,
     writeText
 } from "../protyle/util/compatibility";
 import {getCurrentEditor, openMobileFileById} from "./editor";
@@ -42,6 +44,7 @@ import {initRightMenu} from "./menu";
 import {openChangelog} from "../boot/openChangelog";
 import {registerServiceWorker} from "../util/serviceWorker";
 import {loadPlugins} from "../plugin/loader";
+import {emitToPlugins} from "../plugin/EventBusCore";
 import {removeBlock} from "../protyle/wysiwyg/remove";
 import {isNotEditBlock} from "../protyle/wysiwyg/getBlock";
 import {updateCardHV} from "../card/util";
@@ -55,6 +58,8 @@ import {initTouchDragBridge} from "../util/touchDragBridge";
 import {appearanceConfigApi} from "../config/tabs/appearanceRuntime";
 import {openByMobile} from "../editor/openLink";
 import {initHarmonyTextSelectionMenu} from "../util/harmonyTextSelectionMenu";
+import {updateMobileTopBarLayout} from "./util/mobileTopBar";
+import {showMobileBars} from "./util/mobileBars";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -74,9 +79,7 @@ class App {
             id: genUUID(),
             type: "main",
             msgCallback: (data) => {
-                this.plugins.forEach((plugin) => {
-                    plugin.eventBus.emit("ws-main", data);
-                });
+                emitToPlugins("ws-main", data);
                 onMessage(this, data);
             }
         });
@@ -98,6 +101,7 @@ class App {
                     tag: null,
                     backlink: null,
                     inbox: null,
+                    agent: null,
                 }
             },
             ws: mainWs
@@ -166,6 +170,8 @@ class App {
         // 判断手机横竖屏状态
         window.matchMedia("(orientation:portrait)").addEventListener("change", () => {
             updateCardHV();
+            updateMobileTopBarLayout();
+            showMobileBars();
             activeBlur();
         });
         fetchPost("/api/system/getConf", {}, async (confResponse) => {
@@ -173,6 +179,7 @@ class App {
             addScript(`${Constants.PROTYLE_CDN}/js/protyle-html.js?v=${Constants.SIYUAN_VERSION}`, "protyleWcHtmlScript");
             window.siyuan.config = confResponse.data.conf;
             window.siyuan.isPublish = confResponse.data.isPublish;
+            document.body.classList.toggle("body--android", Boolean(isInAndroid()));
             correctHotkey(siyuanApp);
             await loadPlugins(this);
             getLocalStorage(() => {
@@ -189,7 +196,7 @@ class App {
                             document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-content, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
                         } else {
                             document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-visual, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
-                            if (!window.siyuan.config.readonly && !window.siyuan.isPublish
+                            if (!isIOSDevice() && !window.siyuan.config.readonly && !window.siyuan.isPublish
                                 && window.siyuan.config.appearance.notifications?.browserCompatibility !== false) {
                                 showMessage(window.siyuan.languages.useChrome, 0, "error");
                             }
@@ -279,7 +286,7 @@ window.reconnectWebSocket = () => {
 };
 window.lockscreenByMode = () => {
     if (window.siyuan.config?.system.lockScreenMode === 1) {
-        lockScreen(siyuanApp);
+        lockScreen();
     }
 };
 window.goBack = goBack;

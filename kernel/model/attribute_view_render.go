@@ -52,6 +52,8 @@ type AttributeViewSearchTarget struct {
 	AvID            string   `json:"avID"`
 	DatabaseBlockID string   `json:"databaseBlockID"`
 	NotebookID      string   `json:"notebookID"`
+	ViewID          string   `json:"viewID,omitempty"`
+	GroupID         string   `json:"groupID,omitempty"`
 	ItemID          string   `json:"itemID"`
 	ValueID         string   `json:"valueID"`
 	MatchedValueID  string   `json:"matchedValueID"`
@@ -65,6 +67,11 @@ type AttributeViewSearchTarget struct {
 type attributeViewSearchMatch struct {
 	valueID string
 	keyID   string
+}
+
+type attributeViewSearchItem struct {
+	itemID  string
+	groupID string
 }
 
 func GetAttributeViewSearchTarget(blockID string, keywords []string) (ret *AttributeViewSearchTarget) {
@@ -96,38 +103,40 @@ func GetAttributeViewSearchTarget(blockID string, keywords []string) (ret *Attri
 		return
 	}
 
-	var orderedItemIDs []string
+	var orderedItems []attributeViewSearchItem
+	viewID := ""
 	blockValues := attrView.GetBlockKeyValues()
 	pageSize := len(matches) + 1
 	if nil != blockValues && len(blockValues.Values) >= pageSize {
 		pageSize = len(blockValues.Values) + 1
 	}
 	viewable, renderErr := renderAttributeView(attrView, blockID, "", "", "", 1, pageSize, nil, false, false, nil, "")
-	if nil == renderErr {
-		orderedItemIDs = appendAttributeViewSearchItemIDs(orderedItemIDs, viewable, false)
-		orderedItemIDs = appendAttributeViewSearchItemIDs(orderedItemIDs, viewable, true)
-	} else {
+	if nil == renderErr && nil != viewable {
+		viewID = viewable.GetID()
+		orderedItems = appendAttributeViewSearchItems(orderedItems, viewable, false)
+		orderedItems = appendAttributeViewSearchItems(orderedItems, viewable, true)
+	} else if nil != renderErr {
 		logging.LogWarnf("render attribute view [%s] for search target failed: %s", attrView.ID, renderErr)
 	}
 	if nil != blockValues {
 		for _, value := range blockValues.Values {
 			if nil != value {
-				orderedItemIDs = append(orderedItemIDs, value.BlockID)
+				orderedItems = append(orderedItems, attributeViewSearchItem{itemID: value.BlockID})
 			}
 		}
 	}
 
 	visited := map[string]bool{}
-	for _, itemID := range orderedItemIDs {
-		if visited[itemID] {
+	for _, item := range orderedItems {
+		if visited[item.itemID] {
 			continue
 		}
-		visited[itemID] = true
-		match := matches[itemID]
+		visited[item.itemID] = true
+		match := matches[item.itemID]
 		if nil == match {
 			continue
 		}
-		blockValue := attrView.GetBlockValue(itemID)
+		blockValue := attrView.GetBlockValue(item.itemID)
 		if nil == blockValue || nil == blockValue.Block {
 			continue
 		}
@@ -135,7 +144,9 @@ func GetAttributeViewSearchTarget(blockID string, keywords []string) (ret *Attri
 			AvID:            attrView.ID,
 			DatabaseBlockID: blockID,
 			NotebookID:      tree.Box,
-			ItemID:          itemID,
+			ViewID:          viewID,
+			GroupID:         item.groupID,
+			ItemID:          item.itemID,
 			ValueID:         blockValue.ID,
 			MatchedValueID:  match.valueID,
 			MatchedKeyID:    match.keyID,
@@ -184,9 +195,9 @@ func getAttributeViewSearchMatches(attrView *av.AttributeView, keywords []string
 	return
 }
 
-func appendAttributeViewSearchItemIDs(itemIDs []string, viewable av.Viewable, hiddenGroups bool) []string {
+func appendAttributeViewSearchItems(items []attributeViewSearchItem, viewable av.Viewable, hiddenGroups bool) []attributeViewSearchItem {
 	if nil == viewable {
-		return itemIDs
+		return items
 	}
 	baseInstance := getAttributeViewBaseInstance(viewable)
 	if nil != baseInstance && 0 < len(baseInstance.Groups) {
@@ -196,21 +207,21 @@ func appendAttributeViewSearchItemIDs(itemIDs []string, viewable av.Viewable, hi
 			}
 			if collection, ok := group.(av.Collection); ok {
 				for _, item := range collection.GetItems() {
-					itemIDs = append(itemIDs, item.GetID())
+					items = append(items, attributeViewSearchItem{itemID: item.GetID(), groupID: group.GetID()})
 				}
 			}
 		}
-		return itemIDs
+		return items
 	}
 	if hiddenGroups {
-		return itemIDs
+		return items
 	}
 	if collection, ok := viewable.(av.Collection); ok {
 		for _, item := range collection.GetItems() {
-			itemIDs = append(itemIDs, item.GetID())
+			items = append(items, attributeViewSearchItem{itemID: item.GetID()})
 		}
 	}
-	return itemIDs
+	return items
 }
 
 func GetAttributeViewItemStatuses(blockID, avID, viewID, query string, itemIDs []string) (ret map[string]string, err error) {
@@ -238,14 +249,14 @@ func getAttributeViewItemStatuses(attrView *av.AttributeView, viewable av.Viewab
 			}
 		}
 	}
-	for _, itemID := range appendAttributeViewSearchItemIDs(nil, viewable, true) {
-		if requested[itemID] && "filtered" == ret[itemID] {
-			ret[itemID] = "groupHidden"
+	for _, item := range appendAttributeViewSearchItems(nil, viewable, true) {
+		if requested[item.itemID] && "filtered" == ret[item.itemID] {
+			ret[item.itemID] = "groupHidden"
 		}
 	}
-	for _, itemID := range appendAttributeViewSearchItemIDs(nil, viewable, false) {
-		if requested[itemID] {
-			ret[itemID] = "visible"
+	for _, item := range appendAttributeViewSearchItems(nil, viewable, false) {
+		if requested[item.itemID] {
+			ret[item.itemID] = "visible"
 		}
 	}
 	return
@@ -522,10 +533,17 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 	}
 
 	// 渲染视图
-	viewable = sql.RenderView(attrView, view, query, ignoreRows)
+	renderContext := sql.NewAttributeViewRenderContext()
+	defer renderContext.PushTemplateErrors()
+	deferTemplateValues := shouldDeferAttributeViewTemplateValues(attrView, view, query, ignoreRows)
+	if deferTemplateValues {
+		viewable = sql.RenderViewWithDeferredTemplatesContext(attrView, view, query, ignoreRows, renderContext)
+	} else {
+		viewable = sql.RenderViewWithContext(attrView, view, query, ignoreRows, renderContext)
+	}
 	var groupRenderSource *sql.GroupViewRenderSource
 	if !ignoreRows && view.IsGroupView() {
-		// 在父视图分页前保存完整行索引，分组表格复用已经生成的字段值。
+		// 在父视图分页前保存完整条目索引，各分组复用已经生成的字段值。
 		groupRenderSource = sql.NewGroupViewRenderSource(viewable, query)
 	}
 	renderTargetItemID := targetItemID(target)
@@ -533,9 +551,13 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 		renderTargetItemID = ""
 	}
 	var targetIndex, targetOffset int
-	targetIndex, targetOffset, err = renderViewableInstance(viewable, view, attrView, page, pageSize, ignoreRows, renderTargetItemID)
+	targetIndex, targetOffset, err = renderViewableInstance(viewable, view, attrView, page, pageSize, ignoreRows,
+		renderTargetItemID, renderContext)
 	if nil != err {
 		return
+	}
+	if deferTemplateValues {
+		sql.FillAttributeViewTemplateValuesWithContext(attrView, view, viewable.(av.Collection), renderContext)
 	}
 	if nil != target && targetIndex >= 0 && !view.IsGroupView() && view.LayoutType != av.LayoutTypeKanban {
 		setAttributeViewRenderTarget(target, "", targetIndex, targetOffset, view.PageSize)
@@ -544,7 +566,7 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 	// 渲染分组视图。当 ignoreRows 时若有已生成的分组则渲染元数据供面板使用，无分组则跳过（生成分组需要行数据）
 	if !ignoreRows || len(view.Groups) > 0 {
 		err = renderAttributeViewGroups(viewable, attrView, view, query, page, pageSize, groupPaging, groupRenderSource,
-			ignoreRows, writable, target, targetGroupID)
+			ignoreRows, writable, target, targetGroupID, renderContext)
 	}
 	if writable && nil == err && attrView.HasCardCoverPositionChanges() {
 		if err = av.SaveAttributeView(attrView); nil != err {
@@ -557,7 +579,7 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 
 func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView, view *av.View, query string, page,
 	pageSize int, groupPaging map[string]any, groupRenderSource *sql.GroupViewRenderSource, ignoreRows, writable bool,
-	target *AttributeViewRenderTarget, targetGroupID string) (err error) {
+	target *AttributeViewRenderTarget, targetGroupID string, renderContext *sql.AttributeViewRenderContext) (err error) {
 	groupKey := view.GetGroupKey(attrView)
 	if nil == groupKey {
 		if view.LayoutType == av.LayoutTypeKanban {
@@ -649,7 +671,8 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 
 	var groups []av.Viewable
 	for _, groupView := range view.Groups {
-		groupViewable := sql.RenderGroupViewWithSource(attrView, view, groupView, query, groupRenderSource, ignoreRows)
+		groupViewable := sql.RenderGroupViewWithSourceContext(attrView, view, groupView, query, groupRenderSource,
+			ignoreRows, renderContext)
 
 		groupPage, groupPageSize := page, pageSize
 		if nil != groupPaging {
@@ -670,7 +693,8 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 				groupTargetItemID = target.ItemID
 			}
 		}
-		targetIndex, targetOffset, renderErr := renderViewableInstance(groupViewable, view, attrView, groupPage, groupPageSize, ignoreRows, groupTargetItemID)
+		targetIndex, targetOffset, renderErr := renderViewableInstance(groupViewable, view, attrView, groupPage,
+			groupPageSize, ignoreRows, groupTargetItemID, renderContext)
 		err = renderErr
 		if nil != err {
 			return
@@ -893,7 +917,65 @@ func isGroupByTemplate(attrView *av.AttributeView, view *av.View) bool {
 	return av.KeyTypeTemplate == groupKey.Type
 }
 
-func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.AttributeView, page, pageSize int, ignoreRows bool, targetItemID string) (targetIndex, targetOffset int, err error) {
+func shouldDeferAttributeViewTemplateValues(attrView *av.AttributeView, view *av.View, query string,
+	ignoreRows bool) bool {
+	if nil == attrView || nil == view || ignoreRows || "" != strings.TrimSpace(query) || view.IsGroupView() ||
+		av.LayoutTypeKanban == view.LayoutType {
+		return false
+	}
+
+	templateKeyIDs := map[string]bool{}
+	for _, keyValues := range attrView.KeyValues {
+		if nil != keyValues && nil != keyValues.Key && av.KeyTypeTemplate == keyValues.Key.Type {
+			templateKeyIDs[keyValues.Key.ID] = true
+		}
+	}
+	if 0 == len(templateKeyIDs) {
+		return false
+	}
+
+	for keyID := range templateKeyIDs {
+		if attrViewFiltersContainColumn(view.Filters, keyID) {
+			return false
+		}
+	}
+	for _, viewSort := range view.Sorts {
+		if nil != viewSort && templateKeyIDs[viewSort.Column] {
+			return false
+		}
+	}
+	if nil != view.GroupCalc && templateKeyIDs[view.GroupCalc.Field] {
+		return false
+	}
+
+	hasTemplateField := false
+	checkField := func(fieldID string, calc *av.FieldCalc) bool {
+		if !templateKeyIDs[fieldID] {
+			return false
+		}
+		hasTemplateField = true
+		return nil != calc && av.CalcOperatorNone != calc.Operator
+	}
+	switch view.LayoutType {
+	case av.LayoutTypeTable:
+		for _, column := range view.Table.Columns {
+			if nil != column && nil != column.BaseField && checkField(column.ID, column.Calc) {
+				return false
+			}
+		}
+	case av.LayoutTypeGallery:
+		for _, field := range view.Gallery.CardFields {
+			if nil != field && nil != field.BaseField && checkField(field.ID, field.Calc) {
+				return false
+			}
+		}
+	}
+	return hasTemplateField
+}
+
+func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.AttributeView, page, pageSize int,
+	ignoreRows bool, targetItemID string,
+	renderContext *sql.AttributeViewRenderContext) (targetIndex, targetOffset int, err error) {
 	targetIndex = -1
 	if nil == viewable {
 		err = av.ErrViewNotFound
@@ -907,7 +989,7 @@ func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.At
 	}
 
 	cachedAttrViews := map[string]*av.AttributeView{}
-	rollupFurtherCollections := sql.GetFurtherCollections(attrView, cachedAttrViews)
+	rollupFurtherCollections := sql.GetFurtherCollectionsWithContext(attrView, cachedAttrViews, renderContext)
 	av.Filter(viewable, attrView, rollupFurtherCollections, cachedAttrViews)
 	av.Sort(viewable, attrView)
 	av.Calc(viewable, attrView)
@@ -1119,6 +1201,58 @@ func ResolveHistoryAttributeViewBoxID(avID, created string) (string, error) {
 	return "", nil
 }
 
+func loadHistoryWorkspacePalette(historyDir string) (
+	ret []*av.AttributeViewCustomColor, order []string, found bool,
+) {
+	path := filepath.Join(historyDir, "storage", "inline-styles.json")
+	if !gulu.File.IsExist(path) {
+		return nil, nil, false
+	}
+	data, err := os.ReadFile(path)
+	if nil != err {
+		logging.LogWarnf("read historical inline styles failed: %s", err)
+		return nil, nil, false
+	}
+	return decodeHistoricalWorkspacePalette(data)
+}
+
+func decodeHistoricalWorkspacePalette(data []byte) (
+	ret []*av.AttributeViewCustomColor, order []string, found bool,
+) {
+	var styles struct {
+		AV *struct {
+			Colors []*av.AttributeViewCustomColor `json:"colors"`
+			Order  []string                       `json:"order"`
+		} `json:"av"`
+	}
+	if err := gulu.JSON.UnmarshalJSON(data, &styles); nil != err || nil == styles.AV {
+		return nil, nil, false
+	}
+	colors, err := av.NormalizeAttributeViewCustomColors(styles.AV.Colors, false)
+	if nil != err {
+		return nil, nil, false
+	}
+	return colors, av.NormalizeAttributeViewColorOrder(styles.AV.Order, colors), true
+}
+
+func newAttributeViewCustomColorRenderContext(colors []*av.AttributeViewCustomColor, order []string,
+	found bool) *av.CustomColorRenderContext {
+	colors, _ = av.NormalizeAttributeViewCustomColors(colors, false)
+	order = av.NormalizeAttributeViewColorOrder(order, colors)
+	return &av.CustomColorRenderContext{ResolveRelatedCustomColors: func(string) (
+		retColors []*av.AttributeViewCustomColor, retOrder []string, retFound bool,
+	) {
+		retColors, _ = av.NormalizeAttributeViewCustomColors(colors, false)
+		retOrder = av.NormalizeAttributeViewColorOrder(order, retColors)
+		return retColors, retOrder, found
+	}}
+}
+
+func newHistoryAttributeViewCustomColorRenderContext(historyDir string) *av.CustomColorRenderContext {
+	colors, order, found := loadHistoryWorkspacePalette(historyDir)
+	return newAttributeViewCustomColorRenderContext(colors, order, found)
+}
+
 func RenderRepoSnapshotAttributeView(indexID, avID, viewID, carrierViewID string) (viewable av.Viewable, attrView *av.AttributeView, err error) {
 	if !ast.IsNodeIDPattern(avID) {
 		err = ErrInvalidID
@@ -1179,6 +1313,24 @@ func RenderRepoSnapshotAttributeView(indexID, avID, viewID, carrierViewID string
 	if err = av.CheckSpec(attrView); nil != err {
 		return
 	}
+	var snapshotColors []*av.AttributeViewCustomColor
+	var snapshotOrder []string
+	var snapshotPaletteFound bool
+	for _, file := range files {
+		if !isInlineStylesRepoPath(file.Path) {
+			continue
+		}
+		inlineStylesData, openErr := repo.OpenFile(file)
+		if openErr != nil {
+			logging.LogWarnf("read snapshot inline styles failed: %s", openErr)
+			break
+		}
+		snapshotColors, snapshotOrder, snapshotPaletteFound = decodeHistoricalWorkspacePalette(inlineStylesData)
+		break
+	}
+	attrView.CustomColorRenderContext = newAttributeViewCustomColorRenderContext(
+		snapshotColors, snapshotOrder, snapshotPaletteFound)
+	attrView.ResolveDirectColors()
 
 	viewable, err = renderAttributeView(attrView, "", viewID, carrierViewID, "", 1, -1, nil, false, false, nil, "")
 	return
@@ -1210,21 +1362,24 @@ func RenderHistoryAttributeView(avID, viewID, carrierViewID, query string, page,
 	}
 
 	type historyAttributeViewSource struct {
-		path  string
-		boxID string
+		path       string
+		boxID      string
+		historyDir string
 	}
 	var sources []historyAttributeViewSource
 	for _, historyDir := range matches {
 		globalPath := filepath.Join(historyDir, "storage", "av", avID+".json")
 		if gulu.File.IsExist(globalPath) {
-			sources = append(sources, historyAttributeViewSource{path: globalPath})
+			sources = append(sources, historyAttributeViewSource{path: globalPath, historyDir: historyDir})
 		}
 		entries, _ := os.ReadDir(historyDir)
 		for _, entry := range entries {
 			if entry.IsDir() && ast.IsNodeIDPattern(entry.Name()) {
 				candidate := filepath.Join(historyDir, entry.Name(), "storage", "av", avID+".json")
 				if gulu.File.IsExist(candidate) {
-					sources = append(sources, historyAttributeViewSource{path: candidate, boxID: entry.Name()})
+					sources = append(sources, historyAttributeViewSource{
+						path: candidate, boxID: entry.Name(), historyDir: historyDir,
+					})
 				}
 			}
 		}
@@ -1261,6 +1416,8 @@ func RenderHistoryAttributeView(avID, viewID, carrierViewID, query string, page,
 	if err = av.CheckSpec(attrView); nil != err {
 		return
 	}
+	attrView.CustomColorRenderContext = newHistoryAttributeViewCustomColorRenderContext(source.historyDir)
+	attrView.ResolveDirectColors()
 
 	viewable, err = renderAttributeView(attrView, "", viewID, carrierViewID, query, page, pageSize, groupPaging, false, false, nil, "")
 	return

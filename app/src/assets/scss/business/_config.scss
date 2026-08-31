@@ -92,8 +92,22 @@
   }
 
   &-item__main {
+    font-size: 14px;
     min-height: auto;
     overflow: visible;
+  }
+
+  &-font-family {
+    &__chip {
+      height: 24px;
+    }
+
+    &__text {
+      align-self: stretch;
+      align-items: center;
+      display: flex;
+      line-height: normal;
+    }
   }
 
   &-cloud-space {
@@ -408,6 +422,24 @@
       }
     }
 
+    &__filter-row {
+      align-items: center;
+      flex: 1 1 240px;
+      gap: 8px;
+      min-width: 0;
+
+      > .b3-text-field {
+        flex: 1;
+        max-width: 240px;
+        min-width: 0;
+      }
+
+      > .counter {
+        flex-shrink: 0;
+        margin-left: auto;
+      }
+    }
+
     &__tabs,
     &__tools {
       align-items: center;
@@ -476,6 +508,10 @@
       &--outline {
         --b3-icon-star-fill: none;
       }
+    }
+
+    [data-type="rate-package"][data-user-rating] > svg {
+      --b3-icon-star-fill: currentColor;
     }
 
     &__rating-stars {
@@ -613,7 +649,64 @@
     &__readme {
       padding: 16px 16px 16px 0;
 
+      .config-bazaar__deprecated {
+        background-color: var(--b3-card-warning-background);
+        border-radius: var(--b3-border-radius);
+        margin: 8px 0;
+        padding: 10px 12px;
+        text-align: left;
+
+        &-title {
+          color: var(--b3-card-warning-color);
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 20px;
+        }
+
+        &-reason {
+          color: var(--b3-theme-on-background);
+          line-height: 20px;
+          margin-top: 4px;
+          overflow-wrap: anywhere;
+        }
+
+        &-alternatives {
+          align-items: center;
+          display: flex;
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        &-label {
+          color: var(--b3-theme-on-surface);
+          flex-shrink: 0;
+          font-size: 12px;
+          line-height: 20px;
+        }
+
+        &-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+          min-width: 0;
+        }
+
+        &-button {
+          appearance: none;
+          border: 0;
+          font-family: inherit;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+
       .item {
+        &__body {
+          display: contents;
+        }
+
         &__side {
           text-align: center;
           width: 260px;
@@ -1004,7 +1097,7 @@
       &--toggleable {
         cursor: pointer;
 
-        &:has([data-entry-readonly]),
+        &.config-entry-visibility__row--readonly,
         &.config-entry-visibility__row--disabled {
           cursor: not-allowed;
         }
@@ -1101,6 +1194,10 @@
 }
 
 #configAccountPayment {
+  &.config-account--deactivate {
+    padding-bottom: 8px;
+  }
+
   @media (max-width: 750px) {
     .config-wrap > .fn__space {
       display: block;
@@ -1113,9 +1210,26 @@
     vertical-align: -3px;
     margin-right: 4px;
   }
+
+  .config-account__deactivate {
+    margin-top: 8px;
+    text-align: right;
+
+    .b3-button {
+      color: var(--b3-theme-on-surface-light);
+      font-size: 12px;
+      max-width: 100%;
+      text-align: right;
+      white-space: normal;
+    }
+  }
 }
 
 #configAccountMain.config-wrap {
+  .config-account__row-actions {
+    gap: 8px;
+  }
+
   @media (max-width: 750px) {
     .config-account__profile-meta {
       display: block;
@@ -1179,12 +1293,12 @@
 }
 
 .data-migration__item:hover .data-migration__actions,
-.data-migration__item:has(:focus-visible) .data-migration__actions {
+.data-migration__item:focus-within .data-migration__actions {
   opacity: 1;
   pointer-events: auto;
 }
 
-@media (hover: none) {
+@media (hover: none), (any-pointer: coarse) {
   .data-migration__actions {
     opacity: 1;
     pointer-events: auto;

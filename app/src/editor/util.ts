@@ -35,6 +35,7 @@ import {clearOBG} from "../layout/dock/util";
 import {Model} from "../layout/Model";
 import {hideElements} from "../protyle/ui/hideElements";
 import {isBrowserRenderableImagePath} from "../util/imageURL";
+import {forEachPluginSubscriber} from "../plugin/EventBusCore";
 
 const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => {
     if (!options.custom || (options.custom.id && options.custom.id !== type)) {
@@ -49,6 +50,7 @@ const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => 
 export const openFileById = async (options: {
     app: App,
     id: string,
+    notebookId?: string,
     position?: string,
     mode?: TEditorMode,
     action?: TProtyleAction[]
@@ -59,9 +61,18 @@ export const openFileById = async (options: {
     keepAVPanel?: boolean
     afterOpen?: (model: Model) => void,
     scrollPosition?: ScrollLogicalPosition
-}) => {
-    const response = await fetchSyncPost("/api/block/getBlockInfo", {id: options.id});
+    retryOnUnavailable?: number
+}): Promise<Tab | void> => {
+    const response = await fetchSyncPost("/api/block/getBlockInfo", {id: options.id, notebook: options.notebookId});
     if (response.code === -1) {
+        const retryOnUnavailable = options.retryOnUnavailable || 0;
+        if (retryOnUnavailable > 0) {
+            await new Promise(resolve => window.setTimeout(resolve, Constants.TIMEOUT_TRANSITION));
+            return openFileById({
+                ...options,
+                retryOnUnavailable: retryOnUnavailable - 1,
+            });
+        }
         return;
     }
     if (response.code === 3) {
@@ -77,6 +88,7 @@ export const openFileById = async (options: {
         rootIcon: response.data.rootIcon,
         rootID: response.data.rootID,
         id: options.id,
+        notebookId: options.notebookId,
         position: options.position,
         mode: options.mode,
         action: options.action,
@@ -90,7 +102,15 @@ export const openFileById = async (options: {
     });
 };
 
-export const openAsset = (app: App, assetPath: string, page: number | string, position?: string) => {
+const openAssetWithOptions = (
+    app: App,
+    assetPath: string,
+    page: number | string,
+    options: {
+        position?: string,
+        keepCursor?: boolean,
+    } = {},
+) => {
     const suffix = getAssetExtension(assetPath).toLowerCase();
     if (!Constants.SIYUAN_ASSETS_EXTS.includes(suffix) || !isBrowserRenderableImagePath(assetPath)) {
         return;
@@ -99,9 +119,18 @@ export const openAsset = (app: App, assetPath: string, page: number | string, po
         app,
         assetPath,
         page,
-        position,
+        position: options.position,
+        keepCursor: options.keepCursor,
         removeCurrentTab: true
     });
+};
+
+export const openAsset = (app: App, assetPath: string, page: number | string, position?: string) => {
+    openAssetWithOptions(app, assetPath, page, {position});
+};
+
+export const openAssetInBackground = (app: App, assetPath: string, page: number | string) => {
+    openAssetWithOptions(app, assetPath, page, {keepCursor: true});
 };
 
 export const openFile = async (options: IOpenFileOptions) => {
@@ -125,8 +154,10 @@ export const openFile = async (options: IOpenFileOptions) => {
         const asset = allModels.asset.find((item) => {
             if (item.path == options.assetPath) {
                 if (!pdfIsLoading(item.parent.parent.element)) {
-                    item.parent.parent.switchTab(item.parent.headElement);
-                    item.parent.parent.showHeading();
+                    if (!options.keepCursor) {
+                        item.parent.parent.switchTab(item.parent.headElement);
+                        item.parent.parent.showHeading();
+                    }
                     item.goToPage(options.page);
                 }
                 return true;
@@ -314,7 +345,9 @@ export const openFile = async (options: IOpenFileOptions) => {
         }
         if (options.keepCursor && wnd.children[0].headElement) {
             createdTab = newTab(options);
-            createdTab.headElement.setAttribute("keep-cursor", options.id);
+            if (options.id) {
+                createdTab.headElement.setAttribute("keep-cursor", options.id);
+            }
             wnd.addTab(createdTab, options.keepCursor);
         } else if (window.siyuan.config.fileTree.openFilesUseCurrentTab) {
             let unUpdateTab: Tab;
@@ -354,6 +387,7 @@ const getUnInitTab = (options: IOpenFileOptions) => {
             if (initObj.instance === "Editor" &&
                 (initObj.rootId === options.rootID || initObj.blockId === options.rootID)) {
                 initObj.blockId = options.id;
+                initObj.notebookId = options.notebookId;
                 initObj.mode = options.mode;
                 if (options.zoomIn) {
                     initObj.action = [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS];
@@ -517,7 +551,9 @@ const newTab = (options: IOpenFileOptions) => {
                         path: options.assetPath,
                         page: options.page,
                     }));
-                    setPanelFocus(tab.panelElement.parentElement.parentElement);
+                    if (!options.keepCursor) {
+                        setPanelFocus(tab.panelElement.parentElement.parentElement);
+                    }
                 }
             });
         }
@@ -571,6 +607,7 @@ const newTab = (options: IOpenFileOptions) => {
                         tab,
                         blockId: options.id,
                         rootId: options.rootID,
+                        notebookId: options.notebookId,
                         action: [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS],
                         scrollPosition: options.scrollPosition,
                     });
@@ -580,6 +617,7 @@ const newTab = (options: IOpenFileOptions) => {
                         tab,
                         blockId: options.id,
                         rootId: options.rootID,
+                        notebookId: options.notebookId,
                         mode: options.mode,
                         action: options.action,
                         scrollPosition: options.scrollPosition,
@@ -635,8 +673,8 @@ export const updatePanelByEditor = (options: {
                 }
             }
         }
-        options.protyle.app.plugins.forEach(item => {
-            item.eventBus.emit("switch-protyle", {protyle: options.protyle});
+        forEachPluginSubscriber("switch-protyle", eventBus => {
+            eventBus.emit("switch-protyle", {protyle: options.protyle});
         });
     }
     // 切换页签或关闭所有页签时，需更新对应的面板
@@ -735,7 +773,7 @@ export const updateBacklinkGraph = (models: IModels, protyle: IProtyle) => {
                 return;
             }
             item.notebookId = notebookId;
-            item.searchGraph(true, blockId);
+            item.searchGraph({id: blockId});
         }
     });
     models.backlink.forEach(item => {

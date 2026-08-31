@@ -6,6 +6,7 @@ import {
     getBlockRanges,
     getSelectionOffset,
     getUndoFocusContext,
+    restoreFocusContext,
     setLastNodeRange
 } from "../util/selection";
 import {
@@ -49,6 +50,9 @@ import {getAllModels} from "../../layout/getAll";
 import {fetchSyncPost} from "../../util/fetch";
 import {setFold} from "../util/blockFold";
 import {highlightRender} from "../render/highlightRender";
+import {processRender} from "../util/processCode";
+import {avRender} from "../render/av/render";
+import {blockRender} from "../render/blockRender";
 import * as dayjs from "dayjs";
 import {mergeSameInlineElement} from "../toolbar/util";
 import {
@@ -58,12 +62,14 @@ import {
     getCrossBlockMergeRemoveElement,
     getCrossBlockSiblingListItemMergeContext,
     getDeletedBlockElements,
+    isNativeCrossBlockCompositionSupported,
     isEntireBlockContentSelected,
     mergeCrossBlockNestedLists,
     mergeCrossBlockSiblingListItems
 } from "./removeRange";
 import {confirmBlockRef} from "../../util/checkBlockRef";
 import {input} from "./input";
+import {isWindows} from "../util/compatibility";
 
 export interface IBlockRefCheckTargets {
     elements: HTMLElement[];
@@ -74,6 +80,16 @@ export interface IBlockRefCheckTargets {
 interface ICrossBlockReplacement {
     event?: InputEvent;
     text: string;
+}
+
+export interface ICrossBlockComposition {
+    preventNativeInput: boolean;
+
+    update(text: string): void;
+
+    preservePreview(): void;
+
+    complete(committed: boolean, range: Range): Promise<void>;
 }
 
 const hasMeaningfulContent = (element: Element) => {
@@ -344,6 +360,285 @@ const getBlockRefCheckTargetsFromContext = (context: ReturnType<typeof getCrossB
     };
 };
 
+const deleteCrossBlockRangeContents = (rangesByBlock: ReturnType<typeof getCrossBlockRemovalContext>["rangesByBlock"]) => {
+    rangesByBlock.forEach(blockRanges => {
+        blockRanges.forEach(item => {
+            const boundarySpans = new Set<HTMLElement>([
+                hasClosestByTag(item.range.startContainer, "SPAN"),
+                hasClosestByTag(item.range.endContainer, "SPAN"),
+            ].filter(Boolean) as HTMLElement[]);
+            const dynamicRefTexts = new Map(Array.from(boundarySpans)
+                .filter(refElement => refElement.getAttribute("data-type")?.split(" ").includes("block-ref") &&
+                    refElement.getAttribute("data-subtype") === "d")
+                .map(refElement => [refElement, refElement.textContent] as const));
+            item.range.deleteContents();
+            dynamicRefTexts.forEach((text, refElement) => {
+                if (refElement.isConnected && refElement.textContent !== text) {
+                    refElement.setAttribute("data-subtype", "s");
+                }
+            });
+            boundarySpans.forEach(spanElement => {
+                if (spanElement.isConnected && spanElement.textContent === "" && !spanElement.querySelector("img")) {
+                    spanElement.remove();
+                }
+            });
+            fixAdjacentTags(item.editableElement);
+        });
+    });
+};
+
+const getEditorRootElement = (editorElement: HTMLElement, blockElement: HTMLElement) => {
+    let rootElement = blockElement;
+    while (rootElement.parentElement && rootElement.parentElement !== editorElement) {
+        rootElement = rootElement.parentElement;
+    }
+    return rootElement.parentElement === editorElement ? rootElement : undefined;
+};
+
+export const prepareCrossBlockComposition = (protyle: IProtyle, selectedRange: Range,
+                                               startElement: HTMLElement, endElement: HTMLElement):
+ICrossBlockComposition | undefined => {
+    const editorElement = protyle.wysiwyg.element;
+    const ranges = getBlockRanges(editorElement, selectedRange);
+    const startRootElement = getEditorRootElement(editorElement, startElement);
+    const endRootElement = getEditorRootElement(editorElement, endElement);
+    const undoFocusContext = getUndoFocusContext(editorElement, selectedRange, true);
+    if (!startRootElement || !endRootElement || !undoFocusContext) {
+        return;
+    }
+    const snapshotNodes: Node[] = [];
+    const sourceRects: { left: number; top: number; width: number }[] = [];
+    let currentNode: Node = startRootElement;
+    while (currentNode) {
+        snapshotNodes.push(currentNode.cloneNode(true));
+        if (currentNode.nodeType === Node.ELEMENT_NODE) {
+            const rect = (currentNode as HTMLElement).getBoundingClientRect();
+            sourceRects.push({
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+            });
+        }
+        if (currentNode === endRootElement) {
+            break;
+        }
+        currentNode = currentNode.nextSibling;
+    }
+    const snapshotTypes = snapshotNodes.flatMap(node => {
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+            return [];
+        }
+        const element = node as HTMLElement;
+        return [element, ...Array.from(element.querySelectorAll<HTMLElement>("[data-node-id]"))]
+            .map(item => item.getAttribute("data-type") || "");
+    });
+    if (currentNode !== endRootElement || !isNativeCrossBlockCompositionSupported(
+        ranges.map(item => item.blockElement.getAttribute("data-type") || ""), snapshotTypes)) {
+        return;
+    }
+    const startMarker = document.createComment("siyuan-cross-block-composition-start");
+    const endMarker = document.createComment("siyuan-cross-block-composition-end");
+    startRootElement.before(startMarker);
+    endRootElement.after(endMarker);
+    const previewElements: HTMLElement[] = [];
+    const sourceElements: HTMLElement[] = [];
+    let compositionText = "";
+
+    const markPreviewRange = (range: Range) => {
+        const textSegments: { node: Text; start: number; end: number }[] = [];
+        const commonAncestor = range.commonAncestorContainer;
+        const addTextSegment = (textNode: Text) => {
+            if (range.intersectsNode(textNode)) {
+                const start = textNode === range.startContainer ? range.startOffset : 0;
+                const end = textNode === range.endContainer ? range.endOffset : textNode.data.length;
+                if (start < end) {
+                    textSegments.push({node: textNode, start, end});
+                }
+            }
+        };
+        if (commonAncestor.nodeType === Node.TEXT_NODE) {
+            addTextSegment(commonAncestor as Text);
+        } else {
+            const walker = document.createTreeWalker(commonAncestor, NodeFilter.SHOW_TEXT);
+            let textNode = walker.nextNode() as Text;
+            while (textNode) {
+                addTextSegment(textNode);
+                textNode = walker.nextNode() as Text;
+            }
+        }
+        textSegments.reverse().forEach(item => {
+            const selectedNode = item.start === 0 ? item.node : item.node.splitText(item.start);
+            if (item.end - item.start < selectedNode.data.length) {
+                selectedNode.splitText(item.end - item.start);
+            }
+            const selectionElement = document.createElement("span");
+            selectionElement.className = "protyle-cross-block-preview__selection";
+            selectedNode.before(selectionElement);
+            selectionElement.append(selectedNode);
+        });
+    };
+
+    const preservePreview = () => {
+        if (!isWindows() || previewElements.length > 0 ||
+            startMarker.parentNode !== editorElement || endMarker.parentNode !== editorElement) {
+            return;
+        }
+        let sourceNode = startMarker.nextSibling;
+        while (sourceNode && sourceNode !== endMarker) {
+            if (sourceNode.nodeType === Node.ELEMENT_NODE) {
+                sourceElements.push(sourceNode as HTMLElement);
+            }
+            sourceNode = sourceNode.nextSibling;
+        }
+        if (sourceNode !== endMarker || sourceElements.length === 0) {
+            return;
+        }
+        const previewFragment = document.createDocumentFragment();
+        snapshotNodes.forEach(snapshotNode => {
+            const previewNode = snapshotNode.cloneNode(true);
+            previewFragment.append(previewNode);
+            if (previewNode.nodeType === Node.ELEMENT_NODE) {
+                const previewElement = previewNode as HTMLElement;
+                previewElement.classList.add("protyle-cross-block-preview");
+                previewElement.setAttribute("contenteditable", "false");
+                previewElement.setAttribute("aria-hidden", "true");
+                previewElement.querySelectorAll<HTMLElement>("[contenteditable]").forEach(
+                    element => element.setAttribute("contenteditable", "false"));
+                previewElements.push(previewElement);
+            }
+        });
+        ranges.forEach(item => {
+            const blockID = item.blockElement.getAttribute("data-node-id");
+            if (!blockID) {
+                return;
+            }
+            let previewBlockElement: HTMLElement;
+            previewElements.find(element => {
+                previewBlockElement = element.getAttribute("data-node-id") === blockID ? element :
+                    element.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(blockID)}"]`);
+                return !!previewBlockElement;
+            });
+            if (!previewBlockElement) {
+                return;
+            }
+            let previewEditableElement: Element | undefined;
+            if (["TD", "TH"].includes(item.editableElement.tagName)) {
+                const cellIndex = Array.from(item.blockElement.querySelectorAll("th, td")).indexOf(item.editableElement);
+                previewEditableElement = previewBlockElement.querySelectorAll("th, td")[cellIndex];
+            } else if (item.editableElement.classList.contains("callout-title")) {
+                previewEditableElement = previewBlockElement.querySelector(".callout-title");
+            } else {
+                previewEditableElement = getContenteditableElement(previewBlockElement);
+            }
+            const previewRange = focusByOffset(previewEditableElement, item.start, item.end, false);
+            if (previewRange) {
+                markPreviewRange(previewRange);
+            }
+        });
+        previewElements.forEach(previewElement => {
+            [previewElement, ...Array.from(previewElement.querySelectorAll<HTMLElement>("[data-node-id]"))]
+                .forEach(element => element.setAttribute("data-node-id", `preview-${element.getAttribute("data-node-id")}`));
+        });
+        sourceElements.forEach((element, index) => {
+            const rect = sourceRects[index] || sourceRects[0];
+            element.style.left = `${rect.left}px`;
+            element.style.top = `${rect.top}px`;
+            element.style.width = `${rect.width}px`;
+            element.classList.add("protyle-cross-block-source");
+        });
+        startMarker.after(previewFragment);
+    };
+
+    const restore = () => {
+        previewElements.forEach(element => element.remove());
+        sourceElements.forEach(element => {
+            element.classList.remove("protyle-cross-block-source");
+            element.style.removeProperty("left");
+            element.style.removeProperty("top");
+            element.style.removeProperty("width");
+        });
+        if (startMarker.parentNode !== editorElement || endMarker.parentNode !== editorElement) {
+            return;
+        }
+        let node = startMarker.nextSibling;
+        while (node && node !== endMarker) {
+            const nextNode = node.nextSibling;
+            node.remove();
+            node = nextNode;
+        }
+        if (node !== endMarker) {
+            return;
+        }
+        const restoredElements: HTMLElement[] = [];
+        snapshotNodes.forEach(snapshotNode => {
+            const restoredNode = snapshotNode.cloneNode(true);
+            editorElement.insertBefore(restoredNode, endMarker);
+            if (restoredNode.nodeType === Node.ELEMENT_NODE) {
+                restoredElements.push(restoredNode as HTMLElement);
+            }
+        });
+        startMarker.remove();
+        endMarker.remove();
+        if (!restoreFocusContext(protyle, undoFocusContext)) {
+            return;
+        }
+        const selection = getSelection();
+        if (selection.rangeCount === 0) {
+            return;
+        }
+        return {
+            elements: restoredElements,
+            range: selection.getRangeAt(0).cloneRange(),
+        };
+    };
+
+    return {
+        preventNativeInput: false,
+        update(text: string) {
+            compositionText = text;
+        },
+        preservePreview,
+        async complete(committed: boolean) {
+            const restored = restore();
+            if (!restored) {
+                return;
+            }
+            if (!committed) {
+                restored.elements.forEach(element => {
+                    element.querySelectorAll<HTMLElement>(
+                        ".render-node[data-render], [data-type=\"NodeAttributeView\"][data-render], " +
+                        "[data-type=\"NodeBlockQueryEmbed\"][data-render]"
+                    ).forEach(item => item.removeAttribute("data-render"));
+                    if (element.matches(".render-node[data-render], [data-type=\"NodeAttributeView\"][data-render], " +
+                        "[data-type=\"NodeBlockQueryEmbed\"][data-render]")) {
+                        element.removeAttribute("data-render");
+                    }
+                    processRender(element);
+                    avRender(element, protyle);
+                    blockRender(protyle, element);
+                    if (element.getAttribute("data-type") === "NodeSuperBlock") {
+                        refreshSbResize(element);
+                    }
+                    element.querySelectorAll('[data-type="NodeSuperBlock"]').forEach(refreshSbResize);
+                });
+                return;
+            }
+            const restoredRange = restored.range;
+            const restoredRanges = getBlockRanges(editorElement, restoredRange);
+            const restoredStartElement = restoredRanges[0]?.blockElement ||
+                hasClosestBlock(restoredRange.startContainer) as HTMLElement;
+            const restoredEndElement = restoredRanges[restoredRanges.length - 1]?.blockElement ||
+                hasClosestBlock(restoredRange.endContainer) as HTMLElement;
+            if (!restoredStartElement || !restoredEndElement || restoredStartElement === restoredEndElement) {
+                return;
+            }
+            await removeCrossBlockRange(protyle, restoredRange, restoredStartElement, restoredEndElement, false, {
+                text: compositionText,
+            });
+        },
+    };
+};
+
 export const getRangeBlockRefCheckTargets = (editorElement: HTMLElement, selectedRange: Range,
                                               startElement: HTMLElement, endElement: HTMLElement,
                                               handleEndElement = false) => {
@@ -481,30 +776,7 @@ export const removeCrossBlockRange = async (protyle: IProtyle, selectedRange: Ra
         start: getOrderedListStart(item),
     }));
 
-    rangesByBlock.forEach(blockRanges => {
-        blockRanges.forEach(item => {
-            const boundarySpans = new Set<HTMLElement>([
-                hasClosestByTag(item.range.startContainer, "SPAN"),
-                hasClosestByTag(item.range.endContainer, "SPAN"),
-            ].filter(Boolean) as HTMLElement[]);
-            const dynamicRefTexts = new Map(Array.from(boundarySpans)
-                .filter(refElement => refElement.getAttribute("data-type")?.split(" ").includes("block-ref") &&
-                    refElement.getAttribute("data-subtype") === "d")
-                .map(refElement => [refElement, refElement.textContent] as const));
-            item.range.deleteContents();
-            dynamicRefTexts.forEach((text, refElement) => {
-                if (refElement.isConnected && refElement.textContent !== text) {
-                    refElement.setAttribute("data-subtype", "s");
-                }
-            });
-            boundarySpans.forEach(spanElement => {
-                if (spanElement.isConnected && spanElement.textContent === "" && !spanElement.querySelector("img")) {
-                    spanElement.remove();
-                }
-            });
-            fixAdjacentTags(item.editableElement);
-        });
-    });
+    deleteCrossBlockRangeContents(rangesByBlock);
     if (replacementListItemElement) {
         nestedListMergeContext.startListElement.lastElementChild.before(replacementListItemElement);
     }
@@ -573,7 +845,7 @@ export const removeCrossBlockRange = async (protyle: IProtyle, selectedRange: Ra
                 insertedListItemContent;
         }
     });
-    if (undoFocusContext && affectedListItemElements.size === 0 && !nestedListMergeContext &&
+    if (!replacement && undoFocusContext && affectedListItemElements.size === 0 && !nestedListMergeContext &&
         !siblingListItemMergeContext && !insertedListItemContent) {
         undoFocusContext.undoFocusCollapseToEnd = "true";
     }
@@ -1184,11 +1456,11 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         const previousBlockElement = getPreviousBlockSibling(blockElement);
         if (previousBlockElement?.getAttribute("data-type") === "NodeHeading" &&
             previousBlockElement.getAttribute("fold") === "1") {
-            setFold(protyle, previousBlockElement, true, false, false);
+            setFold(protyle, previousBlockElement, true, false, false, false, false);
         }
         if (blockType === "NodeHeading" &&
             blockElement.getAttribute("fold") === "1") {
-            setFold(protyle, blockElement, true, false, false);
+            setFold(protyle, blockElement, true, false, false, false, false);
         }
         turnsIntoTransaction({
             protyle: protyle,

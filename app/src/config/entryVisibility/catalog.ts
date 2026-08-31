@@ -1,4 +1,14 @@
 import {CODE_TAB_SPACE_VALUES} from "../../protyle/wysiwyg/codeBlockUtil";
+import {
+    DESKTOP_TOOLBAR_ENTRIES,
+    getToolbarEntryId,
+    getToolbarEntryLabel,
+    TOOLBAR_ENTRY_ROOT_PATH,
+} from "../../protyle/toolbar/defaults";
+import {mergeEntryOrderPreservingUnknown} from "./order";
+import {getPluginDockEntryKey} from "../../plugin/dockKey";
+
+export {getPluginDockEntryKey} from "../../plugin/dockKey";
 
 export interface IEntryCatalogNode {
     key: string;
@@ -166,10 +176,11 @@ const docTreeMultiple = () => {
         separator("separator_2"), openBy, exportEntry];
 };
 
-const gutterCopyChildren = () => [
+const gutterCopyChildren = (includeCopyAsPNG = false) => [
     ...copyChildren(),
     node("copyRichText", lang("copyRichText")),
     node("copyPlainText", lang("copyPlainText")),
+    ...(includeCopyAsPNG ? [node("copyAsPNG", lang("copyAsPNG"))] : []),
     node("copyText", lang("copyText")),
     node("copy", lang("copy")),
     node("copyAVID", lang("copyAVID")),
@@ -188,6 +199,12 @@ const gutterTurnInto = () => node("turnInto", lang("turnInto"), true, [
         node("heading6", lang("heading6")),
         node("quote", lang("quote")),
         node("callout", lang("callout")),
+        node("calloutNote", location(lang("callout"), literal("Note"))),
+        node("calloutTip", location(lang("callout"), literal("Tip"))),
+        node("calloutImportant", location(lang("callout"), literal("Important"))),
+        node("calloutWarning", location(lang("callout"), literal("Warning"))),
+        node("calloutCaution", location(lang("callout"), literal("Caution"))),
+        node("calloutCustom", location(lang("callout"), () => `${window.siyuan.languages.custom}...`)),
         node("list", lang("list")),
         node("orderedList", lang("ordered-list")),
         node("check", lang("check")),
@@ -245,6 +262,20 @@ const gutterWidth = () => node("width", lang("width"), true, [
     node("default", lang("default")),
 ]);
 
+const gutterHeight = () => node("height", lang("height"), true, [
+    node("heightInput", lang("entryPixelHeight")),
+    node("height_25%", literal("25%")),
+    node("height_33%", literal("33%")),
+    node("height_50%", literal("50%")),
+    node("height_67%", literal("67%")),
+    node("height_75%", literal("75%")),
+    node("height_100%", literal("100%")),
+    separator("separator_1"),
+    node("heightDrag", lang("entryPercentageHeight")),
+    separator("separator_2"),
+    node("default", lang("default")),
+]);
+
 const gutterTable = () => node("table", lang("table"), true, [
     node("useDefaultWidth", lang("useDefaultWidth")),
     node("distributeAllColWidths", lang("distributeAllColWidths")),
@@ -288,7 +319,7 @@ const gutterBase = (multi: boolean) => [
         node("vLayout", lang("vLayout")),
     ])] : []),
     node("ai", lang("aiEdit")),
-    node("copy", lang("copy"), true, gutterCopyChildren()),
+    node("copy", lang("copy"), true, gutterCopyChildren(!multi)),
     node("cut", lang("cut")),
     node("move", lang("move")),
     node("addToDatabase", lang("addToDatabase"), false),
@@ -302,6 +333,7 @@ const gutterMultiple = () => [
     node("appearance", lang("appearance")),
     gutterLayout(),
     gutterWidth(),
+    gutterHeight(),
     separator("separator_quickMakeCard"),
     node("quickMakeCard", lang("quickMakeCard"), false),
     node("removeCard", lang("removeCard"), false),
@@ -387,6 +419,8 @@ const gutterSingle = () => [
     node("enterBack", lang("enterBack"), false),
     node("insertBefore", lang("insertBefore")),
     node("insertAfter", lang("insertAfter")),
+    node("insertSuperBlockLeft", lang("insertSuperBlockLeft")),
+    node("insertSuperBlockRight", lang("insertSuperBlockRight")),
     node("jumpTo", lang("jumpTo"), false, [
         node("jumpToParentPrev", lang("jumpToParentPrev"), false),
         node("jumpToParentNext", lang("jumpToParentNext"), false),
@@ -401,6 +435,7 @@ const gutterSingle = () => [
     node("appearance", lang("appearance")),
     gutterLayout(true),
     gutterWidth(),
+    gutterHeight(),
     separator("separator_4"),
     node("wechatReminder", lang("wechatReminder"), false),
     node("quickMakeCard", lang("quickMakeCard"), false),
@@ -411,6 +446,11 @@ const gutterSingle = () => [
 ];
 
 export const SLASH_MENU_ROOT_PATH = "editor.slash.menu";
+
+const toolbarBuiltinChildren = DESKTOP_TOOLBAR_ENTRIES.map((item) => item.separator
+    ? separator(item.key)
+    : node(item.key, lang(item.lang)));
+const toolbarBuiltinNodeMap = new Map(toolbarBuiltinChildren.map((item) => [item.key, item]));
 
 const slashMenuBuiltinChildren = [
     node("template", lang("template")),
@@ -488,23 +528,33 @@ const slashMenuRoot = {
     displayChildrenDirectly: true,
 };
 
+const toolbarCatalogSection: IEntryCatalogSection = {
+    key: TOOLBAR_ENTRY_ROOT_PATH,
+    label: location(lang("editor"), lang("entryToolbar")),
+    children: toolbarBuiltinChildren,
+};
+
+const dockBuiltinChildren = [
+    node("file", lang("fileTree")),
+    node("outline", lang("outline")),
+    node("bookmark", lang("bookmark")),
+    node("tag", lang("tag")),
+    node("backlink", lang("backlinks")),
+    node("agentChat", lang("ai")),
+    node("inbox", lang("inbox"), false),
+    node("graph", lang("graphView"), false),
+    node("globalGraph", lang("globalGraph"), false),
+];
+
+const dockCatalogSection: IEntryCatalogSection = {
+    key: "dock",
+    label: lang("entryDock"),
+    sortable: false,
+    children: dockBuiltinChildren,
+};
+
 export const entryCatalog: IEntryCatalogSection[] = [
-    {
-        key: "dock",
-        label: lang("toggleDock"),
-        sortable: false,
-        children: [
-            node("file", lang("fileTree")),
-            node("outline", lang("outline")),
-            node("bookmark", lang("bookmark")),
-            node("tag", lang("tag")),
-            node("backlink", lang("backlinks")),
-            node("agentChat", lang("ai")),
-            node("inbox", lang("inbox"), false),
-            node("graph", lang("graphView"), false),
-            node("globalGraph", lang("globalGraph"), false),
-        ],
-    },
+    dockCatalogSection,
     {
         key: "docTree.panel",
         label: location(lang("entryDocPanel"), lang("more")),
@@ -596,7 +646,8 @@ export const entryCatalog: IEntryCatalogSection[] = [
         key: "document.title",
         label: location(lang("editor"), lang("entryDocumentMenu")),
         children: [
-            node("copy", lang("copy"), true, [...copyChildren(), node("copyMarkdown", lang("copyMarkdown")), node("copyDoc", lang("copyDoc"), false)]),
+            node("copy", lang("copy"), true, [...copyChildren(), node("copyMarkdown", lang("copyMarkdown")),
+                node("copyAsPNG", lang("copyAsPNG")), node("copyDoc", lang("copyDoc"), false)]),
             node("move", lang("move")),
             node("addToDatabase", lang("addToDatabase"), false),
             node("delete", lang("delete")),
@@ -667,6 +718,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
             node("docInfo", lang("entryDocumentStatistics"), false),
         ],
     },
+    toolbarCatalogSection,
     {
         key: "editor.slash",
         label: location(lang("editor"), lang("entrySlashMenu")),
@@ -902,9 +954,7 @@ rebuildCatalogIndexes();
 
 export const getEntryCatalogNode = (path: string) => entryMap.get(path);
 export const getEntryParentPath = (path: string) => parentMap.get(path);
-export const getEntryPaths = () => Array.from(entryMap.entries())
-    .filter(([, item]) => item.type === "entry")
-    .map(([path]) => path);
+export const getEntryPaths = () => Array.from(entryMap.keys());
 export const getEntryCatalogSection = (key: string) => sectionMap.get(key);
 export const getEntryCatalogChildren = (path: string) => childrenMap.get(path);
 export const isEntryOrderSortable = (parentPath: string) => {
@@ -928,6 +978,99 @@ export const getEntryCatalogPathChain = (sectionKey: string, path: string) => {
         current = getEntryParentPath(current);
     }
     return current === sectionKey ? chain : [];
+};
+
+interface IDockCatalogPlugin {
+    name: string;
+    displayName?: string;
+    docks: Record<string, {
+        id: string;
+        config: Pick<IPluginDockTab, "title">;
+    }>;
+}
+
+let dockCatalogSignature = "[]";
+
+export const refreshDockCatalog = (plugins: IDockCatalogPlugin[]) => {
+    const signature = JSON.stringify(plugins.map((plugin) => ({
+        name: plugin.name,
+        displayName: plugin.displayName,
+        docks: Object.values(plugin.docks).map((dock) => ({
+            id: dock.id,
+            title: dock.config.title,
+        })),
+    })));
+    if (signature === dockCatalogSignature) {
+        return;
+    }
+    const pluginNodes: IEntryCatalogNode[] = [];
+    const pluginKeys = new Set<string>();
+    plugins.forEach((plugin) => {
+        Object.values(plugin.docks).forEach((dock) => {
+            const key = getPluginDockEntryKey(plugin.name, dock.id);
+            if (pluginKeys.has(key)) {
+                return;
+            }
+            pluginKeys.add(key);
+            const pluginName = plugin.displayName?.trim() || plugin.name;
+            pluginNodes.push(node(key, literal(`${pluginName} - ${dock.config.title}`)));
+        });
+    });
+    dockCatalogSection.children = [...dockBuiltinChildren, ...pluginNodes];
+    dockCatalogSignature = signature;
+    rebuildCatalogIndexes();
+};
+
+const normalizeToolbarCatalogSeparators = (nodes: IEntryCatalogNode[]) => {
+    const result: IEntryCatalogNode[] = [];
+    nodes.forEach((item) => {
+        if (item.type === "separator" && (result.length === 0 || result[result.length - 1].type === "separator")) {
+            return;
+        }
+        result.push(item);
+    });
+    if (result[result.length - 1]?.type === "separator") {
+        result.pop();
+    }
+    return result;
+};
+
+const toolbarCatalogNodeSignature = (item: IEntryCatalogNode, pluginLabels: Map<string, string>) => [
+    item.key,
+    item.type,
+    pluginLabels.get(item.key) || "",
+];
+
+let toolbarCatalogSignature = JSON.stringify(toolbarBuiltinChildren.map((item) =>
+    toolbarCatalogNodeSignature(item, new Map())));
+
+export const refreshToolbarCatalog = (items: Array<string | IMenuItem>) => {
+    const nodes = new Map(toolbarBuiltinNodeMap);
+    const pluginLabels = new Map<string, string>();
+    const actualOrder: string[] = [];
+    items.forEach((item) => {
+        const menuItem = typeof item === "string" ? {name: item} : item;
+        const key = getToolbarEntryId(menuItem);
+        if (!key || actualOrder.includes(key)) {
+            return;
+        }
+        actualOrder.push(key);
+        if (nodes.has(key)) {
+            return;
+        }
+        const label = getToolbarEntryLabel(menuItem) || menuItem.tip || menuItem.name;
+        pluginLabels.set(key, label);
+        nodes.set(key, menuItem.name === "|" ? separator(key) : node(key, literal(label)));
+    });
+    const order = mergeEntryOrderPreservingUnknown(toolbarBuiltinChildren.map((item) => item.key), actualOrder);
+    const children = normalizeToolbarCatalogSeparators(order.flatMap((key) => nodes.get(key) || []));
+    const signature = JSON.stringify(children.map((item) => toolbarCatalogNodeSignature(item, pluginLabels)));
+    if (signature === toolbarCatalogSignature) {
+        return;
+    }
+    toolbarCatalogSection.children = children;
+    toolbarCatalogSignature = signature;
+    rebuildCatalogIndexes();
 };
 
 interface ISlashMenuCatalogPlugin {

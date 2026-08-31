@@ -392,17 +392,13 @@ func InitConf() {
 	if "" == Conf.Appearance.CodeBlockThemeLight {
 		Conf.Appearance.CodeBlockThemeLight = "github"
 	}
-	if nil == Conf.Appearance.StatusBar {
-		Conf.Appearance.StatusBar = &util.StatusBar{}
-	}
+	Conf.Appearance.StatusBar = util.NormalizeStatusBar(Conf.Appearance.StatusBar, util.IsMobileContainer())
 	util.StatusBarCfg = Conf.Appearance.StatusBar
 	if nil == Conf.Appearance.Notifications {
 		Conf.Appearance.Notifications = util.NewNotifications()
 	}
 	util.NotificationsCfg = Conf.Appearance.Notifications
-	if nil == Conf.FileTree {
-		Conf.FileTree = conf.NewFileTree()
-	}
+	Conf.FileTree = normalizeFileTreeDefaultIcon(Conf.FileTree, confFileExists)
 	if 1 > Conf.FileTree.MaxListCount {
 		Conf.FileTree.MaxListCount = 512
 	}
@@ -470,6 +466,8 @@ func InitConf() {
 	if nil == Conf.Editor.DatabaseAttrUseTabs {
 		Conf.Editor.DatabaseAttrUseTabs = defaultEditor.DatabaseAttrUseTabs
 	}
+	Conf.Editor.AssetOpen = conf.NormalizeAssetOpen(Conf.Editor.AssetOpen)
+	Conf.Editor.NormalizeFontFamilies()
 	Conf.Editor.Emoji = util.FilterRecentIconValues(Conf.Editor.Emoji)
 	if 9 > Conf.Editor.FontSize || 72 < Conf.Editor.FontSize {
 		Conf.Editor.FontSize = 16
@@ -497,6 +495,7 @@ func InitConf() {
 	} else {
 		*Conf.Editor.FloatWindowDelay = max(0, min(2000, *Conf.Editor.FloatWindowDelay))
 	}
+	Conf.Editor.CursorSurroundingLines = conf.NormalizeCursorSurroundingLines(Conf.Editor.CursorSurroundingLines)
 	if conf.MinDynamicLoadBlocks > Conf.Editor.DynamicLoadBlocks {
 		Conf.Editor.DynamicLoadBlocks = conf.MinDynamicLoadBlocks
 	}
@@ -893,6 +892,21 @@ func InitConf() {
 	go util.InitTesseract()
 }
 
+func normalizeFileTreeDefaultIcon(fileTree *conf.FileTree, confFileExists bool) *conf.FileTree {
+	if nil == fileTree {
+		fileTree = conf.NewFileTree()
+		if confFileExists {
+			fileTree.UseSVGDefaultIcon = new(bool)
+		}
+		return fileTree
+	}
+	if nil == fileTree.UseSVGDefaultIcon {
+		useSVGDefaultIcon := !confFileExists
+		fileTree.UseSVGDefaultIcon = &useSVGDefaultIcon
+	}
+	return fileTree
+}
+
 func readCookieKey() (cookieKey string) {
 	cookieKeyPath := filepath.Join(util.HomeDir, ".config", "siyuan", "cookie.key")
 	if !gulu.File.IsExist(cookieKeyPath) {
@@ -1086,7 +1100,6 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int, i
 		}
 	}
 
-	util.BroadcastByType("main", "exit", 0, "", nil)
 	util.UnlockWorkspace()
 
 	time.Sleep(500 * time.Millisecond)
@@ -1373,6 +1386,20 @@ func GetMaskedConf() (ret *AppConf, err error) {
 		ret.AccessAuthCode = MaskedAccessAuthCode
 	}
 	return
+}
+
+// UpdateServerAddrs 更新当前可用的本地服务器地址，返回地址是否发生变化。
+func UpdateServerAddrs(serverAddrs []string) bool {
+	if nil == Conf {
+		return false
+	}
+	Conf.m.Lock()
+	defer Conf.m.Unlock()
+	if reflect.DeepEqual(Conf.ServerAddrs, serverAddrs) {
+		return false
+	}
+	Conf.ServerAddrs = append([]string(nil), serverAddrs...)
+	return true
 }
 
 // HideConfSecret 隐藏设置中的秘密信息

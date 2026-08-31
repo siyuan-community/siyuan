@@ -191,7 +191,7 @@
     max-height: 90dvh;
     border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0;
     box-shadow: var(--b3-dialog-shadow);
-    overflow: hidden;
+    overflow: clip;
     transform: translateY(100%);
     transition: transform .15s cubic-bezier(0, 0, .2, 1), height .15s cubic-bezier(0, 0, .2, 1);
     will-change: transform;
@@ -237,7 +237,6 @@
 
       &__items {
         min-height: 0;
-        overscroll-behavior: contain;
       }
 
       &__submenu {
@@ -246,9 +245,15 @@
       }
     }
 
+    & > .b3-menu__items,
+    & .b3-menu__submenu {
+      overscroll-behavior: contain;
+    }
+
     & .b3-menu__submenu .b3-menu__submenu {
       top: 0;
     }
+
   }
 
   &__scrim {
@@ -306,7 +311,7 @@
       line-height: 36px;
       margin: 0;
 
-      &:not(.fn__none) ~ .b3-menu__item:not(.fn__none) {
+      &:not(.fn__none):not(.config-search-hidden) ~ .b3-menu__item:not(.fn__none):not(.config-search-hidden) {
         border-top: .5px solid var(--b3-theme-background-light);
       }
 

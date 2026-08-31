@@ -26,6 +26,7 @@ export abstract class Constants {
     // drop 事件
     public static readonly SIYUAN_DROP_FILE: string = "application/siyuan-file";
     public static readonly SIYUAN_DROP_GUTTER: string = "application/siyuan-gutter";
+    public static readonly SIYUAN_DROP_BLOCK: string = "application/siyuan-block";
     public static readonly SIYUAN_DROP_BLOCK_REF: string = "application/siyuan-block-ref";
     public static readonly SIYUAN_DROP_TAB: string = "application/siyuan-tab";
     public static readonly SIYUAN_DROP_DOCUMENT_TAB: string = "application/siyuan-document-tab";
@@ -42,16 +43,14 @@ export abstract class Constants {
     public static readonly SIYUAN_QUIT: string = "siyuan-quit";
     public static readonly SIYUAN_INSTALL_UPDATE: string = "siyuan-install-update";
     public static readonly SIYUAN_HOTKEY: string = "siyuan-hotkey";
+    public static readonly SIYUAN_SYNC_APP_MENU: string = "siyuan-sync-app-menu";
     public static readonly SIYUAN_INIT: string = "siyuan-init";
     public static readonly SIYUAN_READY_TO_SHOW: string = "siyuan-ready-to-show";
     public static readonly SIYUAN_SEND_WINDOWS: string = "siyuan-send-windows"; // 主窗口和各新窗口之间的通信
-    public static readonly SIYUAN_SAVE_CLOSE: string = "siyuan-save-close";
     public static readonly SIYUAN_AUTO_LAUNCH: string = "siyuan-auto-launch";
 
     public static readonly SIYUAN_OPEN_WORKSPACE: string = "siyuan-open-workspace";
-    public static readonly SIYUAN_OPEN_URL: string = "siyuan-open-url";
     public static readonly SIYUAN_OPEN_WINDOW: string = "siyuan-open-window";
-    public static readonly SIYUAN_OPEN_FILE: string = "siyuan-open-file";
 
     public static readonly SIYUAN_EXPORT_PDF: string = "siyuan-export-pdf";
     public static readonly SIYUAN_EXPORT_NEWWINDOW: string = "siyuan-export-newwindow";
@@ -63,6 +62,13 @@ export abstract class Constants {
     public static readonly SIYUAN_ALERT_DIALOG: string = "siyuan-alert-dialog";
 
     public static readonly SIYUAN_SHOW_WINDOW: string = "siyuan-show-window";
+
+    // 主进程调渲染进程
+    public static readonly SIYUAN_OPEN_URL: string = "siyuan-open-url";
+    public static readonly SIYUAN_OPEN_FILE: string = "siyuan-open-file";
+    public static readonly SIYUAN_SAVE_CLOSE: string = "siyuan-save-close";
+    public static readonly SIYUAN_OPEN_SETTING: string = "siyuan-open-setting";
+    public static readonly SIYUAN_OPEN_HELP: string = "siyuan-open-help";
 
     // custom
     public static readonly CUSTOM_REMINDER_WECHAT: string = "custom-reminder-wechat";
@@ -92,6 +98,9 @@ export abstract class Constants {
     public static readonly SIZE_UNDO = 64;
     public static readonly SIZE_TITLE = 512;
     public static readonly SIZE_EDITOR_WIDTH = 760;
+    public static readonly EDITOR_FONT_SIZE_DEFAULT = 16;
+    public static readonly EDITOR_FONT_SIZE_MIN = 9;
+    public static readonly EDITOR_FONT_SIZE_MAX = 72;
     public static readonly SIZE_ZOOM = [
         {
             zoom: 0.67,
@@ -162,6 +171,8 @@ export abstract class Constants {
     public static readonly LOCAL_SEARCHUNREF = "local-searchunref";
     public static readonly LOCAL_DOCINFO = "local-docinfo"; // only mobile
     public static readonly LOCAL_MOBILE_TABS = "local-mobile-tabs"; // only mobile
+    public static readonly LOCAL_MOBILE_BOTTOM_BAR = "local-mobile-bottom-bar"; // only mobile
+    public static readonly LOCAL_MOBILE_SIDE_PANEL = "local-mobile-side-panel"; // only mobile
     public static readonly LOCAL_DAILYNOTEID = "local-dailynoteid"; // string
     public static readonly LOCAL_HISTORY = "local-history";
     public static readonly LOCAL_CODELANG = "local-codelang"; // string
@@ -305,7 +316,6 @@ export abstract class Constants {
     public static readonly MENU_SEARCH_REPLACE_HISTORY = "search-replace-history"; // 替换历史菜单
     public static readonly MENU_SEARCH_ASSET_HISTORY = "search-asset-history"; // 资源文件搜索历史菜单
     public static readonly MENU_MOVE_PATH_HISTORY = "move-path-history"; // 移动文档窗口搜索历史菜单
-    public static readonly MENU_CALLOUT_SELECT = "callout-select"; // 提示选择菜单
 
     public static readonly MENU_BACKGROUND_ASSET = "background-asset"; // 资源文件选择器菜单
     public static readonly MENU_AI = "ai"; // 块 AI 菜单
@@ -327,6 +337,7 @@ export abstract class Constants {
     public static readonly TIMEOUT_RESIZE = 200;
     public static readonly TIMEOUT_INPUT = 256;
     public static readonly TIMEOUT_LOAD = 300;
+    public static readonly TIMEOUT_TAB_SWITCH = 500;
     public static readonly TIMEOUT_SNIPPET_LOAD = 5000;
     public static readonly TIMEOUT_LONGPRESS = 460;
     public static readonly TIMEOUT_VIBRATION_DURATION = 20;
@@ -463,6 +474,9 @@ export abstract class Constants {
         general: {
             mainMenu: {default: "⌥\\", custom: "⌥\\"},
             commandPanel: {default: "⌥⇧P", custom: "⌥⇧P"},
+            increaseEditorFontSize: {default: "", custom: ""},
+            decreaseEditorFontSize: {default: "", custom: ""},
+            resetEditorFontSize: {default: "", custom: ""},
             editReadonly: {default: "⇧⌘G", custom: "⇧⌘G"},
             syncNow: {default: "F9", custom: "F9"},
             enterBack: {default: "⌥←", custom: "⌥←"},
@@ -511,6 +525,9 @@ export abstract class Constants {
             switchLeftDock: {default: "", custom: ""},
             switchRightDock: {default: "", custom: ""},
             switchBottomDock: {default: "", custom: ""},
+            toggleLeftDockPanel: {default: "", custom: ""},
+            toggleRightDockPanel: {default: "", custom: ""},
+            toggleBottomDockPanel: {default: "", custom: ""},
             toggleDock: {default: "", custom: ""},
             splitLR: {default: "", custom: ""},
             splitMoveR: {default: "", custom: ""},
@@ -566,6 +583,8 @@ export abstract class Constants {
                 preview: {default: "⌥⌘9", custom: "⌥⌘9"},
                 insertBefore: {default: "⇧⌘B", custom: "⇧⌘B"},
                 insertAfter: {default: "⇧⌘A", custom: "⇧⌘A"},
+                insertSuperBlockLeft: {default: "", custom: ""},
+                insertSuperBlockRight: {default: "", custom: ""},
                 jumpToParentNext: {default: "⇧⌘N", custom: "⇧⌘N"},
                 jumpToParentPrev: {default: "⇧⌘M", custom: "⇧⌘M"},
                 jumpToParent: {default: "⇧⌘J", custom: "⇧⌘J"},
@@ -573,6 +592,8 @@ export abstract class Constants {
                 moveToDown: {default: "⇧⌘↓", custom: "⇧⌘↓"},
                 selectToPageStart: {default: "⇧Home", custom: "⇧Home"},
                 selectToPageEnd: {default: "⇧End", custom: "⇧End"},
+                scrollPageUpWithoutMovingCaret: {default: "⌥PageUp", custom: "⌥PageUp"},
+                scrollPageDownWithoutMovingCaret: {default: "⌥PageDown", custom: "⌥PageDown"},
                 duplicateCompletely: {default: "", custom: ""},
                 copyRichText: {default: "", custom: ""},
                 copyPlainText: {default: "", custom: ""},

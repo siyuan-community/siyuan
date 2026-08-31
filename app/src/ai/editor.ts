@@ -18,6 +18,7 @@ import {confirmDialog} from "../dialog/confirmDialog";
 import {escapeAriaLabel, escapeHtml} from "../util/escape";
 import {isMobile} from "../util/functions";
 import {Constants} from "../constants";
+import {bindThinkingCardToggle} from "./thinkingCard";
 
 type TAIEditorSourceKind = "selection" | "blocks" | "writing";
 type TAIEditorTaskStatus = "streaming" | "done" | "stopped" | "error";
@@ -153,11 +154,22 @@ const getSourceConflict = (task: IAIEditorTask) => {
     return {missing, changed};
 };
 
-const sourcePartText = (protyle: IProtyle, range: Range) => {
+const isMarkdownInlineElement = (element: Element) => {
+    return element.matches("span[data-type], code, strong, em, b, i, s, del, u, mark, sub, sup, kbd, a");
+};
+
+const sourcePartMarkdown = (protyle: IProtyle, range: Range, editableElement: Element) => {
     const text = range.toString().replace(new RegExp(Constants.ZWSP, "g"), "");
-    const fragment = range.cloneContents();
-    if (!fragment.querySelector('.img, [data-type~="inline-math"], [data-type~="a"], [data-type~="block-ref"]')) {
-        return text;
+    let fragment: Node = range.cloneContents();
+    let ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ?
+        range.commonAncestorContainer as Element : range.commonAncestorContainer.parentElement;
+    while (ancestor && ancestor !== editableElement && editableElement.contains(ancestor)) {
+        if (isMarkdownInlineElement(ancestor)) {
+            const clone = ancestor.cloneNode(false) as Element;
+            clone.append(fragment);
+            fragment = clone;
+        }
+        ancestor = ancestor.parentElement;
     }
     const element = document.createElement("div");
     element.append(fragment);
@@ -179,7 +191,8 @@ const buildSelectionSource = (protyle: IProtyle, range: Range, action: string): 
         kind: "selection",
         parts,
         ids: [],
-        input: blockRanges.map(item => sourcePartText(protyle, item.range)).filter(Boolean).join("\n\n"),
+        input: blockRanges.map(item => sourcePartMarkdown(protyle, item.range, item.editableElement))
+            .filter(Boolean).join("\n\n"),
         action,
         insertSupported: !protyle.disabled,
     };
@@ -639,32 +652,7 @@ const createTask = (protyle: IProtyle, source: IAIEditorSource) => {
         updatePosition: () => undefined,
     };
     (panel.querySelector(".ai-editor-panel__close") as HTMLButtonElement).addEventListener("click", () => cleanupTask(task));
-    const thinkingHeader = task.thinkingElement.querySelector(".agent-chat__thinking-header") as HTMLElement;
-    const expandIcon = task.thinkingElement.querySelector(".agent-chat__thinking-arrow--expand") as HTMLElement;
-    const contractIcon = task.thinkingElement.querySelector(".agent-chat__thinking-arrow--contract") as HTMLElement;
-    thinkingHeader.addEventListener("click", () => {
-        task.thinkingElement.setAttribute("data-user-interacted", "true");
-        const expanded = task.thinkingBody.classList.contains("agent-chat__thinking-body--expanded");
-        const preview = task.thinkingBody.classList.contains("agent-chat__thinking-body--preview");
-        if (expanded) {
-            task.thinkingBody.classList.remove("agent-chat__thinking-body--expanded");
-            expandIcon.classList.remove("fn__none");
-            contractIcon.classList.add("fn__none");
-            if (!task.thinkingElement.classList.contains("agent-chat__msg--thinking-done")) {
-                task.thinkingLatestElement.classList.remove("fn__none");
-                task.thinkingLatestElement.scrollLeft = task.thinkingLatestElement.scrollWidth;
-            }
-        } else if (preview || task.thinkingElement.classList.contains("agent-chat__msg--thinking-done")) {
-            task.thinkingBody.classList.remove("agent-chat__thinking-body--preview");
-            task.thinkingBody.classList.add("agent-chat__thinking-body--expanded");
-            expandIcon.classList.add("fn__none");
-            contractIcon.classList.remove("fn__none");
-            task.thinkingLatestElement.classList.add("fn__none");
-        } else {
-            task.thinkingBody.classList.add("agent-chat__thinking-body--preview");
-            task.thinkingLatestElement.classList.add("fn__none");
-        }
-    });
+    bindThinkingCardToggle(task.thinkingElement);
     task.updatePosition = () => {
         if (!task.panel.isConnected || task.panel.classList.contains("ai-editor-panel--mobile")) {
             return;

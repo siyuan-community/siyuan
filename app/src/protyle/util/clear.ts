@@ -1,4 +1,4 @@
-import {updateHeader} from "../render/av/row";
+import {updateAVSelectionStatus, updateHeader} from "../render/av/row";
 import {resetAVRowSelect} from "../render/av/virtualScroll";
 import {hasClosestByClassName} from "./hasClosest";
 import {Constants} from "../../constants";
@@ -13,7 +13,27 @@ const getAVElements = (element: Element) => {
     return elements;
 };
 
+const clearViewState = (element: Element) => {
+    const attributes = ["data-view-fold-source", "data-view-fold-hidden-source", "data-view-fold",
+        "data-view-fold-default", "data-view-fold-hidden", "data-view-heading-owner", "data-view-heading-loaded"];
+    const elements = [element, ...Array.from(element.querySelectorAll(attributes.map(attribute => {
+        return `[${attribute}]`;
+    }).join(", ")))];
+    elements.forEach(item => {
+        const sourceFold = item.getAttribute("data-view-fold-source");
+        if (sourceFold !== null) {
+            item.toggleAttribute("fold", sourceFold === "1");
+        }
+        const sourceHidden = item.getAttribute("data-view-fold-hidden-source");
+        if (sourceHidden !== null) {
+            item.classList.toggle("fn__none", sourceHidden === "1");
+        }
+        attributes.forEach(attribute => item.removeAttribute(attribute));
+    });
+};
+
 export const clearBlockElement = (element: Element, keepRefcount = false) => {
+    clearViewState(element);
     element.classList.remove("protyle-wysiwyg--select", "protyle-wysiwyg--hl");
     element.removeAttribute(Constants.CUSTOM_RIFF_DECKS);
     if (!keepRefcount) {
@@ -102,13 +122,12 @@ const resetAVBodySelect = (element: Element, type: "table" | "gallery" | "all") 
             return;
         }
         avElement.querySelectorAll(".av__body").forEach((bodyElement: HTMLElement) => {
+            if (hasClosestByClassName(bodyElement, "av") !== avElement) {
+                return;
+            }
             resetAVRowSelect(bodyElement, []);
         });
-        const itemElement = avElement.querySelector(
-            ".av__row:not(.av__row--header):not(.av__row--footer):not(.av__row--util), .av__gallery-item") as HTMLElement;
-        if (itemElement) {
-            updateHeader(itemElement);
-        }
+        updateAVSelectionStatus(avElement);
     });
 };
 

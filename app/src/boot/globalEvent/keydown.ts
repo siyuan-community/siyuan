@@ -35,7 +35,7 @@ import {focusBlock, focusByRange, getBlockElementsByRange} from "../../protyle/u
 import {initFileMenu, initNavigationMenu} from "../../menus/navigation";
 import {bindMenuKeydown} from "../../menus/Menu";
 import {Dialog} from "../../dialog";
-import {unicode2Emoji} from "../../emoji";
+import {getFileTreeIconHTML} from "../../emoji/fileTreeIcon";
 import {deleteFiles} from "../../editor/deleteFile";
 import {escapeHtml} from "../../util/escape";
 import {syncGuide} from "../../sync/syncGuide";
@@ -51,13 +51,12 @@ import {openCard, openCardByData} from "../../card/openCard";
 import {lockScreen} from "../../dialog/processSystem";
 import {isWindow} from "../../util/functions";
 import {reloadProtyle} from "../../protyle/util/reload";
-import {fullscreen} from "../../protyle/breadcrumb/action";
 import {openRecentDocs} from "../../business/openRecentDocs";
 import type {App} from "../../index";
+import {toggleDockPanel} from "../../layout/dock/panel";
 import {clearDisallowedTextInputHotkey} from "../../util/hotKeyPolicy";
 import {openBacklink, openGraph, openOutline, toggleDockBar} from "../../layout/dock/util";
 import {workspaceMenu} from "../../menus/workspace";
-import {resize} from "../../protyle/util/resize";
 import {Search} from "../../search";
 import {Custom} from "../../layout/dock/Custom";
 import {transaction} from "../../protyle/wysiwyg/transaction";
@@ -78,6 +77,16 @@ import {onlyProtyleCommand} from "./command/protyle";
 import {cancelDrag} from "./dragover";
 import {bindAVPanelKeydown} from "../../protyle/render/av/keydown";
 import {formatPainter} from "../../protyle/toolbar/FormatPainter";
+import {adjustEditorFontSize, type TEditorFontSizeAction} from "../../util/editorFontSize";
+
+const EDITOR_FONT_SIZE_COMMANDS: Array<{
+    command: "increaseEditorFontSize" | "decreaseEditorFontSize" | "resetEditorFontSize",
+    action: TEditorFontSizeAction,
+}> = [
+    {command: "increaseEditorFontSize", action: "increase"},
+    {command: "decreaseEditorFontSize", action: "decrease"},
+    {command: "resetEditorFontSize", action: "reset"},
+];
 
 const switchDialogEvent = (app: App, event: MouseEvent) => {
     event.preventDefault();
@@ -515,8 +524,8 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
     if (matchHotKey(window.siyuan.config.keymap.editor.general.fullscreen.custom, event)) {
-        fullscreen(protyle.element);
-        resize(protyle);
+        const editor = protyle.getInstance();
+        editor.setFullscreen(!editor.isFullscreen());
         event.preventDefault();
         return true;
     }
@@ -1298,12 +1307,12 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
                 const initData = item.headElement.getAttribute("data-initdata");
                 if (item.model instanceof Editor) {
                     rootId = ` data-node-id="${item.model.editor.protyle.block.rootID}"`;
-                    icon = unicode2Emoji(item.docIcon || window.siyuan.storage[Constants.LOCAL_IMAGES].file, "b3-list-item__graphic", true);
+                    icon = getFileTreeIconHTML(item.docIcon, "file", "b3-list-item__graphic", true);
                 } else if (initData) {
                     const initDataObj = JSON.parse(initData);
                     if (initDataObj.instance === "Editor") {
                         rootId = ` data-node-id="${initDataObj.rootId}"`;
-                        icon = unicode2Emoji(item.docIcon || window.siyuan.storage[Constants.LOCAL_IMAGES].file, "b3-list-item__graphic", true);
+                        icon = getFileTreeIconHTML(item.docIcon, "file", "b3-list-item__graphic", true);
                     }
                 }
                 tabHtml += `<li data-index="${index}" data-id="${item.id}"${rootId} class="b3-list-item${currentId === item.id ? " b3-list-item--focus" : ""}"${currentId === item.id ? ' data-original="true"' : ""}>${icon}<span class="b3-list-item__text">${escapeHtml(item.title)}</span></li>`;
@@ -1437,13 +1446,20 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         commandPanel(app);
         return;
     }
+    const editorFontSizeCommand = EDITOR_FONT_SIZE_COMMANDS.find((item) =>
+        matchHotKey(window.siyuan.config.keymap.general[item.command].custom, event));
+    if (editorFontSizeCommand) {
+        event.preventDefault();
+        adjustEditorFontSize(editorFontSizeCommand.action);
+        return;
+    }
     if (matchHotKey(window.siyuan.config.keymap.general.editReadonly.custom, event)) {
         event.preventDefault();
         editorConfigApi.patch("editor.readOnly", !window.siyuan.config.editor.readOnly);
         return;
     }
     if (matchHotKey(window.siyuan.config.keymap.general.lockScreen.custom, event)) {
-        lockScreen(app);
+        lockScreen();
         event.preventDefault();
         return;
     }
@@ -1469,6 +1485,21 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
     }
     if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.switchBottomDock.custom, event)) {
         window.siyuan.layout.bottomDock.togglePin();
+        event.preventDefault();
+        return;
+    }
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleLeftDockPanel.custom, event)) {
+        toggleDockPanel("Left");
+        event.preventDefault();
+        return;
+    }
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleRightDockPanel.custom, event)) {
+        toggleDockPanel("Right");
+        event.preventDefault();
+        return;
+    }
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleBottomDockPanel.custom, event)) {
+        toggleDockPanel("Bottom");
         event.preventDefault();
         return;
     }
@@ -1858,6 +1889,9 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
 
 export const sendGlobalShortcut = (app: App) => {
     /// #if !BROWSER
+    if (isWindow()) {
+        return;
+    }
     const hotkeys = [clearDisallowedTextInputHotkey(window.siyuan.config.keymap.general.toggleWin.custom)];
     app.plugins.forEach(plugin => {
         plugin.commands.forEach(command => {
@@ -1879,6 +1913,9 @@ export const sendGlobalShortcut = (app: App) => {
 
 export const sendUnregisterGlobalShortcut = (app: App) => {
     /// #if !BROWSER
+    if (isWindow()) {
+        return;
+    }
     ipcRenderer.send(Constants.SIYUAN_CMD, {
         cmd: "unregisterGlobalShortcut",
         accelerator: window.siyuan.config.keymap.general.toggleWin.custom

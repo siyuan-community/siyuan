@@ -8,6 +8,16 @@ export const getBlockHintTriggerOffset = (textBeforeCaret: string, textAfterCare
     return tripleOffset > -1 ? Math.min(latestOffset, tripleOffset) : latestOffset;
 };
 
+export const isBlockHintQueryAtCaret = (textBeforeCaret: string, textAfterCaret: string,
+                                        splitChar: string, endSplit: string, maxLength: number) => {
+    const triggerOffset = getBlockHintTriggerOffset(textBeforeCaret, textAfterCaret, splitChar, endSplit);
+    if (triggerOffset < 0) {
+        return false;
+    }
+    const query = textBeforeCaret.substring(triggerOffset + splitChar.length);
+    return query.trimStart() === query && query.length < maxLength;
+};
+
 export const getBlockRefStaticText = (selectedText: string, splitChar: string, includesTrigger: boolean) => {
     return includesTrigger ? selectedText.substring(splitChar.length) : selectedText;
 };
@@ -17,6 +27,11 @@ export const shouldIgnoreHintTrigger = (activeHint: string, candidateHint: strin
         return true;
     }
     return activeHint === "#" && ["/", "、"].includes(candidateHint);
+};
+
+export const shouldCaptureHintUndoFocus = (splitChar: string, blockHintKeys: string[], lite: boolean,
+                                           value = "") => {
+    return value === "emoji" || blockHintKeys.includes(splitChar) || (lite && ["/", "、"].includes(splitChar));
 };
 
 export const endsWithMultiCharHintPrefix = (key: string, hintKeys: string[]) => {

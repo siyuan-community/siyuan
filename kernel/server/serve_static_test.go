@@ -17,6 +17,10 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
+	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -71,6 +75,70 @@ func TestRegisterStaticFileHandlers(t *testing.T) {
 	}
 }
 
+func TestGzipMiddlewareServesPrecompressedStaticFile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	source := make([]byte, 128*1024)
+	if _, err := rand.New(rand.NewSource(1)).Read(source); err != nil {
+		t.Fatal(err)
+	}
+
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(source); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if compressed.Len() <= 32*1024 {
+		t.Fatalf("compressed test file is too small: %d", compressed.Len())
+	}
+
+	filePath := filepath.Join(t.TempDir(), "data.gz")
+	if err := os.WriteFile(filePath, compressed.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := gin.New()
+	engine.Use(gzipMiddleware())
+	for _, requestPath := range []string{"/data.gz", "/data.dump"} {
+		engine.GET(requestPath, func(c *gin.Context) {
+			http.ServeFile(c.Writer, c.Request, filePath)
+		})
+	}
+
+	for _, requestPath := range []string{"/data.gz", "/data.dump"} {
+		t.Run(requestPath, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, requestPath, nil)
+			request.Header.Set("Accept-Encoding", "gzip")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("unexpected status: %d", recorder.Code)
+			}
+
+			body := recorder.Body.Bytes()
+			if recorder.Header().Get("Content-Encoding") == "gzip" {
+				reader, err := gzip.NewReader(bytes.NewReader(body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err = io.ReadAll(reader)
+				if err != nil {
+					_ = reader.Close()
+					t.Fatal(err)
+				}
+				if err = reader.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !bytes.Equal(body, compressed.Bytes()) {
+				t.Fatalf("response differs from the static file: got %d bytes, want %d", len(body), compressed.Len())
+			}
+		})
+	}
+}
+
 func TestStaticFileNestedSymlinkEscape(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	root, outside := t.TempDir(), t.TempDir()
@@ -98,7 +166,7 @@ func TestStaticFileNestedSymlinkEscape(t *testing.T) {
 	}
 }
 
-func TestWidgetResponseDisablesCache(t *testing.T) {
+func TestWidgetResponseCacheControl(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	originalDataDir, originalConf := util.DataDir, model.Conf
 	util.DataDir = t.TempDir()
@@ -112,8 +180,15 @@ func TestWidgetResponseDisablesCache(t *testing.T) {
 	if err := os.MkdirAll(widgetDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(widgetDir, "index.html"), []byte("content"), 0644); err != nil {
-		t.Fatal(err)
+	for fileName, content := range map[string]string{
+		"index.html": "html",
+		"page.html":  "html",
+		"page.htm":   "htm",
+		"app.js":     "javascript",
+	} {
+		if err := os.WriteFile(filepath.Join(widgetDir, fileName), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	engine := gin.New()
@@ -122,13 +197,96 @@ func TestWidgetResponseDisablesCache(t *testing.T) {
 		c.Next()
 	})
 	serveWidgets(engine)
+
+	for _, test := range []struct {
+		method       string
+		requestPath  string
+		status       int
+		body         string
+		cacheControl string
+	}{
+		{http.MethodGet, "/widgets/example/", http.StatusOK, "html", "private, no-store"},
+		{http.MethodGet, "/widgets/example/index.html", http.StatusMovedPermanently, "", "private, no-store"},
+		{http.MethodGet, "/widgets/example/page.html", http.StatusOK, "html", "private, no-store"},
+		{http.MethodGet, "/widgets/example/page.htm", http.StatusOK, "htm", "private, no-store"},
+		{http.MethodGet, "/widgets/example/app.js", http.StatusOK, "javascript", "private"},
+		{http.MethodHead, "/widgets/example/app.js", http.StatusOK, "", "private"},
+	} {
+		t.Run(test.method+" "+test.requestPath, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, httptest.NewRequest(test.method, test.requestPath, nil))
+			if recorder.Code != test.status || recorder.Body.String() != test.body {
+				t.Fatalf("unexpected widget response: status=%d body=%q", recorder.Code, recorder.Body.String())
+			}
+			if cacheControl := recorder.Header().Get("Cache-Control"); cacheControl != test.cacheControl {
+				t.Fatalf("unexpected widget cache control [%s]", cacheControl)
+			}
+		})
+	}
+}
+
+func TestLanguageResponseDisablesCache(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalAppearancePath, originalMode := util.AppearancePath, util.Mode
+	util.AppearancePath, util.Mode = t.TempDir(), "prod"
+	t.Cleanup(func() {
+		util.AppearancePath, util.Mode = originalAppearancePath, originalMode
+	})
+
+	langDir := filepath.Join(util.AppearancePath, "langs")
+	if err := os.MkdirAll(langDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(langDir, "zh-CN.json"), []byte(`{"label":"value"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		c.Set(model.RoleContextKey, model.RoleAdministrator)
+		c.Next()
+	})
+	serveAppearance(engine)
 	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/widgets/example/", nil))
-	if recorder.Code != http.StatusOK || recorder.Body.String() != "content" {
-		t.Fatalf("unexpected widget response: status=%d body=%q", recorder.Code, recorder.Body.String())
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/appearance/langs/zh-CN.json?v=old", nil))
+	if recorder.Code != http.StatusOK || strings.TrimSpace(recorder.Body.String()) != `{"label":"value"}` {
+		t.Fatalf("unexpected language response: status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 	if cacheControl := recorder.Header().Get("Cache-Control"); cacheControl != "private, no-store" {
-		t.Fatalf("unexpected widget cache control [%s]", cacheControl)
+		t.Fatalf("unexpected language cache control [%s]", cacheControl)
+	}
+}
+
+func TestThemeResponseDisablesCache(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalAppearancePath, originalMode := util.AppearancePath, util.Mode
+	util.AppearancePath, util.Mode = t.TempDir(), "prod"
+	t.Cleanup(func() {
+		util.AppearancePath, util.Mode = originalAppearancePath, originalMode
+	})
+
+	themeDir := filepath.Join(util.AppearancePath, "themes", "example", "style", "module")
+	if err := os.MkdirAll(themeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(themeDir, "color.css"), []byte("body {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		c.Set(model.RoleContextKey, model.RoleAdministrator)
+		c.Next()
+	})
+	serveAppearance(engine)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet,
+		"/appearance/themes/example/style/module/color.css", nil))
+	if recorder.Code != http.StatusOK || strings.TrimSpace(recorder.Body.String()) != "body {}" {
+		t.Fatalf("unexpected theme response: status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	if cacheControl := recorder.Header().Get("Cache-Control"); cacheControl != "private, no-store" {
+		t.Fatalf("unexpected theme cache control [%s]", cacheControl)
 	}
 }
 

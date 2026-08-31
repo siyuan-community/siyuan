@@ -299,6 +299,25 @@ const renderPDF = async (id: string) => {
         #preview .render-node[data-subtype="plantuml"] object {
             max-width: 100%;
         }
+
+        #preview a.pdf-embedded-asset {
+            position: relative;
+            padding-right: 1em !important;
+        }
+
+        #preview .pdf-embedded-asset__icon {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 1em;
+            height: 1em;
+            color: currentColor;
+            pointer-events: none;
+        }
+
+        .exporting #preview .pdf-embedded-asset__icon {
+            visibility: hidden;
+        }
         ${await setInlineStyle(false, servePath)}
         ${await getPluginStyle()}
     </style>
@@ -395,6 +414,20 @@ const renderPDF = async (id: string) => {
             </div>
             <span class="fn__hr"></span>
             <input id="keepFold" class="b3-switch" type="checkbox" ${localData.keepFold ? "checked" : ""}>
+        </label>
+        <label class="b3-label">
+            <div>
+                ${window.siyuan.languages.export17}
+            </div>
+            <span class="fn__hr"></span>
+            <input id="addTitle" class="b3-switch" type="checkbox" ${window.siyuan.config.export.addTitle ? "checked" : ""}>
+        </label>
+        <label id="customTitlePanel" class="b3-label${window.siyuan.config.export.addTitle ? "" : " fn__none"}">
+            <div>
+                ${window.siyuan.languages.title}
+            </div>
+            <span class="fn__hr"></span>
+            <input aria-label="${window.siyuan.languages.title}" id="customTitle" class="b3-text-field fn__block" placeholder="${window.siyuan.languages.title}">
         </label>
         <label class="b3-label">
             <div>
@@ -608,6 +641,8 @@ ${getIconScript(servePath)}
     fetchPost("/api/export/exportPreviewHTML", {
         id: "${id}",
         keepFold: ${localData.keepFold},
+        addTitle: ${window.siyuan.config.export.addTitle},
+        customTitle: "",
         merge: ${localData.mergeSubdocs},
         mergeDocHeadingMode: "${localData.mergeDocHeadingMode}",
         mergeContentHeadingMode: "${localData.mergeContentHeadingMode}",
@@ -660,6 +695,32 @@ ${getIconScript(servePath)}
         keepFoldElement.addEventListener('change', () => {
             refreshPreview();
         });
+        const addTitleElement = actionElement.querySelector('#addTitle');
+        const customTitleElement = actionElement.querySelector('#customTitle');
+        const customTitlePanelElement = actionElement.querySelector('#customTitlePanel');
+        let titleRefreshTimer;
+        let titleComposing = false;
+        addTitleElement.addEventListener('change', () => {
+            customTitlePanelElement.classList.toggle('fn__none', !addTitleElement.checked);
+            refreshPreview();
+        });
+        const scheduleTitleRefresh = () => {
+            window.clearTimeout(titleRefreshTimer);
+            titleRefreshTimer = window.setTimeout(refreshPreview, 300);
+        };
+        customTitleElement.addEventListener('compositionstart', () => {
+            titleComposing = true;
+            window.clearTimeout(titleRefreshTimer);
+        });
+        customTitleElement.addEventListener('compositionend', () => {
+            titleComposing = false;
+            scheduleTitleRefresh();
+        });
+        customTitleElement.addEventListener('input', () => {
+            if (!titleComposing) {
+                scheduleTitleRefresh();
+            }
+        });
         const mergeSubdocsElement = actionElement.querySelector('#mergeSubdocs');
         const mergeHeadingOptionsElement = actionElement.querySelector('#mergeHeadingOptions');
         const mergeDocHeadingModeElement = actionElement.querySelector('#mergeDocHeadingMode');
@@ -674,12 +735,15 @@ ${getIconScript(servePath)}
         mergeContentHeadingModeElement.addEventListener('change', () => {
             refreshPreview();
         });
+        const removeAssetsElement = actionElement.querySelector("#removeAssets");
         const  watermarkElement = actionElement.querySelector('#watermark');
         const refreshPreview = () => {
             previewElement.innerHTML = '<div class="fn__loading" style="left:0;height: 100vh"><img width="48px" src="${servePath}stage/loading-pure.svg"></div>'
             fetchPost("/api/export/exportPreviewHTML", {
                 id: "${id}",
                 keepFold: keepFoldElement.checked,
+                addTitle: addTitleElement.checked,
+                customTitle: customTitleElement.value,
                 merge: mergeSubdocsElement.checked,
                 mergeDocHeadingMode: mergeDocHeadingModeElement.value,
                 mergeContentHeadingMode: mergeContentHeadingModeElement.value,
@@ -690,6 +754,7 @@ ${getIconScript(servePath)}
                 }
                 setPadding();
                 renderPreview(response2.data);
+                reserveEmbeddedAssetSpace(removeAssetsElement.checked);
             })
         };
 
@@ -750,17 +815,36 @@ ${getIconScript(servePath)}
                 },
                 pageSize,
                 keepFold: keepFoldElement.checked,
+                addTitle: addTitleElement.checked,
+                customTitle: customTitleElement.value,
                 mergeSubdocs: mergeSubdocsElement.checked,
                 mergeDocHeadingMode: mergeDocHeadingModeElement.value,
                 mergeContentHeadingMode: mergeContentHeadingModeElement.value,
                 watermark: watermarkElement.checked,
-                removeAssets: actionElement.querySelector("#removeAssets").checked,
+                removeAssets: removeAssetsElement.checked,
                 paged: !unPagedPageSize,
                 rootId: "${id}",
                 rootTitle: response.data.name,
                 parentWindowId: ${currentWindowId},
             };
         };
+        const reserveEmbeddedAssetSpace = (enabled) => {
+            // 为内嵌附件注解预留空间，避免覆盖后续文本。
+            previewElement.querySelectorAll("a[href]").forEach((item) => {
+                const url = new URL(item.href);
+                const embedded = enabled && url.hostname === "127.0.0.1" && url.pathname.includes("/assets/");
+                item.classList.toggle("pdf-embedded-asset", embedded);
+                const iconElement = item.querySelector(".pdf-embedded-asset__icon");
+                if (embedded && !iconElement) {
+                    item.insertAdjacentHTML("beforeend", '<svg aria-hidden="true" class="pdf-embedded-asset__icon"><use xlink:href="#iconPaperclip"></use></svg>');
+                } else if (!embedded) {
+                    iconElement?.remove();
+                }
+            });
+        };
+        removeAssetsElement.addEventListener("change", () => {
+            reserveEmbeddedAssetSpace(removeAssetsElement.checked);
+        });
         const waitForImages = () => Promise.all(Array.from(previewElement.querySelectorAll("img")).map((image) => {
             image.loading = "eager";
             if (image.complete) {
@@ -788,6 +872,7 @@ ${getIconScript(servePath)}
             if (result.canceled || result.filePaths.length === 0) {
                 return;
             }
+            reserveEmbeddedAssetSpace(removeAssetsElement.checked);
             await waitForImages();
             const isPaged = actionElement.querySelector("#paged").checked;
             let exportConfig;
@@ -825,6 +910,7 @@ ${getIconScript(servePath)}
         });
         setPadding();
         renderPreview(response.data);
+        reserveEmbeddedAssetSpace(removeAssetsElement.checked);
         window.addEventListener("keydown", (event) => {
             if (event.key === "Escape") {
                 const {ipcRenderer}  = require("electron");

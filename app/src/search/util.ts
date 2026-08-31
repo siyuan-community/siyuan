@@ -15,6 +15,7 @@ import {onGet} from "../protyle/util/onGet";
 import {addLoading} from "../protyle/ui/initUI";
 import {getIconByType} from "../editor/getIcon";
 import {unicode2Emoji} from "../emoji";
+import {getFileTreeIconHTML} from "../emoji/fileTreeIcon";
 import {hasClosestBlock, hasClosestByClassName, hasClosestByTag} from "../protyle/util/hasClosest";
 import {isIPad, isNotCtrl, setStorageVal, updateHotkeyTip} from "../protyle/util/compatibility";
 import {newFile} from "../util/newFile";
@@ -41,6 +42,7 @@ import {
 import {resize} from "../protyle/util/resize";
 import {addClearButton} from "../util/addClearButton";
 import {checkFold} from "../util/noRelyPCFunction";
+import {emitToPlugins, forEachPluginSubscriber} from "../plugin/EventBusCore";
 import {getUnRefList, openSearchUnRef, unRefMoreMenu} from "./unRef";
 import {getDefaultSubType, getDefaultType} from "./getDefault";
 import {isSupportCSSHL, searchMarkRender} from "../protyle/render/searchMarkRender";
@@ -49,7 +51,7 @@ import {highlightById} from "../util/highlightById";
 import {getSelectionOffset} from "../protyle/util/selection";
 import {electronUndo} from "../protyle/undo";
 import {getContenteditableElement} from "../protyle/wysiwyg/getBlock";
-import {IDatabaseRowOpenData, openDatabaseRowByData} from "../protyle/render/av/openDatabaseRow";
+import {IDatabaseItemOpenData, openDatabaseItem} from "../protyle/render/av/openDatabaseItem";
 import {scheduleSearchRequest} from "./request";
 
 export const openGlobalSearch = (app: App, text: string, replace: boolean, searchData?: Config.IUILayoutTabSearchConfig) => {
@@ -208,7 +210,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
         <kbd>${updateHotkeyTip(window.siyuan.config.keymap.general.newFile.custom)}</kbd> ${window.siyuan.languages.new}
         <kbd>${window.siyuan.languages.enterKey}/${window.siyuan.languages.doubleClick}</kbd> ${window.siyuan.languages.searchTip2}
         <kbd>${window.siyuan.languages.click}</kbd> ${window.siyuan.languages.searchTip3}
-        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}/${updateHotkeyTip("⌥" + window.siyuan.languages.click)}</kbd> ${window.siyuan.languages.searchTip4}
+        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}${window.siyuan.config.keymap.editor.general.insertRight.custom ? "/" : ""}${updateHotkeyTip("⌥" + window.siyuan.languages.click)}</kbd> ${window.siyuan.languages.searchTip4}
         <kbd>Esc</kbd> ${window.siyuan.languages.searchTip5}
     </div>
 </div>
@@ -238,7 +240,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
     <div class="search__tip${closeCB ? "" : " fn__none"}">
         <kbd>↑/↓/PageUp/PageDown</kbd> ${window.siyuan.languages.searchTip1}
         <kbd>${window.siyuan.languages.enterKey}/${window.siyuan.languages.doubleClick}</kbd> ${window.siyuan.languages.searchTip2}
-        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}/${updateHotkeyTip("⌥" + window.siyuan.languages.click)}</kbd> ${window.siyuan.languages.searchTip4}
+        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}${window.siyuan.config.keymap.editor.general.insertRight.custom ? "/" : ""}${updateHotkeyTip("⌥" + window.siyuan.languages.click)}</kbd> ${window.siyuan.languages.searchTip4}
         <kbd>Esc</kbd> ${window.siyuan.languages.searchTip5}
     </div>
 </div>
@@ -975,7 +977,7 @@ export const openSearchEditor = async (options: {
                 keywords: options.keywords,
             });
             if (response.code === 0 && response.data) {
-                const opened = await openDatabaseRowByData(options.protyle, response.data as IDatabaseRowOpenData, {
+                const opened = await openDatabaseItem(options.protyle.app, response.data as IDatabaseItemOpenData, {
                     position: options.openPosition,
                 });
                 if (opened) {
@@ -1373,6 +1375,19 @@ export const replace = (element: Element, config: Config.IUILayoutTabSearchConfi
     });
 };
 
+const emitBeforeSearchResultsRender = (blocks: IBlock[], edit: Protyle,
+                                       config: Config.IUILayoutTabSearchConfig,
+                                       searchElement: HTMLInputElement) => {
+    const detail = {
+        protyle: edit,
+        config,
+        searchElement,
+        blocks,
+    };
+    emitToPlugins("before-search-results-render", detail);
+    return detail.blocks;
+};
+
 export const inputEvent = (element: Element, config: Config.IUILayoutTabSearchConfig,
                            edit: Protyle, rmCurrentCriteria = false,
                            focusId?: {
@@ -1409,8 +1424,8 @@ export const inputEvent = (element: Element, config: Config.IUILayoutTabSearchCo
             listElement.scrollTo(0, 0);
             const previousElement = element.querySelector('[data-type="previous"]');
             const nextElement = element.querySelector('[data-type="next"]');
-            edit.protyle?.app.plugins.forEach(item => {
-                item.eventBus.emit("input-search", {
+            forEachPluginSubscriber("input-search", eventBus => {
+                eventBus.emit("input-search", {
                     protyle: edit,
                     config,
                     searchElement: searchInputElement,
@@ -1428,7 +1443,8 @@ export const inputEvent = (element: Element, config: Config.IUILayoutTabSearchCo
                             if (!isCurrent()) {
                                 return;
                             }
-                            onSearch(response.data, edit, element, requestConfig);
+                            const blocks = emitBeforeSearchResultsRender(response.data, edit, requestConfig, searchInputElement);
+                            onSearch(blocks, edit, element, requestConfig);
                             searchResultElement.innerHTML = "";
                             previousElement.setAttribute("disabled", "true");
                             nextElement.setAttribute("disabled", "true");
@@ -1475,7 +1491,8 @@ export const inputEvent = (element: Element, config: Config.IUILayoutTabSearchCo
                         } else {
                             nextElement.setAttribute("disabled", "disabled");
                         }
-                        onSearch(response.data.blocks, edit, element, requestConfig, requestFocusId);
+                        const blocks = emitBeforeSearchResultsRender(response.data.blocks, edit, requestConfig, searchInputElement);
+                        onSearch(blocks, edit, element, requestConfig, requestFocusId);
                         if (response.data.matchedBlockCount > 0) {
                             let text = window.siyuan.languages.findInDoc.replace("${x}", response.data.matchedRootCount).replace("${y}", response.data.matchedBlockCount);
                             if (response.data.docMode) {
@@ -1524,7 +1541,7 @@ const onSearch = (data: IBlock[], edit: Protyle, element: Element, config: Confi
 <span class="b3-list-item__toggle b3-list-item__toggle--hl">
     <svg class="b3-list-item__arrow b3-list-item__arrow--open"><use xlink:href="#iconRight"></use></svg>
 </span>
-${unicode2Emoji(getNotebookIcon(item.box) || window.siyuan.storage[Constants.LOCAL_IMAGES].note, "b3-list-item__graphic", true)}
+${getFileTreeIconHTML(getNotebookIcon(item.box), "notebook", "b3-list-item__graphic", true)}
 <span class="b3-list-item__text ariaLabel" style="color: var(--b3-theme-on-surface)" aria-label="${escapeAriaLabel(escapeHtml(title))}">${title}</span>
 </div><div>`;
             item.children.forEach((childItem) => {

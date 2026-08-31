@@ -2,7 +2,6 @@ import {Dialog} from "../../../dialog";
 import {showMessage} from "../../../dialog/message";
 import {Menu} from "../../../plugin/Menu";
 import {MenuItem} from "../../../menus/Menu";
-import {Constants} from "../../../constants";
 import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {fetchPost} from "../../../util/fetch";
 import {transaction} from "../../wysiwyg/transaction";
@@ -10,10 +9,12 @@ import {avRender} from "./render";
 import {getFieldsByData} from "./view";
 import {getColIconByType} from "./col";
 import {openEmojiPanel, unicode2Emoji} from "../../../emoji";
+import {getFileTreeIconHTML} from "../../../emoji/fileTreeIcon";
 import {upDownHint} from "../../../util/upDownHint";
 import {hasClosestByClassName} from "../../util/hasClosest";
 import * as dayjs from "dayjs";
 import {getAVBlockRefSubtype} from "./cellValue";
+import {getAVColorStyle} from "./color";
 
 interface ICreatePosition {
     previousID?: string;
@@ -42,17 +43,17 @@ const getSelectedOptionNames = (element: HTMLElement) => {
 };
 
 const getSelectedOptionsHTML = (column: IAVColumn, selected: string[]) => {
-    return selected.map(name => (column.options || []).find(item => item.name === name)).filter(item => item).map(item => `<span class="b3-chip b3-chip--middle" style="max-width:100%;background-color:var(--b3-font-background${escapeAttr(item.color)});color:var(--b3-font-color${escapeAttr(item.color)})"><span class="fn__ellipsis">${escapeHtml(item.name)}</span></span>`).join("");
+    return selected.map(name => (column.options || []).find(item => item.name === name)).filter(item => item).map(item => `<span class="b3-chip b3-chip--middle" style="max-width:100%;${getAVColorStyle(item)}"><span class="fn__ellipsis">${escapeHtml(item.name)}</span></span>`).join("");
 };
 
 const getFieldSelectMenuHTML = (column: IAVColumn, selected: string[], keyword = "") => {
-    const selectedHTML = selected.map(name => (column.options || []).find(item => item.name === name)).filter(item => item).map(item => `<div class="b3-chip b3-chip--middle" data-name="${escapeAttr(item.name)}" style="white-space:nowrap;max-width:100%;background-color:var(--b3-font-background${escapeAttr(item.color)});color:var(--b3-font-color${escapeAttr(item.color)})"><span class="fn__ellipsis">${escapeHtml(item.name)}</span><svg class="b3-chip__close" data-role="remove-field-option"><use xlink:href="#iconClose"></use></svg></div>`).join("");
+    const selectedHTML = selected.map(name => (column.options || []).find(item => item.name === name)).filter(item => item).map(item => `<div class="b3-chip b3-chip--middle" data-name="${escapeAttr(item.name)}" style="white-space:nowrap;max-width:100%;${getAVColorStyle(item)}"><span class="fn__ellipsis">${escapeHtml(item.name)}</span><svg class="b3-chip__close" data-role="remove-field-option"><use xlink:href="#iconClose"></use></svg></div>`).join("");
     const normalizedKeyword = keyword.toLowerCase();
     const options = (column.options || []).filter(item => !normalizedKeyword ||
         item.name.toLowerCase().includes(normalizedKeyword) || normalizedKeyword.includes(item.name.toLowerCase()));
     const optionsHTML = options.map((option, index) => `<button class="b3-menu__item${index === 0 ? " b3-menu__item--current" : ""}" data-role="field-option" data-name="${escapeAttr(option.name)}">
     <div class="fn__flex-1">
-        <span class="b3-chip" style="background-color:var(--b3-font-background${escapeAttr(option.color)});color:var(--b3-font-color${escapeAttr(option.color)})"><span class="fn__ellipsis">${escapeHtml(option.name)}</span></span>
+        <span class="b3-chip" style="${getAVColorStyle(option)}"><span class="fn__ellipsis">${escapeHtml(option.name)}</span></span>
     </div>
     ${selected.includes(option.name) ? '<svg class="b3-menu__checked"><use xlink:href="#iconSelect"></use></svg>' : ""}
 </button>`).join("");
@@ -328,7 +329,7 @@ const renderRelationFieldValue = (target: HTMLElement, options: IRelationOption[
         if (option.isDetached) {
             return `<span class="av__cell--relation" data-row-id="${escapeAttr(option.id)}"><span><svg><use xlink:href="#iconLine"></use></svg><span class="fn__space--5"></span></span><span class="av__celltext">${escapeHtml(option.content)}</span></span>`;
         }
-        const icon = unicode2Emoji(option.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file);
+        const icon = getFileTreeIconHTML(option.icon, "file");
         return `<span class="av__cell--relation" data-row-id="${escapeAttr(option.id)}" data-block-id="${escapeAttr(option.blockID)}"><span class="b3-menu__avemoji" data-unicode="${escapeAttr(option.icon)}">${icon}</span><span data-type="block-ref" data-id="${escapeAttr(option.blockID)}" data-subtype="${option.refSubtype}" class="av__celltext av__celltext--ref">${escapeHtml(option.content)}</span></span>`;
     }).join("");
     target.innerHTML = html;
@@ -544,7 +545,7 @@ const getEditorHTML = (itemTemplate: IAVNewItemTemplate, primaryKey: IAVColumn |
         <div class="custom-attr">
             <div class="block__icons av__row">
                 <div class="block__logo block__logo--icon"><svg class="block__logoicon"><use xlink:href="#iconEmoji"></use></svg><span>${window.siyuan.languages.icon}</span></div>
-                <div class="fn__flex-1 fn__flex custom-attr__avvalue" style="align-items:center"><button class="b3-text-field b3-text-field--text fn__flex-1 fn__flex" data-role="template-icon" data-value="${escapeAttr(itemTemplate.icon || "")}" type="button" style="align-items:center;text-align:left"><span class="b3-menu__avemoji">${unicode2Emoji(itemTemplate.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file)}</span></button></div>
+                <div class="fn__flex-1 fn__flex custom-attr__avvalue" style="align-items:center"><button class="b3-text-field b3-text-field--text fn__flex-1 fn__flex" data-role="template-icon" data-value="${escapeAttr(itemTemplate.icon || "")}" type="button" style="align-items:center;text-align:left"><span class="b3-menu__avemoji">${getFileTreeIconHTML(itemTemplate.icon, "file")}</span></button></div>
             </div>
             <div class="block__icons av__row">
                 <div class="block__logo block__logo--icon ariaLabel" data-position="parentE" aria-label="${escapeAttr(`${window.siyuan.languages.fileTree14}<br>${window.siyuan.languages.fileTree13}`)}"><svg class="block__logoicon"><use xlink:href="#iconFolder"></use></svg><span>${window.siyuan.languages.savePath}</span></div>
@@ -660,7 +661,7 @@ export const openNewItemTemplateDialog = (options: {
                 w: rect.width,
             }, unicode => {
                 iconElement.dataset.value = unicode;
-                emojiElement.innerHTML = unicode2Emoji(unicode || window.siyuan.storage[Constants.LOCAL_IMAGES].file);
+                emojiElement.innerHTML = getFileTreeIconHTML(unicode, "file");
             }, emojiElement.querySelector("img"), {
                 ownerElement: options.protyle.element,
                 targetID: options.protyle.block.rootID,

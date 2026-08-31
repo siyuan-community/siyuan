@@ -18,7 +18,7 @@ import {genUUID} from "../../util/genID";
 import {getDocDisplayName, isEncryptedBox} from "../../util/pathName";
 import {dragOverScroll, stopScrollAnimation} from "../../boot/globalEvent/dragover";
 import {escapeHtml} from "../../util/escape";
-import {unicode2Emoji} from "../../emoji";
+import {getFileTreeIconHTML} from "../../emoji/fileTreeIcon";
 import {bindMousePointerTouchBridge, isMousePointerTouchEvent} from "../util/mousePointerTouchBridge";
 import {
     operationsMayChangeOutline,
@@ -45,7 +45,8 @@ export class MobileOutline extends Model {
     constructor(options: {
         app: App,
         blockId: string,
-        isPreview: boolean
+        isPreview: boolean,
+        element: HTMLElement
     }) {
         super({app: options.app});
         this.connect({
@@ -56,7 +57,7 @@ export class MobileOutline extends Model {
 
         this.isPreview = options.isPreview;
         this.blockId = options.blockId;
-        this.element = document.querySelector('#sidebar [data-type="sidebar-outline"]');
+        this.element = options.element;
         this.element.innerHTML = `<div class="toolbar toolbar--border toolbar--dark">
     <div class="fn__space"></div>
     <div class="toolbar__text">
@@ -594,8 +595,7 @@ export class MobileOutline extends Model {
             docTitleElement.classList.add("fn__none");
             return;
         }
-        let iconHTML = unicode2Emoji(ial.icon || window.siyuan.storage[Constants.LOCAL_IMAGES].file,
-            "b3-list-item__graphic", true);
+        let iconHTML = getFileTreeIconHTML(ial.icon, "file", "b3-list-item__graphic", true);
         if (ial.icon === Constants.ZWSP && docTitleElement.firstElementChild) {
             iconHTML = docTitleElement.firstElementChild.outerHTML;
         }

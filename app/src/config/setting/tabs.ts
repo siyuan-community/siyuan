@@ -9,11 +9,11 @@ import {appearanceConfigApi} from "../tabs/appearanceRuntime";
 import {mountSyncTabExtras, patchSyncConfig} from "../tabs/syncRuntime";
 import {mountAccessTab} from "../tabs/accessRuntime";
 import {collectAssetsTabSearchStrings, mountAssetsTab} from "../assets";
+import {collectBazaarTabSearchStrings, mountBazaarTab} from "../bazaarTab";
 /// #if !MOBILE
-import {collectBazaarTabSearchStrings, mountBazaarTab} from "../bazaar";
 import {collectKeymapTabSearchStrings, mountKeymapTab} from "../tabs/keymapUi";
 /// #endif
-import {isHuawei, isInHarmony} from "../../protyle/util/compatibility";
+import {isBazaarAvailable} from "../../util/bazaarAvailability";
 import {SettingBuilder, type SettingTab} from "./builder";
 import {registerEditorTab} from "../tabs/editorTab";
 import {registerFileTab} from "../tabs/fileTab";
@@ -27,6 +27,7 @@ import {registerSyncTab} from "../tabs/syncTab";
 import {registerAccessTab} from "../tabs/accessTab";
 import {registerAppTab} from "../tabs/appTab";
 import {registerAboutTab} from "../tabs/aboutTab";
+import {isDisabledFeature} from "../../protyle/util/compatibility";
 
 const setting = new SettingBuilder();
 const settingTabs = {
@@ -48,16 +49,14 @@ const settingTabs = {
         title: () => window.siyuan.languages.appearance,
         defaultSave: appearanceConfigApi.patch,
     }, registerAppearanceTab),
-    /// #if !MOBILE
     bazaar: setting.panel({
         id: "bazaar",
         icon: "iconBazaar",
         title: () => window.siyuan.languages.bazaar,
-        hidden: () => !!(isHuawei() || isInHarmony()),
+        hidden: () => !isBazaarAvailable(),
         searchStrings: collectBazaarTabSearchStrings,
         mount: mountBazaarTab,
     }),
-    /// #endif
     flashcard: setting.tab({
         id: "flashcard",
         icon: "iconRiffCard",
@@ -68,6 +67,7 @@ const settingTabs = {
         id: "ai",
         icon: "iconSparkles",
         title: () => window.siyuan.languages.ai,
+        hidden: () => isDisabledFeature("ai"),
         defaultSave: aiConfigApi.patch,
     }, registerAiTab),
     secretsVariables: setting.tab({
