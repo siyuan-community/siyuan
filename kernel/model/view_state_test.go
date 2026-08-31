@@ -27,7 +27,7 @@ import (
 	"testing"
 
 	ignore "github.com/sabhiram/go-gitignore"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestPatchViewState(t *testing.T) {

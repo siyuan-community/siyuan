@@ -28,8 +28,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // 目录联接（junction）无需管理员权限即可创建，是 Windows 上对符号链接漏洞的同源变体，

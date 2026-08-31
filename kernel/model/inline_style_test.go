@@ -27,9 +27,9 @@ import (
 
 	"github.com/88250/lute/ast"
 	ignore "github.com/sabhiram/go-gitignore"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestInlineStylesCRUD(t *testing.T) {

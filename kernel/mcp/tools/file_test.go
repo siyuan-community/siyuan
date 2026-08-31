@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // TestSecurityReproMCPReadsPublishAccessMetadata 验证 MCP 文件工具无法读取受保护的

@@ -20,7 +20,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/av"
 )
 
 func TestAttributeViewRenderContextAggregatesTemplateErrors(t *testing.T) {

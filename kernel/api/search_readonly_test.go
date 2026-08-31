@@ -24,8 +24,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // SQL 搜索模式在只读模式下必须被拦截，与 /api/query/sql 保持一致

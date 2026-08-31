@@ -11,7 +11,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
 
 func TestNewAssetUploadCommandOutputPreservesPartialResults(t *testing.T) {

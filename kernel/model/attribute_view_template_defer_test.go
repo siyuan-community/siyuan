@@ -19,8 +19,8 @@ package model
 import (
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 )
 
 func TestShouldDeferAttributeViewTemplateValues(t *testing.T) {

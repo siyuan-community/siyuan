@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 )
 
 func TestParseLogin2faResult(t *testing.T) {

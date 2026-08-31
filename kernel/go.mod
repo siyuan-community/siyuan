@@ -43,7 +43,7 @@ require (
 	github.com/gonutz/w32/v2 v2.12.1
 	github.com/google/go-github/v84 v84.0.0
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/css v1.0.1
+	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/websocket v1.5.3
 	github.com/imroc/req/v3 v3.61.0
 	github.com/jaypipes/ghw v0.25.0
@@ -127,7 +127,6 @@ require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/advancedlogic/GoOse v0.0.0-20231203033844-ae6b36caf275 // indirect
-	github.com/alecthomas/chroma v0.10.0 // indirect
 	github.com/alex-ant/gomath v0.0.0-20160516115720-89013a210a82 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/andybalholm/cascadia v1.3.4 // indirect

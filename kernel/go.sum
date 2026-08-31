@@ -14,16 +14,6 @@ github.com/88250/go-sqlite3 v1.14.13-0.20260704101239-6ddb6e555a1e h1:1vyUvYI0Ca
 github.com/88250/go-sqlite3 v1.14.13-0.20260704101239-6ddb6e555a1e/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
 github.com/88250/gulu v1.2.3-0.20260609090754-168309361d92 h1:/DtFVbsSdZLqbADVnFUz2vsNl8d1NPm98yxKdYnpB8I=
 github.com/88250/gulu v1.2.3-0.20260609090754-168309361d92/go.mod h1:D+Db16m0N7r9MLZCMcj1a0ZsEGQAxDZkadOn79Gh0vI=
-github.com/88250/lute v1.7.8-0.20260816044801-e16e8e268504 h1:ZybE/84qeCWXOY/B9u7SHqnxOi2E6v19T9ZmPLYXo/Q=
-github.com/88250/lute v1.7.8-0.20260816044801-e16e8e268504/go.mod h1:mLbeedMhJIKH5UU+Kes/AevfvTXnPGbkJuIK3m5lZf4=
-github.com/88250/lute v1.7.8-0.20260821043618-a0c40f22628e h1:7I9b7xIS+22VAW0ciwt3BXXBEPUTuEYWdRU5bBq6zxs=
-github.com/88250/lute v1.7.8-0.20260821043618-a0c40f22628e/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.8-0.20260823165829-160dc00daa86 h1:rU4zdP7QXOzorXp/vNf9llSc+ZAztibczROh9oRPfq4=
-github.com/88250/lute v1.7.8-0.20260823165829-160dc00daa86/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.8-0.20260824130950-65147985e134 h1:p4JUcZESYC9rogLpG8lmJQrBAuvDVc1dbFu5eeLs1oc=
-github.com/88250/lute v1.7.8-0.20260824130950-65147985e134/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.8-0.20260826160738-b46ffc5de517 h1:VgNaXAYyehZRuWN8DZZi5RzMTSac8kGVOi41bm1q0lI=
-github.com/88250/lute v1.7.8-0.20260826160738-b46ffc5de517/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
 github.com/88250/lute v1.7.8-0.20260827055215-8928f1866da3 h1:MyfZVc5WNYChTsk2xe4TNk/92rcXe0IoNCEev1LO/Co=
 github.com/88250/lute v1.7.8-0.20260827055215-8928f1866da3/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
 github.com/88250/pdfcpu v0.3.14-0.20250424122812-f10e8d9d8d46 h1:Bq1JsDfVbHKUxNL/B2JXd8cC/1h6aFjrlXpGycnh0Hk=
@@ -51,10 +41,12 @@ github.com/Xuanwo/go-locale v1.1.3 h1:EWZZJJt5rqPHHbqPRH1zFCn5D7xHjjebODctA4aUO3
 github.com/Xuanwo/go-locale v1.1.3/go.mod h1:REn+F/c+AtGSWYACBSYZgl23AP+0lfQC+SEFPN+hj30=
 github.com/advancedlogic/GoOse v0.0.0-20231203033844-ae6b36caf275 h1:Kuhf+w+ilOGoXaR4O4nZ6Dp+ZS83LdANUjwyMXsPGX4=
 github.com/advancedlogic/GoOse v0.0.0-20231203033844-ae6b36caf275/go.mod h1:98NztIIMIntZGtQVIs8H85Q5b88fTbwWFbLz/lM9/xU=
-github.com/alecthomas/chroma v0.10.0 h1:7XDcGkCQopCNKjZHfYrNLraA+M7e0fMiJ/Mfikbfjek=
-github.com/alecthomas/chroma v0.10.0/go.mod h1:jtJATyUxlIORhUOFNA9NZDWGAQ8wpxQQqNSB4rjA/1s=
+github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
+github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/chroma/v2 v2.27.0 h1:FodwmyOBgJULFYmDqibcp9pvfDLWdtPRh9v/r5BXYZs=
 github.com/alecthomas/chroma/v2 v2.27.0/go.mod h1:NjJ3ciIgrqBNeIkWZ4e46nseoLDslxU1LmfCoL+wcY8=
+github.com/alecthomas/repr v0.5.2 h1:SU73FTI9D1P5UNtvseffFSGmdNci/O6RsqzeXJtP0Qs=
+github.com/alecthomas/repr v0.5.2/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
 github.com/alex-ant/gomath v0.0.0-20160516115720-89013a210a82 h1:7dONQ3WNZ1zy960TmkxJPuwoolZwL7xKtpcM04MBnt4=
 github.com/alex-ant/gomath v0.0.0-20160516115720-89013a210a82/go.mod h1:nLnM0KdK1CmygvjpDUO6m1TjSsiQtL61juhNsvV/JVI=
 github.com/andybalholm/brotli v1.2.2 h1:HzTuoo2ErYQqf5qvcJInB8uvqSVxRttzkFexPWtnceM=
@@ -137,7 +129,6 @@ github.com/disintegration/imaging v1.6.2 h1:w1LecBlG2Lnp8B3jk5zSuNqd7b4DXhcjwek1
 github.com/disintegration/imaging v1.6.2/go.mod h1:44/5580QXChDfwIclfc/PCwrr44amcmDAg8hxG0Ewe4=
 github.com/djherbis/times v1.6.0 h1:w2ctJ92J8fBvWPxugmXIv7Nz7Q3iDMKNx9v5ocVH20c=
 github.com/djherbis/times v1.6.0/go.mod h1:gOHeRAz2h+VJNZ5Gmc/o7iD9k4wW7NMVqieYCY99oc0=
-github.com/dlclark/regexp2 v1.4.0/go.mod h1:2pZnwuY/m+8K6iRw6wQdMtk+rH5tNGR1i55kozfMjCc=
 github.com/dlclark/regexp2 v1.12.0 h1:0j4c5qQmnC6XOWNjP3PIXURXN2gWx76rd3KvgdPkCz8=
 github.com/dlclark/regexp2 v1.12.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/dlclark/regexp2/v2 v2.6.0 h1:KugbSrpXcRpziHIcqqFEXwKwi09LbPkTzvLRItf2mo8=
@@ -265,6 +256,8 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/hashicorp/mdns v1.0.7 h1:yWoQVMW5JOiDxQnIUcm3IDt0kCjf3TuXHDbdEKPsbAY=
 github.com/hashicorp/mdns v1.0.7/go.mod h1:yjuhYhZyPDqXXL48xC7cdpGwGUMwu7OViDmsuT5COvg=
+github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
+github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/hhrutter/lzw v1.0.1 h1:O2GxTN+WYl1JOLd2Vrhaz6J4PmM45hijnR7hoixPczM=
 github.com/hhrutter/lzw v1.0.1/go.mod h1:WZ1BPZW41wJD/3+kOBbkboEABug/9D1t2w7upQcSnFU=
 github.com/hhrutter/tiff v1.0.6 h1:p5I4Oi20jit3uWIBBaAoMDqrKztw/1JQCQC2TgqK1qU=
@@ -432,8 +425,6 @@ github.com/shurcooL/gofontwoff v0.0.0-20181114050219-180f79e6909d/go.mod h1:05Ut
 github.com/simplereach/timeutils v1.2.0/go.mod h1:VVbQDfN/FHRZa1LSqcwo4kNZ62OOyqLLGQKYB3pB0Q8=
 github.com/siyuan-note/dataparser v0.0.0-20260115084335-b57cb8bc7c17 h1:cZbH1QcW/LWYtaKBv2i0O96qVm6HXKeEE3Z74VYdUHM=
 github.com/siyuan-note/dataparser v0.0.0-20260115084335-b57cb8bc7c17/go.mod h1:zE2SJ4t+2lFAeLgmhi27YtfzdyOWh3l9DXXUr9m/xU0=
-github.com/siyuan-note/dejavu v0.0.0-20260813091452-352ea5f76eb3 h1:8Qi5+/HFiJZi4e0qQ99cnCpgIUO3s/uVzhjvZ+lPo4o=
-github.com/siyuan-note/dejavu v0.0.0-20260813091452-352ea5f76eb3/go.mod h1:ixj6rxm+wkjoV8pBDGbuCyfMiPQh3MlxBwHG5OvtEQU=
 github.com/siyuan-note/dejavu v0.0.0-20260819021305-56b6bf7abb5b h1:o0ar5s5+hzI4WE+Ym+4ia5oYyIBqkb6gLhua90unrGg=
 github.com/siyuan-note/dejavu v0.0.0-20260819021305-56b6bf7abb5b/go.mod h1:ixj6rxm+wkjoV8pBDGbuCyfMiPQh3MlxBwHG5OvtEQU=
 github.com/siyuan-note/encryption v0.0.0-20260715062728-9cb8e9548044 h1:b1/Q4DSREDvGh1/NbzR9873EKrjakdoUtsNlghWxUOI=

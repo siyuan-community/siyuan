@@ -23,7 +23,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/av"
 )
 
 func TestHistoryAttributeViewPaletteOnlyUsesInlineStyles(t *testing.T) {
