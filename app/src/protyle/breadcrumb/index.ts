@@ -4,7 +4,7 @@ import {Constants} from "../../constants";
 import {MenuItem} from "../../menus/Menu";
 import {net2LocalAssets, updateReadonly} from "./action";
 import {openFileAttr} from "../../menus/commonMenuItem";
-import {setEditMode} from "../util/setEditMode";
+import {toggleEditMode} from "../util/toggleEditMode";
 import {RecordMedia, RecordMediaInputEndedError} from "../util/RecordMedia";
 import {hideMessage, showMessage} from "../../dialog/message";
 import {uploadFiles} from "../upload";
@@ -39,6 +39,8 @@ import {refreshUndoButtons} from "../undo/globalUndo";
 import {getAllEditor} from "../../layout/getAll";
 import {genEmbedStatTip, type IBlockStat, type IEmbedStat} from "../../layout/status";
 import {mountBreadcrumbButtons} from "../../plugin/breadcrumbButton";
+import {getHostCapabilities} from "../../util/hostCapabilities";
+import {waitForPendingTransactions} from "../util/transactionQueue";
 
 const genDocumentStatLabel = (stat: IBlockStat, statWithEmbed?: IBlockStat, embedStat?: IEmbedStat) => {
     const runeEmbedAttrs = statWithEmbed ? ` class="ariaLabel" data-position="north" aria-label="${escapeAriaLabel(genEmbedStatTip(window.siyuan.languages.runeCountWithEmbed, statWithEmbed.runeCount, embedStat))}"` : "";
@@ -57,6 +59,8 @@ export class Breadcrumb {
     private startingRecord = false;
     private stoppingRecord = false;
     private mobileMenuLoading = false;
+    private renderRequestID = 0;
+    private menuRequestID = 0;
     private previousFocusElement: HTMLElement;
     private previousRange: Range;
 
@@ -415,11 +419,17 @@ ${padHTML}
             offset,
             limit: 64,
             excludeTypes,
+            notebook: protyle.notebookId,
         };
-        if (isEncryptedBox(protyle.notebookId)) {
-            request.notebook = protyle.notebookId;
+        const rootID = protyle.block.rootID;
+        await waitForPendingTransactions(protyle);
+        if (rootID !== protyle.block.rootID) {
+            return [];
         }
         const response = await fetchSyncPost("/api/block/getBlockBreadcrumbChildren", request);
+        if (rootID !== protyle.block.rootID) {
+            return [];
+        }
         const data = response.data as {
             items: IBreadcrumb[],
             hasMore: boolean,
@@ -591,8 +601,8 @@ ${padHTML}
         });
     }
 
-    private genMobileMenu(protyle: IProtyle) {
-        if (protyle.toolbar.isMultiSelectMode() || this.mobileMenuLoading) {
+    private async genMobileMenu(protyle: IProtyle) {
+        if (protyle.lite || protyle.toolbar.isMultiSelectMode() || this.mobileMenuLoading) {
             return;
         }
         const menu = new Menu(Constants.MENU_BREADCRUMB_MOBILE_PATH);
@@ -615,12 +625,18 @@ ${padHTML}
             return;
         }
         const id = blockElement.getAttribute("data-node-id");
-        const breadcrumbParam: Record<string, any> = {id, excludeTypes: []};
-        if (isEncryptedBox(protyle.notebookId)) {
-            breadcrumbParam.notebook = protyle.notebookId;
-        }
+        const breadcrumbParam: Record<string, any> = {id, excludeTypes: [], notebook: protyle.notebookId};
         this.mobileMenuLoading = true;
+        const rootID = protyle.block.rootID;
+        await waitForPendingTransactions(protyle);
+        if (!blockElement.isConnected || rootID !== protyle.block.rootID) {
+            this.mobileMenuLoading = false;
+            return;
+        }
         fetchPost("/api/block/getBlockBreadcrumb", breadcrumbParam, (response) => {
+            if (!blockElement.isConnected || rootID !== protyle.block.rootID) {
+                return;
+            }
             response.data.forEach((item: IBreadcrumb) => {
                 let isCurrent = false;
                 if (!protyle.block.showAll && item.id === protyle.block.parentID) {
@@ -652,7 +668,8 @@ ${padHTML}
         }
     }
 
-    public showMenu(protyle: IProtyle, position: IPosition) {
+    public async showMenu(protyle: IProtyle, position: IPosition) {
+        const requestID = ++this.menuRequestID;
         if (!window.siyuan.menus.menu.element.classList.contains("fn__none") &&
             window.siyuan.menus.menu.element.getAttribute("data-name") === Constants.MENU_BREADCRUMB_MORE) {
             window.siyuan.menus.menu.remove();
@@ -669,7 +686,17 @@ ${padHTML}
         if (isEncryptedBox(protyle.notebookId)) {
             statRequest.notebook = protyle.notebookId;
         }
+        const rootID = protyle.block.rootID;
+        const isCurrent = () => requestID === this.menuRequestID && rootID === protyle.block.rootID &&
+            protyle.element.isConnected && (!cursorNodeElement || cursorNodeElement.isConnected);
+        await waitForPendingTransactions(protyle);
+        if (!isCurrent()) {
+            return;
+        }
         fetchPost("/api/block/getTreeStat", statRequest, (response) => {
+            if (!isCurrent()) {
+                return;
+            }
             window.siyuan.menus.menu.remove();
             window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_BREADCRUMB_MORE);
             if (!protyle.contentElement.classList.contains("fn__none") && !protyle.disabled) {
@@ -718,25 +745,27 @@ ${padHTML}
                     window.siyuan.menus.menu.remove();
                 });
                 window.siyuan.menus.menu.append(uploadMenu);
-                const htmlUploadMenu = new MenuItem({
-                    id: "insertHTMLFile",
-                    icon: "iconHTML5",
-                    label: `${window.siyuan.languages.insertHTMLFile}<input class="b3-form__upload" type="file" multiple="multiple" accept=".html,.htm">`,
-                }).element;
-                htmlUploadMenu.querySelector("input").addEventListener("change", (event: InputEvent & {
-                    target: HTMLInputElement
-                }) => {
-                    if (event.target.files.length === 0) {
-                        return;
-                    }
-                    uploadFiles(protyle, event.target.files, event.target, undefined, undefined, {
-                        htmlAsIframe: true,
-                        source: "file-picker",
-                        target: "editor",
+                if (getHostCapabilities().localFileSystem) {
+                    const htmlUploadMenu = new MenuItem({
+                        id: "insertHTMLFile",
+                        icon: "iconHTML5",
+                        label: `${window.siyuan.languages.insertHTMLFile}<input class="b3-form__upload" type="file" multiple="multiple" accept=".html,.htm">`,
+                    }).element;
+                    htmlUploadMenu.querySelector("input").addEventListener("change", (event: InputEvent & {
+                        target: HTMLInputElement
+                    }) => {
+                        if (event.target.files.length === 0) {
+                            return;
+                        }
+                        uploadFiles(protyle, event.target.files, event.target, undefined, undefined, {
+                            htmlAsIframe: true,
+                            source: "file-picker",
+                            target: "editor",
+                        });
+                        window.siyuan.menus.menu.remove();
                     });
-                    window.siyuan.menus.menu.remove();
-                });
-                window.siyuan.menus.menu.append(htmlUploadMenu);
+                    window.siyuan.menus.menu.append(htmlUploadMenu);
+                }
                 window.siyuan.menus.menu.append(new MenuItem({
                     id: this.mediaRecorder?.isRecording ? "endRecord" : "startRecord",
                     current: this.mediaRecorder && this.mediaRecorder.isRecording,
@@ -823,12 +852,15 @@ ${padHTML}
                         }
                     }
                 }).element);
-                if (window.siyuan.user) { // 登录链滴账号后即可使用 `分享到链滴` https://github.com/siyuan-note/siyuan/issues/7392
+                if (window.siyuan.user && getHostCapabilities().importExport) { // 登录链滴账号后即可使用 `分享到链滴` https://github.com/siyuan-note/siyuan/issues/7392
                     window.siyuan.menus.menu.append(new MenuItem({
                         id: "share2Liandi",
                         label: window.siyuan.languages.share2Liandi,
                         icon: "iconLiandi",
                         click() {
+                            if (!getHostCapabilities().importExport) {
+                                return;
+                            }
                             confirmDialog("🤩 " + window.siyuan.languages.share2Liandi,
                                 window.siyuan.languages.share2LiandiConfirmTip.replace("${accountServer}", getCloudURL("")), () => {
                                     fetchPost("/api/export/export2Liandi", {id: protyle.block.parentID});
@@ -899,34 +931,16 @@ ${padHTML}
             window.siyuan.menus.menu.append(new MenuItem({
                 id: "editMode",
                 icon: "iconEdit",
-                label: window.siyuan.languages["edit-mode"],
-                type: "submenu",
-                submenu: [{
-                    id: "wysiwyg",
-                    current: !protyle.contentElement.classList.contains("fn__none"),
-                    label: window.siyuan.languages.wysiwyg,
-                    accelerator: window.siyuan.config.keymap.editor.general.wysiwyg.custom,
-                    click: () => {
-                        setEditMode(protyle, "wysiwyg");
-                        reloadProtyle(protyle, true);
-                        /// #if !MOBILE
-                        saveLayout();
-                        /// #endif
-                    }
-                }, {
-                    id: "preview",
-                    current: !protyle.preview.element.classList.contains("fn__none"),
-                    icon: "iconPreview",
-                    label: window.siyuan.languages.preview,
-                    accelerator: window.siyuan.config.keymap.editor.general.preview.custom,
-                    click: () => {
-                        setEditMode(protyle, "preview");
-                        window.siyuan.menus.menu.remove();
-                        /// #if !MOBILE
-                        saveLayout();
-                        /// #endif
-                    }
-                }]
+                label: protyle.preview.element.classList.contains("fn__none") ?
+                    window.siyuan.languages.switchToPreview : window.siyuan.languages.switchToWYSIWYG,
+                accelerator: window.siyuan.config.keymap.editor.general.editMode.custom,
+                click: () => {
+                    toggleEditMode(protyle);
+                    window.siyuan.menus.menu.remove();
+                    /// #if !MOBILE
+                    saveLayout();
+                    /// #endif
+                }
             }).element);
             if (!window.siyuan.config.editor.readOnly && !window.siyuan.config.readonly) {
                 const isCustomReadonly = protyle.wysiwyg.element.getAttribute(Constants.CUSTOM_SY_READONLY);
@@ -1090,8 +1104,8 @@ ${padHTML}
         });
     }
 
-    public render(protyle: IProtyle, update = false, nodeElement?: Element | false) {
-        if (protyle.element.getAttribute("disabled-forever") === "true") {
+    public async render(protyle: IProtyle, update = false, nodeElement?: Element | false) {
+        if (protyle.lite || protyle.element.getAttribute("disabled-forever") === "true") {
             return;
         }
         refreshUndoButtons(protyle);
@@ -1134,16 +1148,25 @@ ${padHTML}
             return;
         }
         this.id = id;
+        const requestID = ++this.renderRequestID;
+        const rootID = protyle.block.rootID;
         const excludeTypes: string[] = [];
         if (this.element.parentElement?.parentElement && this.element.parentElement.parentElement.classList.contains("card__block")) {
             // 闪卡面包屑不能显示答案
             excludeTypes.push("NodeTextMark-mark");
         }
-        const breadcrumbParam: Record<string, any> = {id, excludeTypes};
-        if (isEncryptedBox(protyle.notebookId)) {
-            breadcrumbParam.notebook = protyle.notebookId;
+        const breadcrumbParam: Record<string, any> = {id, excludeTypes, notebook: protyle.notebookId};
+        // 等待当前块的创建事务完成，并丢弃切换文档或选择位置后过期的读取。
+        const isCurrent = () => requestID === this.renderRequestID && rootID === protyle.block.rootID &&
+            blockElement.isConnected;
+        await waitForPendingTransactions(protyle);
+        if (!isCurrent()) {
+            return;
         }
         fetchPost("/api/block/getBlockBreadcrumb", breadcrumbParam, (response) => {
+            if (!isCurrent()) {
+                return;
+            }
             let html = "";
             response.data.forEach((item: IBreadcrumb, index: number) => {
                 let isCurrent = false;

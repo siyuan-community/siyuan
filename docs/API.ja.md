@@ -528,6 +528,66 @@
   }
   ```
 
+### 兄弟ドキュメントを基準にドキュメントの順序を変更
+
+* `/api/filetree/reorderDocs`
+* パラメータ
+
+  ```json
+  {
+    "sourceIDs": ["20210917220056-yxtyl7i"],
+    "targetID": "20210917220057-abcdefg",
+    "position": "before"
+  }
+  ```
+
+    * `sourceIDs`: 配列順に挿入する移動元ドキュメント ID
+    * `targetID`: 基準となる兄弟ドキュメント ID
+    * `position`: `before` または `after`
+    * 移動後、すべての移動元ドキュメントは対象と同じノートブックおよび親ドキュメントに属する必要があります。非表示および未一覧表示のドキュメントを含む完全な兄弟リストを使用して並べ替えます
+* 戻り値
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "changed": true,
+      "notebook": "20210817205410-2kvfpfn",
+      "parentPath": "/"
+    }
+  }
+  ```
+
+### 別のノートブックを基準にノートブックの順序を変更
+
+* `/api/notebook/reorder`
+* パラメータ
+
+  ```json
+  {
+    "sourceIDs": ["20210817205410-2kvfpfn"],
+    "targetID": "20210817205411-abcdefg",
+    "position": "after"
+  }
+  ```
+
+    * `sourceIDs`: 配列順に挿入する移動元ノートブック ID
+    * `targetID`: 基準となるノートブック ID
+    * `position`: `before` または `after`
+    * 閉じたノートブックを含む完全なノートブックリストを使用して並べ替えます
+* 戻り値
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "changed": true
+    }
+  }
+  ```
+
 ### ノートブックとドキュメントのソート値を設定
 
 * `/api/filetree/setSort`
@@ -1268,6 +1328,34 @@
   }
   ```
 
+### ドキュメントをテンプレートとして保存
+
+* `/api/template/docSaveAsTemplate`
+* パラメータ
+
+  ```json
+  {
+    "id": "20220724223548-j6g0o87",
+    "name": "プロジェクト",
+    "overwrite": false,
+    "databaseMode": "copy"
+  }
+  ```
+
+    * `id`: 保存元ドキュメントの ID
+    * `name`: テンプレート名。カーネルが名前を整形し、`.md` 拡張子を追加します
+    * `overwrite`: 同名のテンプレートを上書きするかどうか。`false` でテンプレートがすでに存在する場合、レスポンスの `code` は `1` です
+    * `databaseMode`: ドキュメント内のすべてのデータベースブロックに対する任意の処理方法。`copy`（デフォルト）はテンプレートを使用するたびに独立したデータベースを作成し、ブロック単位のコンテキストフィルターを削除します。`reference` は既存のデータベース ID とコンテキストフィルターを保持するため、レンダリングされたブロックは元のデータベースとデータおよびビュー設定を共有するミラーになります。対象ドキュメントの暗号化境界内で元のデータベースを利用できない場合、参照モードのテンプレートレンダリングは失敗します
+* 戻り値
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": null
+  }
+  ```
+
 ### Sprigをレンダリング
 
 * `/api/template/renderSprig`
@@ -1799,7 +1887,7 @@
   ```
 
     * `id`: データベース ID
-    * `blockID`: このデータベースを埋め込むデータベースブロック。アクティブなビューや公開権限の解決に使用します。`custom-sy-av-view` が存在しないか無効な場合は、最初に利用可能なビューを使用します。独立したデータベースをレンダリングする場合は省略します
+    * `blockID`: このデータベースを埋め込むデータベースブロック。アクティブなビュー、公開権限、ブロック単位のコンテキストフィルターの解決に使用します。`custom-sy-av-view` が存在しないか無効な場合は、最初に利用可能なビューを使用します。独立したデータベースをレンダリングする場合は省略できますが、コンテキストフィルターが設定されている場合は有効なデータベースブロックのインスタンスが必要です
     * `viewID`: レンダリングするビューを明示的に指定します。無効な値はエラーになります。省略時は `blockID` から解決し、解決できなければ最初に利用可能なビューを使用します
     * `page`: ページ番号（1 始まり）。デフォルトは `1`
     * `pageSize`: 1 ページあたりのアイテム数。`-1` または省略時はビューのデフォルト（`50`）を使用
@@ -1821,6 +1909,8 @@
       "viewType": "table",
       "viewID": "20240118120204-7rnmyc1",
       "isMirror": false,
+      "contextFilter": null,
+      "contextFilterFields": [],
       "views": [
         {
           "id": "20240118120204-7rnmyc1",
@@ -1896,12 +1986,74 @@
   ```
 
     * `data.view`: レンダリングされたビューインスタンス。構造は `viewType` により異なります。`table` は `columns`/`rows`/`rowCount` を、`gallery` と `kanban` は `fields`/`cards`/`cardCount` を返します。グループ化が有効な場合、`groups` には `groupKey`/`groupValue` を持つグループごとのビューインスタンスが含まれます。`view` は `filters`/`sorts`/`group`/`showIcon`/`wrapField`/`groupFolded`/`groupHidden` も含みます。注意：有効なフィルターまたはグループ化により、アイテムの総数が 0 より大きくてもアイテムリストが空になることがあります
-    * `data.view.columns[]`: 各列は `id`/`name`/`type`/`icon`/`wrap`/`hidden`/`desc`/`calc`/`numberFormat`/`template`/`pin`/`width` を持ちます；`select`/`mSelect` 列はさらに `options` を含みます
+    * `data.view.columns[]`: 各列は `id`/`name`/`type`/`icon`/`wrap`/`hidden`/`desc`/`calc`/`numberFormat`/`template`/`renderTemplate`/`pin`/`width` を持ちます。`select`/`mSelect` 列はさらに `options` を含みます。ギャラリーとカンバンのフィールドでは、同じフィールドメタデータが `data.view.fields[]` に返されます
+    * `data.view.columns[].renderTemplate`: 通常フィールドの任意の表示テンプレートです。表示内容のみを変更し、元の型付き保存値は変更しません
     * `data.view.rows[].id`: 表形式の行の**アイテム ID**（`itemID`）です。その行の主キーセルにある `value.blockID` とも同じです。紐づく行の場合、紐づくブロック ID は主キーセルの `value.block.id` にあります。両者は異なる概念であり、同一であると仮定してはいけません
     * `data.view.cards[].id`: ギャラリーまたはカンバンのカードの**アイテム ID**（`itemID`）です。グループ化が有効な場合、表形式の行またはカードは `groups[]` 内の対応するビューインスタンスにあります
-    * `data.view.rows[].cells[].value`: `Value` オブジェクト——すべての value 形状は [セル値を設定](#セル値を設定) を参照。`createdAt`/`updatedAt` は int64 ミリ秒タイムスタンプ
+    * `data.view.rows[].cells[].value`: `Value` オブジェクト——すべての value 形状は [セル値を設定](#セル値を設定) を参照。`createdAt`/`updatedAt` は int64 ミリ秒タイムスタンプ。通常フィールドに空でない `renderTemplate` が設定されている場合、任意の `renderedContent` プロパティに実行時の表示テンプレート結果が入ります。このプロパティは永続化されず、元の型のプロパティには引き続き保存値が入ります。`data.view.cards[]` 内の値も同じ規則に従います
     * `data.views`: 全ビューのメタデータ（行データなし）
     * `data.isMirror`: データベースブロックがデータベースのミラー（読み取り専用コピー）の場合 `true`
+    * `data.contextFilter`: このデータベースブロックに設定されたコンテキストフィルター。無効の場合は `null` です。現在の仕様は `{ "spec": 1, "keyID": "<関連フィールド ID>" }` で、すべてのビューに対し、選択した関連フィールドが `blockID` を含むルート文書に紐付いたデータベース項目を含む行だけに絞り込み、選択中のビューのフィルターとは AND で組み合わせます。選択したフィールドが削除された場合、リレーション以外の型に変更された場合、または関連先が無効になった場合もブロック単位の設定は保持されますが、フィールドの修復・変更またはコンテキストフィルターの無効化を行うまで行は表示されません
+    * `data.contextFilterFields`: 選択中のビューに依存しない、データベース内の設定済み関連フィールドすべての軽量メタデータです。各項目は `id`、`name`、`icon`、`targetAvID` を含み、`contextFilter` の設定に使用します。公開読み取り専用レスポンスでは `contextFilter` は `null`、この一覧は `[]` に隠されますが、保存済みのコンテキストフィルターはレンダリング結果に引き続き適用されます
+
+### データベースブロックのコンテキストフィルターを設定
+
+* `/api/av/setAttrViewContextFilter`
+* パラメータ
+
+  ```json
+  {
+    "avID": "20240118120204-kwyzf77",
+    "blockID": "20240118120201-kldj15t",
+    "keyID": "20240118120300-relation"
+  }
+  ```
+
+    * `avID`: データベース ID
+    * `blockID`: コンテキストフィルターを変更する具体的なデータベースブロックの ID。`avID` のインスタンスである必要があります
+    * `keyID`: データベースで設定済みの関連フィールドの ID。フィルターの意味は `いずれかを含む - 現在の文書` に固定されます。空文字列を渡すとコンテキストフィルターを無効にします
+* 戻り値：正規化された設定を `data.contextFilter` に返します。無効化後は `null` です
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "contextFilter": {
+        "spec": 1,
+        "keyID": "20240118120300-relation"
+      }
+    }
+  }
+  ```
+
+### 現在のデータベースビューの画像を取得
+
+* `/api/av/getCurrentAttrViewImages`
+* パラメータ
+
+  ```json
+  {
+    "id": "20240118120204-kwyzf77",
+    "blockID": "20240118120201-kldj15t",
+    "viewID": "20240118120204-7rnmyc1",
+    "query": ""
+  }
+  ```
+
+    * `id`: データベース ID
+    * `blockID`: データベースを埋め込むデータベースブロック。現在のビュー、公開アクセス権、およびブロック単位のコンテキストフィルターの解決に使用します。独立したデータベースでブロックコンテキストが不要な場合のみ省略します
+    * `viewID`: 明示的なビュー ID（任意）。省略時は `blockID` から解決し、解決できなければ最初に利用可能なビューを使用します
+    * `query`: 主キー値に対する任意の全文フィルターキーワード
+* 戻り値：データベースブロックのコンテキストフィルター、ビューのフィルター、ソートを適用した後、表示されているアセットフィールドに含まれる画像アセットパスの配列
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": ["assets/example-20240118120201-abc1234.png"]
+  }
+  ```
 
 ### 取得
 
@@ -2120,6 +2272,7 @@
 |------------|----------------------------------------------------------------------------------------------------------------------|
 | `block`    | `{"block": {"content": "1行目", "id": "<紐づくブロックID>"}, "isDetached": false}`                                  |
 | `text`     | `{"text": {"content": "テキスト"}}`                                                                                  |
+| `text`（リッチテキスト） | `{"text": {"content": "テキスト", "rich": {"spec": 1, "format": "kramdown", "content": "**テキスト**"}}}` |
 | `number`   | `{"number": {"content": 42, "isNotEmpty": true}}`（クリアは `{"isNotEmpty": false}`）                                |
 | `date`     | `{"date": {"content": 1676042451000, "isNotEmpty": true}}`（ミリ秒タイムスタンプ）                                   |
 | `select`   | `{"mSelect": [{"content": "完了", "color": "1"}]}`（最大1つ）                                                         |
@@ -2130,6 +2283,8 @@
 | `checkbox` | `{"checkbox": {"checked": true}}`                                                                                    |
 
 > ⚠️ `itemID` は**アイテム ID**、つまり[レンダリング](#レンダリング)が返すアイテムの `id` です。表形式では `rows[].id`、ギャラリーとカンバンでは `cards[].id` であり、グループ化が有効な場合は `groups[]` 内の対応するビューインスタンスにあります。また、主キー値の `value.blockID` とも同じです。紐づくアイテムの場合、紐づくブロック ID は主キー値の `value.block.id` にあります。両者は異なる概念であり、同一であると仮定してはいけません。誤った ID を渡すと、値はレンダリングされたセルに現れない孤立データとして保存されます。
+
+リッチテキストでは、`text.rich.content` が正規の Kramdown ソースです。カーネルはサポート対象の構造を検証して `text.content` のプレーンテキスト表現を生成するため、呼び出し側が指定したプレーンテキスト表現は無視されます。既存の API クライアントとの互換性を保つため、`text.rich` を省略した場合、`text.content` が変わっていなければ保存済みのリッチテキストを維持し、変わっていればプレーンテキストで置き換えます。プレーンテキスト表現が同じ場合でも、`"rich": null` を送信すると書式を明示的に削除できます。リッチテキストを含むデータベースはストレージ仕様 9 を使用するため、それより前のデータベース仕様だけをサポートするカーネルでは開けません。
 
 * `/api/av/setAttributeViewBlockAttr`
 * パラメータ
@@ -2297,6 +2452,7 @@
     * `blockID`: このビューを所有するデータベースブロック
     * `group`: グループ化ルール
     * `group.field`: グループ化の基準フィールド（列）ID。空文字列でグループ化を削除
+    * `group.valueSource`: 任意の値ソース——`stored` はフィールドの保存値を使用し、省略時のデフォルトです。`rendered` はフィールドの表示テンプレート結果を使用し、テキスト値としてグループ化します
     * `group.method`: グループ化方式——`0` 値ごと、`1` 数値範囲、`2` 相対日付、`3` 日ごと、`4` 週ごと、`5` 月ごと、`6` 年ごと
     * `group.range`: 任意。`method` が `1`（数値範囲）の場合は必須：`{ "numStart": 0, "numEnd": 100, "numStep": 10 }`
     * `group.order`: グループの並び順——`0` 昇順、`1` 降順、`2` 手動、`3` 選択肢の順序に従う
@@ -2363,13 +2519,15 @@
 
     * `data.filters`: `ViewFilter` の配列。最上位は単一のルートグループノード `{ "combination": "and"|"or", "filters": [...] }` で、配列要素はリーフフィルターまたはネストされたグループノードのいずれかで、再帰的な AND/OR 組み合わせをサポートします
     * `data.filters[].column`: フィルターが適用されるフィールド（列）ID（リーフノードのみ）
+    * `data.filters[].valueSource`: リーフノードの任意の値ソース——省略時は `stored` がデフォルトで、`rendered` はフィールドの表示テンプレート結果をフィルターします
     * `data.filters[].operator`: フィルター演算子（下記の演算子表を参照；リーフノードのみ）
-    * `data.filters[].value`: フィルター値。`Value` オブジェクト（形状は [セル値を設定](#セル値を設定) を参照；リーフノードのみ）
+    * `data.filters[].value`: フィルターのオペランドとなる `Value` オブジェクト（形状は [セル値を設定](#セル値を設定) を参照；リーフノードのみ）。`valueSource` が `rendered` の場合、`{ "type": "template", "template": { "content": "..." } }` 形式のテンプレート値を使用します
     * `data.filters[].relativeDate`: 任意。日付フィルターが使用する相対日時記述子（`{ "count": 7, "unit": 0, "direction": -1 }`、`unit`：`0` 日、`1` 週、`2` 月、`3` 年、`direction`：`-1` 前、`0` 今期、`1` 後；リーフノードのみ）
     * `data.filters[].combination`: グループの組み合わせ方法、`"and"` または `"or"`（グループノードのみ）
     * `data.filters[].filters`: 子フィルターノード、再帰的な `ViewFilter`（グループノードのみ）
     * `data.sorts`: `ViewSort` の配列
     * `data.sorts[].column`: ソートが適用されるフィールド（列）ID
+    * `data.sorts[].valueSource`: 任意の値ソース——省略時は `stored` がデフォルトで、`rendered` はフィールドの表示テンプレート結果でソートします
     * `data.sorts[].order`: `ASC` または `DESC`
 
   フィルター演算子：

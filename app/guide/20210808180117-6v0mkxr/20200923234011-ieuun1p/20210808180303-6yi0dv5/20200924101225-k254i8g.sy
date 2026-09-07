@@ -1,12 +1,12 @@
 {
 	"ID": "20200924101225-k254i8g",
-	"Spec": "2",
+	"Spec": "3",
 	"Type": "NodeDocument",
 	"Properties": {
 		"id": "20200924101225-k254i8g",
 		"title": "Content Block Type",
 		"type": "doc",
-		"updated": "20260803171606"
+		"updated": "20260906220233"
 	},
 	"Children": [
 		{
@@ -15,7 +15,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210104091538-4b3n4al",
-				"updated": "20260425181345"
+				"updated": "20260906003609"
 			},
 			"Children": [
 				{
@@ -64,7 +64,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20210104091538-le8t1ci",
-				"updated": "20260425181345"
+				"updated": "20260906003609"
 			},
 			"Children": [
 				{
@@ -1087,6 +1087,126 @@
 							"Data": "td",
 							"Children": [
 								{
+									"Type": "NodeImage",
+									"Children": [
+										{
+											"Type": "NodeBang"
+										},
+										{
+											"Type": "NodeOpenBracket"
+										},
+										{
+											"Type": "NodeLinkText",
+											"Data": "tabs-block"
+										},
+										{
+											"Type": "NodeCloseBracket"
+										},
+										{
+											"Type": "NodeOpenParen"
+										},
+										{
+											"Type": "NodeLinkDest",
+											"Data": "assets/tabs-block-20260906010000-kzrxtfp.png"
+										},
+										{
+											"Type": "NodeCloseParen"
+										}
+									]
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Tabbed container"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Container block"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeImage",
+									"Children": [
+										{
+											"Type": "NodeBang"
+										},
+										{
+											"Type": "NodeOpenBracket"
+										},
+										{
+											"Type": "NodeLinkText",
+											"Data": "tab-item-block"
+										},
+										{
+											"Type": "NodeCloseBracket"
+										},
+										{
+											"Type": "NodeOpenParen"
+										},
+										{
+											"Type": "NodeLinkDest",
+											"Data": "assets/tab-item-block-20260906010000-gdmnqvw.png"
+										},
+										{
+											"Type": "NodeCloseParen"
+										}
+									]
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Tab item block"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Container block"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
 									"Type": "NodeText",
 									"Data": "​​"
 								},
@@ -1216,7 +1336,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210104091538-a55chyw",
-				"updated": "20260803171606"
+				"updated": "20260906220233"
 			},
 			"Children": [
 				{
@@ -1738,7 +1858,7 @@
 		{
 			"ID": "20220429115221-kc5rrg5",
 			"Type": "NodeHTMLBlock",
-			"Data": "\u003cruby\u003e\n你\u003crt\u003enǐ\u003c/rt\u003e\n　好\u003crt\u003e　hǎo\u003c/rt\u003e\n　世\u003crt\u003e　shì\u003c/rt\u003e\n　界\u003crt\u003e　jiè\u003c/rt\u003e\n\u003c/ruby\u003e\u003cbr\u003e\nHello World",
+			"Data": "<ruby>\n你<rt>nǐ</rt>\n　好<rt>　hǎo</rt>\n　世<rt>　shì</rt>\n　界<rt>　jiè</rt>\n</ruby><br>\nHello World",
 			"Properties": {
 				"id": "20220429115221-kc5rrg5",
 				"updated": "20220429115221"
@@ -1858,7 +1978,7 @@
 								{
 									"Type": "NodeTextMark",
 									"TextMarkType": "code",
-									"TextMarkTextContent": "\u0026lt;div\u0026gt;\u0026lt;/div\u0026gt;"
+									"TextMarkTextContent": "&lt;div&gt;&lt;/div&gt;"
 								},
 								{
 									"Type": "NodeText",
@@ -2462,7 +2582,7 @@
 			"Children": [
 				{
 					"Type": "NodeBlockquoteMarker",
-					"Data": "\u003e "
+					"Data": "> "
 				},
 				{
 					"ID": "20210104091538-osgy8b0",
@@ -2572,6 +2692,143 @@
 			]
 		},
 		{
+			"ID": "20260905124213-wbxn79t",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20260905124213-wbxn79t",
+				"updated": "20260906202104"
+			},
+			"HeadingLevel": 3,
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Tabbed container"
+				}
+			]
+		},
+		{
+			"ID": "20260905124213-dak8rh5",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260905124213-dak8rh5",
+				"updated": "20260906202104"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Tabs group related content. Click a title to switch tabs, drag to reorder, or double-click to rename. Tabs can appear at the top or on the left; the selected tab is saved and synced."
+				}
+			]
+		},
+		{
+			"ID": "20260906003122-mwps4py",
+			"Type": "NodeTabs",
+			"Properties": {
+				"id": "20260906003122-mwps4py",
+				"updated": "20260906003122",
+				"tabs-active-id": "20260906003122-rbm0esh"
+			},
+			"Children": [
+				{
+					"ID": "20260906003122-rbm0esh",
+					"Type": "NodeTabItem",
+					"Properties": {
+						"id": "20260906003122-rbm0esh",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-o2oiqax",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-o2oiqax",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "This is the first tab’s body."
+								}
+							]
+						}
+					],
+					"TabItemTitle": "First tab"
+				},
+				{
+					"ID": "20260906003122-wmohl62",
+					"Type": "NodeTabItem",
+					"Properties": {
+						"id": "20260906003122-wmohl62",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-kzst18a",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-kzst18a",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Click the second tab to view this content."
+								}
+							]
+						}
+					],
+					"TabItemTitle": "Second tab"
+				}
+			]
+		},
+		{
+			"ID": "20260906003122-tfblsll",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20260906003122-tfblsll",
+				"updated": "20260906220233"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Tab item block"
+				}
+			],
+			"HeadingLevel": 3
+		},
+		{
+			"ID": "20260906003122-gtkz3ie",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260906003122-gtkz3ie",
+				"updated": "20260906220233"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Each tab item has a title and body and supports nested content and block references. To toggle task mode for the group, open the block icon menu and select "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Tabbed container"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Task"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "."
+				}
+			]
+		},
+		{
 			"ID": "20210104091538-lubwy1k",
 			"Type": "NodeHeading",
 			"HeadingLevel": 3,
@@ -2656,7 +2913,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20200925102736-x94e40g",
-				"updated": "20251209212756"
+				"updated": "20260906003122"
 			},
 			"Children": [
 				{
@@ -2688,7 +2945,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20210104091538-3pi7fbf",
-				"updated": "20251209212756"
+				"updated": "20260906003122"
 			},
 			"Children": [
 				{
@@ -2854,6 +3111,62 @@
 								{
 									"Type": "NodeText",
 									"Data": "Document block: can contain any non-document blocks"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20260906003122-oey7g4a",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20260906003122-oey7g4a",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-fdo0uac",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-fdo0uac",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Tabbed container: can contain only tab item blocks"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20260906003122-vrgmgyj",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20260906003122-vrgmgyj",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-g665lnb",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-g665lnb",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Tab item block: contains ordinary content blocks and nested tabbed containers"
 								}
 							]
 						}

@@ -28,7 +28,7 @@ import {mountHelp} from "../util/mount";
 import {openChangelog} from "./openChangelog";
 import type {App} from "../index";
 import {initWindowEvent} from "./globalEvent/event";
-import {sendGlobalShortcut} from "./globalEvent/keydown";
+import {sendGlobalShortcut} from "./globalEvent/globalShortcut";
 import {closeWindow} from "../window/closeWin";
 import {correctHotkey, syncAppMenuShortcuts} from "./globalEvent/commonHotkey";
 import {recordBeforeResizeTop} from "../protyle/util/resize";
@@ -37,16 +37,30 @@ import {getAllEditor} from "../layout/getAll";
 import {openDesktopOnboarding} from "../onboarding";
 import {ensureUILayout} from "../util/ensureUILayout";
 import {dispatchPluginGlobalShortcut} from "../plugin/globalShortcut";
+import {requestResponsiveDockLayout} from "../layout/dock/responsive";
+import {getHostCapabilities, setHostConnection, type TKernelConnection} from "../util/hostCapabilities";
+
+export const initDesktopHost = async () => {
+    /// #if !BROWSER
+    try {
+        const connection = await ipcRenderer.invoke(Constants.SIYUAN_INIT, {
+            languages: window.siyuan.languages["_trayMenu"],
+            workspaceDir: getHostCapabilities().workspaces ? window.siyuan.config.system.workspaceDir : "",
+            port: location.port,
+            remote: getHostCapabilities().remoteKernel,
+        }) as TKernelConnection | undefined;
+        setHostConnection(connection);
+    } catch (error) {
+        console.error("initialize desktop host failed:", error);
+    }
+    /// #endif
+};
 
 export const onGetConfig = (isStart: boolean, app: App) => {
     correctHotkey(app);
     document.body.classList.toggle("body--windows", isWindows());
     /// #if !BROWSER
-    ipcRenderer.invoke(Constants.SIYUAN_INIT, {
-        languages: window.siyuan.languages["_trayMenu"],
-        workspaceDir: window.siyuan.config.system.workspaceDir,
-        port: location.port
-    });
+    void initDesktopHost();
     webFrame.setZoomFactor(window.siyuan.storage[Constants.LOCAL_ZOOM]);
     const position = Constants.SIZE_ZOOM.find((item) => item.zoom === window.siyuan.storage[Constants.LOCAL_ZOOM]).position;
     ipcRenderer.send(Constants.SIYUAN_CMD, {
@@ -69,7 +83,7 @@ export const onGetConfig = (isStart: boolean, app: App) => {
                     JSONToLayout(app, isStart);
                     setTimeout(() => {
                         adjustLayout();
-                    }); // 等待 dock 中 !this.pin 的 setTimeout
+                    }); // 等待浮动 Dock 的初始化完成
                     /// #if !BROWSER
                     sendGlobalShortcut(app);
                     /// #endif
@@ -99,6 +113,7 @@ export const onGetConfig = (isStart: boolean, app: App) => {
     let resizeTimeout = 0;
     let firstResize = true;
     window.addEventListener("resize", () => {
+        requestResponsiveDockLayout();
         if (firstResize) {
             recordBeforeResizeTop();
             firstResize = false;
@@ -111,7 +126,8 @@ export const onGetConfig = (isStart: boolean, app: App) => {
             setTabPosition(true);
             window.siyuan.menus.menu.resetPosition();
             firstResize = true;
-            if (getSelection().rangeCount > 0) {
+            if (window.siyuan.menus.menu.element.classList.contains("fn__none") &&
+                getSelection().rangeCount > 0) {
                 const range = getSelection().getRangeAt(0);
                 getAllEditor().forEach(item => {
                     if (item.protyle.wysiwyg.element.contains(range.startContainer)) {
@@ -212,6 +228,9 @@ export const initWindow = async (app: App) => {
         }
     });
     ipcRenderer.on(Constants.SIYUAN_EXPORT_PDF, async (e, ipcData) => {
+        if (!getHostCapabilities().importExport) {
+            return;
+        }
         const msgId = showMessage(window.siyuan.languages.exporting, -1);
         window.siyuan.storage[Constants.LOCAL_EXPORTPDF] = {
             removeAssets: ipcData.removeAssets,

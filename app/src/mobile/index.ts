@@ -60,6 +60,8 @@ import {openByMobile} from "../editor/openLink";
 import {initHarmonyTextSelectionMenu} from "../util/harmonyTextSelectionMenu";
 import {updateMobileTopBarLayout} from "./util/mobileTopBar";
 import {showMobileBars} from "./util/mobileBars";
+import {initializeEnglishCommandTranslations} from "../command/english";
+import {scrollInputIntoView} from "./util/visibleViewport";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -123,9 +125,7 @@ class App {
             const editableElement = canInput(event.target);
             if (editableElement && ["INPUT", "TEXTAREA"].includes(editableElement.tagName)) {
                 setTimeout(() => {
-                    editableElement.scrollIntoView({
-                        block: "center",
-                    });
+                    scrollInputIntoView(editableElement);
                 }, Constants.TIMEOUT_TRANSITION);
             }
             if (editableElement) {
@@ -175,7 +175,7 @@ class App {
             activeBlur();
         });
         fetchPost("/api/system/getConf", {}, async (confResponse) => {
-            addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
+            await addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
             addScript(`${Constants.PROTYLE_CDN}/js/protyle-html.js?v=${Constants.SIYUAN_VERSION}`, "protyleWcHtmlScript");
             window.siyuan.config = confResponse.data.conf;
             window.siyuan.isPublish = confResponse.data.isPublish;
@@ -185,6 +185,11 @@ class App {
             getLocalStorage(() => {
                 fetchGet(`/appearance/langs/${window.siyuan.config.appearance.lang}.json?v=${Constants.SIYUAN_VERSION}`, (lauguages: IObject) => {
                     window.siyuan.languages = lauguages;
+                    void initializeEnglishCommandTranslations(
+                        window.siyuan.config.appearance.lang,
+                        lauguages as Record<string, string>,
+                        Constants.SIYUAN_VERSION,
+                    );
                     window.siyuan.menus = new Menus(this);
                     document.title = window.siyuan.languages.siyuanNote;
                     bootSync();

@@ -3,6 +3,8 @@ import {popTextCell, renderCell, updateCellsValue} from "./cell";
 import {getAVData, getAVSelectedItemIDs} from "./virtualScroll";
 import {getFieldsByData} from "./view";
 import {TAVBatchEditMode} from "./batchValue";
+import {cloneAVCellValueSnapshot} from "./cellValue";
+import {renderAVRichTextElements} from "./richText";
 
 const EDITABLE_FIELD_TYPES: TAVCol[] = [
     "block",
@@ -54,7 +56,7 @@ const getItemCell = (data: IAV, itemID: string, fieldID: string) => {
     return findItemCell(data.view, data.viewType, itemID, fieldIndex);
 };
 
-const cloneValue = <T>(value: T) => JSON.parse(JSON.stringify(value)) as T;
+const cloneValue = (value: IAVCellValue) => cloneAVCellValueSnapshot(value);
 
 const getCollectionDisplayValue = (field: IAVColumn, values: IAVCellValue[], mode: TAVBatchEditMode) => {
     const displayValue = cloneValue(values[0]);
@@ -133,6 +135,7 @@ const createEditProxy = (options: {
     cellElement.style.cssText = "position:absolute;inset:0;";
     cellElement.innerHTML = renderCell(displayValue, 0, options.data.view.showIcon, "table", options.field.options,
         options.field.dateFormat);
+    renderAVRichTextElements(cellElement);
     return cellElement;
 };
 

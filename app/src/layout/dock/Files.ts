@@ -40,6 +40,7 @@ import {ipcRenderer} from "electron";
 import {hideTooltip, showTooltip} from "../../dialog/tooltip";
 import {selectOpenTab} from "./util";
 import {hideDragTip, setDragTipGhost, showDragTip} from "../../protyle/util/dragTip";
+import {parseBlockDragData} from "../../protyle/util/dragDocument";
 import {
     cancelFileTreeCollapse,
     expandFileTree,
@@ -49,6 +50,7 @@ import {updateNotebookRootForBoxDoc} from "../../util/notebookRoot";
 import {
     collectExpandedDocIDs,
     findMovedFileTreeItem,
+    getRelativeReorderRequest,
     getFileTreeChildList,
     IDocumentTabDragData,
     IFileTreeMove,
@@ -69,6 +71,9 @@ import {
     type IDocSortModeChanged,
     updateFileTreeSortMode
 } from "../../util/fileTreeSort";
+import {clearDocumentTabMovePreview} from "../tabDrag";
+import {reorderSortedFileTree} from "../../util/fileTreeReorder";
+import {getHostCapabilities} from "../../util/hostCapabilities";
 
 export class Files extends Model {
     public element: HTMLElement;
@@ -497,7 +502,7 @@ export class Files extends Model {
                 setDragTipGhost(ghostElement, 16, 16);
                 event.dataTransfer.setDragImage(ghostElement, 16, 16);
                 if (window.siyuan.touchDragActive) {
-                    // 触屏保留 DOM ghost 供 touchDragBridge 跟随手指
+                    // 合成拖拽保留 DOM ghost 供指针跟随。
                     window.siyuan.touchDragGhost = ghostElement;
                 } else {
                     setTimeout(() => {
@@ -505,6 +510,11 @@ export class Files extends Model {
                     });
                 }
                 event.dataTransfer.setData(Constants.SIYUAN_DROP_FILE, ids);
+                if (selectElements.every((item) => item.getAttribute("data-type") === "navigation-file")) {
+                    event.dataTransfer.setData(Constants.SIYUAN_DROP_DOCUMENTS, JSON.stringify({
+                        ids: ids.split(","),
+                    }));
+                }
                 event.dataTransfer.dropEffect = "move";
                 let selectionTitle = "";
                 if (selectElements.length > 1) {
@@ -526,17 +536,21 @@ export class Files extends Model {
             positionY: number,
             rafId: number,
             sourceOnlyRoot: boolean,
+            update?: () => void,
         } = {
             element: null,
             positionY: null,
             rafId: null,
             sourceOnlyRoot: null
         };
+        let counter = 0;
         this.element.addEventListener("dragend", (event) => {
+            counter = 0;
             if (dragOverLastObj.rafId) {
                 cancelAnimationFrame(dragOverLastObj.rafId);
                 dragOverLastObj.rafId = null;
             }
+            dragOverLastObj.update = undefined;
             dragOverLastObj.element = null;
             dragOverLastObj.positionY = null;
             dragOverLastObj.sourceOnlyRoot = null;
@@ -557,6 +571,7 @@ export class Files extends Model {
             window.siyuan.dragElement = undefined;
             hideDragTip();
             window.siyuan.dragTitle = "";
+            clearDocumentTabMovePreview();
             /// #if !BROWSER
             ipcRenderer.send(Constants.SIYUAN_SEND_WINDOWS, {cmd: "resetTabsStyle", data: "rmDragStyle"});
             /// #else
@@ -567,20 +582,24 @@ export class Files extends Model {
         });
         this.element.addEventListener("dragover", (event: DragEvent & { target: HTMLElement }) => {
             const isDocumentTab = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_DOCUMENT_TAB);
-            if (window.siyuan.config.readonly || !window.siyuan.dragElement ||
-                (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB) && !isDocumentTab)) {
-                event.preventDefault();
-                return;
-            }
-            if (dragOverLastObj.rafId) {
-                event.preventDefault();
-                return;
-            }
             let gutterType = "";
             for (const item of event.dataTransfer.items) {
                 if (item.type.startsWith(Constants.SIYUAN_DROP_GUTTER)) {
                     gutterType = item.type;
                 }
+            }
+            const isForeignFileDrag = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_FILE) &&
+                !window.siyuan.dragElement;
+            if (window.siyuan.config.readonly || (!window.siyuan.dragElement && !gutterType) ||
+                (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB) && !isDocumentTab)) {
+                if (isForeignFileDrag) {
+                    this.element.querySelectorAll(".dragover, .dragover__bottom, .dragover__top").forEach((item) => {
+                        item.classList.remove("dragover", "dragover__bottom", "dragover__top");
+                    });
+                    hideDragTip();
+                }
+                event.preventDefault();
+                return;
             }
             // 标题/列表项等块标源拖到文档树的提示在下方 rAF 回调中根据高亮类判定
             // 其余无法转换的块标源（如段落）不显示提示
@@ -591,20 +610,24 @@ export class Files extends Model {
                 }
             }
             // 文档→文档拖拽的提示在下方 rAF 回调中根据高亮类判定（需等高亮类确定后再显示）
-            dragOverLastObj.rafId = requestAnimationFrame(() => {
-                dragOverLastObj.rafId = null;
-                let liElement = event.target.closest("li");
+            const updateDragOver = () => {
+                const hitElement = event.isTrusted ? event.target :
+                    document.elementFromPoint(event.clientX, event.clientY);
+                let liElement = hitElement?.closest("li") as HTMLElement;
                 if (!liElement) {
-                    liElement = document.elementFromPoint(event.clientX, event.clientY - 1).closest("li");
+                    liElement = document.elementFromPoint(event.clientX, event.clientY - 1)?.closest("li") as HTMLElement;
                 }
-                if (!liElement) {
+                if (!liElement || !this.element.contains(liElement)) {
+                    dragOverLastObj.element?.classList.remove("dragover", "dragover__bottom", "dragover__top");
                     dragOverLastObj.element = null;
+                    dragOverLastObj.positionY = null;
                     hideDragTip();
                     event.preventDefault();
                     return;
                 }
                 const targetType = liElement.getAttribute("data-type");
-                if (dragOverLastObj.element !== liElement) {
+                const targetChanged = dragOverLastObj.element !== liElement;
+                if (targetChanged) {
                     dragOverLastObj.element?.classList.remove("dragover", "dragover__bottom", "dragover__top");
                     if (gutterType) {
                         // 块标拖拽
@@ -641,7 +664,7 @@ export class Files extends Model {
                         return;
                     }
                 }
-                if (dragOverLastObj.element && dragOverLastObj.element === liElement && dragOverLastObj.positionY !== event.clientY) {
+                if (targetChanged || dragOverLastObj.positionY !== event.clientY || !event.isTrusted) {
                     const targetListElement = liElement.parentElement;
                     if (!targetListElement) {
                         hideDragTip();
@@ -650,7 +673,7 @@ export class Files extends Model {
                     }
                     if ((dragOverLastObj.sourceOnlyRoot && targetType === "navigation-root" && window.siyuan.config.fileTree.sort === 6) ||
                         (!dragOverLastObj.sourceOnlyRoot && targetType !== "navigation-root" &&
-                            isCustomFileTreeList(targetListElement))
+                            (isCustomFileTreeList(targetListElement) || !gutterType))
                     ) {
                         const nodeRect = liElement.getBoundingClientRect();
                         const dragHeight = nodeRect.height * .2;
@@ -674,7 +697,7 @@ export class Files extends Model {
                         liElement.classList.add("dragover");
                     }
                 }
-                if (dragOverLastObj.element !== liElement) {
+                if (targetChanged) {
                     dragOverLastObj.element = liElement;
                 }
                 dragOverLastObj.positionY = event.clientY;
@@ -710,27 +733,61 @@ export class Files extends Model {
                 }
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
-            });
+            };
+            dragOverLastObj.update = updateDragOver;
+            if (!dragOverLastObj.rafId) {
+                dragOverLastObj.rafId = requestAnimationFrame(() => {
+                    dragOverLastObj.rafId = null;
+                    const update = dragOverLastObj.update;
+                    dragOverLastObj.update = undefined;
+                    update?.();
+                });
+            }
             event.preventDefault();
         });
-        let counter = 0;
         this.element.addEventListener("dragleave", () => {
             counter--;
-            if (counter === 0) {
+            if (counter <= 0) {
+                counter = 0;
+                if (dragOverLastObj.rafId) {
+                    cancelAnimationFrame(dragOverLastObj.rafId);
+                    dragOverLastObj.rafId = null;
+                }
+                dragOverLastObj.update = undefined;
+                dragOverLastObj.element = null;
+                dragOverLastObj.positionY = null;
+                dragOverLastObj.sourceOnlyRoot = null;
                 this.element.querySelectorAll(".dragover, .dragover__bottom, .dragover__top").forEach((item: HTMLElement) => {
                     item.classList.remove("dragover", "dragover__bottom", "dragover__top");
                 });
                 hideDragTip();
             }
         });
-        this.element.addEventListener("dragenter", (event) => {
+        this.element.addEventListener("dragenter", (event: DragEvent) => {
             event.preventDefault();
+            if (!event.isTrusted) {
+                // 合成拖拽滚动后会重新命中节点，不依赖已被移除节点的 dragleave 来平衡计数。
+                counter = 0;
+            }
             counter++;
         });
         this.element.addEventListener("drop", async (event: DragEvent & { target: HTMLElement }) => {
             counter = 0;
+            if (dragOverLastObj.rafId) {
+                cancelAnimationFrame(dragOverLastObj.rafId);
+                dragOverLastObj.rafId = null;
+            }
+            const updateDragOver = dragOverLastObj.update;
+            dragOverLastObj.update = undefined;
+            updateDragOver?.();
             hideDragTip();
             window.siyuan.dragTitle = "";
+            if (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_FILE) && !window.siyuan.dragElement) {
+                this.element.querySelectorAll(".dragover, .dragover__bottom, .dragover__top").forEach((item) => {
+                    item.classList.remove("dragover", "dragover__bottom", "dragover__top");
+                });
+                return;
+            }
             const documentTabData = event.dataTransfer.types.includes(Constants.SIYUAN_DROP_DOCUMENT_TAB) ?
                 parseDocumentTabDragData(event.dataTransfer.getData(Constants.SIYUAN_DROP_DOCUMENT_TAB)) : undefined;
             const sourceTab = documentTabData ? getInstanceById(documentTabData.tabId) as Tab : undefined;
@@ -763,7 +820,8 @@ export class Files extends Model {
             if (gutterType) {
                 const gutterTypes = gutterType.replace(Constants.SIYUAN_DROP_GUTTER, "").split(Constants.ZWSP);
                 if (["nodelistitem", "nodeheading"].includes(gutterTypes[0])) {
-                    const sourceNotebookId = window.siyuan.dragElement?.closest("[data-notebook-id]")?.getAttribute("data-notebook-id") || "";
+                    const sourceNotebookId = window.siyuan.dragElement?.closest("[data-notebook-id]")?.getAttribute("data-notebook-id") ||
+                        parseBlockDragData(event.dataTransfer.getData(gutterType)).notebookID;
                     if (!isMoveTargetAllowed([sourceNotebookId], toURL)) {
                         showMessage(window.siyuan.languages._kernel[313]);
                         newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
@@ -856,6 +914,11 @@ export class Files extends Model {
                 const targetListElement = newElement.parentElement;
                 if (window.siyuan.config.fileTree.sort === 6 && selectRootElements.length > 0 &&
                     newElement.getAttribute("data-path") === "/") {
+                    const sourceIDs = selectRootElements.map(item => item.parentElement.getAttribute("data-url"));
+                    if (sourceIDs.includes(toURL)) {
+                        newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
+                        return;
+                    }
                     if (newElement.classList.contains("dragover__top")) {
                         selectRootElements.forEach(item => {
                             newElement.parentElement.before(item.parentElement);
@@ -865,13 +928,22 @@ export class Files extends Model {
                             newElement.parentElement.after(item.parentElement);
                         });
                     }
-                    const notebooks: string[] = [];
-                    Array.from(this.element.children).forEach(item => {
-                        notebooks.push(item.getAttribute("data-url"));
-                    });
-                    fetchPost("/api/notebook/changeSortNotebook", {
-                        notebooks,
-                    });
+                    fetchPost("/api/notebook/reorder", getRelativeReorderRequest(
+                        sourceIDs,
+                        toURL,
+                        !newElement.classList.contains("dragover__top")
+                    ));
+                } else if (!isCustomFileTreeList(targetListElement) && selectFileElements.length > 0) {
+                    const after = newElement.classList.contains("dragover__bottom");
+                    newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
+                    const sourceNotebookIds = selectFileElements.map(item =>
+                        item.getAttribute("data-notebook-id") || item.closest("ul[data-url]")?.getAttribute("data-url") || "");
+                    if (!isMoveTargetAllowed(sourceNotebookIds, toURL)) {
+                        showMessage(window.siyuan.languages._kernel[313]);
+                        return;
+                    }
+                    await this.reorderSortedDocuments(selectFileElements.map(item => item.getAttribute("data-node-id")),
+                        newElement.getAttribute("data-node-id"), after, oldScrollTop);
                 } else if (isCustomFileTreeList(targetListElement) && selectFileElements.length > 0) {
                     const toDir = pathPosix().dirname(toPath);
                     const newElementClassList = newElement.getAttribute("class");
@@ -943,10 +1015,11 @@ export class Files extends Model {
                             }
                         });
                     }
-                    const sortResponse = await fetchSyncPost("/api/filetree/changeSort", {
-                        paths: sortedPaths,
-                        notebook: toURL
-                    });
+                    const sortResponse = await fetchSyncPost("/api/filetree/reorderDocs", getRelativeReorderRequest(
+                        selectFileElements.map(item => item.getAttribute("data-node-id")),
+                        newElement.getAttribute("data-node-id"),
+                        !newElementClassList.includes("dragover__top")
+                    ));
                     if (sortResponse.code !== 0) {
                         newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
                         return;
@@ -968,6 +1041,21 @@ export class Files extends Model {
             newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
         });
         this.init();
+    }
+
+    private async reorderSortedDocuments(sourceIDs: string[], targetID: string, after: boolean, scrollTop: number) {
+        const result = await reorderSortedFileTree(sourceIDs, targetID, after);
+        if (!result) {
+            return;
+        }
+        const response = await fetchSyncPost("/api/filetree/listDocsByPath", {
+            notebook: result.notebook,
+            path: result.parentPath,
+            app: Constants.SIYUAN_APPID,
+        });
+        if (response.code === 0 && response.data?.files) {
+            this.onLsHTML(response.data, scrollTop);
+        }
     }
 
     private async dropDocumentTab(
@@ -1018,6 +1106,8 @@ export class Files extends Model {
         }
 
         if (!isCustomFileTreeList(targetElement.parentElement)) {
+            await this.reorderSortedDocuments([documentTabData.rootId], targetElement.getAttribute("data-node-id"),
+                insertAfter, oldScrollTop);
             return;
         }
         const targetDirectory = pathPosix().dirname(targetPath);
@@ -1050,10 +1140,11 @@ export class Files extends Model {
         if (moveResponse.code !== 0) {
             return;
         }
-        const sortResponse = await fetchSyncPost("/api/filetree/changeSort", {
-            paths: sortedPaths,
-            notebook: targetNotebook,
-        });
+        const sortResponse = await fetchSyncPost("/api/filetree/reorderDocs", getRelativeReorderRequest(
+            [documentTabData.rootId],
+            targetElement.getAttribute("data-node-id"),
+            insertAfter
+        ));
         if (sortResponse.code !== 0) {
             return;
         }
@@ -1529,7 +1620,7 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
         const listPath = data.parentPath === "/" ? "/" : `${data.parentPath}.sy`;
         const liElement = notebookElement.querySelector(`li[data-path="${listPath}"]`);
         const listElement = liElement?.nextElementSibling;
-        if (!listElement || listElement.tagName !== "UL" || !isCustomFileTreeList(listElement)) {
+        if (!listElement || listElement.tagName !== "UL") {
             return;
         }
         fetchPost("/api/filetree/listDocsByPath", {
@@ -1539,6 +1630,15 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
         }, response => {
             this.onLsHTML(response.data);
         });
+    }
+
+    public onDocsImported(data: { notebook: string, parentPath: string, rootIDs: string[] }) {
+        const rootID = data.rootIDs?.[0];
+        if (!rootID) {
+            return;
+        }
+        const importedPath = data.parentPath === "/" ? `/${rootID}.sy` : `${data.parentPath}/${rootID}.sy`;
+        this.updateItemArrow(data.notebook, importedPath);
     }
 
     public onDocSortModeChanged(data: IDocSortModeChanged) {
@@ -2026,20 +2126,22 @@ aria-label="${ariaLabel}">${getDocDisplayName(item.name, item.titleEmpty, true)}
                     }
                 }).element);
             }
-            window.siyuan.menus.menu.append(new MenuItem({
-                id: "importNotebook",
-                icon: "iconDownload",
-                label: `${window.siyuan.languages.importNotebook}<input class="b3-form__upload" type="file" accept="application/zip">`,
-                bind: (element) => {
-                    element.querySelector<HTMLInputElement>(".b3-form__upload").addEventListener("change", (event) => {
-                        const file = (event.target as HTMLInputElement).files?.[0];
-                        if (file) {
-                            window.siyuan.menus.menu.remove();
-                            importNotebook(file);
-                        }
-                    });
-                },
-            }).element);
+            if (getHostCapabilities().importExport) {
+                window.siyuan.menus.menu.append(new MenuItem({
+                    id: "importNotebook",
+                    icon: "iconDownload",
+                    label: `${window.siyuan.languages.importNotebook}<input class="b3-form__upload" type="file" accept="application/zip">`,
+                    bind: (element) => {
+                        element.querySelector<HTMLInputElement>(".b3-form__upload").addEventListener("change", (event) => {
+                            const file = (event.target as HTMLInputElement).files?.[0];
+                            if (file) {
+                                window.siyuan.menus.menu.remove();
+                                importNotebook(file);
+                            }
+                        });
+                    },
+                }).element);
+            }
         }
         window.siyuan.menus.menu.append(new MenuItem({
             id: "rebuildDataIndex",

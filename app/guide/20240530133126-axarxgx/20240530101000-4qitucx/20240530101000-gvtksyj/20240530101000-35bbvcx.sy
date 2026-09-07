@@ -1,13 +1,13 @@
 {
 	"ID": "20240530101000-35bbvcx",
-	"Spec": "2",
+	"Spec": "3",
 	"Type": "NodeDocument",
 	"Properties": {
 		"ID": "20240530101000-detubz9",
 		"id": "20240530101000-35bbvcx",
 		"title": "コンテンツブロックの種類",
 		"type": "doc",
-		"updated": "20260803170332"
+		"updated": "20260906220233"
 	},
 	"Children": [
 		{
@@ -17,7 +17,7 @@
 			"Properties": {
 				"ID": "20240530101000-6nam42g",
 				"id": "20240530101000-n0tipvh",
-				"updated": "20260425180748"
+				"updated": "20260906003609"
 			},
 			"Children": [
 				{
@@ -73,7 +73,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20240530101000-7ed5u6l",
-				"updated": "20260425180748"
+				"updated": "20260906003609"
 			},
 			"Children": [
 				{
@@ -1156,6 +1156,126 @@
 							"Data": "td",
 							"Children": [
 								{
+									"Type": "NodeImage",
+									"Children": [
+										{
+											"Type": "NodeBang"
+										},
+										{
+											"Type": "NodeOpenBracket"
+										},
+										{
+											"Type": "NodeLinkText",
+											"Data": "tabs-block"
+										},
+										{
+											"Type": "NodeCloseBracket"
+										},
+										{
+											"Type": "NodeOpenParen"
+										},
+										{
+											"Type": "NodeLinkDest",
+											"Data": "assets/tabs-block-20260906010000-kzrxtfp.png"
+										},
+										{
+											"Type": "NodeCloseParen"
+										}
+									]
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "タブブロック"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "コンテナブロック"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeImage",
+									"Children": [
+										{
+											"Type": "NodeBang"
+										},
+										{
+											"Type": "NodeOpenBracket"
+										},
+										{
+											"Type": "NodeLinkText",
+											"Data": "tab-item-block"
+										},
+										{
+											"Type": "NodeCloseBracket"
+										},
+										{
+											"Type": "NodeOpenParen"
+										},
+										{
+											"Type": "NodeLinkDest",
+											"Data": "assets/tab-item-block-20260906010000-gdmnqvw.png"
+										},
+										{
+											"Type": "NodeCloseParen"
+										}
+									]
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "タブ項目ブロック"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "コンテナブロック"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
 									"Type": "NodeText",
 									"Data": "​​"
 								},
@@ -1302,7 +1422,7 @@
 			"Properties": {
 				"ID": "20240530101000-rjjxxn8",
 				"id": "20240530101000-p035stn",
-				"updated": "20260803170332"
+				"updated": "20260906220233"
 			},
 			"Children": [
 				{
@@ -1792,7 +1912,7 @@
 		{
 			"ID": "20240530101000-twb2trd",
 			"Type": "NodeHTMLBlock",
-			"Data": "\u003cdiv\u003e\n\u003cruby\u003e\n你\u003crt\u003enǐ\u003c/rt\u003e\n　好\u003crt\u003e　hǎo\u003c/rt\u003e\n　世\u003crt\u003e　shì\u003c/rt\u003e\n　界\u003crt\u003e　jiè\u003c/rt\u003e\n\u003c/ruby\u003e\u003cbr\u003e\nHello World\n\u003c/div\u003e",
+			"Data": "<div>\n<ruby>\n你<rt>nǐ</rt>\n　好<rt>　hǎo</rt>\n　世<rt>　shì</rt>\n　界<rt>　jiè</rt>\n</ruby><br>\nHello World\n</div>",
 			"Properties": {
 				"ID": "20240530101000-5o1iaz1",
 				"id": "20240530101000-twb2trd",
@@ -1923,7 +2043,7 @@
 								{
 									"Type": "NodeTextMark",
 									"TextMarkType": "code",
-									"TextMarkTextContent": "\u0026lt;div\u0026gt;\u0026lt;/div\u0026gt;"
+									"TextMarkTextContent": "&lt;div&gt;&lt;/div&gt;"
 								},
 								{
 									"Type": "NodeText",
@@ -2651,7 +2771,7 @@
 			"Children": [
 				{
 					"Type": "NodeBlockquoteMarker",
-					"Data": "\u003e ",
+					"Data": "> ",
 					"Properties": {
 						"id": ""
 					}
@@ -2762,6 +2882,143 @@
 				{
 					"Type": "NodeText",
 					"Data": "の一種です。"
+				}
+			]
+		},
+		{
+			"ID": "20260905124213-rmj1ui2",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20260905124213-rmj1ui2",
+				"updated": "20260906202104"
+			},
+			"HeadingLevel": 3,
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "タブブロック"
+				}
+			]
+		},
+		{
+			"ID": "20260905124213-q5thtxj",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260905124213-q5thtxj",
+				"updated": "20260906202104"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "タブブロックは内容をグループに分けて表示します。タイトルのクリックで切り替え、ドラッグで並べ替え、ダブルクリックで名前を変更できます。上部または左側に配置でき、選択したタブは保存・同期されます。"
+				}
+			]
+		},
+		{
+			"ID": "20260906003122-lqlyood",
+			"Type": "NodeTabs",
+			"Properties": {
+				"id": "20260906003122-lqlyood",
+				"updated": "20260906003122",
+				"tabs-active-id": "20260906003122-pdn8pj5"
+			},
+			"Children": [
+				{
+					"ID": "20260906003122-pdn8pj5",
+					"Type": "NodeTabItem",
+					"Properties": {
+						"id": "20260906003122-pdn8pj5",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-5klv23t",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-5klv23t",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "最初のタブの本文です。"
+								}
+							]
+						}
+					],
+					"TabItemTitle": "最初のタブ"
+				},
+				{
+					"ID": "20260906003122-lodxejd",
+					"Type": "NodeTabItem",
+					"Properties": {
+						"id": "20260906003122-lodxejd",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-t08src6",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-t08src6",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "二つ目のタブをクリックすると、この内容が表示されます。"
+								}
+							]
+						}
+					],
+					"TabItemTitle": "二つ目のタブ"
+				}
+			]
+		},
+		{
+			"ID": "20260906003122-3mia0g1",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20260906003122-3mia0g1",
+				"updated": "20260906220233"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "タブ項目ブロック"
+				}
+			],
+			"HeadingLevel": 3
+		},
+		{
+			"ID": "20260906003122-azyooos",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260906003122-azyooos",
+				"updated": "20260906220233"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "タブ項目にはタイトルと本文があり、入れ子の内容とブロック参照に対応しています。ブロックアイコンのメニューで "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "タブブロック"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "タスク"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " を選択すると、グループ全体のタスクモードを切り替えられます。"
 				}
 			]
 		},
@@ -2905,7 +3162,7 @@
 			"Properties": {
 				"ID": "20240530101000-f8xitg4",
 				"id": "20240530101000-yy3nfa8",
-				"updated": "20251209213348"
+				"updated": "20260906003122"
 			},
 			"Children": [
 				{
@@ -2945,7 +3202,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20240530101000-jcermop",
-				"updated": "20251209213348"
+				"updated": "20260906003122"
 			},
 			"Children": [
 				{
@@ -3160,6 +3417,62 @@
 								{
 									"Type": "NodeText",
 									"Data": "以外の任意のブロックを含めることができます"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20260906003122-wh1g93x",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20260906003122-wh1g93x",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-vu4206u",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-vu4206u",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "タブブロック：タブ項目ブロックだけを格納できます"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20260906003122-wkvs6ra",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20260906003122-wkvs6ra",
+						"updated": "20260906003122"
+					},
+					"Children": [
+						{
+							"ID": "20260906003122-efb4636",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20260906003122-efb4636",
+								"updated": "20260906003122"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "タブ項目ブロック：通常のコンテンツブロックや入れ子のタブブロックを格納できます"
 								}
 							]
 						}

@@ -18,6 +18,7 @@ package av
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 // 分组节点：Combination 指明子节点的组合方式，Filters 为子节点列表（递归）。
 type ViewFilter struct {
 	Column        string            `json:"column"`                  // 字段（列）ID，叶子节点有效
+	ValueSource   ValueSource       `json:"valueSource,omitempty"`   // 值来源，叶子节点有效
 	Qualifier     FilterQuantifier  `json:"quantifier,omitempty"`    // 量词，叶子节点有效
 	Operator      FilterOperator    `json:"operator"`                // 操作符，叶子节点有效
 	Value         *Value            `json:"value"`                   // 过滤值，叶子节点有效
@@ -110,28 +112,79 @@ const (
 
 func Filter(viewable Viewable, attrView *AttributeView, rollupFurtherCollections map[string]*RollupRenderContext,
 	cachedAttrViews map[string]*AttributeView) {
+	FilterWithContext(viewable, attrView, rollupFurtherCollections, cachedAttrViews, nil)
+}
+
+// FilterWithContext 使用一次渲染请求的上下文过滤视图数据。
+func FilterWithContext(viewable Viewable, attrView *AttributeView, rollupFurtherCollections map[string]*RollupRenderContext,
+	cachedAttrViews map[string]*AttributeView, context *FilterContext) {
 	collection := viewable.(Collection)
 	filters := collection.GetFilters()
-	if 1 > len(filters) {
+	if 0 < len(filters) {
+		// 归一化为单一根组：spec 5 起顶层应为一个根组；旧数据/异常数据为扁平叶子数组时，
+		// 在内存里包成隐式 AND 根组参与求值，不修改原数据、不崩溃。
+		root := normalizeFiltersAsRoot(filters)
+		if nil != root {
+			// 递归收集所有叶子引用的列 ID 在 values 中的下标，避免每行重复查找。
+			fields := collection.GetFields()
+			colIndexByColumn := map[string]int{}
+			collectLeafColumnIndexes([]*ViewFilter{root}, fields, colIndexByColumn)
+
+			var items []Item
+			for _, item := range collection.GetItems() {
+				values := item.GetValues()
+				if evalNode(root, values, colIndexByColumn, attrView, item.GetID(), rollupFurtherCollections,
+					cachedAttrViews) {
+					items = append(items, item)
+				}
+			}
+			collection.SetItems(items)
+		}
+	}
+
+	filterByContext(collection, attrView, rollupFurtherCollections, cachedAttrViews, context)
+}
+
+// filterByContext 将物理数据库块的上下文筛选与当前视图筛选按 AND 组合。
+func filterByContext(collection Collection, attrView *AttributeView,
+	rollupFurtherCollections map[string]*RollupRenderContext, cachedAttrViews map[string]*AttributeView,
+	context *FilterContext) {
+	if nil == context || "" == context.KeyID {
+		return
+	}
+	if nil == attrView || 1 > len(context.CurrentDocumentItemIDs) {
+		collection.SetItems(nil)
+		return
+	}
+	keyValues, err := attrView.GetKeyValues(context.KeyID)
+	if nil != err || nil == keyValues {
+		collection.SetItems(nil)
 		return
 	}
 
-	// 归一化为单一根组：spec 5 起顶层应为一个根组；旧数据/异常数据为扁平叶子数组时，
-	// 在内存里包成隐式 AND 根组参与求值，不修改原数据、不崩溃。
-	root := normalizeFiltersAsRoot(filters)
-	if nil == root {
-		return
+	filter := &ViewFilter{
+		Column:   context.KeyID,
+		Operator: FilterOperatorContainsAnyItem,
+		Value: &Value{
+			Type: KeyTypeRelation,
+			Relation: &ValueRelation{
+				BlockIDs: context.CurrentDocumentItemIDs,
+			},
+		},
 	}
-
-	// 递归收集所有叶子引用的列 ID 在 values 中的下标，避免每行重复查找。
-	fields := collection.GetFields()
-	colIndexByColumn := map[string]int{}
-	collectLeafColumnIndexes([]*ViewFilter{root}, fields, colIndexByColumn)
-
+	valuesByItemID := make(map[string]*Value, len(keyValues.Values))
+	for _, value := range keyValues.Values {
+		if nil == value {
+			continue
+		}
+		if _, exists := valuesByItemID[value.BlockID]; !exists {
+			valuesByItemID[value.BlockID] = value
+		}
+	}
 	var items []Item
 	for _, item := range collection.GetItems() {
-		values := item.GetValues()
-		if evalNode(root, values, colIndexByColumn, attrView, item.GetID(), rollupFurtherCollections, cachedAttrViews) {
+		value := valuesByItemID[item.GetID()]
+		if nil != value && value.Filter(filter, attrView, item.GetID(), rollupFurtherCollections, cachedAttrViews) {
 			items = append(items, item)
 		}
 	}
@@ -255,7 +308,23 @@ func evalLeaf(filter *ViewFilter, values []*Value, index int, attrView *Attribut
 		return evalMissingLeaf(filter)
 	}
 
-	return values[index].Filter(filter, attrView, itemID, rollupFurtherCollections, cachedAttrViews)
+	return ResolveValueSource(values[index], filter.ValueSource).Filter(resolveFilterValueSource(filter), attrView, itemID,
+		rollupFurtherCollections, cachedAttrViews)
+}
+
+func resolveFilterValueSource(filter *ViewFilter) *ViewFilter {
+	if nil == filter || ValueSourceRendered != filter.ValueSource || nil == filter.Value ||
+		KeyTypeTemplate == filter.Value.Type {
+		return filter
+	}
+
+	ret := *filter
+	content := filter.Value.String(false)
+	if KeyTypeNumber == filter.Value.Type && nil != filter.Value.Number && filter.Value.Number.IsNotEmpty {
+		content = strconv.FormatFloat(filter.Value.Number.Content, 'f', -1, 64)
+	}
+	ret.Value = &Value{Type: KeyTypeTemplate, Template: &ValueTemplate{Content: content}}
+	return &ret
 }
 
 func evalMissingLeaf(filter *ViewFilter) bool {
@@ -301,14 +370,23 @@ func CloneFilters(filters []*ViewFilter) (ret []*ViewFilter) {
 			continue
 		}
 		cloned := &ViewFilter{
-			Column:        f.Column,
-			Qualifier:     f.Qualifier,
-			Operator:      f.Operator,
-			Value:         f.Value,
-			RelativeDate:  f.RelativeDate,
-			RelativeDate2: f.RelativeDate2,
-			DateEndpoint:  f.DateEndpoint,
-			Combination:   f.Combination,
+			Column:       f.Column,
+			ValueSource:  f.ValueSource,
+			Qualifier:    f.Qualifier,
+			Operator:     f.Operator,
+			DateEndpoint: f.DateEndpoint,
+			Combination:  f.Combination,
+		}
+		if nil != f.Value {
+			cloned.Value = f.Value.Clone()
+		}
+		if nil != f.RelativeDate {
+			relativeDate := *f.RelativeDate
+			cloned.RelativeDate = &relativeDate
+		}
+		if nil != f.RelativeDate2 {
+			relativeDate := *f.RelativeDate2
+			cloned.RelativeDate2 = &relativeDate
 		}
 		if 0 < len(f.Filters) {
 			cloned.Filters = CloneFilters(f.Filters)

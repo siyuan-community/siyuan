@@ -19,6 +19,7 @@ package conf
 import "github.com/siyuan-community/siyuan/kernel/util"
 
 type Appearance struct {
+	GlobalFontFamilies  []*EditorFont       `json:"globalFontFamilies"`  // 按优先级排列的全局默认字体
 	Mode                int                 `json:"mode"`                // 模式：0：明亮，1：暗黑
 	ModeOS              bool                `json:"modeOS"`              // 模式是否跟随系统
 	DarkThemes          []*AppearanceTheme  `json:"darkThemes"`          // 暗黑模式外观主题列表
@@ -43,6 +44,7 @@ type Appearance struct {
 
 func NewAppearance() *Appearance {
 	return &Appearance{
+		GlobalFontFamilies:  []*EditorFont{},
 		Mode:                0,
 		ModeOS:              true,
 		ThemeDark:           "midnight",
@@ -60,8 +62,13 @@ func NewAppearance() *Appearance {
 	}
 }
 
+// NormalizeGlobalFontFamilies 清理全局默认字体并保留用户指定的顺序。
+func (appearance *Appearance) NormalizeGlobalFontFamilies() {
+	appearance.GlobalFontFamilies = normalizeEditorFontFamilies(appearance.GlobalFontFamilies)
+}
+
 const (
-	EntryVisibilityVersion       = 3
+	EntryVisibilityVersion       = 4
 	EntryVisibilityProfileSimple = "simple"
 	EntryVisibilityProfileFull   = "full"
 )
@@ -94,7 +101,7 @@ func NormalizeEntryVisibility(entryVisibility *EntryVisibility, fallback string)
 	if nil == entryVisibility {
 		return NewEntryVisibility(fallback)
 	}
-	entryVisibility.Version = EntryVisibilityVersion
+	version := entryVisibility.Version
 	if nil == entryVisibility.Profiles {
 		entryVisibility.Profiles = []*EntryVisibilityProfile{}
 	}
@@ -112,9 +119,20 @@ func NormalizeEntryVisibility(entryVisibility *EntryVisibility, fallback string)
 		if nil == profile.Orders {
 			profile.Orders = map[string][]string{}
 		}
+		if version < 4 {
+			wysiwygVisible, wysiwygConfigured := profile.Entries["document.more.editMode.wysiwyg"]
+			previewVisible, previewConfigured := profile.Entries["document.more.editMode.preview"]
+			if wysiwygConfigured && previewConfigured && !wysiwygVisible && !previewVisible {
+				profile.Entries["document.more.editMode"] = false
+			}
+			delete(profile.Entries, "document.more.editMode.wysiwyg")
+			delete(profile.Entries, "document.more.editMode.preview")
+			delete(profile.Orders, "document.more.editMode")
+		}
 		profileIDs[profile.ID] = true
 		profiles = append(profiles, profile)
 	}
+	entryVisibility.Version = EntryVisibilityVersion
 	entryVisibility.Profiles = profiles
 	if entryVisibility.Active != EntryVisibilityProfileSimple && entryVisibility.Active != EntryVisibilityProfileFull &&
 		!profileIDs[entryVisibility.Active] {

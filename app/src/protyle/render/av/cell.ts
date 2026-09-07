@@ -29,10 +29,13 @@ import {activeBlur} from "../../../mobile/util/keyboardToolbar";
 import {
     cellValueIsEmpty,
     cloneAVCellValueSnapshot,
+    createAVCellUpdateOperation,
+    createAVStableTextCell,
     genEmptyAVCellValue,
     genRelationAVCellValue,
     getAVBlockRefSubtype,
     getConvertedEmptyAVCellValue,
+    hasAVRenderTemplateResult,
 } from "./cellValue";
 import {setPosition} from "../../../util/setPosition";
 import {getAVSelectedCells, IAVSelectedCell, updateAVSelectedCellValue} from "./selectionState";
@@ -45,6 +48,13 @@ import {
     setAVBatchDisplayValue
 } from "./batchValue";
 import {genAVDragFillValue, rebindAVCellValue} from "./dragFillValue";
+import {
+    getAVRichTextPreviewHTML,
+    getAVTextCopyContent,
+    getAVTextSource,
+    renderAVRichTextElements,
+} from "./richText";
+import {openAVRichTextEditor} from "./richTextEditor";
 
 export {cellValueIsEmpty} from "./cellValue";
 
@@ -52,9 +62,28 @@ const renderCellURL = (urlContent: string) => {
     return `<span class="av__celltext av__celltext--url" data-type="url" data-href="${escapeAttr(urlContent)}">${Lute.EscapeHTMLStr(urlContent)}</span>`;
 };
 
+const getStoredCellValueByElement = (cellElement: HTMLElement) => {
+    const valueElement = cellElement.dataset.cellValue ? cellElement :
+        cellElement.querySelector<HTMLElement>("[data-cell-value]");
+    if (!valueElement?.dataset.cellValue) {
+        return;
+    }
+    try {
+        return JSON.parse(decodeURIComponent(valueElement.dataset.cellValue)) as IAVCellValue;
+    } catch {
+        return;
+    }
+};
+
 export const getCellText = (cellElement: HTMLElement | false) => {
     if (!cellElement) {
         return "";
+    }
+    const richTextElement = cellElement.matches(".av__celltext--rich[data-cell-value]") ? cellElement :
+        cellElement.querySelector<HTMLElement>(".av__celltext--rich[data-cell-value]");
+    const storedCellValue = richTextElement ? getStoredCellValueByElement(richTextElement) : undefined;
+    if (storedCellValue?.type === "text" && getAVTextSource(storedCellValue).kind === "rich") {
+        return getAVTextCopyContent(storedCellValue);
     }
     let cellText = "";
     const textElements = cellElement.querySelectorAll(".b3-chip, .av__celltext--ref, .av__celltext");
@@ -76,8 +105,9 @@ export const getCellText = (cellElement: HTMLElement | false) => {
 };
 
 export const genCellValueByElement = (colType: TAVCol, cellElement: HTMLElement) => {
-    if (cellElement.dataset.avId && cellElement.dataset.cellValue) {
-        const cellValue = JSON.parse(decodeURIComponent(cellElement.dataset.cellValue)) as IAVCellValue;
+    const storedCellValue = getStoredCellValueByElement(cellElement);
+    if (storedCellValue) {
+        const cellValue = storedCellValue;
         if (colType === "mAsset" && !cellValue.mAsset) {
             cellValue.mAsset = [];
         } else if ((colType === "mSelect" || colType === "select") && !cellValue.mSelect) {
@@ -425,6 +455,34 @@ export const getTypeByCellElement = (cellElement: Element) => {
     return scrollElement.querySelector(".av__row--header").querySelector(`[data-col-id="${cellElement.getAttribute("data-col-id")}"]`).getAttribute("data-dtype") as TAVCol;
 };
 
+const getStableTextCells = (cellElements: HTMLElement[], blockElement: HTMLElement) => {
+    const viewType = blockElement.dataset.avType as TAVView;
+    const stableCells: IAVSelectedCell[] = [];
+    cellElements.forEach((cellElement) => {
+        const rowID = getFieldIdByCellElement(cellElement, viewType);
+        const colID = getColId(cellElement, viewType);
+        const value = getStoredCellValueByElement(cellElement) || genCellValueByElement("text", cellElement);
+        const rowElement = hasClosestByClassName(cellElement,
+            viewType === "table" ? "av__row" : "av__gallery-item");
+        const groupElement = hasClosestByClassName(cellElement, "av__body");
+        const rowIndex = parseInt(rowElement ? rowElement.getAttribute("data-index") || "0" : "0") || 0;
+        const stableCell = createAVStableTextCell({
+            groupID: groupElement ? groupElement.getAttribute("data-group-id") || "" : "",
+            rowID,
+            colID,
+            rowIndex,
+            colIndex: Array.from(cellElement.parentElement?.querySelectorAll(":scope > .av__cell") || [])
+                .indexOf(cellElement),
+            cellID: cellElement.dataset.id,
+            value,
+        });
+        if (stableCell) {
+            stableCells.push(stableCell);
+        }
+    });
+    return stableCells;
+};
+
 export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type?: TAVCol, options?: {
     scrollIntoView?: boolean;
     data?: IAV;
@@ -459,6 +517,30 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
     let html = "";
     let height = cellRect.height;
     const cssStyle = getComputedStyle(cellElements[0]);
+    const storedCellValue = getStoredCellValueByElement(cellElements[0]);
+    const hasRenderedTemplate = cellElements[0].matches(".av__celltext--template") ||
+        Boolean(cellElements[0].querySelector(":scope > .av__celltext--template"));
+    if (type === "text" && !hasRenderedTemplate) {
+        const stableCells = getStableTextCells(cellElements, blockElement);
+        if (stableCells.length > 0) {
+            if (!options?.keepMenuOpen) {
+                window.siyuan.menus.menu.remove();
+            }
+            openAVRichTextEditor({
+                protyle,
+                nodeElement: blockElement,
+                anchorElement: cellElements[0],
+                value: stableCells[0].cell.value,
+                stableCells,
+                onSave: (value, nodeElement, selectedCells) => {
+                    updateCellsValue(protyle, nodeElement, value, undefined, undefined, undefined,
+                        false, false, false, selectedCells);
+                },
+                onDestroy: options?.destroyCallback,
+            });
+            return;
+        }
+    }
     const inputTop = options?.positionByMenu ? cellRect.bottom : cellRect.top;
     let style = `font-family:${cssStyle.fontFamily};font-size:${cssStyle.fontSize};line-height:${cssStyle.lineHeight};padding:${cssStyle.padding};position:absolute;top: ${inputTop}px;`;
     if (contentElement && !options?.positionByMenu) {
@@ -476,9 +558,12 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
     if (["text", "email", "phone", "block", "template"].includes(type)) {
         html = `<textarea ${style} spellcheck="false" class="b3-text-field"></textarea>`;
     } else if (type === "url") {
-        html = `<textarea ${style} spellcheck="false" class="b3-text-field">${cellElements[0].firstElementChild.getAttribute("data-href")}</textarea>`;
+        const content = storedCellValue?.url?.content ?? cellElements[0].firstElementChild.getAttribute("data-href") ?? "";
+        html = `<textarea ${style} spellcheck="false" class="b3-text-field">${escapeHtml(content)}</textarea>`;
     } else if (type === "number") {
-        html = `<input type="number" spellcheck="false" value="${cellElements[0].firstElementChild.getAttribute("data-content")}" ${style} class="b3-text-field">`;
+        const content = storedCellValue?.number?.isNotEmpty ? (storedCellValue.number.content ?? "").toString() :
+            cellElements[0].firstElementChild.getAttribute("data-content") || "";
+        html = `<input type="number" spellcheck="false" value="${escapeAttr(content)}" ${style} class="b3-text-field">`;
     } else {
         /// #if MOBILE
         activeBlur(true);
@@ -577,7 +662,10 @@ export const popTextCell = (protyle: IProtyle, cellElements: HTMLElement[], type
             setPosition(inputElement, cellRect.left, cellRect.bottom, cellRect.height);
         }
         if (["text", "email", "phone", "block", "template"].includes(type)) {
-            inputElement.value = cellElements[0].querySelector(".av__celltext")?.textContent || "";
+            const storedContent = type === "template" ? undefined :
+                storedCellValue?.[type as "text"]?.content;
+            inputElement.value = typeof storedContent === "string" ? storedContent :
+                cellElements[0].querySelector(".av__celltext")?.textContent || "";
         }
         if (type !== "template") {
             inputElement.addEventListener("input", () => {
@@ -727,7 +815,7 @@ const updateCellValueByInput = (protyle: IProtyle, type: TAVCol, blockElement: H
             return;
         }
         updateCellsValue(protyle, blockElement, type === "checkbox" ? {
-            checked: cellElements[0].querySelector("use").getAttribute("xlink:href") === "#iconUncheck"
+            checked: !genCellValueByElement(type, cellElements[0]).checkbox?.checked
         } : inputElement.value, cellElements);
     }
     if (viewType === "table" &&
@@ -811,7 +899,7 @@ export const updateCellsValue = async (protyle: IProtyle, nodeElement: HTMLEleme
             continue;
         }
         const readonly = ["created", "updated", "template", "rollup", "lineNumber"].includes(type);
-        const cellId = source.selectedCell?.cell.id || item?.dataset.id;
+        const cellId = source.selectedCell?.cell.id || item?.dataset.id || "";
         const colId = source.selectedCell?.colID || (item ? getColId(item, viewType) : "");
         const renderedOldValue = source.selectedCell?.cell.value ||
             (item ? genCellValueByElement(type, item) : undefined);
@@ -841,7 +929,7 @@ export const updateCellsValue = async (protyle: IProtyle, nodeElement: HTMLEleme
             }
             json[json.length - 1].push(oldValue);
         }
-        if (readonly || !cellId) {
+        if (readonly) {
             continue;
         }
         let newValue = value;
@@ -977,28 +1065,23 @@ export const updateCellsValue = async (protyle: IProtyle, nodeElement: HTMLEleme
             cellValue.date.formattedContent = formatDateValue(cellValue.date, column?.dateFormat);
         }
         if (forceOperation || !objEquals(cellValue, oldValue)) {
-            doOperations.push({
-                action: "updateAttrViewCell",
-                id: cellId,
+            doOperations.push(createAVCellUpdateOperation({
+                valueID: cellId,
                 avID,
                 keyID: colId,
                 rowID,
                 data: cellValue
-            });
+            }));
 
-            undoOperations.push({
-                action: "updateAttrViewCell",
-                id: cellId,
+            undoOperations.push(createAVCellUpdateOperation({
+                valueID: cellId,
                 avID,
                 keyID: colId,
                 rowID,
                 data: oldValue
-            });
+            }));
             if (updateElements) {
-                if (isCustomAttr && item) {
-                    item.innerHTML = genAVValueHTML(cellValue, column?.dateFormat);
-                    item.parentElement.dataset.empty = cellValueIsEmpty(cellValue).toString();
-                } else if (item) {
+                if (!isCustomAttr && item) {
                     updateAttrViewCellAnimation(item, cellValue);
                 }
                 updateAttrViewCellInOtherElements(protyle, avID, rowID, colId, cellValue, item);
@@ -1031,6 +1114,10 @@ export const updateCellsValue = async (protyle: IProtyle, nodeElement: HTMLEleme
 export const updateAttrViewCellInOtherElements = (protyle: IProtyle, avID: string, rowID: string, colID: string,
                                                   value: IAVCellValue, sourceElement?: HTMLElement) => {
     const updateCustomAttr = (cellElement: HTMLElement) => {
+        const renderTemplate = cellElement.dataset.renderTemplate;
+        const preserveTemplateDisplay = Boolean(renderTemplate?.trim()) &&
+            typeof value.renderedContent !== "string" &&
+            Boolean(cellElement.querySelector(".av__celltext--template"));
         if (cellElement.dataset.avBatchOriginalValue) {
             cellElement.dataset.avBatchChanged = "true";
         }
@@ -1039,8 +1126,13 @@ export const updateAttrViewCellInOtherElements = (protyle: IProtyle, avID: strin
         } else {
             cellElement.removeAttribute("data-id");
         }
-        cellElement.dataset.cellValue = encodeURIComponent(JSON.stringify(value));
-        cellElement.parentElement.dataset.empty = cellValueIsEmpty(value).toString();
+        cellElement.dataset.cellValue = encodeURIComponent(JSON.stringify(cloneAVCellValueSnapshot(value)));
+        if (!preserveTemplateDisplay) {
+            cellElement.parentElement.dataset.empty = cellValueIsEmpty(value, true, renderTemplate).toString();
+            cellElement.innerHTML = genAVValueHTML(value, cellElement.dataset.dateFormat as TAVDateFormat,
+                renderTemplate);
+            renderAVRichTextElements(cellElement);
+        }
         if (value.type === "block") {
             const databaseRowElement = cellElement.closest<HTMLElement>(".protyle-db-row");
             if (databaseRowElement) {
@@ -1079,7 +1171,6 @@ export const updateAttrViewCellInOtherElements = (protyle: IProtyle, avID: strin
             return;
         }
         updateCustomAttr(cellElement);
-        cellElement.innerHTML = genAVValueHTML(value, cellElement.dataset.dateFormat as TAVDateFormat);
     });
 };
 
@@ -1103,12 +1194,27 @@ export const renderCellAttr = (cellElement: Element, value: IAVCellValue) => {
 };
 
 export const renderCell = (cellValue: IAVCellValue, rowIndex = 0, showIcon = true, type: TAVView = "table",
-                           selectOptions?: IAVColumn["options"], dateFormat: TAVDateFormat = "") => {
+                           selectOptions?: IAVColumn["options"], dateFormat: TAVDateFormat = "",
+                           renderTemplate?: string) => {
     let text = "";
-    if ("template" === cellValue.type) {
+    if (hasAVRenderTemplateResult(cellValue, renderTemplate)) {
+        const storedValue = cloneAVCellValueSnapshot(cellValue);
+        text = `<span class="av__celltext av__celltext--template" data-cell-value="${escapeAttr(encodeURIComponent(JSON.stringify(storedValue)))}">${getAVTemplateHTML(cellValue.renderedContent || "")}</span>`;
+        if (cellValue.type === "block") {
+            const bindLabel = cellValue?.isDetached ? window.siyuan.languages.bind : window.siyuan.languages.rebind;
+            const updateIcon = cellValue?.isDetached ? "iconLink" : "iconRefresh";
+            text += `<span class="av__row-actions"><button class="av__row-action av__cell-action ariaLabel" type="button" data-position="4north" aria-label="${window.siyuan.languages.openBy}" data-type="av-row-open"><svg><use xlink:href="#iconOpen"></use></svg></button><button class="av__row-action av__cell-action ariaLabel" type="button" data-position="4north" aria-label="${bindLabel}" data-type="av-row-update"><svg><use xlink:href="#${updateIcon}"></use></svg></button></span>`;
+        }
+    } else if ("template" === cellValue.type) {
         text = `<span class="av__celltext av__celltext--template">${cellValue ? getAVTemplateHTML(cellValue.template.content || "") : ""}</span>`;
     } else if ("text" === cellValue.type) {
-        text = `<span class="av__celltext">${cellValue ? Lute.EscapeHTMLStr(cellValue.text.content || "") : ""}</span>`;
+        const source = getAVTextSource(cellValue);
+        if (source.kind === "rich") {
+            const storedValue = cloneAVCellValueSnapshot(cellValue);
+            text = `<div class="av__celltext av__celltext--rich b3-typography" data-protyle-lite-render="safe" data-cell-value="${escapeAttr(encodeURIComponent(JSON.stringify(storedValue)))}">${getAVRichTextPreviewHTML(source.content)}</div>`;
+        } else {
+            text = `<span class="av__celltext">${cellValue ? Lute.EscapeHTMLStr(cellValue.text.content || "") : ""}</span>`;
+        }
     } else if (["email", "phone"].includes(cellValue.type)) {
         text = `<span class="av__celltext av__celltext--url" data-type="${cellValue.type}">${cellValue ? Lute.EscapeHTMLStr(cellValue[cellValue.type as "email"].content || "") : ""}</span>`;
     } else if ("url" === cellValue.type) {
@@ -1217,8 +1323,13 @@ export const renderCell = (cellValue: IAVCellValue, rowIndex = 0, showIcon = tru
 };
 
 export const getCellValueText = (value: IAVCellValue, column?: IAVColumn, rowIndex = 0) => {
+    if (value.type === "text" && !hasAVRenderTemplateResult(value, column?.renderTemplate) &&
+        getAVTextSource(value).kind === "rich") {
+        return getAVTextCopyContent(value);
+    }
     const cellElement = document.createElement("div");
-    cellElement.innerHTML = renderCell(value, rowIndex, true, "table", column?.options, column?.dateFormat);
+    cellElement.innerHTML = renderCell(value, rowIndex, true, "table", column?.options, column?.dateFormat,
+        column?.renderTemplate);
     return getCellText(cellElement);
 };
 
@@ -1229,7 +1340,7 @@ export const getAVCellData = (selectedCells: IAVSelectedCell[]) => {
         if (index === 0 || selectedCells[index - 1].rowID !== item.rowID) {
             json.push([]);
         }
-        json[json.length - 1].push(item.cell.value);
+        json[json.length - 1].push(cloneAVCellValueSnapshot(item.cell.value));
         text += getCellValueText(item.cell.value, item.column, item.rowIndex);
         text += index === selectedCells.length - 1 || selectedCells[index + 1].rowID !== item.rowID ? "\n" : "\t";
     });
@@ -1389,6 +1500,7 @@ export const dragFillCellsValue = (protyle: IProtyle, nodeElement: HTMLElement, 
             item.element.innerHTML = renderCell(data, 0, showIcon, "table", undefined,
                 item.element.dataset.dateFormat as TAVDateFormat);
             renderCellAttr(item.element, data);
+            renderAVRichTextElements(item.element);
             updateAVSelectedCellValue(nodeElement, rowID, keyID, data);
             delete item.colId;
             delete item.element;

@@ -59,6 +59,12 @@ func copyDecryptedAsset(src, dest string) error {
 	if boxID == "" || !model.IsEncryptedBox(boxID) {
 		return fmt.Errorf("source is not an encrypted asset")
 	}
+	if !model.IsBoxUnlocked(boxID) {
+		return fmt.Errorf("%s", model.Conf.Language(314))
+	}
+	if err := model.EnsureAssetLocal(src); err != nil {
+		return err
+	}
 	model.HoldBoxReadLock(boxID)
 	defer model.ReleaseBoxReadLock(boxID)
 	dek, dekErr := model.GetDEKIfUnlocked(boxID)
@@ -96,14 +102,45 @@ func getUniqueFilename(c *gin.Context) {
 		return
 	}
 
+	if rejectEncryptedBoxPath(filePath) {
+		ret.Code = -3
+		ret.Msg = model.Conf.Language(321)
+		return
+	}
 	ret.Data = map[string]any{
 		"path": util.GetUniqueFilename(filePath),
 	}
 }
 
+// prepareFileAssets 在原始文件 API 完成权限校验后补齐目录或文件的资源内容。
+func prepareFileAssets(absPath string) error {
+	absPath = filepath.Clean(absPath)
+	dataPath := filepath.Clean(util.DataDir)
+	if gulu.File.IsSubPath(absPath, dataPath) {
+		absPath = dataPath
+	} else if absPath != dataPath && !gulu.File.IsSubPath(dataPath, absPath) {
+		return nil
+	}
+	files, err := model.DeferredSyncAssets()
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		assetPath := filepath.Join(util.DataDir, filepath.FromSlash(strings.TrimPrefix(file.Path, "/")))
+		if (absPath == assetPath || gulu.File.IsSubPath(absPath, assetPath)) && rejectEncryptedBoxPath(assetPath) {
+			return fmt.Errorf("%s", model.Conf.Language(321))
+		}
+	}
+	return model.EnsureAssetPrefixLocal(absPath)
+}
+
 func globalCopyFiles(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
+	var changedPaths []string
+	defer func() {
+		model.IncSyncIfNeeded(changedPaths...)
+	}()
 
 	arg, ok := util.JsonArg(c, ret)
 	if !ok {
@@ -140,13 +177,6 @@ func globalCopyFiles(c *gin.Context) {
 
 		absSrc, _ := filepath.Abs(src)
 
-		if !filelock.IsExist(absSrc) {
-			logging.LogErrorf("file [%s] does not exist", src)
-			ret.Code = -1
-			ret.Msg = fmt.Sprintf("file [%s] does not exist", src)
-			return
-		}
-
 		if util.IsSensitivePath(absSrc) {
 			logging.LogErrorf("refuse to copy sensitive file [%s]", src)
 			ret.Code = -2
@@ -160,6 +190,16 @@ func globalCopyFiles(c *gin.Context) {
 			return
 		}
 
+		if err := prepareFileAssets(absSrc); err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+		if !filelock.IsExist(absSrc) {
+			ret.Code = -1
+			ret.Msg = fmt.Sprintf("file [%s] does not exist", src)
+			return
+		}
 		srcs[i] = absSrc
 	}
 
@@ -215,14 +255,17 @@ func globalCopyFiles(c *gin.Context) {
 			ret.Msg = err.Error()
 			return
 		}
+		changedPaths = append(changedPaths, dest)
 	}
-
-	model.IncSync()
 }
 
 func workspaceCopyFiles(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
+	var changedPaths []string
+	defer func() {
+		model.IncSyncIfNeeded(changedPaths...)
+	}()
 
 	arg, ok := util.JsonArg(c, ret)
 	if !ok {
@@ -263,12 +306,6 @@ func workspaceCopyFiles(c *gin.Context) {
 			ret.Msg = err.Error()
 			return
 		}
-		if !filelock.IsExist(absSrc) {
-			logging.LogErrorf("file [%s] does not exist", src)
-			ret.Code = -1
-			ret.Msg = fmt.Sprintf("file [%s] does not exist", src)
-			return
-		}
 		if util.IsSensitivePath(absSrc) {
 			logging.LogErrorf("refuse to copy sensitive file [%s]", src)
 			ret.Code = -2
@@ -278,6 +315,16 @@ func workspaceCopyFiles(c *gin.Context) {
 		if rejectEncryptedBoxPath(absSrc) {
 			ret.Code = -3
 			ret.Msg = model.Conf.Language(321)
+			return
+		}
+		if err = prepareFileAssets(absSrc); err != nil {
+			ret.Code = -1
+			ret.Msg = err.Error()
+			return
+		}
+		if !filelock.IsExist(absSrc) {
+			ret.Code = -1
+			ret.Msg = fmt.Sprintf("file [%s] does not exist", src)
 			return
 		}
 		absSrcs = append(absSrcs, absSrc)
@@ -334,9 +381,8 @@ func workspaceCopyFiles(c *gin.Context) {
 			ret.Msg = err.Error()
 			return
 		}
+		changedPaths = append(changedPaths, dest)
 	}
-
-	model.IncSync()
 }
 
 func copyFile(c *gin.Context) {
@@ -398,6 +444,12 @@ func copyFile(c *gin.Context) {
 		return
 	}
 
+	if err = prepareFileAssets(src); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		ret.Data = map[string]any{"closeTimeout": 7000}
+		return
+	}
 	info, err := os.Stat(src)
 	if err != nil {
 		logging.LogErrorf("stat [%s] failed: %s", src, err)
@@ -429,7 +481,7 @@ func copyFile(c *gin.Context) {
 		return
 	}
 
-	model.IncSync()
+	model.IncSyncIfNeeded(dest)
 }
 
 func getFile(c *gin.Context) {
@@ -464,16 +516,9 @@ func getFile(c *gin.Context) {
 		c.JSON(http.StatusAccepted, ret)
 		return
 	}
-	if !filelock.IsExist(fileAbsPath) {
-		ret.Code = http.StatusNotFound
-		ret.Msg = "file does not exist"
-		c.JSON(http.StatusAccepted, ret)
-		return
-	}
-
 	// 解析符号链接（Windows 下含目录联接）后再做授权判断，防止 reader 通过 data/assets
 	// 等目录下的链接读取工作空间外的文件（security advisory GHSA-g7gf-v79m-jwrm）
-	resolvedPath, err := model.ResolveRealPath(fileAbsPath)
+	resolvedPath, err := model.ResolveAssetPathWithMissingLeaf(fileAbsPath)
 	if err != nil {
 		logging.LogErrorf("resolve symlinks for [%s] failed: %s", fileAbsPath, err)
 		ret.Code = http.StatusInternalServerError
@@ -489,28 +534,6 @@ func getFile(c *gin.Context) {
 		return
 	}
 	fileAbsPath = resolvedPath
-
-	info, err := os.Stat(fileAbsPath)
-	if os.IsNotExist(err) {
-		ret.Code = http.StatusNotFound
-		ret.Msg = err.Error()
-		c.JSON(http.StatusAccepted, ret)
-		return
-	}
-	if err != nil {
-		logging.LogErrorf("stat [%s] failed: %s", fileAbsPath, err)
-		ret.Code = http.StatusInternalServerError
-		ret.Msg = err.Error()
-		c.JSON(http.StatusAccepted, ret)
-		return
-	}
-	if info.IsDir() {
-		logging.LogErrorf("path [%s] is a directory path", fileAbsPath)
-		ret.Code = http.StatusConflict
-		ret.Msg = "path is a directory"
-		c.JSON(http.StatusAccepted, ret)
-		return
-	}
 
 	// REF: https://github.com/siyuan-note/siyuan/issues/11364
 	if !model.IsAdminRoleContext(c) {
@@ -537,6 +560,33 @@ func getFile(c *gin.Context) {
 		}
 	}
 
+	if gulu.File.IsSubPath(util.DataDir, fileAbsPath) {
+		if err = model.EnsureAssetLocal(fileAbsPath); err != nil {
+			ret.Code = http.StatusServiceUnavailable
+			if os.IsNotExist(err) {
+				ret.Code = http.StatusNotFound
+			}
+			ret.Msg = err.Error()
+			c.JSON(http.StatusAccepted, ret)
+			return
+		}
+	}
+	info, err := os.Stat(fileAbsPath)
+	if err != nil {
+		ret.Code = http.StatusInternalServerError
+		if os.IsNotExist(err) {
+			ret.Code = http.StatusNotFound
+		}
+		ret.Msg = err.Error()
+		c.JSON(http.StatusAccepted, ret)
+		return
+	}
+	if info.IsDir() {
+		ret.Code = http.StatusConflict
+		ret.Msg = "path is a directory"
+		c.JSON(http.StatusAccepted, ret)
+		return
+	}
 	data, err := filelock.ReadFile(fileAbsPath)
 	if err != nil {
 		logging.LogErrorf("read file [%s] failed: %s", fileAbsPath, err)
@@ -683,19 +733,6 @@ func renameFile(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
-	srcInfo, srcStatErr := os.Stat(srcAbsPath)
-	if os.IsNotExist(srcStatErr) {
-		ret.Code = http.StatusNotFound
-		ret.Msg = "Field [path]: path does not exist"
-		return
-	}
-	if srcStatErr != nil {
-		logging.LogErrorf("stat [%s] failed: %s", srcAbsPath, srcStatErr)
-		ret.Code = http.StatusInternalServerError
-		ret.Msg = http.StatusText(http.StatusInternalServerError) + errMsgSeeKernelLog
-		return
-	}
-
 	destAbsPath, err := util.GetAbsPathInWorkspace(destPath)
 	if err != nil {
 		ret.Code = http.StatusForbidden
@@ -706,6 +743,23 @@ func renameFile(c *gin.Context) {
 	if rejectEncryptedBoxPath(srcAbsPath) || rejectEncryptedBoxPath(destAbsPath) {
 		ret.Code = -3
 		ret.Msg = model.Conf.Language(321)
+		return
+	}
+	if err = prepareFileAssets(srcAbsPath); err == nil {
+		err = prepareFileAssets(destAbsPath)
+	}
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	srcInfo, srcStatErr := os.Stat(srcAbsPath)
+	if srcStatErr != nil {
+		ret.Code = http.StatusInternalServerError
+		if os.IsNotExist(srcStatErr) {
+			ret.Code = http.StatusNotFound
+		}
+		ret.Msg = srcStatErr.Error()
 		return
 	}
 	if filelock.IsExist(destAbsPath) {
@@ -719,6 +773,7 @@ func renameFile(c *gin.Context) {
 		ret.Msg = "Field [newPath]: cannot rename a directory into its own subdirectory"
 		return
 	}
+	affectsSync := model.PathsAffectSync(srcAbsPath)
 
 	destParent := filepath.Dir(destAbsPath)
 	if filelock.IsExist(destParent) {
@@ -750,7 +805,9 @@ func renameFile(c *gin.Context) {
 		return
 	}
 
-	model.IncSync()
+	if affectsSync || model.PathsAffectSync(destAbsPath) {
+		model.IncSync()
+	}
 }
 
 func removeFile(c *gin.Context) {
@@ -763,8 +820,9 @@ func removeFile(c *gin.Context) {
 		return
 	}
 
-	var filePath string
+	var app, filePath string
 	if !util.ParseJsonArgs(arg, ret,
+		util.BindJsonArg("app", &app, false, false),
 		util.BindJsonArg("path", &filePath, true, true),
 	) {
 		return
@@ -782,6 +840,11 @@ func removeFile(c *gin.Context) {
 		ret.Msg = model.Conf.Language(321)
 		return
 	}
+	if err = prepareFileAssets(fileAbsPath); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
 	_, err = os.Stat(fileAbsPath)
 	if os.IsNotExist(err) {
 		ret.Code = http.StatusNotFound
@@ -794,6 +857,7 @@ func removeFile(c *gin.Context) {
 		ret.Msg = http.StatusText(http.StatusInternalServerError) + errMsgSeeKernelLog
 		return
 	}
+	affectsSync := model.PathsAffectSync(fileAbsPath)
 
 	if err = filelock.RemoveWithoutFatal(fileAbsPath); err != nil {
 		logging.LogErrorf("remove [%s] failed: %s", fileAbsPath, err)
@@ -801,8 +865,11 @@ func removeFile(c *gin.Context) {
 		ret.Msg = http.StatusText(http.StatusInternalServerError) + errMsgSeeKernelLog
 		return
 	}
+	model.PushPluginStorageDataChanged(fileAbsPath, app)
 
-	model.IncSync()
+	if affectsSync {
+		model.IncSync()
+	}
 }
 
 func putFile(c *gin.Context) {
@@ -811,6 +878,7 @@ func putFile(c *gin.Context) {
 
 	isDirStr := c.PostForm("isDir")
 	isDir, _ := strconv.ParseBool(isDirStr)
+	app := c.PostForm("app")
 
 	var err error
 	filePath := c.PostForm("path")
@@ -924,7 +992,10 @@ func putFile(c *gin.Context) {
 		return
 	}
 
-	model.IncSync()
+	if !isDir {
+		model.PushPluginStorageDataChanged(fileAbsPath, app)
+		model.IncSyncIfNeeded(fileAbsPath)
+	}
 }
 
 func millisecond2Time(t int64) time.Time {

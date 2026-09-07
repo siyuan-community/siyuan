@@ -23,10 +23,11 @@ import {afterExport} from "../../protyle/export/util";
 /// #endif
 import {genConfigItemMainHtml, genConfigItemName} from "../render/fragments";
 import {sendAppSetting} from "./appRuntime";
+import {getHostCapabilities} from "../../util/hostCapabilities";
 
 /// #if MOBILE
 const registerAppWorkspaceGroup = (tab: SettingTabBuilder) => {
-    if (!isInMobileApp() || window.siyuan.config.readonly) {
+    if (!isInMobileApp() || window.siyuan.config.readonly || !getHostCapabilities().workspaces) {
         return;
     }
     const group = tab.group("workspace", window.siyuan.languages.workspaceList);
@@ -65,6 +66,9 @@ const renderWorkspaceList = (workspaceDirElement: Element) => {
 };
 
 const mountAppWorkspaceSlot = (root: HTMLElement) => {
+    if (!getHostCapabilities().workspaces) {
+        return;
+    }
     const workspaceDirElement = root.querySelector("#workspaceDir");
     if (!workspaceDirElement) {
         return;
@@ -232,7 +236,7 @@ const genNetworkProxyHtml = (): string => {
     <div class="b3-label__text">
         ${window.siyuan.languages.about17}
     </div>
-    <div class="b3-label__text fn__flex config-wrap" style="overflow: visible !important;">
+    <div class="b3-label__text fn__flex" style="overflow: visible !important;">
         <select id="networkProxyScheme" class="b3-select">
             <option value="" ${proxy.scheme === "" ? "selected" : ""}>${window.siyuan.languages.directConnection}</option>
             <option value="system" ${proxy.scheme === "system" ? "selected" : ""}>${window.siyuan.languages.useSystemProxy}</option>
@@ -241,9 +245,9 @@ const genNetworkProxyHtml = (): string => {
             <option value="http" ${proxy.scheme === "http" ? "selected" : ""}>HTTP</option>
         </select>
         <span class="fn__space"></span>
-        <input id="networkProxyHost" placeholder="user:pass@IP" class="b3-text-field fn__block" value="${Lute.EscapeHTMLStr(proxy.host)}"/>
+        <input id="networkProxyHost" placeholder="user:pass@IP" class="b3-text-field fn__flex-1" value="${Lute.EscapeHTMLStr(proxy.host)}"/>
         <span class="fn__space"></span>
-        <input id="networkProxyPort" placeholder="Port" class="b3-text-field fn__block" value="${Lute.EscapeHTMLStr(proxy.port)}" type="number"/>
+        <input id="networkProxyPort" placeholder="Port" class="b3-text-field fn__flex-1" value="${Lute.EscapeHTMLStr(proxy.port)}" type="number"/>
         <span class="fn__space"></span>
         <button id="networkProxyConfirm" class="b3-button fn__size200 b3-button--outline">${window.siyuan.languages.confirm}</button>
     </div>
@@ -286,6 +290,9 @@ const mountNetworkProxy = (root: HTMLElement) => {
 };
 
 const registerAppDataGroup = (tab: SettingTabBuilder) => {
+    if (!getHostCapabilities().importExport) {
+        return;
+    }
     const group = tab.group("data", window.siyuan.languages.configGroupData);
 
     group.button({
@@ -299,7 +306,7 @@ const registerAppDataGroup = (tab: SettingTabBuilder) => {
     group.slot({
         key: "importData",
         keywords: [window.siyuan.languages.import, window.siyuan.languages.importDataTip],
-        html: () => `<div class="fn__flex b3-label config-item config-wrap">
+        html: () => `<div class="fn__flex b3-label config-item">
     ${genConfigItemMainHtml(`${window.siyuan.languages.import} Data`, window.siyuan.languages.importDataTip)}
     <span class="fn__space"></span>
     ${genImportUploadButtonHtml("importData", window.siyuan.languages.import)}
@@ -330,7 +337,7 @@ const registerAppDataGroup = (tab: SettingTabBuilder) => {
     group.slot({
         key: "importConf",
         keywords: [window.siyuan.languages.importConf, window.siyuan.languages.importConfTip],
-        html: () => `<div class="fn__flex b3-label config-item config-wrap">
+        html: () => `<div class="fn__flex b3-label config-item">
     ${genConfigItemMainHtml(window.siyuan.languages.importConf, window.siyuan.languages.importConfTip)}
     <span class="fn__space"></span>
     ${genImportUploadButtonHtml("importConf", window.siyuan.languages.import)}
@@ -361,6 +368,9 @@ const registerAppDataGroup = (tab: SettingTabBuilder) => {
 };
 
 const mountExportData = (root: HTMLElement) => {
+    if (!getHostCapabilities().importExport) {
+        return;
+    }
     root.querySelector("#exportData")?.addEventListener("click", async () => {
         /// #if BROWSER
         fetchPost("/api/export/exportData", {}, (response) => {
@@ -436,20 +446,22 @@ const registerAppMaintenanceGroup = (tab: SettingTabBuilder) => {
             });
         },
     });
-    group.button({
-        id: "exportLog",
-        title: window.siyuan.languages.systemLog,
-        desc: window.siyuan.languages.systemLogTip,
-        label: window.siyuan.languages.export,
-        icon: "iconUpload",
-        afterMount: (root) => {
-            root.querySelector("#exportLog")?.addEventListener("click", () => {
-                fetchPost("/api/system/exportLog", {}, (response) => {
-                    void saveExportFile(response.data.zip);
+    if (getHostCapabilities().importExport) {
+        group.button({
+            id: "exportLog",
+            title: window.siyuan.languages.systemLog,
+            desc: window.siyuan.languages.systemLogTip,
+            label: window.siyuan.languages.export,
+            icon: "iconUpload",
+            afterMount: (root) => {
+                root.querySelector("#exportLog")?.addEventListener("click", () => {
+                    fetchPost("/api/system/exportLog", {}, (response) => {
+                        void saveExportFile(response.data.zip);
+                    });
                 });
-            });
-        },
-    });
+            },
+        });
+    }
 };
 
 export const registerAppTab = (tab: SettingTabBuilder) => {
@@ -457,6 +469,8 @@ export const registerAppTab = (tab: SettingTabBuilder) => {
     registerAppWorkspaceGroup(tab);
     /// #endif
     registerAppGeneralGroup(tab);
-    registerAppDataGroup(tab);
+    if (getHostCapabilities().importExport) {
+        registerAppDataGroup(tab);
+    }
     registerAppMaintenanceGroup(tab);
 };

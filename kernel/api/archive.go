@@ -17,30 +17,70 @@
 package api
 
 import (
+	archivezip "archive/zip"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 // rejectEncryptedArchivePath 检查路径是否落入加密笔记本目录（含 symlink 绕过），是则返回错误。
 func rejectEncryptedArchivePath(absPath string) error {
-	boxID := model.ExtractBoxIDFromAssetsPath(absPath)
-	if boxID != "" && model.IsEncryptedBox(boxID) {
+	if boxID := model.EncryptedRawPathBoxID(absPath); boxID != "" {
 		return fmt.Errorf("path belongs to encrypted notebook [%s]", boxID)
 	}
-	if resolved := util.ResolveLongestExistingParent(absPath); resolved != absPath {
-		boxID = model.ExtractBoxIDFromAssetsPath(resolved)
-		if boxID != "" && model.IsEncryptedBox(boxID) {
-			return fmt.Errorf("symlink resolves into encrypted notebook [%s]", boxID)
+	resolved, err := resolveArchivePath(absPath)
+	if err != nil {
+		return err
+	}
+	dataDir, err := resolveArchivePath(util.DataDir)
+	if err != nil {
+		return err
+	}
+	if rel, relErr := filepath.Rel(dataDir, resolved); relErr == nil && filepath.IsLocal(rel) {
+		if boxID := model.EncryptedRawPathBoxID(filepath.Join(util.DataDir, rel)); boxID != "" {
+			return fmt.Errorf("path belongs to encrypted notebook [%s]", boxID)
 		}
 	}
 	return nil
+}
+
+// resolveArchivePath 解析最长已存在父路径的最终位置，包含 Windows 目录联接；解析失败时拒绝访问。
+func resolveArchivePath(path string) (string, error) {
+	cleaned, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	parent := cleaned
+	for {
+		if _, err = os.Lstat(parent); err == nil {
+			break
+		}
+		if !os.IsNotExist(err) || filepath.Dir(parent) == parent {
+			return "", err
+		}
+		parent = filepath.Dir(parent)
+	}
+	resolved, err := model.ResolveRealPath(parent)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(parent, cleaned)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolved, rel), nil
 }
 
 func zip(c *gin.Context) {
@@ -81,8 +121,36 @@ func zip(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	// 在创建归档前检查全部源条目，避免通过父目录打包加密笔记本。
+	resolvedEntryPath, err := resolveArchivePath(entryAbsPath)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	if err = filepath.WalkDir(resolvedEntryPath, func(path string, _ fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		return rejectEncryptedArchivePath(path)
+	}); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
 
-	zipFile, err := gulu.Zip.Create(zipAbsFilePath)
+	resolvedZipPath, err := resolveArchivePath(zipAbsFilePath)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	if err = rejectEncryptedArchivePath(resolvedZipPath); err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	zipFile, err := gulu.Zip.Create(resolvedZipPath)
 	if err != nil {
 		logging.LogErrorf("create zip [%s] failed: %s", zipAbsFilePath, err)
 		ret.Code = -1
@@ -91,10 +159,10 @@ func zip(c *gin.Context) {
 	}
 
 	base := filepath.Base(entryAbsPath)
-	if gulu.File.IsDir(entryAbsPath) {
-		err = zipFile.AddDirectory(base, entryAbsPath)
+	if gulu.File.IsDir(resolvedEntryPath) {
+		err = zipFile.AddDirectory(base, resolvedEntryPath)
 	} else {
-		err = zipFile.AddEntry(base, entryAbsPath)
+		err = zipFile.AddEntry(base, resolvedEntryPath)
 	}
 	if err != nil {
 		logging.LogErrorf("zip add entry [%s] failed: %s", entryAbsPath, err)
@@ -156,10 +224,94 @@ func unzip(c *gin.Context) {
 		return
 	}
 
-	if err := gulu.Zip.Unzip(zipAbsFilePath, entryAbsPath); err != nil {
+	if err := unzipWorkspaceArchive(zipAbsFilePath, entryAbsPath); err != nil {
 		logging.LogErrorf("unzip [%s] -> [%s] failed: %s", zipAbsFilePath, entryAbsPath, err)
 		ret.Code = -1
 		ret.Msg = "unzip failed" + errMsgSeeKernelLog
 		return
 	}
+}
+
+// unzipWorkspaceArchive 先校验全部条目，阻止已知非法路径导致部分写入，再从同一个归档句柄解压。
+func unzipWorkspaceArchive(zipPath, destination string) error {
+	reader, err := archivezip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	paths := make([]string, len(reader.File))
+	for i, entry := range reader.File {
+		name := entry.Name
+		if !utf8.ValidString(name) {
+			if name, err = simplifiedchinese.GB18030.NewDecoder().String(name); err != nil {
+				return err
+			}
+		}
+		name = strings.ReplaceAll(name, "\\", "/")
+		if !filepath.IsLocal(filepath.FromSlash(name)) || entry.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("invalid archive entry [%s]", name)
+		}
+		paths[i] = filepath.Join(destination, filepath.FromSlash(name))
+		if err = validateArchiveEntryPath(destination, paths[i]); err != nil {
+			return err
+		}
+	}
+	for i, entry := range reader.File {
+		// 解压前再次检查已有符号链接和加密身份，不复用预检阶段的路径判定结果。
+		if err = validateArchiveEntryPath(destination, paths[i]); err != nil {
+			return err
+		}
+		if err = extractWorkspaceArchiveEntry(entry, paths[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateArchiveEntryPath(destination, entryPath string) error {
+	rel, err := filepath.Rel(destination, entryPath)
+	if err != nil || !filepath.IsLocal(rel) {
+		return fmt.Errorf("invalid archive entry path [%s]", entryPath)
+	}
+	resolved, err := resolveArchivePath(entryPath)
+	if err != nil {
+		return err
+	}
+	resolvedDestination, err := resolveArchivePath(destination)
+	if err != nil {
+		return err
+	}
+	rel, err = filepath.Rel(resolvedDestination, resolved)
+	if err != nil || !filepath.IsLocal(rel) {
+		return fmt.Errorf("archive entry resolves outside destination [%s]", entryPath)
+	}
+	return rejectEncryptedArchivePath(entryPath)
+}
+
+func extractWorkspaceArchiveEntry(entry *archivezip.File, destination string) error {
+	if entry.FileInfo().IsDir() {
+		return os.MkdirAll(destination, 0755)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+		return err
+	}
+	source, err := entry.Open()
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	target, err := os.Create(destination)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(target, source)
+	closeErr := target.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chtimes(destination, entry.Modified, entry.Modified)
 }

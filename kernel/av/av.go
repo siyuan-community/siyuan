@@ -197,6 +197,9 @@ type Key struct {
 	// 模板
 	Template string `json:"template"` // 模板内容
 
+	// 显示模板
+	RenderTemplate string `json:"renderTemplate,omitempty"` // 显示模板内容
+
 	// 关联
 	Relation *Relation `json:"relation,omitempty"` // 关联信息
 
@@ -510,7 +513,7 @@ type Viewable interface {
 func NewAttributeView(id string) (ret *AttributeView) {
 	view, blockKey, selectKey := NewTableViewWithBlockKey(ast.NewNodeID())
 	ret = &AttributeView{
-		Spec:              CurrentSpec,
+		Spec:              PlainTextSpec,
 		ID:                id,
 		KeyValues:         []*KeyValues{{Key: blockKey}, {Key: selectKey}},
 		Views:             []*View{view},
@@ -907,6 +910,9 @@ func parseAttributeViewByPathInBoxWithOptions(avJSONPath, boxID string, resolveC
 		err = CheckSpec(ret)
 	}
 	if nil == err {
+		err = ret.NormalizeRichText()
+	}
+	if nil == err {
 		if resolveColors {
 			ret.ResolveDirectColors()
 			cache.SetAVSearchDataInBox(avID, boxID, dataVersion, newAttributeViewSearchInfo(ret))
@@ -926,6 +932,11 @@ func SaveAttributeView(av *AttributeView) (err error) {
 			av.ResetCardCoverPositionChanges()
 		}
 	}()
+
+	if err = av.NormalizeRichText(); nil != err {
+		logging.LogErrorf("normalize attribute view [%s] rich text failed: %s", av.ID, err)
+		return
+	}
 
 	// 做一些数据兼容和订正处理
 	UpgradeSpec(av)
@@ -972,6 +983,7 @@ func SaveAttributeView(av *AttributeView) (err error) {
 	}
 
 	var data []byte
+	restoreRenderedContents := av.suspendRenderedContents()
 	restoreResolvedColors := av.suspendResolvedColors()
 	if util.UseSingleLineSave {
 		data, err = gulu.JSON.MarshalJSON(av)
@@ -979,6 +991,7 @@ func SaveAttributeView(av *AttributeView) (err error) {
 		data, err = gulu.JSON.MarshalIndentJSON(av, "", "\t")
 	}
 	restoreResolvedColors()
+	restoreRenderedContents()
 	if err != nil {
 		logging.LogErrorf("marshal attribute view [%s] failed: %s", av.ID, err)
 		return
@@ -1032,6 +1045,9 @@ func SaveAttributeView(av *AttributeView) (err error) {
 	}
 
 	cacheAttributeViewData(av, avBoxID, data)
+	if RichTextSpec <= av.Spec {
+		NotifyAttributeViewSaved(av.ID, avBoxID)
+	}
 
 	if util.ExceedLargeFileWarningSize(len(data)) {
 		msg := fmt.Sprintf(util.Langs[util.Lang][268], av.Name+" "+filepath.Base(avJSONPath), util.LargeFileWarningSize)
@@ -1329,14 +1345,16 @@ var (
 	ErrWrongLayoutType        = errors.New("wrong layout type")
 	ErrInvalidColumnAlign     = errors.New("invalid column align")
 	ErrSpecTooNew             = errors.New("attribute view spec is too new")
+	ErrRichTextSpecMismatch   = errors.New("attribute view rich text requires storage spec 9")
 	ErrFilterTooDeep          = errors.New("filter nesting depth exceeds the maximum allowed")
 )
 
 const (
-	NodeAttrNameAvs        = "custom-avs"                 // 用于标记块所属的属性视图，逗号分隔 av id
-	NodeAttrView           = "custom-sy-av-view"          // 用于标记块所属的属性视图视图 view id Database block support specified view https://github.com/siyuan-note/siyuan/issues/10443
-	NodeAttrVisibleViewIDs = "custom-sy-av-visible-views" // 用于标记数据库块显示的视图 ID，逗号分隔
-	NodeAttrViewStaticText = "custom-sy-av-s-text"        // 用于标记块所属的属性视图静态文本 Database-bound block primary key supports setting static anchor text https://github.com/siyuan-note/siyuan/issues/10049
+	NodeAttrNameAvs        = "custom-avs"                  // 用于标记块所属的属性视图，逗号分隔 av id
+	NodeAttrView           = "custom-sy-av-view"           // 用于标记块所属的属性视图视图 view id Database block support specified view https://github.com/siyuan-note/siyuan/issues/10443
+	NodeAttrVisibleViewIDs = "custom-sy-av-visible-views"  // 用于标记数据库块显示的视图 ID，逗号分隔
+	NodeAttrContextFilter  = "custom-sy-av-context-filter" // 用于保存数据库块独有的上下文筛选配置
+	NodeAttrViewStaticText = "custom-sy-av-s-text"         // 用于标记块所属的属性视图静态文本 Database-bound block primary key supports setting static anchor text https://github.com/siyuan-note/siyuan/issues/10049
 
 	NodeAttrViewNames = "av-names" // 用于临时标记块所属的属性视图名称，空格分隔
 )

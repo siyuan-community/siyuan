@@ -7,7 +7,7 @@ import {
     isUploadInsertPositionAvailable,
 } from "../upload/insertPosition";
 import {processPasteCode, processRender} from "./processCode";
-import {getLocalFiles, getTextSiyuanFromTextHTML, readText} from "./compatibility";
+import {getLocalFiles, getTextSiyuanFromTextHTML, readClipboard, readText} from "./compatibility";
 import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "./hasClosest";
 import {focusByOffset, getEditorRange, getSelectionOffset, getUndoFocusContext} from "./selection";
 import {blockRender} from "../render/blockRender";
@@ -22,9 +22,11 @@ import {avRender} from "../render/av/render";
 import {cellScrollIntoView, getCellText} from "../render/av/cell";
 import {fixAdjacentTags, getCalloutInfo, getContenteditableElement} from "../wysiwyg/getBlock";
 import {clearBlockElement} from "./clear";
+import {remapTabsDOMIDs, wrapPastedTabItems} from "./tabsCopy";
+import {getTabItems, getTabTitle} from "../render/tabsRender";
 import {removeZWJ} from "./normalizeText";
 import {base64ToURL, showBase64ImageSizeLimit} from "../upload/base64";
-import {applyHTMLLocalAssetPaths, collectHTMLLocalAssets} from "../upload/htmlLocalAssets";
+import {applyHTMLLocalAssetPaths, collectHTMLLocalAssets, getHTMLAssetSourceURL, removeHTMLLocalAssetPaths, resolveHTMLAssetURLs} from "../upload/htmlLocalAssets";
 import {
     applyHTMLEmbeddedAssetPaths,
     collectHTMLEmbeddedAssets,
@@ -55,7 +57,15 @@ import {
 } from "./wpsPresentation";
 import {hasDataTransferFiles} from "../upload/localDropFiles";
 import {resetPastedQueryEmbedRenderState} from "../render/embedRenderState";
+import {getHostCapabilities, sanitizeKernelHTML} from "../../util/hostCapabilities";
 import {eventBusHas, hasPluginSubscriber} from "../../plugin/EventBusCore";
+import {normalizeSemanticInlineElements, stripSemanticMarkersFromRangeText} from "./inlineElementMarker";
+import {
+    areProtylePluginExtensionsEnabled,
+    getProtyleBlockDOMSanitizer,
+    getProtyleRestrictedPlainTextHTML,
+    restoreProtyleLuteMarkdownSyntax,
+} from "../runtimeCapabilities";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
 /// #endif
@@ -116,6 +126,8 @@ export const getTextStar = (blockElement: HTMLElement, contentOnly = false) => {
         refText = window.siyuan.languages.video;
     } else if ("NodeAudio" === dataType) {
         refText = window.siyuan.languages.audio;
+    } else if ("NodeCustomBlock" === dataType) {
+        refText = blockElement.getAttribute("data-content") || window.siyuan.languages.custom;
     } else if (["NodeCodeBlock", "NodeTable"].includes(dataType)) {
         refText = getPlainText(blockElement);
     } else if (blockElement.classList.contains("render-node")) {
@@ -131,6 +143,11 @@ export const getTextStar = (blockElement: HTMLElement, contentOnly = false) => {
         });
     } else if ("NodeCallout" === dataType) {
         refText = getCalloutInfo(blockElement);
+    } else if ("NodeTabItem" === dataType) {
+        refText = getTabTitle(blockElement)?.innerHTML || "";
+    } else if ("NodeTabs" === dataType) {
+        const firstItem = getTabItems(blockElement)[0];
+        refText = firstItem ? getTextStar(firstItem, true) : "";
     }
     if (contentOnly) {
         return refText;
@@ -159,6 +176,8 @@ export const getPlainText = (blockElement: HTMLElement, isNested = false) => {
         text += blockElement.querySelector("video").getAttribute("src");
     } else if ("NodeAudio" === dataType) {
         text += blockElement.querySelector("audio").getAttribute("src");
+    } else if ("NodeCustomBlock" === dataType) {
+        text += blockElement.getAttribute("data-content") || "";
     } else if (blockElement.classList.contains("render-node")) {
         // 需在嵌入块后，代码块前
         text += Lute.UnEscapeHTMLStr(blockElement.getAttribute("data-content"));
@@ -174,9 +193,13 @@ export const getPlainText = (blockElement: HTMLElement, isNested = false) => {
             }
         });
         text = text.slice(0, -1);
-    } else if (!isNested && ["NodeBlockquote", "NodeCallout", "NodeList", "NodeSuperBlock", "NodeListItem"].includes(dataType)) {
+    } else if (dataType === "NodeTabItem" && isNested) {
+        text += getTabTitle(blockElement)?.textContent || "";
+    } else if (!isNested && ["NodeBlockquote", "NodeCallout", "NodeList", "NodeSuperBlock", "NodeListItem", "NodeTabs", "NodeTabItem"].includes(dataType)) {
         if (dataType === "NodeCallout") {
             text += `${getCalloutInfo(blockElement)}\n`;
+        } else if (dataType === "NodeTabItem") {
+            text += `${getTabTitle(blockElement)?.textContent || ""}\n`;
         }
         blockElement.querySelectorAll("[data-node-id]").forEach((item: HTMLElement) => {
             const nestedText = getPlainText(item, true);
@@ -270,15 +293,27 @@ export const pasteAsPlainText = async (protyle: IProtyle) => {
         textPlain = textPlain.replace(/__@kbd@__/g, "<kbd>").replace(/__@\/kbd@__/g, "</kbd>");
         textPlain = textPlain.replace(/__@u@__/g, "<u>").replace(/__@\/u@__/g, "</u>");
 
-        // 临界区：Lute 已是所有编辑器共享的单例，此处临时把 inline-syntax 标志置 true 再恢复。
-        // enable/transform/restore 必须保持同步执行，中间不得插入 await，否则并发编辑器的
-        // 转换调用（如实时输入的 SpinBlockDOM）会读到被改写的标志而产生错误输出。
+        // 转换期间临时启用行级语法，并在同步转换完成后按当前编辑器的运行时配置恢复。
+        // enable/transform/restore 之间不得插入 await，避免其他同步转换读取到临时配置。
         enableLuteMarkdownSyntax(protyle);
-        const content = protyle.lute.BlockDOM2EscapeMarkerContent(protyle.lute.Md2BlockDOM(textPlain));
-        restoreLuteMarkdownSyntax(protyle);
+        let content: string;
+        try {
+            content = protyle.lute.BlockDOM2EscapeMarkerContent(protyle.lute.Md2BlockDOM(textPlain));
+        } finally {
+            restoreLuteMarkdownSyntax(protyle);
+        }
 
         // insertHTML 会进行内部反转义
         insertHTML(content, protyle, false, false, true);
+    }
+};
+
+export const pasteAndKeepSourceFormat = async (protyle: IProtyle, target: HTMLElement) => {
+    try {
+        const data = await readClipboard();
+        await paste(protyle, {...data, target, preserveSourceFormat: true});
+    } catch (error) {
+        console.error(error);
     }
 };
 
@@ -293,11 +328,13 @@ export const enableLuteMarkdownSyntax = (protyle: IProtyle) => {
 };
 
 export const restoreLuteMarkdownSyntax = (protyle: IProtyle) => {
-    applyLuteMarkdownSyntax(protyle.lute, window.siyuan.config.editor.markdown);
+    restoreProtyleLuteMarkdownSyntax(protyle, (lute) => {
+        applyLuteMarkdownSyntax(lute, window.siyuan.config.editor.markdown);
+    });
 };
 
 const readLocalFile = async (protyle: IProtyle, localFiles: ILocalFiles[], options?: IUploadInsertOptions) => {
-    if (protyle && protyle.app && protyle.app.plugins && hasPluginSubscriber("paste")) {
+    if (areProtylePluginExtensionsEnabled(protyle) && protyle.app?.plugins && hasPluginSubscriber("paste")) {
         const plugins = Array.from(protyle.app.plugins);
         for (let i = 0; i < plugins.length; i++) {
             const plugin = plugins[i];
@@ -567,7 +604,7 @@ const insertConvertedBlockDOM = (protyle: IProtyle, dom: string, range: Range) =
     protyle.wysiwyg.element.querySelectorAll('[data-type~="block-ref"]').forEach(item => {
         if (item.textContent === "") {
             fetchPost("/api/block/getRefText", {id: item.getAttribute("data-id")}, (response) => {
-                item.innerHTML = response.data;
+                item.innerHTML = sanitizeKernelHTML(response.data);
             });
         }
     });
@@ -581,6 +618,7 @@ const insertConvertedBlockDOM = (protyle: IProtyle, dom: string, range: Range) =
 export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEvent | IClipboardData) & {
     target: HTMLElement
 }, uploadOptions?: IUploadInsertOptions) => {
+    const blockDOMSanitizer = getProtyleBlockDOMSanitizer(protyle);
     if ("clipboardData" in event || "dataTransfer" in event) {
         event.stopPropagation();
         event.preventDefault();
@@ -614,6 +652,7 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
     let wps = "";
     let wpsPresentation: IWPSPresentationClipboard | undefined;
     let officeListConverted = false;
+    const preserveSourceFormat = "preserveSourceFormat" in event && event.preserveSourceFormat === true;
     if ("clipboardData" in event) {
         textHTML = event.clipboardData.getData("text/html");
         textPlain = event.clipboardData.getData("text/plain");
@@ -636,7 +675,7 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
             files = event.dataTransfer.files;
         }
     } else {
-        if (event.localFiles?.length > 0) {
+        if (!blockDOMSanitizer && event.localFiles?.length > 0) {
             readLocalFile(protyle, event.localFiles, assetUploadOptions);
             return;
         }
@@ -644,6 +683,13 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         textPlain = event.textPlain;
         siyuanHTML = event.siyuanHTML;
         files = event.files;
+    }
+    if (blockDOMSanitizer) {
+        // 受限片段不解析外部 HTML 或文件；内部 BlockDOM 会在进入 DOM 前由专用白名单清洗。
+        textHTML = "";
+        files = [];
+        vscodeEditorData = "";
+        wpsPresentation = undefined;
     }
 
     // Improve the pasting of selected text in PDF rectangular annotation https://github.com/siyuan-note/siyuan/issues/11629
@@ -671,7 +717,8 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
             return;
         }
     }
-    if (!siyuanHTML && !textHTML && !textPlain && !wpsPresentation && ("clipboardData" in event)) {
+    if (!blockDOMSanitizer && !siyuanHTML && !textHTML && !textPlain && !wpsPresentation &&
+        ("clipboardData" in event)) {
         const localFiles: ILocalFiles[] = await getLocalFiles();
         if (!isPasteInsertPositionAvailable()) {
             return;
@@ -714,6 +761,8 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
     if (!siyuanHTML) {
         // process word
         const doc = new DOMParser().parseFromString(textHTML, "text/html");
+        // 在移除文档头之前解析来源，避免将网页根路径当成本地绝对路径。
+        resolveHTMLAssetURLs(doc, getHTMLAssetSourceURL(textHTML, doc.querySelector("base[href]")?.getAttribute("href")));
         if (doc.body && doc.body.innerHTML) {
             textHTML = doc.body.innerHTML;
         }
@@ -724,7 +773,7 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         textHTML = Lute.Sanitize(textHTML);
     }
 
-    if (protyle && protyle.app && protyle.app.plugins && hasPluginSubscriber("paste")) {
+    if (areProtylePluginExtensionsEnabled(protyle) && protyle.app?.plugins && hasPluginSubscriber("paste")) {
         const plugins = Array.from(protyle.app.plugins);
         for (let i = 0; i < plugins.length; i++) {
             const plugin = plugins[i];
@@ -798,6 +847,10 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         siyuanHTML = Lute.Sanitize(siyuanHTML);
     }
 
+    if (blockDOMSanitizer) {
+        siyuanHTML = siyuanHTML ? blockDOMSanitizer(siyuanHTML) : "";
+    }
+
     if (!siyuanHTML && textHTML) {
         const officeList = convertOfficeLists(textHTML);
         textHTML = officeList.html;
@@ -835,6 +888,13 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
     protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl").forEach(item => {
         item.classList.remove("protyle-wysiwyg--hl");
     });
+    if (blockDOMSanitizer && !siyuanHTML) {
+        const plainHTML = getProtyleRestrictedPlainTextHTML(removeZWJ(textPlain));
+        if (plainHTML) {
+            insertAtPasteRange(plainHTML, range);
+        }
+        return;
+    }
     const code = processPasteCode(textHTML, textPlain, originalTextHTML, protyle);
     if (nodeElement.getAttribute("data-type") === "NodeCodeBlock" ||
         protyle.toolbar.getCurrentType(range).includes("code")) {
@@ -872,6 +932,7 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         } else {
             tempElement.innerHTML = siyuanHTML;
         }
+        normalizeSemanticInlineElements(tempElement);
         const preservePastedBlockStructure = shouldPreservePastedBlockStructure(tempElement.children);
         const startRangeBlockElement = hasClosestBlock(range.startContainer);
         const endRangeBlockElement = hasClosestBlock(range.endContainer);
@@ -891,7 +952,8 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 return;
             }
         }
-        if (range.toString() && startRangeBlockElement === endRangeBlockElement) {
+        const selectedText = stripSemanticMarkersFromRangeText(range).split(Constants.ZWSP).join("");
+        if (selectedText && startRangeBlockElement === endRangeBlockElement) {
             let types: string[] = [];
             let linkElement: HTMLElement;
             if (tempElement.childNodes.length === 1 && tempElement.childElementCount === 1) {
@@ -918,7 +980,7 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 protyle.toolbar.range = range;
                 const refElement = protyle.toolbar.setInlineMark(protyle, "block-ref", "range", {
                     type: "id",
-                    color: `${linkElement.dataset.id}${Constants.ZWSP}s${Constants.ZWSP}${range.toString()}`
+                    color: `${linkElement.dataset.id}${Constants.ZWSP}s${Constants.ZWSP}${selectedText}`
                 });
                 if (refElement[0]) {
                     protyle.toolbar.range.selectNodeContents(refElement[0]);
@@ -929,12 +991,13 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 protyle.toolbar.range = range;
                 protyle.toolbar.setInlineMark(protyle, "a", "range", {
                     type: "a",
-                    color: `${linkElement.dataset.href}${Constants.ZWSP}${range.toString()}`
+                    color: `${linkElement.dataset.href}${Constants.ZWSP}${selectedText}`
                 });
                 return;
             }
         }
         resetPastedQueryEmbedRenderState(tempElement);
+        wrapPastedTabItems(tempElement, protyle.lute);
         let isBlock = false;
         const pastedBlockElements = tempElement.querySelectorAll("[data-node-id]");
         if (pastedBlockElements.length > 0) {
@@ -950,6 +1013,7 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
             if (!range) {
                 return;
             }
+            const pastedIDs = new Map<string, string>();
             pastedBlockElements.forEach((e) => {
                 const originalId = e.getAttribute("data-node-id");
                 const isCutPaste = existResponse.data[originalId] === false; // 剪切来的（原块已删）
@@ -957,8 +1021,10 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                     // 复制粘贴：生成新 ID
                     e.setAttribute("data-node-id", Lute.NewNodeID());
                 }
+                pastedIDs.set(originalId, e.getAttribute("data-node-id"));
                 clearBlockElement(e, isCutPaste); // 剪切粘贴保留引用角标
             });
+            remapTabsDOMIDs(tempElement, pastedIDs);
             const updated = dayjs().format("YYYYMMDDHHmmss");
             pastedBlockElements.forEach((e) => {
                 e.setAttribute("updated", updated);
@@ -1069,7 +1135,13 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
             }
 
             const textHTMLLowercase = textHTML.toLowerCase();
+            // 文本样式也是富文本信息，不能因为包含多个换行而退回纯文本粘贴。
+            const hasTextStyles = !!tempDiv.querySelector("small, font[color], font[face], font[size]") ||
+                Array.from(tempDiv.querySelectorAll<HTMLElement>("[style]")).some(element =>
+                    ["color", "background-color", "font-family", "font-size"].some(property =>
+                        element.style.getPropertyValue(property) !== ""));
             if (textPlain && "" !== textPlain.trim() && (textHTML.startsWith("<span") || textHTML.startsWith("<br")) && containsNewlines &&
+                !hasTextStyles &&
                 (0 > textHTMLLowercase.indexOf("class=\"katex") && 0 > textHTMLLowercase.indexOf("class=\"math") &&
                     0 > textHTMLLowercase.indexOf("</a>") && 0 > textHTMLLowercase.indexOf("</img>") && 0 > textHTMLLowercase.indexOf("</code>") &&
                     0 > textHTMLLowercase.indexOf("</b>") && 0 > textHTMLLowercase.indexOf("</strong>") &&
@@ -1094,6 +1166,9 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         if (isHTML) {
             const tempElement = document.createElement("div");
             tempElement.innerHTML = textHTML;
+            if (!getHostCapabilities().localFileSystem) {
+                removeHTMLLocalAssetPaths(collectHTMLLocalAssets(tempElement));
+            }
             // 移除空的 A 标签
             tempElement.querySelectorAll("a").forEach((e) => {
                 if (e.innerHTML.trim() === "") {
@@ -1112,8 +1187,8 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                     linkElement = tempElement.firstElementChild.firstElementChild;
                 }
             }
-            if (linkElement) {
-                const selectText = range.toString();
+            if (linkElement?.getAttribute("href")) {
+                const selectText = stripSemanticMarkersFromRangeText(range).split(Constants.ZWSP).join("");
                 protyle.toolbar.range = range;
                 const aElements = protyle.toolbar.setInlineMark(protyle, "a", "range", {
                     type: "a",
@@ -1140,6 +1215,7 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 office,
                 officeMathHTML,
                 wps,
+                preserveSourceFormat,
             };
             if (localAssets.length > 0 || hasHTMLEmbeddedAssets(tempElement)) {
                 try {
@@ -1197,6 +1273,10 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                 }
                 tempElement.innerHTML = preflight.normalizedHTML;
                 localAssets = collectHTMLLocalAssets(tempElement);
+                if (!getHostCapabilities().localFileSystem) {
+                    removeHTMLLocalAssetPaths(localAssets);
+                    localAssets = [];
+                }
                 preparedHTML = true;
             }
             if (localAssets.length > 0) {
@@ -1282,14 +1362,15 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
             uploadFiles(protyle, files, undefined, undefined, undefined, assetUploadOptions);
             return;
         } else if (textPlain.trim() !== "" && (files && files.length === 0 || !files)) {
-            if (range.toString() !== "") {
+            const selectedText = stripSemanticMarkersFromRangeText(range).split(Constants.ZWSP).join("");
+            if (selectedText !== "") {
                 const firstLine = textPlain.split("\n")[0];
                 if (isDynamicRef(textPlain)) {
                     protyle.toolbar.range = range;
                     const refElement = protyle.toolbar.setInlineMark(protyle, "block-ref", "range", {
                         type: "id",
                         // range 不能 escape，否则 https://github.com/siyuan-note/siyuan/issues/8359
-                        color: `${textPlain.substring(2, 22 + 2)}${Constants.ZWSP}s${Constants.ZWSP}${range.toString()}`
+                        color: `${textPlain.substring(2, 22 + 2)}${Constants.ZWSP}s${Constants.ZWSP}${selectedText}`
                     });
                     if (refElement[0]) {
                         protyle.toolbar.range.selectNodeContents(refElement[0]);

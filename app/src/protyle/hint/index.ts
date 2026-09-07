@@ -71,6 +71,8 @@ import {
 import {getMobileHintPosition} from "./mobileHintPosition";
 import {getVisibleViewportBounds} from "../../mobile/util/visibleViewport";
 import {getTopBarHeight} from "../../layout/getTopBarHeight";
+import {stripSemanticMarkersFromRangeText} from "../util/inlineElementMarker";
+import {areProtylePluginExtensionsEnabled} from "../runtimeCapabilities";
 
 const genEmojiInsertHTML = (value: string) => {
     const kind = getIconValueKind(value);
@@ -350,7 +352,30 @@ export class Hint {
             Constants.BLOCK_HINT_CLOSE_KEYS[this.splitChar], Constants.SIZE_TITLE);
     }
 
-    private setMobilePosition(anchorTop: number, anchorBottom: number) {
+    private getMobileSelectionTop(protyle: IProtyle) {
+        const range = getEditorRange(protyle.wysiwyg.element);
+        const position = getSelectionPosition(protyle.wysiwyg.element, range);
+        if (range.startContainer.nodeType === 3 && range.startContainer.textContent.length > 0) {
+            const textLength = range.startContainer.textContent.length;
+            const offset = Math.min(range.startOffset, textLength);
+            const textRange = range.cloneRange();
+            if (offset > 0) {
+                textRange.setStart(range.startContainer, offset - 1);
+                textRange.setEnd(range.startContainer, offset);
+            } else {
+                textRange.setStart(range.startContainer, 0);
+                textRange.setEnd(range.startContainer, 1);
+            }
+            const rects = textRange.getClientRects();
+            const rect = rects[rects.length - 1];
+            if (rect?.height > 0) {
+                return rect.top;
+            }
+        }
+        return position.top;
+    }
+
+    private setMobilePosition(anchorTop: number) {
         const viewportBounds = getVisibleViewportBounds();
         const viewportTop = Math.max(viewportBounds.top, getTopBarHeight());
         let viewportBottom = viewportBounds.bottom;
@@ -359,12 +384,16 @@ export class Hint {
             viewportBottom = Math.min(viewportBottom, keyboardToolbarElement.getBoundingClientRect().top);
         }
         viewportBottom = Math.max(viewportTop, viewportBottom);
-        const heightLimit = (viewportBottom - viewportTop) / 2;
-        let position = getMobileHintPosition(anchorTop, anchorBottom, this.element.scrollHeight,
-            viewportTop, viewportBottom, heightLimit);
-        this.element.style.maxHeight = `${position.maxHeight}px`;
-        position = getMobileHintPosition(anchorTop, anchorBottom, this.element.getBoundingClientRect().height,
-            viewportTop, viewportBottom, heightLimit);
+        const heightLimit = (viewportBottom - viewportTop) / 3;
+        const gap = 8;
+        let position = getMobileHintPosition(anchorTop, this.element.scrollHeight, viewportTop, viewportBottom,
+            heightLimit, gap);
+        const hintStyle = getComputedStyle(this.element);
+        const verticalInset = parseFloat(hintStyle.paddingTop) + parseFloat(hintStyle.paddingBottom) +
+            parseFloat(hintStyle.borderTopWidth) + parseFloat(hintStyle.borderBottomWidth);
+        this.element.style.maxHeight = `${Math.max(0, position.maxHeight - verticalInset)}px`;
+        position = getMobileHintPosition(anchorTop, this.element.getBoundingClientRect().height, viewportTop,
+            viewportBottom, heightLimit, gap);
         this.element.style.left = "0";
         this.element.style.top = `${position.top}px`;
     }
@@ -381,7 +410,7 @@ export class Hint {
                     /// #if !MOBILE
                     setPosition(this.element, cellRect.left, cellRect.bottom, cellRect.height);
                     /// #else
-                    this.setMobilePosition(cellRect.top, cellRect.bottom);
+                    this.setMobilePosition(cellRect.top);
                     /// #endif
                 }
             } else {
@@ -389,7 +418,7 @@ export class Hint {
                 /// #if !MOBILE
                 setPosition(this.element, textareaPosition.left, textareaPosition.top + 26, 30);
                 /// #else
-                this.setMobilePosition(textareaPosition.top, textareaPosition.top + 26);
+                this.setMobilePosition(this.getMobileSelectionTop(protyle));
                 /// #endif
             }
         } else if (!this.element.querySelector(".fn__loading")) {
@@ -478,7 +507,7 @@ export class Hint {
                 /// #if !MOBILE
                 setPosition(this.element, cellRect.left, cellRect.bottom, cellRect.height);
                 /// #else
-                this.setMobilePosition(cellRect.top, cellRect.bottom);
+                this.setMobilePosition(cellRect.top);
                 /// #endif
             }
         } else {
@@ -486,7 +515,7 @@ export class Hint {
             /// #if !MOBILE
             setPosition(this.element, textareaPosition.left, textareaPosition.top + 26, 30);
             /// #else
-            this.setMobilePosition(textareaPosition.top, textareaPosition.top + 26);
+            this.setMobilePosition(this.getMobileSelectionTop(protyle));
             /// #endif
         }
         this.element.scrollTop = 0;
@@ -795,7 +824,7 @@ ${genHintItemHTML(item)}
             tempElement.innerHTML = value.replace(/<mark>/g, "").replace(/<\/mark>/g, "");
             tempElement = tempElement.firstElementChild as HTMLDivElement;
             if (refIsS) {
-                const selectedText = range.toString();
+                const selectedText = stripSemanticMarkersFromRangeText(range).split(Constants.ZWSP).join("");
                 const staticText = getBlockRefStaticText(selectedText, this.splitChar, this.lastIndex > -1);
                 if (staticText) {
                     tempElement.setAttribute("data-subtype", "s");
@@ -934,7 +963,7 @@ ${genHintItemHTML(item)}
                 nodeElement.setAttribute("style", value.split(Constants.ZWSP)[1] || "");
                 updateTransaction(protyle, nodeElement, html);
                 return;
-            } else if (value.startsWith("plugin")) {
+            } else if (value.startsWith("plugin") && areProtylePluginExtensionsEnabled(protyle)) {
                 protyle.app.plugins.find((plugin) => {
                     const ids = value.split(Constants.ZWSP);
                     if (ids[1] === plugin.name) {

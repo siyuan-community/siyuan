@@ -1,9 +1,12 @@
+import {isHiddenTabContent} from "../render/tabsVisibility";
+import {captureTabsRemoval} from "./tabsRemoval";
 import {
     focusBlock,
     focusByOffset,
     focusByRange,
     focusByWbr,
     getBlockRanges,
+    getEditorRange,
     getSelectionOffset,
     getUndoFocusContext,
     restoreFocusContext,
@@ -24,7 +27,8 @@ import {
     getTopEmptyElement,
     hasNextSibling,
     hasPreviousSibling,
-    IEmbedChildOperationContext
+    IEmbedChildOperationContext,
+    isNotEditBlock
 } from "./getBlock";
 import {transaction, turnsIntoOneTransaction, turnsIntoTransaction, updateTransaction} from "./transaction";
 import {cancelSB, genEmptyElement, rebalanceSbWidth, refreshSbResize} from "../../block/util";
@@ -70,6 +74,22 @@ import {
 import {confirmBlockRef} from "../../util/checkBlockRef";
 import {input} from "./input";
 import {isWindows} from "../util/compatibility";
+import {
+    BLOCK_SELECTION_MODE_CLASS,
+    BLOCK_SELECTION_CLASS,
+    getBlockSelectionModeElement,
+    getBlockSelectionStatusIDs,
+    getDeleteSelectionCandidate,
+    setBlockSelectionModeElement
+} from "./blockSelection";
+import {countBlockWord} from "../../layout/status";
+import {
+    getSemanticInlineVisibleText,
+    getTextWithoutSemanticMarkers,
+    hasSemanticInlineType,
+    normalizeSemanticInlineElements,
+    removeSemanticInlineExternalBoundaries
+} from "../util/inlineElementMarker";
 
 export interface IBlockRefCheckTargets {
     elements: HTMLElement[];
@@ -93,7 +113,7 @@ export interface ICrossBlockComposition {
 }
 
 const hasMeaningfulContent = (element: Element) => {
-    const text = (element.textContent || "").replace(new RegExp(Constants.ZWSP, "g"), "").trim();
+    const text = getTextWithoutSemanticMarkers(element).split(Constants.ZWSP).join("").trim();
     return text !== "" || !!element.querySelector(".img, .emoji, [data-type~='inline-math']");
 };
 
@@ -149,7 +169,8 @@ const getCrossBlockRemovalContext = (editorElement: HTMLElement, selectedRange: 
     selectedRange.cloneContents().querySelectorAll<HTMLElement>("[data-node-id]").forEach(item => {
         const element = editorElement.querySelector<HTMLElement>(`[data-node-id="${item.getAttribute("data-node-id")}"]`);
         if (!element || selectedElements.includes(element) || element === rangeStartElement || element === endElement ||
-            element.contains(rangeStartElement) || element.contains(endElement) || isInEmbedBlock(element)) {
+            element.contains(rangeStartElement) || element.contains(endElement) || isInEmbedBlock(element) ||
+            isHiddenTabContent(element) || element.matches(".tabs, .tab-item") || element.querySelector(".tabs")) {
             return;
         }
         const elementRange = document.createRange();
@@ -180,7 +201,8 @@ const getCrossBlockRemovalContext = (editorElement: HTMLElement, selectedRange: 
     let mergeEndElement: Element;
     const siblingListItemMergeContext = getCrossBlockSiblingListItemMergeContext(
         editorElement, rangeStartElement, endElement);
-    const endAction = handleEndElement && rangeStartElement !== endElement && startEditableElement && endBlockRange ?
+    const sameTab = rangeStartElement.closest(".tab-item") === endElement.closest(".tab-item");
+    const endAction = sameTab && handleEndElement && rangeStartElement !== endElement && startEditableElement && endBlockRange ?
         getCrossBlockEndAction(
             rangeStartElement.getAttribute("data-type"),
             endElement.getAttribute("data-type"),
@@ -226,7 +248,7 @@ const getCrossBlockRemovalPlan = (editorElement: HTMLElement, selectedRange: Ran
                                    handleEndElement = true, replacement = false) => {
     const context = getCrossBlockRemovalContext(
         editorElement, selectedRange, startElement, endElement, handleEndElement);
-    if (!handleEndElement) {
+    if (!handleEndElement || startElement.closest(".tab-item") !== endElement.closest(".tab-item")) {
         return {
             ...context,
             nestedListMergeContext: undefined,
@@ -378,12 +400,22 @@ const deleteCrossBlockRangeContents = (rangesByBlock: ReturnType<typeof getCross
                 }
             });
             boundarySpans.forEach(spanElement => {
-                if (spanElement.isConnected && spanElement.textContent === "" && !spanElement.querySelector("img")) {
+                const isSemanticInline = hasSemanticInlineType(spanElement.getAttribute("data-type"));
+                const isEmpty = isSemanticInline ?
+                    getSemanticInlineVisibleText(spanElement) === "" : spanElement.textContent === "";
+                if (spanElement.isConnected && isEmpty && !spanElement.querySelector("img")) {
+                    if (isSemanticInline) {
+                        removeSemanticInlineExternalBoundaries(spanElement);
+                    }
                     spanElement.remove();
                 }
             });
-            fixAdjacentTags(item.editableElement);
         });
+        const editableElement = blockRanges[0]?.editableElement;
+        if (editableElement?.isConnected) {
+            fixAdjacentTags(editableElement);
+            normalizeSemanticInlineElements(editableElement);
+        }
     });
 };
 
@@ -799,8 +831,14 @@ export const removeCrossBlockRange = async (protyle: IProtyle, selectedRange: Ra
         }
         startEditableElement.normalize();
         fixAdjacentTags(startEditableElement);
+        normalizeSemanticInlineElements(startEditableElement);
     }
     removeElements.forEach(item => item.remove());
+    updateElements.forEach(item => {
+        if (item.isConnected) {
+            normalizeSemanticInlineElements(item);
+        }
+    });
 
     const firstRange = ranges.find(item => item.editableElement.isConnected);
     let replacementRange: Range;
@@ -821,6 +859,15 @@ export const removeCrossBlockRange = async (protyle: IProtyle, selectedRange: Ra
         action: "delete",
         id: item.getAttribute("data-node-id")
     }));
+    editorElement.querySelectorAll<HTMLElement>(".tab-item-content").forEach(content => {
+        if (!content.querySelector(":scope > [data-node-id]")) {
+            const paragraph = genEmptyElement(false, false);
+            content.appendChild(paragraph);
+            doOperations.push({action: "insert", id: paragraph.dataset.nodeId,
+                parentID: content.parentElement.dataset.nodeId, data: paragraph.outerHTML});
+            undoOperations.push({action: "delete", id: paragraph.dataset.nodeId});
+        }
+    });
     if (nestedListMergeContext?.newListParentElement) {
         doOperations.push({
             action: "insert",
@@ -960,7 +1007,9 @@ export const removeCrossBlockRange = async (protyle: IProtyle, selectedRange: Ra
 };
 
 export const removeBlock = async (protyle: IProtyle, blockElement: Element, range: Range,
-                                  type: "Delete" | "Backspace" | "remove", skipRefCheck = false) => {
+                                  type: "Delete" | "Backspace" | "remove", skipRefCheck = false,
+                                  restoreSelectionModeAfterZoom = false,
+                                  undoFocusContext?: Record<string, string>) => {
     const selectElements = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
     if (selectElements?.length > 0) {
         const selectedTopElement = selectElements.length === 1 ? getTopAloneElement(selectElements[0]) : undefined;
@@ -1045,25 +1094,18 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         preventScroll(protyle);
         const deletes: IOperation[] = [];
         const inserts: IOperation[] = [];
-        let sideElement: Element | boolean;
-        let sideIsNext = false;
-        if (type === "Backspace") {
-            sideElement = getPreviousBlockSibling(selectElements[0]);
-            if (!sideElement) {
-                sideIsNext = true;
-                sideElement = selectElements[selectElements.length - 1].nextElementSibling;
-            }
-        } else {
-            sideElement = selectElements[selectElements.length - 1].nextElementSibling;
-            sideIsNext = true;
-            if (!sideElement) {
-                sideIsNext = false;
-                sideElement = getPreviousBlockSibling(selectElements[0]);
-            }
+        const candidateElements = Array.from(new Set(selectElements.map(item => getTopAloneElement(item))));
+        const tabsRemoval = captureTabsRemoval(candidateElements);
+        const selectionCandidate = getDeleteSelectionCandidate(candidateElements, type,
+            getPreviousBlock, getNextBlock);
+        let sideElement = selectionCandidate?.element;
+        let sideIsNext = selectionCandidate?.side === "after";
+        if (!sideElement && !protyle.options.backlinkData) {
+            sideElement = protyle.wysiwyg.element;
+            sideIsNext = false;
         }
-        let listElement: Element;
-        let listStart: number | undefined;
-        let topParentElement: Element;
+        const orderedLists = new Map<Element, number | undefined>();
+        const superBlockParents = new Map<Element, Set<string>>();
         hideElements(["select"], protyle);
         const unfoldData: {
             [key: string]: {
@@ -1072,32 +1114,19 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
             }
         } = {};
         for (let i = 0; i < selectElements.length; i++) {
-            const item = selectElements[i];
-            const topElement = getTopAloneElement(item);
-            topParentElement = topElement.parentElement;
+            const topElement = getTopAloneElement(selectElements[i]);
+            const topParentElement = topElement.parentElement;
+            if (topParentElement?.getAttribute("data-type") === "NodeSuperBlock") {
+                if (!superBlockParents.has(topParentElement)) {
+                    superBlockParents.set(topParentElement, new Set());
+                }
+                superBlockParents.get(topParentElement).add(topElement.getAttribute("data-node-id"));
+            }
             const id = topElement.getAttribute("data-node-id");
             deletes.push({
                 action: "delete",
                 id,
             });
-            if (type === "Backspace") {
-                sideElement = getPreviousBlock(topElement);
-                if (!sideElement) {
-                    sideIsNext = true;
-                    sideElement = getNextBlock(topElement);
-                }
-            } else {
-                sideElement = getNextBlock(topElement);
-                sideIsNext = true;
-                if (!sideElement) {
-                    sideIsNext = false;
-                    sideElement = getPreviousBlock(topElement);
-                }
-            }
-            if (!sideElement && !protyle.options.backlinkData) {
-                sideElement = topElement.parentElement || protyle.wysiwyg.element.firstElementChild;
-                sideIsNext = false;
-            }
             if (topElement.getAttribute("data-type") === "NodeHeading" && topElement.getAttribute("fold") === "1") {
                 const foldTransaction = foldTransactions.get(id) || await fetchSyncPost("/api/block/getHeadingDeleteTransaction", {id});
                 deletes.push(...foldTransaction.data.doOperations.slice(1));
@@ -1161,13 +1190,9 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                     parentID: getOperationParentID(topElement, protyle.block.parentID)
                 });
                 if (topElement.getAttribute("data-subtype") === "o" && topElement.classList.contains("li")) {
-                    if (listElement !== topElement.parentElement) {
-                        listElement = topElement.parentElement;
-                        listStart = getOrderedListStart(listElement);
+                    if (!orderedLists.has(topElement.parentElement)) {
+                        orderedLists.set(topElement.parentElement, getOrderedListStart(topElement.parentElement));
                     }
-                } else {
-                    listElement = undefined;
-                    listStart = undefined;
                 }
                 // https://github.com/siyuan-note/siyuan/issues/12327
                 if (topElement.parentElement.classList.contains("li") && topElement.parentElement.childElementCount === 4 &&
@@ -1180,6 +1205,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                 ensureListItemContentBlock(topParentElement, deletes, inserts);
             }
         }
+        tabsRemoval.normalize();
         Object.keys(unfoldData).forEach(item => {
             const foldOperations = setFold(protyle, unfoldData[item].element, true, false, false, true);
             deletes.push(...foldOperations.doOperations);
@@ -1187,13 +1213,29 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         });
         if (sideElement) {
             if (protyle.block.showAll && sideElement.classList.contains("protyle-wysiwyg") && protyle.wysiwyg.element.childElementCount === 0) {
+                const focusID = protyle.block.parent2ID;
                 setTimeout(() => {
-                    if (document.contains(protyle.element)) {
-                        zoomOut({protyle, id: protyle.block.parent2ID, focusId: protyle.block.parent2ID});
+                    if (document.contains(protyle.element) && protyle.wysiwyg.element.childElementCount === 0) {
+                        zoomOut({
+                            protyle,
+                            id: focusID,
+                            focusId: focusID,
+                            callback: restoreSelectionModeAfterZoom ? () => {
+                                const targetElement = protyle.wysiwyg.element.querySelector<HTMLElement>(
+                                    `[data-node-id="${focusID}"]`) ||
+                                    protyle.wysiwyg.element.querySelector<HTMLElement>("[data-node-id]");
+                                if (targetElement) {
+                                    setBlockSelectionModeElement(protyle.wysiwyg.element, targetElement);
+                                    focusBlock(targetElement);
+                                    countBlockWord(getBlockSelectionStatusIDs(protyle.wysiwyg.element),
+                                        protyle);
+                                }
+                            } : undefined,
+                        });
                     }
                 }, Constants.TIMEOUT_INPUT * 2 + 100);
             } else {
-                if ((sideElement.classList.contains("protyle-wysiwyg") && protyle.wysiwyg.element.childElementCount === 0)) {
+                if (sideElement.classList.contains("protyle-wysiwyg") && protyle.wysiwyg.element.childElementCount === 0) {
                     const newID = Lute.NewNodeID();
                     const emptyElement = genEmptyElement(false, true, newID);
                     sideElement.insertAdjacentElement("afterbegin", emptyElement);
@@ -1213,59 +1255,105 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                 // https://github.com/siyuan-note/siyuan/issues/5485
                 // https://github.com/siyuan-note/siyuan/issues/10389
                 // https://github.com/siyuan-note/siyuan/issues/10899
-                if (type !== "Backspace" && sideIsNext) {
-                    focusBlock(sideElement as Element);
-                } else {
-                    focusBlock(sideElement as Element, undefined, false);
-                }
-                scrollCenter(protyle, sideElement as Element);
-                if (listElement) {
-                    inserts.push({
-                        action: "update",
-                        id: listElement.getAttribute("data-node-id"),
-                        data: listElement.outerHTML
-                    });
-                    listElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
-                    updateListOrder(listElement, listStart);
-                    deletes.push({
-                        action: "update",
-                        id: listElement.getAttribute("data-node-id"),
-                        data: listElement.outerHTML
-                    });
+                if (sideElement) {
+                    if (type !== "Backspace" && sideIsNext) {
+                        focusBlock(sideElement);
+                    } else {
+                        focusBlock(sideElement, undefined, false);
+                    }
+                    scrollCenter(protyle, sideElement);
                 }
             }
         }
+        orderedLists.forEach((listStart, listElement) => {
+            if (!listElement.isConnected) {
+                return;
+            }
+            inserts.push({
+                action: "update",
+                id: listElement.getAttribute("data-node-id"),
+                data: listElement.outerHTML
+            });
+            listElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
+            updateListOrder(listElement, listStart);
+            deletes.push({
+                action: "update",
+                id: listElement.getAttribute("data-node-id"),
+                data: listElement.outerHTML
+            });
+        });
         if (focusedOrderOperations) {
             deletes.push(...focusedOrderOperations.doOperations);
             inserts.splice(0, 0, ...focusedOrderOperations.undoOperations);
         }
         if (deletes.length > 0) {
-            if (topParentElement && topParentElement.getAttribute("data-type") === "NodeSuperBlock" && getSbChildBlockCount(topParentElement) === 1) {
-                const sbData = await cancelSB(protyle, topParentElement, range);
-                transaction(protyle, deletes.concat(sbData.doOperations), sbData.undoOperations.concat(inserts.reverse()));
-            } else {
-                // 超级块删除子块后剩余多个子块时，刷新拖拽手柄（被删块两侧手柄需移除/重建）
-                if (topParentElement && topParentElement.getAttribute("data-type") === "NodeSuperBlock") {
-                    refreshSbResize(topParentElement);
-                    const widthChanges = rebalanceSbWidth(topParentElement);
+            const getElementDepth = (element: Element) => {
+                let depth = 0;
+                let parentElement = element.parentElement;
+                while (parentElement) {
+                    depth++;
+                    parentElement = parentElement.parentElement;
+                }
+                return depth;
+            };
+            const parentUndoOperationGroups: IOperation[][] = [];
+            const childReplacements = new Map<string, {
+                childIDs: string[],
+                foldedHeadingIDs: string[]
+            }>();
+            const sortedSuperBlocks = Array.from(superBlockParents.entries())
+                .sort(([first], [second]) => getElementDepth(second) - getElementDepth(first));
+            for (const [superBlock, excludedChildIDs] of sortedSuperBlocks) {
+                if (!superBlock.isConnected) {
+                    continue;
+                }
+                if (getSbChildBlockCount(superBlock) === 1) {
+                    const sbData = await cancelSB(protyle, superBlock, undefined, excludedChildIDs,
+                        childReplacements);
+                    deletes.push(...sbData.doOperations);
+                    parentUndoOperationGroups.push(sbData.undoOperations);
+                    if (sbData.doOperations.length > 0) {
+                        childReplacements.set(superBlock.getAttribute("data-node-id"), {
+                            childIDs: sbData.childIDs || [],
+                            foldedHeadingIDs: sbData.foldedHeadingIDs || [],
+                        });
+                    }
+                } else {
+                    // 超级块删除子块后剩余多个子块时，刷新拖拽手柄（被删块两侧手柄需移除/重建）
+                    refreshSbResize(superBlock);
+                    const widthChanges = rebalanceSbWidth(superBlock);
+                    const widthUndoOperations: IOperation[] = [];
                     widthChanges.forEach(change => {
-                        const targetEl = topParentElement.querySelector(`[data-node-id="${change.id}"]`);
+                        const targetEl = superBlock.querySelector(`[data-node-id="${change.id}"]`);
                         if (targetEl) {
                             deletes.push({
                                 action: "setAttrs",
                                 id: change.id,
                                 data: JSON.stringify({style: targetEl.getAttribute("style") || ""})
                             });
-                            inserts.push({
+                            widthUndoOperations.push({
                                 action: "setAttrs",
                                 id: change.id,
                                 data: JSON.stringify({style: change.oldStyle})
                             });
                         }
                     });
+                    if (widthUndoOperations.length > 0) {
+                        parentUndoOperationGroups.push(widthUndoOperations);
+                    }
                 }
-                transaction(protyle, deletes, inserts.reverse());
             }
+            if (sideElement?.isConnected && protyle.wysiwyg.element.contains(sideElement)) {
+                if (type !== "Backspace" && sideIsNext) {
+                    focusBlock(sideElement);
+                } else {
+                    focusBlock(sideElement, undefined, false);
+                }
+                scrollCenter(protyle, sideElement);
+            }
+            const parentUndoOperations = parentUndoOperationGroups.reverse().flat();
+            const tabOperations = tabsRemoval.operations(deletes, parentUndoOperations.concat(inserts.reverse()));
+            transaction(protyle, tabOperations.doOperations, tabOperations.undoOperations);
         }
 
         hideElements(["util"], protyle);
@@ -1475,7 +1563,8 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
     }
 
     if (!previousElement) {
-        if (protyle.wysiwyg.element.childElementCount > 1 && getContenteditableElement(blockElement).textContent === "") {
+        if (protyle.wysiwyg.element.childElementCount > 1 &&
+            getContenteditableElement(blockElement)?.textContent === "") {
             focusBlock(protyle.wysiwyg.element.firstElementChild.nextElementSibling);
             // 列表项中包含超级块时需要到顶层
             const topElement = getTopAloneElement(blockElement);
@@ -1499,7 +1588,8 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
     const parentElement = hasClosestBlock(getParentBlock(blockElement));
     const editableElement = getContenteditableElement(blockElement);
     let previousLastElement = getLastBlock(previousElement) as HTMLElement;
-    if (range.toString() === "" && isMobile() && previousLastElement && previousLastElement.classList.contains("hr") && getSelectionOffset(editableElement).start === 0) {
+    if (range.toString() === "" && isMobile() && previousLastElement &&
+        previousLastElement.classList.contains("hr") && editableElement && getSelectionOffset(editableElement).start === 0) {
         if (!await confirmRefRemoval(protyle,
             [previousLastElement.getAttribute("data-node-id")], [previousLastElement])) {
             return;
@@ -1517,13 +1607,20 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         previousLastElement.remove();
         return;
     }
+    if (!editableElement) {
+        if (!focusByWbr(protyle.wysiwyg.element, range)) {
+            focusBlock(previousLastElement, undefined, false);
+        }
+        return;
+    }
     const isSelectNode = previousLastElement && (
         previousLastElement.classList.contains("table") ||
         previousLastElement.classList.contains("render-node") ||
         previousLastElement.classList.contains("iframe") ||
         previousLastElement.classList.contains("hr") ||
         previousLastElement.classList.contains("av") ||
-        previousLastElement.classList.contains("code-block"));
+        previousLastElement.classList.contains("code-block") ||
+        isNotEditBlock(previousLastElement));
     const previousId = previousLastElement.getAttribute("data-node-id");
     if (isSelectNode) {
         if (previousLastElement.classList.contains("code-block")) {
@@ -1693,6 +1790,9 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
             id: previousId,
         });
     }
+    if (undoFocusContext && undoOperations[0]) {
+        undoOperations[0].context = undoFocusContext;
+    }
     if (parentElement && parentElement.getAttribute("data-type") === "NodeSuperBlock" && getSbChildBlockCount(parentElement) === 1) {
         const sbData = await cancelSB(protyle, parentElement);
         transaction(protyle, doOperations.concat(sbData.doOperations), sbData.undoOperations.concat(undoOperations));
@@ -1720,6 +1820,39 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         transaction(protyle, doOperations, undoOperations);
     }
     focusByWbr(protyle.wysiwyg.element, range);
+};
+
+export const removeBlockPreservingSelectionMode = async (protyle: IProtyle, blockElement: Element, range: Range,
+                                                       type: "Delete" | "Backspace" | "remove",
+                                                       skipRefCheck = false) => {
+    const editorElement = protyle.wysiwyg.element;
+    const selectionModeElement = getBlockSelectionModeElement(editorElement);
+    if (!selectionModeElement) {
+        return removeBlock(protyle, blockElement, range, type, skipRefCheck);
+    }
+    const temporarySelection = !editorElement.querySelector(`.${BLOCK_SELECTION_CLASS}`);
+    if (temporarySelection) {
+        selectionModeElement.classList.add(BLOCK_SELECTION_CLASS);
+    }
+    selectionModeElement.classList.remove(BLOCK_SELECTION_MODE_CLASS);
+    const removed = await removeBlock(protyle, blockElement, range, type, skipRefCheck, true);
+    if (!removed && temporarySelection && selectionModeElement.isConnected) {
+        selectionModeElement.classList.remove(BLOCK_SELECTION_CLASS);
+        selectionModeElement.removeAttribute("select-start");
+        selectionModeElement.removeAttribute("select-end");
+    }
+    const currentRange = getEditorRange(editorElement);
+    let nextSelectionModeElement = selectionModeElement.isConnected ? selectionModeElement :
+        hasClosestBlock(currentRange.startContainer) as HTMLElement;
+    if (!nextSelectionModeElement || !editorElement.contains(nextSelectionModeElement)) {
+        nextSelectionModeElement = editorElement.querySelector<HTMLElement>("[data-node-id]");
+    }
+    if (nextSelectionModeElement) {
+        setBlockSelectionModeElement(editorElement, nextSelectionModeElement);
+        focusBlock(nextSelectionModeElement);
+    }
+    countBlockWord(getBlockSelectionStatusIDs(editorElement), protyle);
+    return removed;
 };
 
 const canDeleteEmbedElement = (element: Element, type: "Delete" | "Backspace" | "remove",

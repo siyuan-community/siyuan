@@ -1,9 +1,7 @@
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {processSync} from "../../dialog/processSystem";
-import {
-    onSetaccount,
-    updateAccountSwitchesVisibility,
-} from "./accountUi";
+import {updateAccountPanelVisibility} from "./accountUi";
+import {hideMessage, showMessage} from "../../dialog/message";
 import {
     refreshLANSyncConfigItemVisibility,
     refreshSyncModeRelatedItems,
@@ -12,6 +10,48 @@ import {
 
 /** 账号同步 Tab 根节点 */
 export let syncTabElement: HTMLElement | undefined;
+
+let syncAssetDownloadModePending = false;
+
+/** 切换资源下载模式时同步控件状态，并阻止重复提交 */
+export const mountSyncAssetDownloadMode = (root: ParentNode) => {
+    root.querySelectorAll<HTMLSelectElement>('[id="sync.assetDownloadMode"]').forEach((element) => {
+        element.disabled = syncAssetDownloadModePending || window.siyuan.config.readonly;
+        element.setAttribute("aria-busy", String(syncAssetDownloadModePending));
+        if (!syncAssetDownloadModePending) {
+            element.value = String(window.siyuan.config.sync.assetDownloadMode ?? 0);
+        }
+    });
+};
+
+const setSyncAssetDownloadMode = async (mode: Config.ISync["assetDownloadMode"]) => {
+    if (syncAssetDownloadModePending || (mode !== 0 && mode !== 1)) {
+        mountSyncAssetDownloadMode(document);
+        return;
+    }
+    syncAssetDownloadModePending = true;
+    mountSyncAssetDownloadMode(document);
+    let messageId: string | undefined;
+    const progressTimeout = window.setTimeout(() => {
+        messageId = showMessage(window.siyuan.languages.syncAssetDownloadModeUpdating, -1);
+    }, 300);
+    try {
+        const response = await fetchSyncPost("/api/sync/setSyncAssetDownloadMode", {mode});
+        if (response.code === 0) {
+            window.siyuan.config.sync.assetDownloadMode = response.data.assetDownloadMode;
+        }
+    } catch (error) {
+        console.warn("[config] failed to update asset download mode", error);
+        showMessage(window.siyuan.languages.syncAssetDownloadModeFailed, 5000, "error");
+    } finally {
+        window.clearTimeout(progressTimeout);
+        if (messageId) {
+            hideMessage(messageId);
+        }
+        syncAssetDownloadModePending = false;
+        mountSyncAssetDownloadMode(document);
+    }
+};
 
 /** 释放 Tab 根节点引用；传入 root 时仅释放对应挂载，避免影响其他设置入口 */
 export const clearSyncTabElement = (root?: HTMLElement) => {
@@ -24,7 +64,7 @@ export const clearSyncTabElement = (root?: HTMLElement) => {
 export const mountSyncTabExtras = (root: HTMLElement) => {
     syncTabElement = root;
     refreshSyncTabPanels(root);
-    updateAccountSwitchesVisibility(root);
+    updateAccountPanelVisibility(root);
 };
 
 export const refreshLANSyncStatus = (root: Element) => {
@@ -80,29 +120,6 @@ export const refreshSyncCloudSpaceGroup = (root: Element) => {
 /** 账号同步 Tab：按控件 id 提交配置并更新本地运行时 */
 export const patchSyncConfig = (controlId: string, value: unknown) => {
     switch (controlId) {
-        case "account.displayTitle": {
-            const displayTitle = Boolean(value) as Config.IAccount["displayTitle"];
-            fetchPost("/api/setting/setAccount", {
-                ...window.siyuan.config.account,
-                displayTitle,
-            }, (response) => {
-                window.siyuan.config.account = response.data;
-                onSetaccount();
-            });
-            break;
-        }
-        case "account.displayVIP": {
-            const displayVIP = Boolean(value) as Config.IAccount["displayVIP"];
-            fetchPost("/api/setting/setAccount", {
-                ...window.siyuan.config.account,
-                displayVIP,
-            }, (response) => {
-                window.siyuan.config.account = response.data;
-                onSetaccount();
-            });
-            break;
-        }
-
         case "sync.provider": {
             const provider = value as Config.ISync["provider"];
             fetchPost("/api/sync/setSyncProvider", {provider}, () => {
@@ -141,6 +158,9 @@ export const patchSyncConfig = (controlId: string, value: unknown) => {
                 }
             });
             break;
+        }
+        case "sync.assetDownloadMode": {
+            return setSyncAssetDownloadMode(value as Config.ISync["assetDownloadMode"]);
         }
         case "sync.interval": {
             const interval = value as Config.ISync["interval"];

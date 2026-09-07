@@ -34,8 +34,12 @@ import {
     transactionsMayChangeRootHeadingNumberSetting
 } from "../../protyle/util/headingNumberCore";
 import {applyHeadingLevelUpdates, getHeadingLevelUpdateOperations} from "../../protyle/util/headingTransform";
+import {syncDocTitleIAL} from "../../protyle/util/docTitleIAL";
+import {canBatchConvertHeadings, showHeadingBatchDialog} from "../../protyle/util/headingBatch";
+import {waitForPendingTransactions} from "../../protyle/util/transactionQueue";
 
 export class Outline extends Model {
+    private currentRequestID = 0;
     public tree: Tree;
     public element: HTMLElement;
     public headerElement: HTMLElement;
@@ -347,14 +351,16 @@ export class Outline extends Model {
                     }
                     break;
                 case "rename":
-                    if (this.type === "local" && this.blockId === data.data.id) {
+                    if (this.blockId !== data.data.id) {
+                        break;
+                    }
+                    if (this.type === "local") {
                         this.parent.updateTitle(getDocDisplayName(data.data.title, data.data.empty));
                         this.protyle.model.parent.updateTitle(getDocDisplayName(data.data.title, data.data.empty));
                     } else {
-                        this.updateDocTitle({
-                            title: data.data.title,
-                            icon: Constants.ZWSP
-                        }, -1);
+                        this.updateDocTitle(syncDocTitleIAL({
+                            icon: Constants.ZWSP,
+                        }, data.data.title, data.data.empty, Constants.CUSTOM_SY_TITLE_EMPTY), -1);
                     }
                     break;
                 case "closeBox":
@@ -590,7 +596,8 @@ export class Outline extends Model {
         }
     }
 
-    public setCurrent(nodeElement: HTMLElement) {
+    public async setCurrent(nodeElement: HTMLElement) {
+        const requestID = ++this.currentRequestID;
         if (!nodeElement) {
             return;
         }
@@ -617,10 +624,25 @@ export class Outline extends Model {
                     excludeTypes: []
                 };
                 const notebookId = this.getNotebookId();
-                if (isEncryptedBox(notebookId)) {
+                if (notebookId) {
                     breadcrumbParam.notebook = notebookId;
                 }
+                const blockID = this.blockId;
+                const protyle = getAllModels().editor.find(item =>
+                    item.editor.protyle.block.rootID === blockID &&
+                    item.editor.protyle.wysiwyg.element.contains(nodeElement))?.editor.protyle;
+                const isCurrent = () => requestID === this.currentRequestID && blockID === this.blockId &&
+                    nodeElement.isConnected;
+                if (protyle) {
+                    await waitForPendingTransactions(protyle);
+                }
+                if (!isCurrent()) {
+                    return;
+                }
                 fetchPost("/api/block/getBlockBreadcrumb", breadcrumbParam, (response) => {
+                    if (!isCurrent()) {
+                        return;
+                    }
                     response.data.reverse().find((item: IBreadcrumb) => {
                         if (item.type === "NodeHeading") {
                             this.setCurrentById(item.id);
@@ -1057,6 +1079,20 @@ export class Outline extends Model {
                 }).element);
             }
 
+            const rootID = this.blockId;
+            window.siyuan.menus.menu.append(new MenuItem({
+                id: "headingBatch",
+                icon: "iconHeadings",
+                label: window.siyuan.languages.headingBatch,
+                click: () => {
+                    const protyle = getAllModels().editor.find(item =>
+                        item.editor.protyle.block.rootID === rootID)?.editor.protyle;
+                    if (canBatchConvertHeadings(protyle, rootID, this.isPreview)) {
+                        void showHeadingBatchDialog(protyle, () => rootID === this.blockId &&
+                            canBatchConvertHeadings(protyle, rootID, this.isPreview) && protyle.element.isConnected);
+                    }
+                }
+            }).element);
             window.siyuan.menus.menu.append(new MenuItem({id: "separator_1", type: "separator"}).element);
 
             // 在前面插入同级标题

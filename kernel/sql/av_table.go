@@ -49,30 +49,31 @@ func renderAttributeViewTable(attrView *av.AttributeView, view *av.View, query s
 		if nil != getErr {
 			// 找不到字段则在视图中删除（元数据查询场景不写盘）
 			if !ignoreRows {
-				removeMissingField(attrView, view, col.ID)
+				removeMissingField(attrView, view, col.ID, renderContext)
 			}
 			continue
 		}
 
 		ret.Columns = append(ret.Columns, &av.TableColumn{
 			BaseInstanceField: &av.BaseInstanceField{
-				ID:           key.ID,
-				Name:         key.Name,
-				Type:         key.Type,
-				Icon:         key.Icon,
-				Wrap:         col.Wrap,
-				Hidden:       col.Hidden,
-				Desc:         key.Desc,
-				Calc:         col.Calc,
-				Options:      key.Options,
-				NumberFormat: key.NumberFormat,
-				DateFormat:   key.DateFormat,
-				Template:     key.Template,
-				Relation:     key.Relation,
-				Rollup:       key.Rollup,
-				Date:         key.Date,
-				Created:      key.Created,
-				Updated:      key.Updated,
+				ID:             key.ID,
+				Name:           key.Name,
+				Type:           key.Type,
+				Icon:           key.Icon,
+				Wrap:           col.Wrap,
+				Hidden:         col.Hidden,
+				Desc:           key.Desc,
+				Calc:           col.Calc,
+				Options:        key.Options,
+				NumberFormat:   key.NumberFormat,
+				DateFormat:     key.DateFormat,
+				Template:       key.Template,
+				RenderTemplate: key.RenderTemplate,
+				Relation:       key.Relation,
+				Rollup:         key.Rollup,
+				Date:           key.Date,
+				Created:        key.Created,
+				Updated:        key.Updated,
 			},
 			Width: col.Width,
 			Pin:   col.Pin,

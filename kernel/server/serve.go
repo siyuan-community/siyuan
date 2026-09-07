@@ -42,6 +42,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mssola/useragent"
 	"github.com/olahol/melody"
+	"github.com/siyuan-community/siyuan/kernel/agent"
 	"github.com/siyuan-community/siyuan/kernel/api"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/cmd"
@@ -137,6 +138,9 @@ var (
 )
 
 func Serve(fastMode bool, cookieKey string) {
+	if !fastMode {
+		agent.StartModelMetadataRefresh()
+	}
 	gin.SetMode(gin.ReleaseMode)
 	ginServer := gin.New()
 	if err := ginServer.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
@@ -1050,6 +1054,18 @@ func serveAssets(ginServer *gin.Engine) {
 		if util.IsSensitivePath(p) {
 			logging.LogErrorf("refuse to serve sensitive file [%s]", context.Request.URL.Path)
 			context.Status(http.StatusForbidden)
+			return
+		}
+		if model.IsEncryptedAssetPath(p) && !model.IsBoxUnlocked(model.ExtractBoxIDFromAssetsPath(p)) {
+			context.Status(http.StatusForbidden)
+			return
+		}
+		if err = model.EnsureAssetLocal(p); err != nil {
+			if os.IsNotExist(err) {
+				context.Status(http.StatusNotFound)
+			} else {
+				context.String(http.StatusServiceUnavailable, "%s", err)
+			}
 			return
 		}
 

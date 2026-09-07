@@ -2,9 +2,9 @@ import type {App} from "../index";
 import {EventBus} from "./EventBus";
 import {fetchPost} from "../util/fetch";
 import {isMobile, isWindow} from "../util/functions";
+import {getAllEditor, getAllModels} from "../layout/getAll";
 /// #if !MOBILE
 import {Custom} from "../layout/dock/Custom";
-import {getAllModels} from "../layout/getAll";
 import {Tab} from "../layout/Tab";
 import {resizeTopBar, setPanelFocus} from "../layout/util";
 import {getDockByType, setTabPosition} from "../layout/tabUtil";
@@ -23,11 +23,25 @@ import {addPluginDock, removePluginDock} from "./loader";
 import {normalizeStoragePath} from "../util/pathName";
 import {Kernel} from "./kernel";
 import {IAgentCapabilityEffects, registerCapability} from "../layout/dock/agent/frontendCapabilities";
-import {isDisallowedTextInputHotkey, normalizePluginHotkey} from "../util/hotKeyPolicy";
+import {isDisallowedTextInputHotkey} from "../util/hotKeyPolicy";
 import {
     addBreadcrumbButton as addPluginBreadcrumbButton,
     removeBreadcrumbButton as removePluginBreadcrumbButton,
 } from "./breadcrumbButton";
+import type {TCustomBlockRender} from "./customBlockRender";
+import {registerPluginCommand} from "./commandAdapter";
+import {updatePluginKeymap} from "./keymap";
+import {
+    clearPluginToolbarItems,
+    removePluginToolbarItem,
+    resolvePluginToolbar,
+    setPluginToolbarItem,
+} from "./toolbarItem";
+import {isBuiltinToolbarItemName} from "../protyle/toolbar/defaults";
+import {getLegacyPluginTopBarEntryKey, getPluginTopBarEntryKey} from "./topBarKey";
+import {applyTopBarEntryVisibility} from "../config/entryVisibility/runtime";
+
+export type TPluginDataChangeReason = "sync" | "overwrite";
 
 const disposedPlugins = new WeakSet<Plugin>();
 
@@ -35,30 +49,13 @@ const isPluginDisposed = (plugin: Plugin) => disposedPlugins.has(plugin);
 
 export const markPluginDisposed = (plugin: Plugin) => {
     disposedPlugins.add(plugin);
+    clearPluginToolbarItems(plugin);
 };
 
-const updatePluginKeymap = (pluginName: string, key: string, hotkey: unknown) => {
-    if (!window.siyuan.config.keymap.plugin) {
-        window.siyuan.config.keymap.plugin = {};
-    }
-    if (!window.siyuan.config.keymap.plugin[pluginName]) {
-        window.siyuan.config.keymap.plugin[pluginName] = {};
-    }
-    const keymapItem = window.siyuan.config.keymap.plugin[pluginName][key];
-    const normalized = normalizePluginHotkey(hotkey, keymapItem?.custom);
-    if (!keymapItem) {
-        window.siyuan.config.keymap.plugin[pluginName][key] = {
-            default: normalized.defaultHotkey,
-            custom: normalized.customHotkey,
-        };
-    } else {
-        keymapItem.default = normalized.defaultHotkey;
-        keymapItem.custom = normalized.customHotkey;
-    }
-    normalized.ignoredHotkeys.forEach((ignoredHotkey) => {
-        console.warn(`Plugin ${pluginName} ignored disallowed hotkey "${ignoredHotkey}" for "${key}".`);
+const refreshPluginToolbars = () => {
+    getAllEditor().forEach(editor => {
+        editor.protyle.toolbar.update(editor.protyle);
     });
-    return window.siyuan.config.keymap.plugin[pluginName][key];
 };
 
 export class Plugin {
@@ -75,13 +72,9 @@ export class Plugin {
         id: string,
         callback: (protyle: import("../protyle").Protyle, nodeElement: HTMLElement) => void
     }[] = [];
-    // TODO
     public customBlockRenders: {
         [key: string]: {
-            icon: string,
-            action: "edit" | "more"[],
-            genCursor: boolean,
-            render: (options: { app: App, element: Element }) => void
+            render: TCustomBlockRender
         }
     } = {};
     public topBarIcons: Element[] = [];
@@ -129,7 +122,7 @@ export class Plugin {
             writable: false,
         });
 
-        this.updateProtyleToolbar([]).forEach(toolbarItem => {
+        resolvePluginToolbar(this, []).forEach(toolbarItem => {
             if (typeof toolbarItem === "string" || Constants.INLINE_TYPE.concat("|").includes(toolbarItem.name)) {
                 return;
             }
@@ -152,8 +145,14 @@ export class Plugin {
         // 卸载
     }
 
-    public onDataChanged(): Promise<void> | void {
-        // 存储数据变更
+    /**
+     * 插件实例就绪后存储数据发生变化时运行，思源会等待返回的 Promise；
+     * 未覆盖该方法时则重载整个插件。
+     * @param reason 数据变更来源，sync 为跨设备同步合并，overwrite 为其他前端实例通过文件接口写入
+     */
+    public onDataChanged(reason?: TPluginDataChangeReason): Promise<void> | void {
+        // 存储数据变更，子类可根据来源区分处理
+        void reason;
     }
 
     public async updateCards(options: ICardData) {
@@ -162,6 +161,31 @@ export class Plugin {
 
     public onLayoutReady(): Promise<void> | void {
         // 布局加载完成
+    }
+
+    public addToolbarItem(item: IMenuItem) {
+        if (isPluginDisposed(this)) {
+            return;
+        }
+        if (typeof item?.name !== "string" || !item.name.trim() || item.name !== item.name.trim() ||
+            Constants.INLINE_TYPE.includes(item.name) || isBuiltinToolbarItemName(item.name)) {
+            console.error(`plugin ${this.name} addToolbarItem error: name must be a unique custom toolbar item name`);
+            return;
+        }
+        const toolbarItem = {...item};
+        if (typeof toolbarItem.hotkey !== "string") {
+            toolbarItem.hotkey = "";
+        }
+        toolbarItem.hotkey = updatePluginKeymap(this.name, toolbarItem.name, toolbarItem.hotkey).default;
+        setPluginToolbarItem(this, toolbarItem);
+        refreshPluginToolbars();
+    }
+
+    public removeToolbarItem(name: string) {
+        if (isPluginDisposed(this) || !removePluginToolbarItem(this, name)) {
+            return;
+        }
+        refreshPluginToolbars();
     }
 
     public addCommand(command: ICommand) {
@@ -178,6 +202,7 @@ export class Plugin {
             console.error(`${this.name} - commands data is error and has been removed.`);
         } else {
             this.commands.push(command);
+            registerPluginCommand(this.app, this, command);
             /// #if !BROWSER
             if (!isWindow() && command.globalCallback && command.customHotkey &&
                 !isDisallowedTextInputHotkey(command.customHotkey)) {
@@ -232,12 +257,14 @@ export class Plugin {
             if (typeof options.id === "string") {
                 iconElement.id = `plugin_${encodeURIComponent(this.name)}:${encodeURIComponent(options.id)}`;
                 iconElement.setAttribute("data-id", options.id);
+                iconElement.setAttribute("data-topbar-entry", getPluginTopBarEntryKey(this.name, options.id));
             } else {
                 let index = this.topBarIcons.length;
                 do {
                     iconElement.id = `plugin_${this.name}_${index}`;
                     index++;
                 } while (this.topBarIcons.some(item => item.getAttribute("id") === iconElement.id));
+                iconElement.setAttribute("data-topbar-entry", getLegacyPluginTopBarEntryKey(this.name, index - 1));
             }
         }
         const previousLocation = iconElement.getAttribute("data-location");
@@ -262,9 +289,6 @@ export class Plugin {
                 document.getElementById("menuPluginTopBar")?.after(iconElement);
             }
         } else if (!isWindow() && window.siyuan.storage) {
-            if (window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].includes(iconElement.id)) {
-                iconElement.classList.add("fn__none");
-            }
             if (!document.contains(iconElement) || previousLocation !== iconElement.getAttribute("data-location")) {
                 document.querySelector("#" + (iconElement.getAttribute("data-location") === "right" ? "barPlugins" : "drag"))?.before(iconElement);
             }
@@ -274,6 +298,7 @@ export class Plugin {
         }
         /// #if !MOBILE
         if (!isWindow()) {
+            applyTopBarEntryVisibility();
             resizeTopBar();
             setTabPosition(true);
         }
@@ -293,6 +318,7 @@ export class Plugin {
         this.topBarIcons.splice(index, 1);
         /// #if !MOBILE
         if (!isWindow()) {
+            applyTopBarEntryVisibility();
             resizeTopBar();
             setTabPosition(true);
         }
@@ -407,6 +433,7 @@ export class Plugin {
             formData.append("path", pathString);
             formData.append("file", file);
             formData.append("isDir", "false");
+            formData.append("app", Constants.SIYUAN_APPID);
             fetchPost("/api/file/putFile", formData, (response) => {
                 this.data[storageName] = data;
                 resolve(response);
@@ -429,7 +456,10 @@ export class Plugin {
             if (!this.data) {
                 this.data = {};
             }
-            fetchPost("/api/file/removeFile", {path: `/data/storage/petal/${this.name}/${normalizeStoragePath(storageName)}`}, (response) => {
+            fetchPost("/api/file/removeFile", {
+                path: `/data/storage/petal/${this.name}/${normalizeStoragePath(storageName)}`,
+                app: Constants.SIYUAN_APPID,
+            }, (response) => {
                 delete this.data[storageName];
                 resolve(response);
             });
@@ -454,11 +484,11 @@ export class Plugin {
 
     public addTab(options: {
         type: string,
-        destroy?: () => void,
-        beforeDestroy?: () => void,
-        resize?: () => void,
-        update?: () => void,
-        init: () => void
+        destroy?: (this: Custom) => void,
+        beforeDestroy?: (this: Custom) => void,
+        resize?: (this: Custom) => void,
+        update?: (this: Custom) => void,
+        init: (this: Custom, custom: Custom) => void
     }) {
         if (isPluginDisposed(this)) {
             return;
@@ -554,10 +584,10 @@ export class Plugin {
         config: IPluginDockTab,
         data: any,
         type: string,
-        destroy?: () => void,
-        resize?: () => void,
-        update?: () => void,
-        init: () => void
+        destroy?: (this: Custom | MobileCustom) => void,
+        resize?: (this: Custom) => void,
+        update?: (this: Custom | MobileCustom) => void,
+        init: (this: Custom | MobileCustom, custom: Custom | MobileCustom) => void
     }) {
         if (isPluginDisposed(this)) {
             return;
@@ -656,3 +686,6 @@ export class Plugin {
         return this.protyleOptionsValue;
     }
 }
+
+export const hasPluginSetting = (plugin: Plugin) => Boolean(plugin.setting) ||
+    plugin.openSetting !== Plugin.prototype.openSetting;

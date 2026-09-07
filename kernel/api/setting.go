@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/88250/gulu"
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,11 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
+)
+
+var (
+	bazaarPetalStateMu       sync.Mutex
+	bazaarPetalStateRevision uint64
 )
 
 func setEditorReadOnly(c *gin.Context) {
@@ -145,7 +151,6 @@ func setBazaar(c *gin.Context) {
 	if !ok {
 		return
 	}
-	app, _ := arg["app"].(string)
 	delete(arg, "app")
 
 	param, err := gulu.JSON.MarshalJSON(arg)
@@ -162,30 +167,69 @@ func setBazaar(c *gin.Context) {
 		return
 	}
 
+	bazaarPetalStateMu.Lock()
+	defer bazaarPetalStateMu.Unlock()
+
 	petalsEnabled := model.IsPetalsEnabled()
+	petalDisabled := model.Conf.Bazaar.PetalDisabled
 	model.Conf.Bazaar = bazaar
 	model.Conf.Save()
-	util.BroadcastByType("main", "setConf", 0, "", model.Conf)
 	newPetalsEnabled := model.IsPetalsEnabled()
 	if petalsEnabled != newPetalsEnabled {
-		if newPetalsEnabled {
-			if model.OnKernelPluginsStart != nil {
-				model.OnKernelPluginsStart()
-			}
-		} else if model.OnKernelPluginsStop != nil {
-			model.OnKernelPluginsStop()
-		}
-		model.PushReloadAllEnabledPlugins(newPetalsEnabled, bazaarPluginReloadExcludeApp(newPetalsEnabled, app))
+		setKernelPluginsEnabled(newPetalsEnabled)
+	}
+	util.BroadcastByType("main", "setConf", 0, "", model.Conf)
+	if petalsEnabled != newPetalsEnabled || petalDisabled != bazaar.PetalDisabled {
+		bazaarPetalStateRevision++
+		model.PushReloadAllEnabledPlugins(newPetalsEnabled, bazaar.PetalDisabled, bazaarPetalStateRevision, true)
 	}
 
 	ret.Data = bazaar
 }
 
-func bazaarPluginReloadExcludeApp(enabled bool, app string) string {
-	if enabled {
-		return app
+func setBazaarPetalDisabled(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
 	}
-	return ""
+	petalDisabled, ok := arg["petalDisabled"].(bool)
+	if !ok {
+		ret.Code = -1
+		ret.Msg = "invalid petalDisabled"
+		return
+	}
+
+	bazaarPetalStateMu.Lock()
+	defer bazaarPetalStateMu.Unlock()
+
+	petalsEnabled := model.IsPetalsEnabled()
+	changed := model.Conf.Bazaar.PetalDisabled != petalDisabled
+	model.Conf.Bazaar.PetalDisabled = petalDisabled
+	model.Conf.Save()
+	newPetalsEnabled := model.IsPetalsEnabled()
+	if petalsEnabled != newPetalsEnabled {
+		setKernelPluginsEnabled(newPetalsEnabled)
+	}
+	util.BroadcastByType("main", "setConf", 0, "", model.Conf)
+	if changed {
+		bazaarPetalStateRevision++
+	}
+	ret.Data = model.PushReloadAllEnabledPlugins(newPetalsEnabled, petalDisabled, bazaarPetalStateRevision, changed)
+}
+
+func setKernelPluginsEnabled(enabled bool) {
+	if enabled {
+		if model.OnKernelPluginsStart != nil {
+			model.OnKernelPluginsStart()
+		}
+		return
+	}
+	if model.OnKernelPluginsStop != nil {
+		model.OnKernelPluginsStop()
+	}
 }
 
 func setAI(c *gin.Context) {
@@ -777,6 +821,10 @@ func setAppearance(c *gin.Context) {
 	if nil == appearance.EntryVisibility {
 		appearance.EntryVisibility = model.Conf.Appearance.EntryVisibility
 	}
+	if _, exists := arg["globalFontFamilies"]; !exists {
+		appearance.GlobalFontFamilies = model.Conf.Appearance.GlobalFontFamilies
+	}
+	appearance.NormalizeGlobalFontFamilies()
 	appearance.StatusBar = util.NormalizeStatusBar(appearance.StatusBar, util.IsMobileContainer())
 	model.Conf.Appearance = appearance
 	util.StatusBarCfg = model.Conf.Appearance.StatusBar
@@ -1063,6 +1111,11 @@ func getCloudUser(c *gin.Context) {
 		ret.Code = 255
 		ret.Msg = model.Conf.Language(19)
 		ret.Data = nil
+		return
+	}
+	if model.IsCloudAssetSourceChange(err) {
+		ret.Code = 1
+		ret.Msg = err.Error()
 		return
 	}
 	ret.Code = 1

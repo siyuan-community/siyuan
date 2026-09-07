@@ -7,7 +7,7 @@
 		"id": "20200924100950-9op5xi1",
 		"title": "Shortcuts",
 		"type": "doc",
-		"updated": "20260828200251"
+		"updated": "20260906013806"
 	},
 	"Children": [
 		{
@@ -3987,7 +3987,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210106154056-koo4wdj",
-				"updated": "20260828200251"
+				"updated": "20260906013806"
 			},
 			"Children": [
 				{
@@ -4006,7 +4006,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20210106154319-v9tt3e2",
-				"updated": "20260828200251"
+				"updated": "20260902224242"
 			},
 			"Children": [
 				{
@@ -4026,7 +4026,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20240112150534-wiik5sl",
-				"updated": "20260828200251"
+				"updated": "20260902224242"
 			},
 			"Children": [
 				{
@@ -6080,73 +6080,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Switch to Instant Rendering mode"
-								}
-							]
-						},
-						{
-							"Type": "NodeTableCell",
-							"Data": "td",
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "​"
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "Ctrl"
-								},
-								{
-									"Type": "NodeText",
-									"Data": "​+"
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "Alt"
-								},
-								{
-									"Type": "NodeText",
-									"Data": "​+"
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "7"
-								},
-								{
-									"Type": "NodeText",
-									"Data": " / "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "⌥⌘7"
-								},
-								{
-									"Type": "NodeText",
-									"Data": "​"
-								}
-							]
-						},
-						{
-							"Type": "NodeTableCell",
-							"Data": "td"
-						}
-					]
-				},
-				{
-					"Type": "NodeTableRow",
-					"Data": "tr",
-					"Children": [
-						{
-							"Type": "NodeTableCell",
-							"Data": "td",
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "Switch to Preview mode"
+									"Data": "Toggle WYSIWYG and Export Preview modes"
 								}
 							]
 						},
@@ -6212,7 +6146,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Select/deselect the current block"
+									"Data": "Enter or exit block selection mode"
 								}
 							]
 						},
@@ -6237,7 +6171,69 @@
 						},
 						{
 							"Type": "NodeTableCell",
-							"Data": "td"
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Block selection mode remains active after deleting, cutting, or moving blocks; see "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "block-ref",
+									"TextMarkBlockRefID": "20260830213256-fgl32qu",
+									"TextMarkBlockRefSubtype": "d",
+									"TextMarkTextContent": "Select and operate content blocks"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "."
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Mark or unmark the current block"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "​"
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Space"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "​"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Block selection mode only; supports marking non-contiguous blocks"
+								}
+							]
 						}
 					]
 				},
@@ -6307,7 +6303,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "When a block is selected, press "
+									"Data": "When block selection mode is active, press "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -6388,7 +6384,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "When a block is selected, press "
+									"Data": "When block selection mode is active, press "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -6413,7 +6409,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Leave block selection and move the caret to the end"
+									"Data": "Exit block selection mode and move the caret to the end"
 								}
 							]
 						},
@@ -6558,7 +6554,13 @@
 						},
 						{
 							"Type": "NodeTableCell",
-							"Data": "td"
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Single block or contiguous block selection only"
+								}
+							]
 						}
 					]
 				},
@@ -6624,7 +6626,13 @@
 						},
 						{
 							"Type": "NodeTableCell",
-							"Data": "td"
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Single block or contiguous block selection only"
+								}
+							]
 						}
 					]
 				},
@@ -13244,6 +13252,198 @@
 								{
 									"Type": "NodeText",
 									"Data": "​"
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"ID": "20260905124213-pfrny4c",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20260905124213-pfrny4c",
+				"updated": "20260906013806"
+			},
+			"HeadingLevel": 3,
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Tabbed container"
+				}
+			]
+		},
+		{
+			"ID": "20260905124213-dh6bex8",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260905124213-dh6bex8",
+				"updated": "20260906013806"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "When the tab bar has focus, Left and Right move focus between top tabs; Up and Down move focus between left tabs. Arrow keys in the content keep their normal editing behavior."
+				},
+				{
+					"Type": "NodeText",
+					"Data": " While editing a tab title, press "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Enter"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " or "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Tab"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " to finish editing and move to the content. Clicking the content also ends title editing."
+				}
+			]
+		},
+		{
+			"ID": "20260905124213-yk9r6ej",
+			"Type": "NodeTable",
+			"Properties": {
+				"id": "20260905124213-yk9r6ej",
+				"updated": "20260905124213"
+			},
+			"TableAligns": [
+				0,
+				0
+			],
+			"Children": [
+				{
+					"Type": "NodeTableHead",
+					"Children": [
+						{
+							"Type": "NodeTableRow",
+							"Children": [
+								{
+									"Type": "NodeTableCell",
+									"Children": [
+										{
+											"Type": "NodeText",
+											"Data": "Action"
+										}
+									]
+								},
+								{
+									"Type": "NodeTableCell",
+									"Children": [
+										{
+											"Type": "NodeText",
+											"Data": "Key"
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Focus the first / last tab"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Children": [
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Home"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " / "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "End"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Activate the focused tab"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Children": [
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Enter"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " / "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Space"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Leave title editing and enter the content"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Children": [
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Enter"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " / "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Tab"
 								}
 							]
 						}

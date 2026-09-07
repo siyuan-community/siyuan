@@ -1,7 +1,7 @@
 import {fetchSyncPost} from "../../../util/fetch";
 import {getColIconByType} from "./col";
 import {Constants} from "../../../constants";
-import {addDragFill, cellScrollIntoView, popTextCell} from "./cell";
+import {addDragFill, cellScrollIntoView, genCellValueByElement, popTextCell} from "./cell";
 import {unicode2Emoji} from "../../../emoji";
 import {focusBlock} from "../../util/selection";
 import {getPendingBlockFocusMode} from "../../util/focusRestore";
@@ -47,6 +47,7 @@ import {
     setAVVisibleViewIDs
 } from "./viewVisibility";
 import {removeAVPasteSkeleton} from "./paste";
+import {renderAVRichTextElements} from "./richText";
 import {
     getGroupTableRenderPlan,
     getUninitializedGroupRowCounts,
@@ -55,6 +56,7 @@ import {
 } from "./groupTableVirtual";
 import {getAVHeaderEditingState} from "./headerEditing";
 import {getAVColorStyle} from "./color";
+import {getContextFilterKeyID} from "./contextFilterState";
 
 interface IIds {
     groupId: string,
@@ -148,6 +150,10 @@ export const genTabHeaderHTML = (data: IAV, showSearch: boolean, editable: boole
                 <svg><use xlink:href="#iconFilter"></use></svg>
             </span>
             <div class="fn__space"></div>
+            ${blockElement.classList.contains("av") ? `<span data-type="av-context-filter" aria-label="${window.siyuan.languages.contextFilter}" data-position="8south" class="ariaLabel block__icon${getContextFilterKeyID(data.contextFilter) ? " block__icon--active" : ""}">
+                <svg><use xlink:href="#iconFocus"></use></svg>
+            </span>
+            <div class="fn__space"></div>` : ""}
             <span data-type="av-sort" aria-label="${window.siyuan.languages.sort}" data-position="8south" class="ariaLabel block__icon${data.view.sorts.length > 0 ? " block__icon--active" : ""}">
                 <svg><use xlink:href="#iconSort"></use></svg>
             </span>
@@ -398,12 +404,14 @@ export const initUnfoldedGroupTables = (blockElement: HTMLElement, protyle: IPro
     blockElement.toggleAttribute(Constants.ATTRIBUTE_V_SCROLL,
         totalLoadedRows > GROUP_TABLE_INITIAL_ROW_BUDGET || bodies.some(bodyElement =>
             bodyElement.querySelector(".av__spacer")));
+    renderAVRichTextElements(blockElement);
     initVirtualScroll({protyle, blockElement, data, selectedItemPoints});
     restoreAVCellSelection(blockElement);
 };
 
 const afterRenderTable = (options: ITableOptions) => {
     setAVData(options.blockElement, options.data);
+    renderAVRichTextElements(options.blockElement);
     if (!refreshAVCellSelection(options.blockElement, options.data)) {
         options.resetData.selectCellId = undefined;
         options.resetData.dragFillId = undefined;
@@ -865,6 +873,16 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
         });
         return;
     }
+    if (operation.action === "setAttrViewContextFilter") {
+        getAVElements(protyle, operation.avID).forEach((item) => {
+            if (item.dataset.nodeId !== operation.blockID) {
+                return;
+            }
+            item.removeAttribute("data-render");
+            avRender(item, protyle);
+        });
+        return;
+    }
     if (operation.action === "setAttrViewName") {
         getAVElements(protyle, operation.id).forEach((item) => {
             const titleElement = item.querySelector(".av__title") as HTMLElement;
@@ -1134,7 +1152,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                                 }
                             }
                             if (popCellElement && popCellElement.getAttribute("data-detached") === "true" &&
-                                popCellElement.querySelector(".av__celltext").textContent === "" &&
+                                !genCellValueByElement("block", popCellElement).block?.content &&
                                 popCellElement.getBoundingClientRect().height !== 0 && hasGhost) {
                                 if (item.getAttribute("data-av-type") !== "table") {
                                     if (addingFocusTokens.get(addingFocusKey) === addingFocusToken) {
@@ -1157,7 +1175,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                                         }
                                         addingFocusTokens.delete(addingFocusKey);
                                         if (!result || result.cellElement.getAttribute("data-detached") !== "true" ||
-                                            result.cellElement.querySelector(".av__celltext").textContent !== "") {
+                                            genCellValueByElement("block", result.cellElement).block?.content) {
                                             return;
                                         }
                                         popTextCell(protyle, [result.cellElement], "block", {scrollIntoView: false});

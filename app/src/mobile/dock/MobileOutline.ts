@@ -19,13 +19,17 @@ import {getDocDisplayName, isEncryptedBox} from "../../util/pathName";
 import {dragOverScroll, stopScrollAnimation} from "../../boot/globalEvent/dragover";
 import {escapeHtml} from "../../util/escape";
 import {getFileTreeIconHTML} from "../../emoji/fileTreeIcon";
+import {syncDocTitleIAL} from "../../protyle/util/docTitleIAL";
+import {canBatchConvertHeadings, showHeadingBatchDialog} from "../../protyle/util/headingBatch";
 import {bindMousePointerTouchBridge, isMousePointerTouchEvent} from "../util/mousePointerTouchBridge";
+import {waitForPendingTransactions} from "../../protyle/util/transactionQueue";
 import {
     operationsMayChangeOutline,
     transactionsMayChangeRootHeadingNumberSetting
 } from "../../protyle/util/headingNumberCore";
 
 export class MobileOutline extends Model {
+    private currentRequestID = 0;
     public tree: Tree;
     public element: HTMLElement;
     public blockId: string;
@@ -72,7 +76,7 @@ export class MobileOutline extends Model {
     <svg data-type="collapse" class="toolbar__icon"><use xlink:href="#iconContract"></use></svg>
 </div>
 <div class="b3-list-item fn__none" data-type="doc-title"></div>
-<div class="fn__flex-1" style="padding: 3px 0 8px"></div>`;
+<div class="fn__flex-1" style="padding: 3px 0 calc(8px + env(safe-area-inset-bottom))"></div>`;
         const inputElement = this.element.querySelector("input.b3-text-field.search__label") as HTMLInputElement;
         inputElement.addEventListener("blur", () => {
             inputElement.classList.add("fn__none");
@@ -431,18 +435,17 @@ export class MobileOutline extends Model {
                     break;
                 case "rename":
                     if (this.blockId === data.data.id) {
-                        this.updateDocTitle({
-                            title: data.data.title,
+                        this.updateDocTitle(syncDocTitleIAL({
                             icon: Constants.ZWSP,
-                            [Constants.CUSTOM_SY_TITLE_EMPTY]: data.data.empty ? "true" : "false"
-                        }, -1);
+                        }, data.data.title, data.data.empty, Constants.CUSTOM_SY_TITLE_EMPTY), -1);
                     }
                     break;
             }
         }
     }
 
-    public setCurrent(nodeElement: HTMLElement) {
+    public async setCurrent(nodeElement: HTMLElement) {
+        const requestID = ++this.currentRequestID;
         if (!nodeElement) {
             return;
         }
@@ -467,10 +470,22 @@ export class MobileOutline extends Model {
                     excludeTypes: []
                 };
                 const mobileProtyle = window.siyuan.mobile.editor?.protyle;
-                if (mobileProtyle && mobileProtyle.block.rootID === this.blockId && isEncryptedBox(mobileProtyle.notebookId)) {
+                if (mobileProtyle && mobileProtyle.block.rootID === this.blockId) {
                     breadcrumbParam.notebook = mobileProtyle.notebookId;
                 }
+                const blockID = this.blockId;
+                const isCurrent = () => requestID === this.currentRequestID && blockID === this.blockId &&
+                    nodeElement.isConnected;
+                if (mobileProtyle && mobileProtyle.block.rootID === blockID) {
+                    await waitForPendingTransactions(mobileProtyle);
+                }
+                if (!isCurrent()) {
+                    return;
+                }
                 fetchPost("/api/block/getBlockBreadcrumb", breadcrumbParam, (response) => {
+                    if (!isCurrent()) {
+                        return;
+                    }
                     response.data.reverse().find((item: IBreadcrumb) => {
                         if (item.type === "NodeHeading") {
                             this.setCurrentById(item.id);
@@ -931,6 +946,20 @@ export class MobileOutline extends Model {
                 }).element);
             }
 
+            const rootID = this.blockId;
+            window.siyuan.menus.menu.append(new MenuItem({
+                id: "headingBatch",
+                icon: "iconHeadings",
+                label: window.siyuan.languages.headingBatch,
+                click: () => {
+                    const protyle = window.siyuan.mobile.editor?.protyle;
+                    if (canBatchConvertHeadings(protyle, rootID, this.isPreview)) {
+                        void showHeadingBatchDialog(protyle, () => rootID === this.blockId &&
+                            window.siyuan.mobile.editor?.protyle === protyle &&
+                            canBatchConvertHeadings(protyle, rootID, this.isPreview));
+                    }
+                }
+            }).element);
             window.siyuan.menus.menu.append(new MenuItem({id: "separator_1", type: "separator"}).element);
 
             // 在前面插入同级标题

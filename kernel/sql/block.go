@@ -236,6 +236,13 @@ func nodeStaticContent(node *ast.Node, excludeTypes []string, includeTextMarkATi
 				buf.WriteByte(' ')
 				lastSpace = true
 			}
+			if ast.NodeTabItem == n.Type {
+				if title := treenode.TabTitleParagraph(n); nil != title {
+					buf.WriteString(nodeStaticContent(title, excludeTypes, includeTextMarkATitleURL,
+						includeAssetPath, fullAttrView, unescapeBlockRef))
+					buf.WriteByte(' ')
+				}
+			}
 			if ast.NodeCallout == n.Type {
 				buf.WriteString(n.CalloutType + " ")
 				if "" != n.CalloutIcon && 0 == n.CalloutIconType {
@@ -255,6 +262,14 @@ func nodeStaticContent(node *ast.Node, excludeTypes []string, includeTextMarkATi
 				}
 			}
 			return ast.WalkContinue
+		}
+
+		if ast.NodeCustomBlock == n.Type {
+			if !gulu.Str.Contains(n.Type.String(), excludeTypes) {
+				buf.Write(n.Tokens)
+			}
+			lastSpace = false
+			return ast.WalkSkipChildren
 		}
 
 		if gulu.Str.Contains(n.Type.String(), excludeTypes) {

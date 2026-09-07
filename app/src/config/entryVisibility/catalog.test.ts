@@ -12,20 +12,28 @@ import {
 import {
     entryCatalog,
     getEntryCatalogChildren,
+    getEntryCatalogDefaultVisibility,
     getEntryCatalogNode,
     getEntryCatalogPathChain,
     getEntryCatalogSection,
+    getDockEntryKey,
+    getDockEntryPosition,
     getEntryParentPath,
     getEntryOrderParents,
     getEntryPaths,
+    getLegacyPluginTopBarEntryKey,
     getPluginDockEntryKey,
     getPluginSlashEntryKey,
+    getPluginTopBarEntryKey,
     getSlashMenuEntryPath,
+    isEntryCatalogNodeConfigurable,
     isEntryOrderSortable,
     refreshDockCatalog,
     refreshSlashMenuCatalog,
+    refreshTopBarCatalog,
     refreshToolbarCatalog,
     SLASH_MENU_ROOT_PATH,
+    TOP_BAR_ROOT_PATH,
 } from "./catalog";
 
 const slashMenuBuiltinOrder = [
@@ -49,6 +57,7 @@ const slashMenuBuiltinOrder = [
     "orderedList",
     "check",
     "quote",
+    "tabs",
     "calloutNote",
     "calloutTip",
     "calloutImportant",
@@ -114,7 +123,185 @@ test("entry catalog paths are unique and indexed", () => {
     };
     entryCatalog.forEach((section) => visit(section.key, section.children));
     assert.equal(new Set(paths).size, paths.length);
-    assert.deepEqual(new Set(getEntryPaths()), new Set(paths));
+    assert.deepEqual(new Set(getEntryPaths()), new Set(paths.filter((path) =>
+        isEntryCatalogNodeConfigurable(getEntryCatalogNode(path)!))));
+});
+
+test("top bar catalog includes a fixed drag boundary in built-in DOM order", () => {
+    assert.equal(TOP_BAR_ROOT_PATH, "topBar");
+    assert.deepEqual(getEntryCatalogChildren(TOP_BAR_ROOT_PATH).map((item) => item.key), [
+        "barSync",
+        "barBack",
+        "barForward",
+        "drag",
+        "toolbarVIP",
+        "toolbarTitle",
+        "barPlugins",
+        "barCommand",
+        "barSearch",
+        "barZoom",
+        "barMode",
+        "barExit",
+    ]);
+    const drag = getEntryCatalogNode("topBar.drag")!;
+    assert.equal(drag.fixed, true);
+    assert.equal(isEntryCatalogNodeConfigurable(drag), false);
+    assert.equal(getEntryPaths().includes("topBar.drag"), false);
+    assert.equal(getEntryOrderParents().includes(TOP_BAR_ROOT_PATH), true);
+    assert.equal(getEntryCatalogNode("topBar.barWorkspace"), undefined);
+    assert.equal(getEntryCatalogNode("topBar.barMore"), undefined);
+    assert.equal(getEntryCatalogNode("topBar.windowControls"), undefined);
+});
+
+test("top bar markup stays aligned with its configurable built-in catalog", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/layout/topBar.ts"), "utf8");
+    const markupKeys = Array.from(source.matchAll(/data-topbar-entry="([^"]+)"/g), (match) => match[1]);
+    const catalogKeys = getEntryCatalogChildren(TOP_BAR_ROOT_PATH)
+        .filter(isEntryCatalogNodeConfigurable)
+        .map((item) => item.key);
+    assert.deepEqual(markupKeys, catalogKeys);
+    assert.match(source, /id="drag"/);
+    assert.doesNotMatch(source, /id="drag"[^>]*data-topbar-entry/);
+});
+
+test("top bar account entries use legacy account switches only as defaults", () => {
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            siyuan: {
+                config: {
+                    account: {
+                        displayVIP: false,
+                        displayTitle: true,
+                    },
+                },
+            },
+        },
+    });
+    try {
+        assert.equal(getEntryCatalogDefaultVisibility("topBar.toolbarVIP"), false);
+        assert.equal(getEntryCatalogDefaultVisibility("topBar.toolbarTitle"), true);
+        assert.equal(getEntryCatalogDefaultVisibility("topBar.barSearch"), true);
+        assert.equal(getEntryCatalogDefaultVisibility("topBar.drag"), true);
+    } finally {
+        if (windowDescriptor) {
+            Object.defineProperty(globalThis, "window", windowDescriptor);
+        } else {
+            Reflect.deleteProperty(globalThis, "window");
+        }
+    }
+});
+
+const topBarElement = (attributes: Record<string, string>) => ({
+    getAttribute: (name: string) => attributes[name] ?? null,
+}) as unknown as Element;
+
+test("top bar catalog inserts plugin entries on their declared side of the fixed boundary", () => {
+    const leftKey = getPluginTopBarEntryKey("plugin.one", "left.item");
+    const rightKey = getPluginTopBarEntryKey("plugin.two", "right.item");
+    const legacyKey = getLegacyPluginTopBarEntryKey("plugin.two", 1);
+    try {
+        refreshTopBarCatalog([{
+            name: "plugin.one",
+            displayName: "Plugin One",
+            topBarIcons: [topBarElement({
+                id: "plugin_one:left.item",
+                "data-id": "left.item",
+                "data-topbar-entry": leftKey,
+                "data-location": "left",
+                "aria-label": "Left Item",
+            })],
+        }, {
+            name: "plugin.two",
+            topBarIcons: [topBarElement({
+                id: "plugin_two:right.item",
+                "data-id": "right.item",
+                "data-topbar-entry": rightKey,
+                "data-location": "right",
+                "aria-label": "Right Item",
+            }), topBarElement({
+                id: "plugin_two_1",
+                "data-topbar-entry": legacyKey,
+                "data-location": "right",
+                "aria-label": "Legacy Item",
+            })],
+        }]);
+        const children = getEntryCatalogChildren(TOP_BAR_ROOT_PATH);
+        const keys = children.map((item) => item.key);
+        assert.deepEqual(keys.slice(0, 5), ["barSync", "barBack", "barForward", leftKey, "drag"]);
+        assert.deepEqual(keys.slice(keys.indexOf("toolbarTitle"), keys.indexOf("barCommand")), [
+            "toolbarTitle",
+            rightKey,
+            legacyKey,
+            "barPlugins",
+        ]);
+        assert.equal(getEntryCatalogNode(`${TOP_BAR_ROOT_PATH}.${leftKey}`)?.label(),
+            "Plugin One - Left Item");
+        assert.equal(getEntryCatalogNode(`${TOP_BAR_ROOT_PATH}.${rightKey}`)?.label(),
+            "plugin.two - Right Item");
+        assert.equal(getEntryParentPath(`${TOP_BAR_ROOT_PATH}.${legacyKey}`), TOP_BAR_ROOT_PATH);
+    } finally {
+        refreshTopBarCatalog([]);
+    }
+    assert.equal(getEntryCatalogNode(`${TOP_BAR_ROOT_PATH}.${leftKey}`), undefined);
+    assert.equal(getEntryCatalogNode(`${TOP_BAR_ROOT_PATH}.${rightKey}`), undefined);
+});
+
+test("top bar catalog keeps the assigned key when a legacy item changes array index", () => {
+    const key = getLegacyPluginTopBarEntryKey("plugin.name", 2);
+    try {
+        refreshTopBarCatalog([{
+            name: "plugin.name",
+            topBarIcons: [topBarElement({
+                id: "plugin_name_2",
+                "data-topbar-entry": key,
+                "data-location": "right",
+                "aria-label": "Legacy Item",
+            })],
+        }]);
+        assert.equal(getEntryCatalogNode(`${TOP_BAR_ROOT_PATH}.${key}`)?.key, key);
+        assert.equal(getEntryCatalogNode(`${TOP_BAR_ROOT_PATH}.${getLegacyPluginTopBarEntryKey("plugin.name", 0)}`),
+            undefined);
+    } finally {
+        refreshTopBarCatalog([]);
+    }
+});
+
+test("plugin top bar entries use the legacy unpinned list as their default visibility", () => {
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const key = getPluginTopBarEntryKey("plugin.name", "item");
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            siyuan: {
+                storage: {
+                    "local-plugintopunpin": ["plugin_name:item"],
+                },
+            },
+        },
+    });
+    try {
+        refreshTopBarCatalog([{
+            name: "plugin.name",
+            topBarIcons: [topBarElement({
+                id: "plugin_name:item",
+                "data-id": "item",
+                "data-location": "right",
+                "aria-label": "Item",
+            })],
+        }]);
+        assert.equal(getEntryCatalogDefaultVisibility(`${TOP_BAR_ROOT_PATH}.${key}`), false);
+        window.siyuan.storage["local-plugintopunpin"] = [];
+        assert.equal(getEntryCatalogDefaultVisibility(`${TOP_BAR_ROOT_PATH}.${key}`), true);
+    } finally {
+        refreshTopBarCatalog([]);
+        if (windowDescriptor) {
+            Object.defineProperty(globalThis, "window", windowDescriptor);
+        } else {
+            Reflect.deleteProperty(globalThis, "window");
+        }
+    }
 });
 
 test("toolbar catalog follows the default toolbar declaration", () => {
@@ -122,6 +309,16 @@ test("toolbar catalog follows the default toolbar declaration", () => {
     assert.deepEqual(children.map((item) => item.key), DESKTOP_TOOLBAR_ENTRIES.map((item) => item.key));
     assert.equal(children.filter((item) => item.type === "separator").length, 2);
     assert.equal(children.every((item) => item.simple), true);
+});
+
+test("inline text paste entries follow the menu order", () => {
+    const keys = getEntryCatalogChildren("inline.text").map((item) => item.key);
+    const pasteIndex = keys.indexOf("paste");
+    assert.deepEqual(keys.slice(pasteIndex, pasteIndex + 3), [
+        "paste",
+        "pasteAndKeepSourceFormat",
+        "pasteAsPlainText",
+    ]);
 });
 
 test("toolbar catalog follows plugin insertion slots and removes unloaded plugin entries", () => {
@@ -159,14 +356,23 @@ test("dock catalog refreshes unique plugin docks and removes unloaded entries", 
             name: "plugin.one",
             displayName: "Plugin One",
             docks: {
-                first: {id: "shared.id", config: {title: "First Dock"}},
-                duplicate: {id: "shared.id", config: {title: "Duplicate Dock"}},
+                first: {
+                    id: "shared.id",
+                    config: {title: "First Dock", position: "LeftTop", index: 0},
+                },
+                duplicate: {
+                    id: "shared.id",
+                    config: {title: "Duplicate Dock", position: "RightBottom", index: 1},
+                },
             },
         }, {
             name: "plugin.two",
             displayName: "Plugin Two",
             docks: {
-                second: {id: "shared.id", config: {title: "Second Dock"}},
+                second: {
+                    id: "shared.id",
+                    config: {title: "Second Dock", position: "BottomRight", index: 2},
+                },
             },
         }]);
 
@@ -176,10 +382,71 @@ test("dock catalog refreshes unique plugin docks and removes unloaded entries", 
         assert.equal(getEntryCatalogNode(`dock.${firstKey}`)?.label(), "Plugin One - First Dock");
         assert.equal(getEntryCatalogNode(`dock.${secondKey}`)?.label(), "Plugin Two - Second Dock");
         assert.equal(getEntryParentPath(`dock.${firstKey}`), "dock");
+        assert.equal(getDockEntryPosition(firstKey), "LeftTop");
+        assert.equal(getDockEntryPosition(secondKey), "BottomRight");
     } finally {
         refreshDockCatalog([]);
     }
     assert.equal(getEntryCatalogNode(`dock.${firstKey}`), undefined);
+    assert.equal(getDockEntryPosition(firstKey), undefined);
+});
+
+test("dock catalog exposes the built-in default positions", () => {
+    const positions = {
+        file: "LeftTop",
+        outline: "LeftTop",
+        bookmark: "LeftBottom",
+        tag: "LeftBottom",
+        backlink: "RightBottom",
+        agentChat: "RightTop",
+        inbox: "LeftTop",
+        graph: "RightTop",
+        globalGraph: "RightTop",
+    };
+    Object.entries(positions).forEach(([key, position]) => {
+        assert.equal(getDockEntryPosition(key), position, key);
+    });
+});
+
+test("dock catalog refreshes plugin placement metadata and resolves runtime types", () => {
+    const runtimeType = "plugin.runtime-dock";
+    const stableKey = getPluginDockEntryKey("plugin.runtime", "stable.id");
+    const plugins = (position: TPluginDockPosition, index: number) => [{
+        name: "plugin.runtime",
+        docks: {
+            [runtimeType]: {
+                id: "stable.id",
+                config: {title: "Runtime Dock", position, index},
+            },
+        },
+    }];
+    const element = (attributes: Record<string, string>) => ({
+        getAttribute: (name: string) => attributes[name] ?? null,
+    }) as unknown as Element;
+    try {
+        refreshDockCatalog(plugins("LeftTop", 0));
+        const initialChildren = getEntryCatalogChildren("dock");
+        assert.equal(getDockEntryKey(element({"data-type": runtimeType})), stableKey);
+        assert.equal(getDockEntryKey(element({
+            "data-entry-id": "explicit-entry",
+            "data-type": runtimeType,
+        })), "explicit-entry");
+        assert.equal(getDockEntryPosition(stableKey), "LeftTop");
+
+        refreshDockCatalog(plugins("LeftTop", 1));
+        const indexChangedChildren = getEntryCatalogChildren("dock");
+        assert.notEqual(indexChangedChildren, initialChildren);
+        refreshDockCatalog(plugins("LeftTop", 1));
+        assert.equal(getEntryCatalogChildren("dock"), indexChangedChildren);
+
+        refreshDockCatalog(plugins("RightBottom", 1));
+        assert.equal(getDockEntryPosition(stableKey), "RightBottom");
+    } finally {
+        refreshDockCatalog([]);
+    }
+    assert.equal(getDockEntryKey(element({"data-type": runtimeType})), runtimeType);
+    assert.equal(getDockEntryPosition(stableKey), undefined);
+    assert.equal(getDockEntryPosition("file"), "LeftTop");
 });
 
 test("plugin dock keys encode dotted names and IDs without ambiguity", () => {
@@ -197,7 +464,7 @@ test("slash menu catalog follows the built-in hint order", () => {
     assert.deepEqual(section?.children.map((item) => item.key), ["menu"]);
     const children = getEntryCatalogChildren(SLASH_MENU_ROOT_PATH);
     assert.deepEqual(children.map((item) => item.key), slashMenuBuiltinOrder);
-    assert.equal(children.filter((item) => item.type === "entry").length, 63);
+    assert.equal(children.filter((item) => item.type === "entry").length, 64);
     assert.equal(children.filter((item) => item.type === "separator").length, 5);
     assert.equal(children.every((item) => item.simple), true);
 });
@@ -366,6 +633,30 @@ test("callout presets stay aligned across block menu scopes", () => {
     });
 });
 
+test("heading conversions follow list conversions across block menu scopes", () => {
+    const headingKeys = ["heading1", "heading2", "heading3", "heading4", "heading5", "heading6"];
+    ["gutter.single.turnInto", "gutter.multi.turnInto"].forEach((path) => {
+        const keys = getEntryCatalogChildren(path).map(item => item.key);
+        const headingIndex = keys.indexOf("heading1");
+        assert.equal(headingIndex, keys.indexOf("check") + 1);
+        assert.deepEqual(keys.slice(headingIndex, headingIndex + headingKeys.length), headingKeys);
+    });
+});
+
+test("tab conversion belongs to the single block conversion menu", () => {
+    const keys = getEntryCatalogChildren("gutter.single.turnInto").map(item => item.key);
+    assert.equal(keys[keys.indexOf("tabs") - 1], "calloutCustom");
+    assert.equal(keys[keys.indexOf("tabs") + 1], "list");
+    assert.equal(getEntryCatalogNode("gutter.single.turnInto.tabs")?.simple, true);
+    assert.equal(getEntryCatalogNode("gutter.single.turnInto.tabs")?.type, "entry");
+    assert.equal(getEntryCatalogNode("gutter.multi.turnInto.tabs"), undefined);
+    assert.equal(keys[keys.indexOf("superBlock") - 1], "heading6");
+    assert.equal(keys[keys.indexOf("superBlock") + 1], "code");
+    assert.equal(getEntryCatalogNode("gutter.single.turnInto.superBlock")?.simple, true);
+    assert.equal(getEntryCatalogNode("gutter.single.turnInto.superBlock")?.type, "entry");
+    assert.equal(getEntryCatalogNode("gutter.multi.turnInto.superBlock"), undefined);
+});
+
 test("conditional block resource menus have distinct configuration labels", () => {
     const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
     Object.defineProperty(globalThis, "window", {
@@ -427,6 +718,25 @@ test("list block submenu follows the base block entries", () => {
         "prependListItem",
         "appendListItem",
     ]);
+});
+
+test("tabs layout and task actions have their own configurable block menu", () => {
+    assert.deepEqual(getEntryCatalogChildren("gutter.single.tabs").map(item => item.key), [
+        "tabsPositionTop", "tabsPositionLeft", "tabsTask",
+    ]);
+    const keys = getEntryCatalogChildren("gutter.single").map(item => item.key);
+    const index = keys.indexOf("tabs");
+    assert.deepEqual(keys.slice(index - 1, index + 3), [
+        "separator_tabs", "tabs", "separator_cancelSuperBlock", "superBlock",
+    ]);
+    assert.equal(getEntryCatalogNode("gutter.single.tabs")?.simple, true);
+    assert.equal(getEntryCatalogNode("gutter.single.tabs.tabsTask")?.simple, true);
+    assert.equal(getEntryCatalogNode("gutter.single.tabs.tabsTask")?.type, "entry");
+    const source = readFileSync(resolve(process.cwd(), "src/protyle/gutter/index.ts"), "utf8");
+    const submenu = source.slice(source.indexOf('id: "tabsPositionTop"'), source.indexOf('} else if (type === "NodeSuperBlock" && !protyle.disabled)'));
+    assert.deepEqual(Array.from(submenu.matchAll(/id: "([^"]+)"/g), match => match[1]),
+        getEntryCatalogChildren("gutter.single.tabs").map(item => item.key));
+    assert.equal(getEntryCatalogNode("gutter.single.separator_tabs")?.type, "separator");
 });
 
 test("super block actions and vertical alignment use their respective menu groups", () => {
@@ -542,6 +852,13 @@ test("document loading actions follow the document menu order", () => {
     assert.ok(0 <= loadAllIndex);
     assert.equal(children[loadAllIndex + 1]?.key, "keepLazyLoad");
     assert.equal(children[loadAllIndex + 2]?.key, "separator_1");
+});
+
+test("document mode switch is a direct configurable entry", () => {
+    const editMode = getEntryCatalogNode("document.more.editMode");
+    assert.equal(editMode?.type, "entry");
+    assert.equal(editMode?.simple, true);
+    assert.equal(editMode?.children, undefined);
 });
 
 test("multiple document and notebook entries follow their document tree menus", () => {
@@ -665,6 +982,27 @@ test("configuration labels distinguish block scopes and size controls", () => {
             Reflect.deleteProperty(globalThis, "window");
         }
     }
+});
+
+test("document tree creation entries match menu order and remain available in the Simple profile", () => {
+    const entries = getEntryCatalogChildren("docTree.document");
+    const creationKeys = ["newDocAbove", "newDocBelow", "newSiblingDoc"];
+    assert.deepEqual(entries.slice(0, 6).map((item) => item.key), [
+        "openDocument", ...creationKeys, "separator_1", "copy",
+    ]);
+    creationKeys.forEach((key) => {
+        const entry = getEntryCatalogNode(`docTree.document.${key}`);
+        assert.equal(entry?.type, "entry");
+        assert.equal(entry?.simple, true);
+    });
+    assert.equal(entries[4].type, "separator");
+    assert.equal(getEntryCatalogNode("docTree.documents.newSiblingDoc"), undefined);
+
+    const source = readFileSync(resolve(process.cwd(), "src/menus/navigation.ts"), "utf8");
+    const menuSource = source.slice(source.indexOf("export const initFileMenu"));
+    const ids = Array.from(menuSource.matchAll(/id: "([^"]+)"/g), (match) => match[1]);
+    const start = ids.indexOf("newDocAbove");
+    assert.deepEqual(ids.slice(start, start + 5), [...creationKeys, "separator_1", "copy"]);
 });
 
 test("document tree sort menus follow their scope inheritance options", () => {

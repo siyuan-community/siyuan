@@ -1,5 +1,7 @@
+import {isHiddenTabContent} from "../render/tabsVisibility";
 import {hasClosestBlock, hasClosestByClassName, isInEmbedBlock} from "../util/hasClosest";
 import {Constants} from "../../constants";
+import {getTextWithoutSemanticMarkers} from "../util/inlineElementMarker";
 
 export interface IEmbedOperationContext {
     resultElement: HTMLElement;
@@ -61,6 +63,7 @@ export const getEmbedChildOperationParentID = (element: Element, context = getEm
 
 export const getParentBlock = (element: Element) => {
     if (element.parentElement.classList.contains("callout-content") ||
+        element.parentElement.classList.contains("tab-item-content") ||
         element.parentElement.classList.contains("protyle-wysiwyg__embed")) {
         return element.parentElement.parentElement;
     }
@@ -75,6 +78,9 @@ export const getCalloutInfo = (element: Element) => {
 export const getPreviousBlock = (element: Element) => {
     let parentElement = element;
     while (parentElement) {
+        if (parentElement.classList.contains("tab-item") && parentElement.parentElement.classList.contains("tabs")) {
+            parentElement = parentElement.parentElement;
+        }
         let previous = parentElement.previousElementSibling;
         while (previous && !previous.getAttribute("data-node-id")) {
             previous = previous.previousElementSibling;
@@ -117,7 +123,7 @@ export const getNextBlockSibling = (element: Element): Element => {
 export const getLastBlock = (element: Element) => {
     let lastElement;
     Array.from(element.querySelectorAll("[data-node-id]")).reverse().find(item => {
-        if (!isInEmbedBlock(item)) {
+        if (!isInEmbedBlock(item) && !isHiddenTabContent(item)) {
             lastElement = item;
             return true;
         }
@@ -128,7 +134,7 @@ export const getLastBlock = (element: Element) => {
 export const getFirstBlock = (element: Element) => {
     let firstElement;
     Array.from(element.querySelectorAll("[data-node-id]")).find(item => {
-        if (!isInEmbedBlock(item) && !item.classList.contains("li") && !item.classList.contains("sb")) {
+        if (!isInEmbedBlock(item) && !isHiddenTabContent(item) && !item.classList.contains("li") && !item.classList.contains("sb")) {
             firstElement = item;
             return true;
         }
@@ -139,6 +145,9 @@ export const getFirstBlock = (element: Element) => {
 export const getNextBlock = (element: Element) => {
     let parentElement = element;
     while (parentElement) {
+        if (parentElement.classList.contains("tab-item") && parentElement.parentElement.classList.contains("tabs")) {
+            parentElement = parentElement.parentElement;
+        }
         let next = parentElement.nextElementSibling;
         while (next && !next.getAttribute("data-node-id")) {
             next = next.nextElementSibling;
@@ -176,6 +185,11 @@ export const getContenteditableElement = (element: Element, target?: Node): Elem
     if (!element) {
         return element;
     }
+    if (element.classList.contains("tabs")) {
+        const items = Array.from(element.children).filter(item => item.classList.contains("tab-item"));
+        return getContenteditableElement(items.find(item => item.getAttribute("data-tabs-hidden") === "false") ||
+            items.find(item => item.getAttribute("data-node-id") === element.getAttribute("tabs-active-id")) || items[0]);
+    }
     const calloutTitleElement = target && hasClosestByClassName(target, "callout-title");
     if (calloutTitleElement && element.contains(calloutTitleElement)) {
         return calloutTitleElement;
@@ -185,6 +199,9 @@ export const getContenteditableElement = (element: Element, target?: Node): Elem
     }
     if (element.classList.contains("protyle-title__input")) {
         return element;
+    }
+    if (element.classList.contains("tab-item")) {
+        return getContenteditableElement(element.querySelector(":scope > .tab-item-content > [data-node-id]"));
     }
     let blockElement = element;
     if (!blockElement.getAttribute("data-node-id")) {
@@ -206,7 +223,7 @@ export const getContenteditableElement = (element: Element, target?: Node): Elem
         return blockElement.querySelector(".hljs").lastElementChild;
     } else if ("NodeAttributeView" === type) {
         return blockElement.querySelector(".av__title");
-    } else if (["NodeBlockQueryEmbed", "NodeMathBlock", "NodeHTMLBlock"].includes(type)) {
+    } else if (["NodeBlockQueryEmbed", "NodeMathBlock", "NodeHTMLBlock", "NodeCustomBlock"].includes(type)) {
         return undefined;
     } else if (blockElement.getAttribute("data-node-id")) {
         return getContenteditableElement(blockElement.querySelector("[data-node-id]"));
@@ -215,7 +232,7 @@ export const getContenteditableElement = (element: Element, target?: Node): Elem
 };
 
 export const isContainerBlock = (element: Element) => {
-    return element.classList.contains("list") || element.classList.contains("li") || element.classList.contains("sb") || element.classList.contains("bq") || element.classList.contains("callout");
+    return ["list", "li", "sb", "bq", "callout", "tabs", "tab-item"].some(name => element.classList.contains(name));
 };
 
 export const isNotEditBlock = (element: Element) => {
@@ -229,7 +246,7 @@ export const isNotEditBlock = (element: Element) => {
         });
         return !hasEditable;
     }
-    return ["NodeBlockQueryEmbed", "NodeThematicBreak", "NodeMathBlock", "NodeHTMLBlock", "NodeIFrame", "NodeWidget", "NodeVideo", "NodeAudio"].includes(element.getAttribute("data-type")) ||
+    return ["NodeBlockQueryEmbed", "NodeThematicBreak", "NodeMathBlock", "NodeHTMLBlock", "NodeIFrame", "NodeWidget", "NodeVideo", "NodeAudio", "NodeCustomBlock"].includes(element.getAttribute("data-type")) ||
         (element.getAttribute("data-type") === "NodeCodeBlock" && element.classList.contains("render-node"));
 };
 
@@ -237,12 +254,15 @@ export const getTopEmptyElement = (element: Element, boundaryElement?: Element) 
     let topElement = element;
     while (topElement.parentElement && topElement.parentElement !== boundaryElement &&
         !topElement.parentElement.classList.contains("protyle-wysiwyg")) {
+        if (topElement.parentElement.classList.contains("tab-item-content")) {
+            break;
+        }
         if (!topElement.parentElement.getAttribute("data-node-id") && !topElement.parentElement.classList.contains("callout-content")) {
             topElement = topElement.parentElement;
         } else {
             let hasText = false;
             Array.from(topElement.parentElement.querySelectorAll('[contenteditable="true"]')).find(item => {
-                if (item.textContent.replace(Constants.ZWSP, "").replace("\n", "") !== "") {
+                if (getTextWithoutSemanticMarkers(item).split(Constants.ZWSP).join("").replace(/\n/g, "") !== "") {
                     hasText = true;
                     return true;
                 }

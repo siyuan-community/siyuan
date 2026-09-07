@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +46,13 @@ func PushReloadSnippet(snippet *conf.Snpt) {
 	util.BroadcastByType("main", "setSnippet", 0, "", snippet)
 }
 
-func PushReloadPlugin(uninstallPluginNameSet, unloadPluginNameSet, reloadPluginSet, dataChangePluginSet *hashset.Set, excludeApp string) {
+const (
+	DataChangeReasonSync      = "sync"
+	DataChangeReasonOverwrite = "overwrite"
+)
+
+func PushReloadPlugin(uninstallPluginNameSet, unloadPluginNameSet, reloadPluginSet, dataChangePluginSet *hashset.Set,
+	excludeApp, dataChangeReason string) {
 	// 按优先级从高到低排列，同一插件只保留在优先级最高的集合中
 	orderedSets := []*hashset.Set{uninstallPluginNameSet, unloadPluginNameSet, reloadPluginSet, dataChangePluginSet}
 	slices := make([][]string, len(orderedSets))
@@ -78,10 +85,11 @@ func PushReloadPlugin(uninstallPluginNameSet, unloadPluginNameSet, reloadPluginS
 
 	logging.LogInfof("reload plugins, uninstalls=%v, unloads=%v, reloads=%v, dataChanges=%v", slices[0], slices[1], slices[2], slices[3])
 	payload := map[string]any{
-		"uninstallPlugins":  slices[0], // 插件卸载
-		"unloadPlugins":     slices[1], // 插件禁用
-		"reloadPlugins":     slices[2], // 插件启用，或插件代码变更
-		"dataChangePlugins": slices[3], // 插件存储数据变更
+		"uninstallPlugins":  slices[0],        // 插件卸载
+		"unloadPlugins":     slices[1],        // 插件禁用
+		"reloadPlugins":     slices[2],        // 插件启用，或插件代码变更
+		"dataChangePlugins": slices[3],        // 插件存储数据变更
+		"dataChangeReason":  dataChangeReason, // 插件存储数据变更来源
 	}
 	if 0 < len(slices[0])+len(slices[1])+len(slices[2]) {
 		util.ReloadPublishServiceSessions()
@@ -94,22 +102,65 @@ func PushReloadPlugin(uninstallPluginNameSet, unloadPluginNameSet, reloadPluginS
 	util.BroadcastByTypeAndExcludeApp(excludeApp, "main", "reloadPlugin", 0, "", payload)
 }
 
-// PushReloadAllEnabledPlugins 向前端推送已启用插件的全局启用或禁用状态。
-func PushReloadAllEnabledPlugins(enabled bool, excludeApp string) {
-	pluginNameSet := hashset.New()
-	for _, petal := range getPetals() {
-		if petal.Enabled {
-			pluginNameSet.Add(petal.Name)
-		}
-	}
-	if pluginNameSet.Empty() {
+// PushPluginStorageDataChanged 通知其他前端实例插件存储数据已变更。
+func PushPluginStorageDataChanged(absPath, excludeApp string) {
+	pluginName, ok := pluginStorageName(absPath)
+	if !ok {
 		return
 	}
-	if enabled {
-		PushReloadPlugin(nil, nil, pluginNameSet, nil, excludeApp)
-	} else {
-		PushReloadPlugin(nil, pluginNameSet, nil, nil, excludeApp)
+	PushReloadPlugin(nil, nil, nil, hashset.New(pluginName), excludeApp, DataChangeReasonOverwrite)
+}
+
+func pluginStorageName(absPath string) (pluginName string, ok bool) {
+	relPath, err := filepath.Rel(util.DataDir, absPath)
+	if nil != err {
+		return "", false
 	}
+	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	if 3 > len(parts) || "storage" != parts[0] || "petal" != parts[1] || "" == parts[2] ||
+		"petals.json" == parts[2] {
+		return "", false
+	}
+	return parts[2], true
+}
+
+// PushReloadAllEnabledPlugins 向前端推送已启用插件的全局状态，并返回相同的权威状态供请求方应用。
+func PushReloadAllEnabledPlugins(enabled, petalDisabled bool, revision uint64, changed bool) map[string]any {
+	pluginNames := []string{}
+	for _, petal := range getPetals() {
+		if petal.Enabled {
+			pluginNames = append(pluginNames, petal.Name)
+		}
+	}
+	sort.Strings(pluginNames)
+
+	unloadPlugins, reloadPlugins := []string{}, []string{}
+	if changed {
+		if enabled {
+			reloadPlugins = pluginNames
+		} else {
+			unloadPlugins = pluginNames
+		}
+	}
+	payload := map[string]any{
+		"uninstallPlugins":    []string{},
+		"unloadPlugins":       unloadPlugins,
+		"reloadPlugins":       reloadPlugins,
+		"dataChangePlugins":   []string{},
+		"globalPetalEnabled":  enabled,
+		"globalPetalDisabled": petalDisabled,
+		"globalPetalRevision": revision,
+		"globalPetalChanged":  changed,
+	}
+	if changed {
+		logging.LogInfof("reload plugins for global state, unloads=%v, reloads=%v, revision=%d",
+			unloadPlugins, reloadPlugins, revision)
+		if 0 < len(unloadPlugins)+len(reloadPlugins) {
+			util.ReloadPublishServiceSessions()
+		}
+		util.BroadcastByType("main", "reloadPlugin", 0, "", payload)
+	}
+	return payload
 }
 
 func refreshDocInfo(tree *parse.Tree) {
@@ -346,10 +397,15 @@ func refreshDynamicRefTexts0(updatedDefNodes map[string]*ast.Node, updatedTrees 
 	treeRefNodeIDs := map[string]*hashset.Set{}
 	var changedNodes []*ast.Node
 	var refs []*sql.Ref
+	var attributeViewRefs []*sql.Ref
 	for _, updateNode := range updatedDefNodes {
 		boxID := updatedNodeBoxID(updateNode, updatedTrees)
 		refs, changedNodes = getRefsCacheByDefNode(updateNode, boxID)
 		for _, ref := range refs {
+			if sql.AttributeViewRefType == ref.Type {
+				attributeViewRefs = append(attributeViewRefs, ref)
+				continue
+			}
 			if refIDs, ok := treeRefNodeIDs[ref.RootID]; !ok {
 				refIDs = hashset.New()
 				refIDs.Add(ref.BlockID)
@@ -362,6 +418,7 @@ func refreshDynamicRefTexts0(updatedDefNodes map[string]*ast.Node, updatedTrees 
 	for _, n := range changedNodes {
 		updatedDefNodes[n.ID] = n
 	}
+	refreshAttributeViewDynamicRefTexts(updatedDefNodes, attributeViewRefs)
 
 	changedRefTree := map[string]*parse.Tree{}
 

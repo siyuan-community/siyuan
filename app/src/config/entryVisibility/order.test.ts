@@ -1,11 +1,13 @@
 import * as assert from "node:assert/strict";
 import test from "node:test";
+import {getEntryCatalogChildren} from "./catalog";
 import {
     mergeEntryOrder,
     mergeEntryOrderPreservingUnknown,
     moveEntryOrder,
     reorderEntrySlots,
     resolveEntryOrder,
+    resolveEntryOrderWithBoundaryDefaults,
 } from "./order";
 
 test("entry order keeps custom order and inserts new entries by their default neighbors", () => {
@@ -28,6 +30,42 @@ test("entry order inserts document sorting after attributes in existing profiles
 
 test("entry order ignores unknown and duplicate keys", () => {
     assert.deepEqual(mergeEntryOrder(["a", "b", "c"], ["missing", "c", "c", "a"]), ["c", "a", "b"]);
+});
+
+test("tab task action merges into saved layout menus while preserving plugin slots", () => {
+    const defaults = getEntryCatalogChildren("gutter.single.tabs").map(item => item.key);
+    const saved = ["tabsPositionLeft", "plugin:example:item", "tabsPositionTop"];
+    const merged = mergeEntryOrderPreservingUnknown(defaults, saved);
+    assert.deepEqual(merged.filter(key => key !== "tabsTask"), saved);
+    assert.deepEqual(merged, ["tabsPositionLeft", "plugin:example:item", "tabsTask", "tabsPositionTop"]);
+});
+
+test("tab conversion merges into saved block menus without moving plugin slots", () => {
+    const entries = getEntryCatalogChildren("gutter.single.turnInto");
+    const defaults = entries.map(item => item.key);
+    const saved = defaults.filter(key => key !== "tabs");
+    saved.splice(1, 0, "plugin:example:item");
+    const merged = mergeEntryOrderPreservingUnknown(defaults, saved);
+    assert.deepEqual(merged.filter(key => key !== "tabs"), saved);
+    assert.equal(merged[1], "plugin:example:item");
+    assert.equal(merged[merged.indexOf("tabs") + 1], "list");
+});
+
+test("document tree profiles merge sibling creation while preserving custom order and plugin slots", () => {
+    const entries = getEntryCatalogChildren("docTree.document");
+    const defaults = entries.map((item) => item.key);
+    const separators = new Set(entries.filter((item) => item.type === "separator").map((item) => item.key));
+    const saved = defaults.filter((key) => key !== "newSiblingDoc");
+    saved.splice(0, 3, "newDocBelow", "openDocument", "newDocAbove");
+    saved.splice(1, 0, "plugin:example:item");
+    const merged = mergeEntryOrderPreservingUnknown(defaults, saved);
+    assert.deepEqual(merged.filter((key) => key !== "newSiblingDoc"), saved);
+    assert.equal(merged[1], "plugin:example:item");
+    assert.equal(merged[merged.indexOf("newDocBelow") + 2], "newSiblingDoc");
+    assert.deepEqual(resolveEntryOrder([...defaults, "plugin:example:item"], merged, separators), merged);
+
+    const visible = ["newSiblingDoc", "plugin:example:item", "separator_1", "copy"].map((key) => ({key}));
+    assert.deepEqual(reorderEntrySlots(visible, defaults, (item) => item.key), visible);
 });
 
 test("entry order can preserve an unknown plugin key and its slot", () => {
@@ -118,6 +156,53 @@ test("entry order preserves plugin registration slots", () => {
     const items = [{key: "a"}, {key: "plugin"}, {key: "b"}, {key: "separator"}];
     assert.deepEqual(reorderEntrySlots(items, ["b", "separator", "a"], (item) => item.key),
         [{key: "b"}, {key: "plugin"}, {key: "separator"}, {key: "a"}]);
+});
+
+test("top bar order can move entries across its fixed boundary while preserving an unavailable plugin slot", () => {
+    const defaultOrder = ["barSync", "barBack", "drag", "toolbarVIP", "barPlugins"];
+    const savedOrder = ["barBack", "plugin:missing:item", "drag", "barSync", "toolbarVIP", "barPlugins"];
+    assert.deepEqual(mergeEntryOrderPreservingUnknown(defaultOrder, savedOrder, [
+        "barBack",
+        "toolbarVIP",
+        "drag",
+        "barSync",
+        "barPlugins",
+    ]), [
+        "barBack",
+        "plugin:missing:item",
+        "toolbarVIP",
+        "drag",
+        "barSync",
+        "barPlugins",
+    ]);
+});
+
+test("new top bar entries use their default side while saved entries keep their user placement", () => {
+    const defaultOrder = ["leftBuiltin", "leftNew", "drag", "rightNew", "rightBuiltin"];
+    assert.deepEqual(resolveEntryOrderWithBoundaryDefaults(defaultOrder, [
+        "drag",
+        "leftBuiltin",
+        "rightBuiltin",
+    ], "drag", new Set()), [
+        "leftNew",
+        "drag",
+        "rightNew",
+        "leftBuiltin",
+        "rightBuiltin",
+    ]);
+    assert.deepEqual(resolveEntryOrderWithBoundaryDefaults(defaultOrder, [
+        "rightBuiltin",
+        "rightNew",
+        "drag",
+        "leftNew",
+        "leftBuiltin",
+    ], "drag", new Set()), [
+        "rightBuiltin",
+        "rightNew",
+        "drag",
+        "leftNew",
+        "leftBuiltin",
+    ]);
 });
 
 test("tab menu ordering handles mutually exclusive and conditional entries", () => {

@@ -1,3 +1,5 @@
+import {revealTabsForTarget} from "../render/tabsRender";
+import {isHiddenTabContent} from "../render/tabsVisibility";
 import {
     getContenteditableElement,
     getNextBlock,
@@ -20,6 +22,12 @@ import {genRenderFrame} from "../render/util";
 import {Constants} from "../../constants";
 import {getUndoFocusElement} from "./selectionFocus";
 import {getBlockRangeSelectElements as getBlockRangeSelectElementsByDOM} from "./blockRangeSelect";
+import {
+    getMarkerAwareTextLength,
+    getSemanticMarkerPrefixLengthForNode,
+    stripSemanticMarkersFromRangeText
+} from "./inlineElementMarker";
+import {getSelectAllBlockAction} from "../wysiwyg/blockSelection";
 
 const selectIsEditor = (editor: Element, range?: Range) => {
     if (!range) {
@@ -56,7 +64,15 @@ export const fixTableRange = (range: Range) => {
 };
 
 export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range): boolean => {
-    const editElement = getContenteditableElement(nodeElement);
+    const blockSelectionAction = getSelectAllBlockAction(protyle.wysiwyg.element);
+    if (blockSelectionAction !== "none") {
+        range.collapse(true);
+        hideElements(["toolbar"], protyle);
+        if (blockSelectionAction === "keep") {
+            return false;
+        }
+    }
+    const editElement = blockSelectionAction === "none" ? getContenteditableElement(nodeElement) : undefined;
     if (editElement) {
         let position;
         if (editElement.tagName === "TABLE") {
@@ -67,7 +83,7 @@ export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range)
                     range.setStart(cellElement.firstChild, 0);
                     range.setEndAfter(cellElement.lastChild);
                     protyle.toolbar.render(protyle, range);
-                    countSelectWord(range, protyle.block.rootID);
+                    countSelectWord(range, protyle);
                     return true;
                 }
             }
@@ -113,18 +129,13 @@ export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range)
                 // 列表回车后，左键全选无法选中
                 focusByRange(range);
                 protyle.toolbar.render(protyle, range);
-                countSelectWord(range, protyle.block.rootID);
+                countSelectWord(range, protyle);
                 return true;
             }
         }
     }
     range.collapse(true);
-    const selectElements = protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select");
-    if (selectElements.length > 0 && protyle.wysiwyg.element.childElementCount === selectElements.length &&
-        selectElements[0].parentElement === protyle.wysiwyg.element) {
-        return false;
-    }
-    hideElements(["select"], protyle);
+    hideElements(["select", "toolbar"], protyle);
     const ids: string[] = [];
     Array.from(protyle.wysiwyg.element.children).forEach(item => {
         const nodeId = item.getAttribute("data-node-id");
@@ -133,7 +144,7 @@ export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range)
             ids.push(nodeId);
         }
     });
-    countBlockWord(ids, protyle.block.rootID);
+    countBlockWord(ids, protyle);
     return false;
 };
 
@@ -164,7 +175,7 @@ export const selectBlocksByRange = (protyle: IProtyle, range: Range) => {
         });
     });
     range.collapse(false);
-    countBlockWord(selectElements.map(item => item.getAttribute("data-node-id")), protyle.block.rootID);
+    countBlockWord(selectElements.map(item => item.getAttribute("data-node-id")), protyle);
 };
 
 // https://github.com/siyuan-note/siyuan/issues/8196
@@ -481,11 +492,13 @@ export const getSelectionOffset = (selectElement: Node, editorElement?: Element,
         preSelectionRange.selectNodeContents(selectElement);
     }
     preSelectionRange.setEnd(range.startContainer, range.startOffset);
-    const getTextLength = (text: string) => (ignoreZWSP ? text.split(Constants.ZWSP).join("") : text).length;
+    const getRangeTextLength = (textRange: Range) => ignoreZWSP ?
+        stripSemanticMarkersFromRangeText(textRange).split(Constants.ZWSP).join("").length :
+        textRange.toString().length;
     // 需加上表格内软换行 br 的长度
-    position.start = getTextLength(preSelectionRange.toString()) +
+    position.start = getRangeTextLength(preSelectionRange) +
         preSelectionRange.cloneContents().querySelectorAll("br, .emoji").length;
-    position.end = position.start + getTextLength(range.toString()) +
+    position.end = position.start + getRangeTextLength(range) +
         range.cloneContents().querySelectorAll("br, .emoji").length;
     return position;
 };
@@ -508,7 +521,7 @@ export const getBlockRanges = (editorElement: Element, selectedRange: Range, exc
     const blockWalker = document.createTreeWalker(editorElement, NodeFilter.SHOW_ELEMENT, {
         acceptNode(node) {
             const element = node as HTMLElement;
-            if (element.getAttribute("data-type") === "NodeBlockQueryEmbed") {
+            if (element.getAttribute("data-type") === "NodeBlockQueryEmbed" || isHiddenTabContent(element)) {
                 return NodeFilter.FILTER_REJECT;
             }
             return element.hasAttribute("data-node-id") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
@@ -813,17 +826,19 @@ export const setFirstNodeRange = (editElement: Element, range: Range) => {
     return range;
 };
 
-const getDOMOffset = (text: string, offset: number, skipZWSP: boolean) => {
+const getDOMOffset = (textNode: Text, offset: number, skipZWSP: boolean) => {
+    const text = textNode.data;
+    const semanticPrefixLength = getSemanticMarkerPrefixLengthForNode(textNode);
     let domOffset = 0;
     let textOffset = 0;
     while (domOffset < text.length && textOffset < offset) {
-        if (text[domOffset] !== Constants.ZWSP) {
+        if (text[domOffset] !== Constants.ZWSP && domOffset >= semanticPrefixLength) {
             textOffset++;
         }
         domOffset++;
     }
     if (skipZWSP) {
-        while (text[domOffset] === Constants.ZWSP) {
+        while (text[domOffset] === Constants.ZWSP || domOffset < semanticPrefixLength) {
             domOffset++;
         }
     }
@@ -845,8 +860,8 @@ export const focusByOffset = (container: Element, start: number, end: number, is
     let startNode: Node;
     searchNode(container, container.firstChild, node => {
         if (node.nodeType === Node.TEXT_NODE) {
-            const dataLength = ignoreZWSP ?
-                (node as Text).data.split(Constants.ZWSP).join("").length : (node as Text).data.length;
+            const textNode = node as Text;
+            const dataLength = ignoreZWSP ? getMarkerAwareTextLength(textNode, true) : textNode.data.length;
             if (start <= dataLength) {
                 startNode = node;
                 return true;
@@ -873,8 +888,8 @@ export const focusByOffset = (container: Element, start: number, end: number, is
         } else {
             searchNode(container, startNode, node => {
                 if (node.nodeType === Node.TEXT_NODE) {
-                    const dataLength = ignoreZWSP ?
-                        (node as Text).data.split(Constants.ZWSP).join("").length : (node as Text).data.length;
+                    const textNode = node as Text;
+                    const dataLength = ignoreZWSP ? getMarkerAwareTextLength(textNode, true) : textNode.data.length;
                     if (end <= dataLength) {
                         endNode = node;
                         return true;
@@ -897,8 +912,7 @@ export const focusByOffset = (container: Element, start: number, end: number, is
     const range = document.createRange();
     if (startNode) {
         if (startNode.nodeType === Node.TEXT_NODE) {
-            const data = (startNode as Text).data;
-            range.setStart(startNode, ignoreZWSP ? getDOMOffset(data, start, true) : start);
+            range.setStart(startNode, ignoreZWSP ? getDOMOffset(startNode as Text, start, true) : start);
         } else {
             range.setStartAfter(startNode);
         }
@@ -914,8 +928,7 @@ export const focusByOffset = (container: Element, start: number, end: number, is
     } else {
         if (endNode) {
             if (endNode.nodeType === Node.TEXT_NODE) {
-                const data = (endNode as Text).data;
-                range.setEnd(endNode, ignoreZWSP ? getDOMOffset(data, end, false) : end);
+                range.setEnd(endNode, ignoreZWSP ? getDOMOffset(endNode as Text, end, false) : end);
             } else {
                 range.setEndAfter(endNode);
             }
@@ -984,7 +997,10 @@ export const focusByWbr = (element: Element, range: Range, preserveWbr = false) 
             range.setStart(wbrElement.previousSibling, wbrElement.previousSibling.textContent.length);
         } else if (wbrElement.nextSibling) {
             if (wbrElement.nextSibling.nodeType === 3) {
-                if (wbrElement.nextSibling.textContent === Constants.ZWSP) {
+                const semanticPrefixLength = getSemanticMarkerPrefixLengthForNode(wbrElement.nextSibling);
+                if (semanticPrefixLength > 0) {
+                    range.setStart(wbrElement.nextSibling, semanticPrefixLength);
+                } else if (wbrElement.nextSibling.textContent === Constants.ZWSP) {
                     // <wbr>零宽空格text
                     range.setStart(wbrElement.nextSibling, 1);
                 } else {
@@ -1035,6 +1051,14 @@ export const focusByRange = (range: Range) => {
         startNode.focus();
         return;
     }
+    const target = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement;
+    if (target) {
+        const tabTitle = target.closest(".tab-item-title");
+        if (tabTitle) {
+            tabTitle.closest<HTMLElement>(".tab-item").dataset.tabsEditing = "true";
+        }
+        revealTabsForTarget(target);
+    }
     const selection = window.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
@@ -1047,7 +1071,9 @@ export const focusBlock = (element: Element, parentElement?: HTMLElement, toStar
     }
 
     // hr、嵌入块、数学公式、iframe、音频、视频、图表渲染块等，删除段落块后，光标位置矫正 https://github.com/siyuan-note/siyuan/issues/4143
-    if (element.classList.contains("render-node") || element.classList.contains("iframe") || element.classList.contains("hr") || element.classList.contains("av")) {
+    if (element.classList.contains("render-node") || element.classList.contains("iframe") ||
+        element.classList.contains("hr") || element.classList.contains("av") ||
+        element.classList.contains("custom-block")) {
         const range = document.createRange();
         const type = element.getAttribute("data-type");
         let setRange = false;
@@ -1067,7 +1093,7 @@ export const focusBlock = (element: Element, parentElement?: HTMLElement, toStar
             range.setStart(element.lastElementChild.previousElementSibling.lastElementChild.firstChild, 0);
             range.collapse(true);
             setRange = true;
-        } else if (type === "NodeIFrame" || type === "NodeWidget") {
+        } else if (type === "NodeIFrame" || type === "NodeWidget" || type === "NodeCustomBlock") {
             range.setStart(element, 0);
             setRange = true;
         } else if (type === "NodeVideo") {

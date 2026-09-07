@@ -15,8 +15,12 @@ import {showMessage} from "../dialog/message";
 import type {Editor} from "../editor";
 import {setEditMode} from "../protyle/util/setEditMode";
 import {getDownloadURL} from "../util/imageURL";
+import {getHostCapabilities} from "../util/hostCapabilities";
 
 export const exportAsset = (src: string) => {
+    if (!getHostCapabilities().importExport) {
+        return {ignore: true};
+    }
     return {
         id: "export",
         label: window.siyuan.languages.export,
@@ -44,6 +48,9 @@ export const exportAsset = (src: string) => {
 
 // 复制资源文件到系统剪贴板，在文件资源管理器中可粘贴为文件（仅 Windows、macOS 桌面端支持）
 export const writeAssetToClipboard = (src: string) => {
+    if (!getHostCapabilities().localFileSystem) {
+        return {ignore: true};
+    }
     /// #if !BROWSER
     if (["windows", "darwin"].includes(window.siyuan.config.system.os)) {
         return {
@@ -178,23 +185,25 @@ export const openEditorTab = (app: App, ids: string[], notebookId?: string, path
         }
     });
     /// #if !BROWSER
-    openSubmenus.push({id: "separator_2", type: "separator"});
-    openSubmenus.push({
-        id: "showInFolder",
-        icon: "iconFolder",
-        label: window.siyuan.languages.showInFolder,
-        click: () => {
-            if (notebookId) {
-                useShell("showItemInFolder", path.join(window.siyuan.config.system.dataDir, notebookId, pathString));
-            } else {
-                ids.forEach((id) => {
-                    fetchPost("/api/block/getBlockInfo", {id}, (response) => {
-                        useShell("showItemInFolder", path.join(window.siyuan.config.system.dataDir, response.data.box, response.data.path));
+    if (getHostCapabilities().localFileSystem) {
+        openSubmenus.push({id: "separator_2", type: "separator"});
+        openSubmenus.push({
+            id: "showInFolder",
+            icon: "iconFolder",
+            label: window.siyuan.languages.showInFolder,
+            click: () => {
+                if (notebookId) {
+                    useShell("showItemInFolder", path.join(window.siyuan.config.system.dataDir, notebookId, pathString));
+                } else {
+                    ids.forEach((id) => {
+                        fetchPost("/api/block/getBlockInfo", {id}, (response) => {
+                            useShell("showItemInFolder", path.join(window.siyuan.config.system.dataDir, response.data.box, response.data.path));
+                        });
                     });
-                });
+                }
             }
-        }
-    });
+        });
+    }
     /// #endif
     if (onlyGetMenus) {
         return openSubmenus;
@@ -231,30 +240,46 @@ export const copyPNGByLink = (link: string) => {
         window.JSAndroid.writeImageClipboard(link);
         return;
     }
+    const showCopyError = () => showMessage(window.siyuan.languages.imageCopyFailed, 6000, "error");
+    const copyBlob = async (blob: Blob) => {
+        if (await writePNGBlob(blob)) {
+            showMessage(window.siyuan.languages.copied);
+        }
+    };
+    const imageToPNGClipboard = (image: HTMLImageElement) => {
+        try {
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            canvas.getContext("2d").drawImage(image, 0, 0);
+            canvas.toBlob((blob) => {
+                if (blob) {
+                    copyBlob(blob);
+                } else {
+                    showCopyError();
+                }
+            }, "image/png", 1);
+        } catch (e) {
+            showCopyError();
+        }
+    };
     // 通过 fetch 拿到 blob 后再写入剪贴板，避免跨域图片直接 drawImage 污染 canvas 导致 toBlob 失败
     // （浏览器访问 Docker 部署时常见，报错：Tainted canvases may not be exported）
     // 把任意图片 blob 画进 canvas 再导出为 PNG；blob URL 为同源，不会污染 canvas
     const blobToPNGClipboard = (blob: Blob) => {
         if (blob.type === "image/png") {
-            writePNGBlob(blob);
+            copyBlob(blob);
             return;
         }
         const objectURL = URL.createObjectURL(blob);
-        const canvas = document.createElement("canvas");
         const tempElement = document.createElement("img");
-        tempElement.onload = (e: Event & { target: HTMLImageElement }) => {
-            canvas.width = e.target.naturalWidth;
-            canvas.height = e.target.naturalHeight;
-            canvas.getContext("2d").drawImage(e.target, 0, 0);
+        tempElement.onload = () => {
+            imageToPNGClipboard(tempElement);
             URL.revokeObjectURL(objectURL);
-            canvas.toBlob((pngBlob) => {
-                if (pngBlob) {
-                    writePNGBlob(pngBlob);
-                }
-            }, "image/png", 1);
         };
         tempElement.onerror = () => {
             URL.revokeObjectURL(objectURL);
+            showCopyError();
         };
         tempElement.src = objectURL;
     };
@@ -265,19 +290,10 @@ export const copyPNGByLink = (link: string) => {
         blobToPNGClipboard(await response.blob());
     }).catch(() => {
         // fetch 失败时回退：以 CORS 模式加载后再导出（需目标服务器返回 ACAO）
-        const canvas = document.createElement("canvas");
         const tempElement = document.createElement("img");
         tempElement.crossOrigin = "anonymous";
-        tempElement.onload = (e: Event & { target: HTMLImageElement }) => {
-            canvas.width = e.target.naturalWidth;
-            canvas.height = e.target.naturalHeight;
-            canvas.getContext("2d").drawImage(e.target, 0, 0);
-            canvas.toBlob((blob) => {
-                if (blob) {
-                    writePNGBlob(blob);
-                }
-            }, "image/png", 1);
-        };
+        tempElement.onload = () => imageToPNGClipboard(tempElement);
+        tempElement.onerror = showCopyError;
         tempElement.src = link;
     });
 };

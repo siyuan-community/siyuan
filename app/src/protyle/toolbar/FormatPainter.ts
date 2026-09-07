@@ -16,11 +16,18 @@ const getSegment = (textNode: Text, editableElement: Element) => {
     const types: string[] = [];
     const styles: IFormatPainterStyle = {};
     let element = textNode.parentElement;
+    let fontFamilyAllowed = true;
     while (element && editableElement.contains(element)) {
         const elementTypes = (element.getAttribute("data-type") || "").split(" ").filter(Boolean);
         types.push(...elementTypes);
         if (elementTypes.includes("inline-math")) {
             return;
+        }
+        if (elementTypes.includes("code") || elementTypes.includes("kbd")) {
+            fontFamilyAllowed = false;
+        }
+        if (fontFamilyAllowed) {
+            styles.fontFamily = styles.fontFamily || element.style.fontFamily || undefined;
         }
         if (elementTypes.includes("text")) {
             styles.backgroundColor = styles.backgroundColor || element.style.backgroundColor || undefined;
@@ -28,6 +35,8 @@ const getSegment = (textNode: Text, editableElement: Element) => {
             styles.fontSize = styles.fontSize || element.style.fontSize || undefined;
             styles.shadow = styles.shadow || !!element.style.textShadow || undefined;
             styles.hollow = styles.hollow || !!element.style.webkitTextStroke || undefined;
+            styles.direction = styles.direction ||
+                (element.style.direction === "ltr" || element.style.direction === "rtl" ? element.style.direction : undefined);
         }
         if (element === editableElement) {
             break;
@@ -35,6 +44,7 @@ const getSegment = (textNode: Text, editableElement: Element) => {
         element = element.parentElement;
     }
     return {
+        fontFamilyExcluded: !fontFamilyAllowed,
         styles,
         types: [...new Set(types)].filter(type => FORMAT_PAINTER_TYPES.includes(type)),
     };
@@ -50,7 +60,7 @@ export const getFormatPainterSnapshot = (rootElement: Element, range: Range) => 
                 const start = item.range.startContainer === textNode ? item.range.startOffset : 0;
                 const end = item.range.endContainer === textNode ? item.range.endOffset : textNode.data.length;
                 if (start < end && textNode.data.substring(start, end).split(Constants.ZWSP).join("")) {
-                    const segment = getSegment(textNode, item.editableElement);
+                    const segment = getSegment(textNode, item.blockElement);
                     if (segment) {
                         segments.push(segment);
                     }

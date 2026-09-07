@@ -57,7 +57,25 @@ func docSaveAsTemplate(c *gin.Context) {
 	id := arg["id"].(string)
 	name := arg["name"].(string)
 	overwrite := arg["overwrite"].(bool)
-	code, err := model.DocSaveAsTemplate(id, name, overwrite)
+	databaseMode := model.TemplateDatabaseModeCopy
+	if value, exists := arg["databaseMode"]; exists {
+		if mode, ok := value.(string); ok {
+			databaseMode = model.TemplateDatabaseMode(mode)
+		} else {
+			databaseMode = model.TemplateDatabaseMode("invalid")
+		}
+	}
+	var directory string
+	if value, exists := arg["directory"]; exists {
+		var valid bool
+		directory, valid = value.(string)
+		if !valid {
+			ret.Code = -1
+			ret.Msg = "Invalid template directory"
+			return
+		}
+	}
+	code, err := model.DocSaveAsTemplateInDirectory(id, name, directory, overwrite, databaseMode)
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = util.EscapeHTML(err.Error())
@@ -94,21 +112,72 @@ func renderTemplate(c *gin.Context) {
 		return
 	}
 
-	preview := false
-	if previewArg := arg["preview"]; nil != previewArg {
-		preview = previewArg.(bool)
+	mode := model.TemplateRenderModeContent
+	if modeArg := arg["mode"]; nil != modeArg {
+		modeString, isString := modeArg.(string)
+		if !isString || (string(model.TemplateRenderModePreview) != modeString &&
+			string(model.TemplateRenderModeEditorInsert) != modeString) {
+			ret.Code = -1
+			ret.Msg = "Unsupported template render mode"
+			return
+		}
+		mode = model.TemplateRenderMode(modeString)
+	} else if previewArg := arg["preview"]; nil != previewArg && previewArg.(bool) {
+		mode = model.TemplateRenderModePreview
 	}
 
-	_, content, err := model.RenderTemplate(p, id, preview)
+	var content string
+	var docTreePlan *model.TemplateDocTreePlanSummary
+	var err error
+	if source, exists := arg["content"]; exists {
+		text, ok := source.(string)
+		if !ok || mode != model.TemplateRenderModePreview {
+			ret.Code = -1
+			ret.Msg = "Source content is only supported for template preview"
+			return
+		}
+		_, content, docTreePlan, err = model.PreviewTemplateSource(p, id, text)
+	} else {
+		_, content, docTreePlan, err = model.RenderTemplateWithMode(p, id, mode)
+	}
 	if err != nil {
 		ret.Code = -1
 		ret.Msg = util.EscapeHTML(err.Error())
 		return
 	}
 
-	ret.Data = map[string]any{
+	data := map[string]any{
 		"path":    p,
 		"content": content,
+	}
+	if nil != docTreePlan {
+		data["docTreePlan"] = docTreePlan
+	}
+	ret.Data = data
+}
+
+func manageTemplateFiles(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+	var request model.TemplateFileRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		ret.Code = -1
+		ret.Msg = "Invalid template request"
+		return
+	}
+	data, err := model.ManageTemplateFiles(request)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = util.EscapeHTML(err.Error())
+		return
+	}
+	ret.Data = data
+	if request.Action != "list" && request.Action != "read" {
+		changed := []string{filepath.Join(util.DataDir, "templates", filepath.FromSlash(request.Path))}
+		if request.Action == "move" {
+			changed = append(changed, filepath.Join(util.DataDir, "templates", filepath.FromSlash(request.Target)))
+		}
+		model.IncSyncIfNeeded(changed...)
 	}
 }
 

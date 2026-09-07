@@ -16,6 +16,7 @@ import {
 import {openByMobile, openLink} from "../editor/openLink";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {hideMessage, showMessage} from "../dialog/message";
+import {loadTemplateDirectories, openTemplateManager} from "../template/manager";
 import {Dialog} from "../dialog";
 import {focusBlock, focusByRange, getEditorRange} from "../protyle/util/selection";
 /// #if !MOBILE
@@ -39,6 +40,8 @@ import {
     getAssetOpenGestures,
     type TAssetOpenGesture,
 } from "../editor/assetOpen";
+import {resolvePdfAssetLink} from "../editor/pdfAssetLink";
+import {getHostCapabilities} from "../util/hostCapabilities";
 
 const bindAttrInput = (inputElement: HTMLInputElement, id: string) => {
     inputElement.addEventListener("change", () => {
@@ -423,7 +426,7 @@ export const openFileAttr = (attrs: Record<string, string>, focusName = "bookmar
 };
 
 export const openAttr = (nodeElement: Element, focusName = "bookmark", protyle: IProtyle) => {
-    if (nodeElement.getAttribute("data-type") === "NodeThematicBreak") {
+    if (protyle.lite || nodeElement.getAttribute("data-type") === "NodeThematicBreak") {
         return;
     }
     const id = nodeElement.getAttribute("data-node-id");
@@ -543,7 +546,7 @@ export const copySubMenu = (ids: string[], accelerator = true, focusElement?: El
 };
 
 export const exportMd = (id: string) => {
-    if (window.siyuan.isPublish) {
+    if (window.siyuan.isPublish || !getHostCapabilities().importExport) {
         return;
     }
     return new MenuItem({
@@ -561,7 +564,23 @@ export const exportMd = (id: string) => {
 
                 const dialog = new Dialog({
                     title: window.siyuan.languages.fileName,
-                    content: `<div class="b3-dialog__content"><input class="b3-text-field fn__block" value=""></div>
+                    content: `<div class="b3-dialog__content"><input class="b3-text-field fn__block" value="">
+<div class="fn__hr"></div>
+<label>${window.siyuan.languages.savePath}<select class="b3-select fn__block" data-template-directory><option value="">/</option></select></label>
+<div class="fn__hr"></div>
+<button type="button" class="b3-button b3-button--outline" data-template-manager>${window.siyuan.languages.templateManager}</button>
+<div class="fn__hr"></div>
+<div class="b3-label__text">${window.siyuan.languages.templateDatabaseMode}</div>
+<label class="fn__flex b3-label">
+    <input type="radio" name="templateDatabaseMode" value="copy" checked>
+    <span class="fn__space"></span>
+    <div>${window.siyuan.languages.duplicateCompletely}<div class="b3-label__text">${window.siyuan.languages.templateDatabaseCopyTip}</div></div>
+</label>
+<label class="fn__flex b3-label">
+    <input type="radio" name="templateDatabaseMode" value="reference">
+    <span class="fn__space"></span>
+    <div>${window.siyuan.languages.duplicateMirror}<div class="b3-label__text">${window.siyuan.languages.templateDatabaseReferenceTip}</div></div>
+</label></div>
 <div class="b3-dialog__action">
     <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
     <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
@@ -569,8 +588,15 @@ export const exportMd = (id: string) => {
                     width: isMobile() ? "92vw" : "520px",
                 });
                 dialog.element.setAttribute("data-key", Constants.DIALOG_EXPORTTEMPLATE);
+                const directoryElement = dialog.element.querySelector<HTMLSelectElement>("[data-template-directory]");
+                void loadTemplateDirectories(directoryElement).catch(console.error);
+                dialog.element.querySelector("[data-template-manager]").addEventListener("click", () => {
+                    openTemplateManager(id, () => {
+                        void loadTemplateDirectories(directoryElement).catch(console.error);
+                    });
+                });
                 const inputElement = dialog.element.querySelector("input") as HTMLInputElement;
-                const btnsElement = dialog.element.querySelectorAll(".b3-button");
+                const btnsElement = dialog.element.querySelectorAll(".b3-dialog__action .b3-button");
                 dialog.bindInput(inputElement, () => {
                     (btnsElement[1] as HTMLButtonElement).click();
                 });
@@ -596,17 +622,24 @@ export const exportMd = (id: string) => {
                         name = name.substring(0, maxNameLen);
                     }
 
-                    fetchPost("/api/template/docSaveAsTemplate", {
+                    const templateName = inputElement.value;
+                    const selectedDatabaseMode = (dialog.element.querySelector(
+                        "input[name=\"templateDatabaseMode\"]:checked") as HTMLInputElement)?.value;
+                    const databaseMode: "copy" | "reference" = selectedDatabaseMode === "reference" ?
+                        "reference" : "copy";
+                    const requestData = {
                         id,
-                        name: inputElement.value,
-                        overwrite: false
-                    }, response => {
+                        name: templateName,
+                        directory: directoryElement.value,
+                        overwrite: false,
+                        databaseMode,
+                    };
+                    fetchPost("/api/template/docSaveAsTemplate", requestData, response => {
                         if (response.code === 1) {
                             // 重名
                             confirmDialog(window.siyuan.languages.export, window.siyuan.languages.exportTplTip, () => {
                                 fetchPost("/api/template/docSaveAsTemplate", {
-                                    id,
-                                    name: inputElement.value,
+                                    ...requestData,
                                     overwrite: true
                                 }, resp => {
                                     if (resp.code === 0) {
@@ -853,7 +886,7 @@ export const openMenu = (app: App, src: string, onlyMenu: boolean, showAccelerat
         label: isInAndroid() ? window.siyuan.languages.useDefault : window.siyuan.languages.useBrowserView,
         accelerator: showAccelerator ? window.siyuan.languages.click : "",
         click: () => {
-            openByMobile(src);
+            openByMobile(resolvePdfAssetLink(src).linkAddress);
         }
     });
     /// #else
@@ -929,43 +962,47 @@ export const openMenu = (app: App, src: string, onlyMenu: boolean, showAccelerat
                     openAssetNewWindow(src.trim());
                 }
             });
-            submenu.push({
-                id: "useDefault",
-                label: window.siyuan.languages.useDefault,
-                accelerator: getAccelerator("app"),
-                click() {
-                    openBy(src, "app");
-                }
-            });
-            submenu.push({
-                id: "showInFolder",
-                icon: "iconFolder",
-                label: window.siyuan.languages.showInFolder,
-                accelerator: getAccelerator("folder"),
-                click: () => {
-                    openBy(src, "folder");
-                }
-            });
+            if (getHostCapabilities().localFileSystem) {
+                submenu.push({
+                    id: "useDefault",
+                    label: window.siyuan.languages.useDefault,
+                    accelerator: getAccelerator("app"),
+                    click() {
+                        openBy(src, "app");
+                    }
+                });
+                submenu.push({
+                    id: "showInFolder",
+                    icon: "iconFolder",
+                    label: window.siyuan.languages.showInFolder,
+                    accelerator: getAccelerator("folder"),
+                    click: () => {
+                        openBy(src, "folder");
+                    }
+                });
+            }
             /// #endif
         } else {
             /// #if !BROWSER
-            submenu.push({
-                id: "useDefault",
-                label: window.siyuan.languages.useDefault,
-                accelerator: getAccelerator("app"),
-                click() {
-                    openBy(src, "app");
-                }
-            });
-            submenu.push({
-                id: "showInFolder",
-                icon: "iconFolder",
-                label: window.siyuan.languages.showInFolder,
-                accelerator: getAccelerator("folder"),
-                click: () => {
-                    openBy(src, "folder");
-                }
-            });
+            if (getHostCapabilities().localFileSystem) {
+                submenu.push({
+                    id: "useDefault",
+                    label: window.siyuan.languages.useDefault,
+                    accelerator: getAccelerator("app"),
+                    click() {
+                        openBy(src, "app");
+                    }
+                });
+                submenu.push({
+                    id: "showInFolder",
+                    icon: "iconFolder",
+                    label: window.siyuan.languages.showInFolder,
+                    accelerator: getAccelerator("folder"),
+                    click: () => {
+                        openBy(src, "folder");
+                    }
+                });
+            }
             /// #else
             submenu.push({
                 id: isInAndroid() || isInHarmony() ? "useDefault" : "useBrowserView",

@@ -2,6 +2,8 @@ import {Constants} from "../../../constants";
 import {getRowHTML} from "./row";
 import {IAVSelectedCell, reconcileAVSelectedItemIDs, restoreAVCellSelection} from "./selectionState";
 import {getGroupTableViewportWindow} from "./groupTableVirtual";
+import {renderAVRichTextElements} from "./richText";
+import {getBacklinkScrollElement} from "./backlinkScroll";
 
 const BUFFER_RATIO = 1;
 
@@ -30,6 +32,7 @@ const blockDataStore = new WeakMap<HTMLElement, IAV>();
 const bodyStates = new WeakMap<HTMLElement, IBodyState>();
 const trimPending = new WeakSet<HTMLElement>();
 let lastScrollTop: number;
+const localScrollTops = new WeakMap<HTMLElement, number>();
 
 // 测量 DOM 变更前后容器 scrollHeight 的差值，用于精确计算 gallery 多列网格中行移除/回填的实际高度（含 gap）
 const measureHeightDiff = (el: HTMLElement, mutate: () => void): number => {
@@ -68,6 +71,10 @@ const syncTableBottomSpacer = (bodyEl: HTMLElement, state: IBodyState, dataEnd: 
 };
 
 const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
+    const localScroller = getBacklinkScrollElement(blockElement);
+    if (localScroller) {
+        elementRect = localScroller.getBoundingClientRect();
+    }
     const viewportHeight = elementRect.bottom - elementRect.top;
     const buffer = viewportHeight * BUFFER_RATIO;
     const topLimit = elementRect.top - buffer;
@@ -81,8 +88,14 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         return;
     }
     const protyle = stored.protyle;
-    const isScrollingUp = lastScrollTop && lastScrollTop > protyle.contentElement.scrollTop;
-    lastScrollTop = protyle.contentElement.scrollTop;
+    const scrollTop = (localScroller || protyle.contentElement).scrollTop;
+    const previousScrollTop = localScroller ? localScrollTops.get(localScroller) : lastScrollTop;
+    const isScrollingUp = previousScrollTop !== undefined && previousScrollTop > scrollTop;
+    if (localScroller) {
+        localScrollTops.set(localScroller, scrollTop);
+    } else {
+        lastScrollTop = scrollTop;
+    }
 
     if ((blockRect.bottom < elementRect.top && !isScrollingUp) || (blockRect.top > elementRect.bottom && isScrollingUp)) {
         return;
@@ -436,6 +449,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                 syncTableBottomSpacer(bodyEl, state, dataEnd);
             }
             bodyStates.set(bodyEl, state);
+            renderAVRichTextElements(bodyEl);
         }
     });
 };
@@ -552,6 +566,9 @@ export const ensureAVTableAdjacentRow = (rowElement: HTMLElement, direction: "pr
     }
     bodyStates.set(bodyElement, state);
     const newRowElement = bodyElement.querySelector<HTMLElement>(`.av__row[data-index="${targetIndex}"]`);
+    if (newRowElement) {
+        renderAVRichTextElements(newRowElement);
+    }
     if (newRowElement && state.selectedRowIds?.has(row.id)) {
         newRowElement.classList.add("av__row--select");
         newRowElement.querySelector(".av__firstcol use")?.setAttribute("xlink:href", "#iconCheck");

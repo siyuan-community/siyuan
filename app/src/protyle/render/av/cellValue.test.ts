@@ -3,10 +3,16 @@ import * as assert from "node:assert/strict";
 import {
     cellValueIsEmpty,
     cloneAVCellValueSnapshot,
+    createAVCellUpdateOperation,
+    createAVStableTextCell,
+    createEmptyAVValue,
     genRelationAVCellValue,
     getAVBlockRefSubtype,
     getConvertedEmptyAVCellValue,
+    hasAVRenderTemplateResult,
 } from "./cellValue";
+import {createAVRichTextValue} from "./richTextValue";
+import {rebindAVCellValue} from "./dragFillValue";
 
 describe("getAVBlockRefSubtype", () => {
     it("uses only a valid dynamic subtype and safely falls back to static", () => {
@@ -26,6 +32,29 @@ describe("getAVBlockRefSubtype", () => {
             type: "block",
             block: {content: "Invalid", refSubtype: "invalid"},
         } as unknown as IAVCellValue), "s");
+    });
+});
+
+describe("hasAVRenderTemplateResult", () => {
+    it("distinguishes configured display templates from template fields and blank configuration", () => {
+        assert.equal(hasAVRenderTemplateResult({
+            type: "number",
+            number: {content: 0, isNotEmpty: true},
+            renderedContent: "",
+        }), true);
+        assert.equal(hasAVRenderTemplateResult({
+            type: "number",
+            number: {content: 0, isNotEmpty: true},
+        }, "<strong>.action{.Amount}</strong>"), true);
+        assert.equal(hasAVRenderTemplateResult({
+            type: "number",
+            number: {content: 0, isNotEmpty: true},
+        }, "   "), false);
+        assert.equal(hasAVRenderTemplateResult({
+            type: "template",
+            template: {content: "rendered"},
+            renderedContent: "rendered",
+        }, "ignored"), false);
     });
 });
 
@@ -59,6 +88,81 @@ describe("cloneAVCellValueSnapshot", () => {
 
         snapshot.mAsset[0].name = "changed.png";
         assert.equal(value.mAsset[0].name, "asset.png");
+    });
+
+    it("removes transient rendered content from stored snapshots", () => {
+        const value = {
+            type: "rollup",
+            renderedContent: "<strong>outer</strong>",
+            rollup: {
+                contents: [{
+                    type: "text",
+                    text: {content: "stored"},
+                    renderedContent: "<strong>inner</strong>",
+                }],
+            },
+        } as IAVCellValue;
+
+        assert.deepEqual(cloneAVCellValueSnapshot(value), {
+            type: "rollup",
+            rollup: {
+                contents: [{
+                    type: "text",
+                    text: {content: "stored"},
+                }],
+            },
+        });
+    });
+});
+
+describe("empty attribute view text identity", () => {
+    it("opens an empty attribute text value using its row and column identity", () => {
+        const emptyValue = createEmptyAVValue("text-key", "text", "item-row");
+        const stableCell = createAVStableTextCell({
+            rowID: emptyValue.blockID,
+            colID: emptyValue.keyID,
+            value: emptyValue,
+        });
+
+        assert.equal(Object.prototype.hasOwnProperty.call(emptyValue, "id"), false);
+        assert.ok(stableCell);
+        assert.equal(stableCell.rowID, "item-row");
+        assert.equal(stableCell.colID, "text-key");
+        assert.equal(stableCell.cell.id, "");
+        assert.deepEqual(stableCell.cell.value.text, {content: ""});
+    });
+
+    it("constructs rich do and undo values without fabricating a value ID", () => {
+        const oldValue = createEmptyAVValue("text-key", "text", "item-row");
+        const richValue = createAVRichTextValue("**Rich**", "Rich", oldValue);
+        const target = {id: "", keyID: "text-key", blockID: "item-row"};
+        const doValue = rebindAVCellValue(richValue, target);
+        const doOperation = createAVCellUpdateOperation({
+            valueID: target.id,
+            avID: "attribute-view",
+            keyID: target.keyID,
+            rowID: target.blockID,
+            data: doValue,
+        });
+        const undoOperation = createAVCellUpdateOperation({
+            valueID: target.id,
+            avID: "attribute-view",
+            keyID: target.keyID,
+            rowID: target.blockID,
+            data: oldValue,
+        });
+
+        assert.equal(doOperation.id, "");
+        assert.equal(doOperation.keyID, "text-key");
+        assert.equal(doOperation.rowID, "item-row");
+        assert.deepEqual((doOperation.data as IAVCellValue).text, {
+            content: "Rich",
+            rich: {spec: 1, format: "kramdown", content: "**Rich**"},
+        });
+        assert.equal((doOperation.data as IAVCellValue).id, "");
+        assert.equal(undoOperation.id, "");
+        assert.deepEqual((undoOperation.data as IAVCellValue).text, {content: ""});
+        assert.equal(Object.prototype.hasOwnProperty.call(undoOperation.data, "id"), false);
     });
 });
 
@@ -116,6 +220,31 @@ describe("getConvertedEmptyAVCellValue", () => {
                 isNotEmpty: true,
             },
         }), false);
+    });
+
+    it("can use rendered content when determining display emptiness", () => {
+        const value: IAVCellValue = {
+            type: "text",
+            text: {content: ""},
+            renderedContent: "<strong>fallback</strong>",
+        };
+        assert.equal(cellValueIsEmpty(value), true);
+        assert.equal(cellValueIsEmpty(value, true), false);
+    });
+
+    it("treats a configured display template with an empty result as empty", () => {
+        const value: IAVCellValue = {
+            type: "number",
+            number: {
+                content: 12,
+                isNotEmpty: true,
+            },
+        };
+
+        assert.equal(cellValueIsEmpty(value), false);
+        assert.equal(cellValueIsEmpty(value, true, "{{.action{.Amount}}}"), true);
+        value.renderedContent = "visible";
+        assert.equal(cellValueIsEmpty(value, true, "{{.action{.Amount}}}"), false);
     });
 });
 

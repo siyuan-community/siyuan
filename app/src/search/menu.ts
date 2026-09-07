@@ -9,6 +9,7 @@ import {isSensitiveSearchConfig, setStorageVal} from "../protyle/util/compatibil
 import {confirmDialog} from "../dialog/confirmDialog";
 import {goUnRef, updateSearchResult} from "../mobile/menu/search";
 import {getDefaultSubType} from "./getDefault";
+import {hasSearchConfigTemporaryPath, resolvePersistedSearchConfig} from "./config";
 
 export const filterMenu = (config: Config.IUILayoutTabSearchConfig, cb: () => void) => {
     const filterDialog = new Dialog({
@@ -144,6 +145,7 @@ export const filterMenu = (config: Config.IUILayoutTabSearchConfig, cb: () => vo
         <span class="fn__space"></span>
         <input class="b3-switch fn__flex-center" data-type="blockquote" type="checkbox"${config.types.blockquote ? " checked" : ""}>
     </label>
+    ${(["tabs", "tabItem"] as const).map(type => `<label class="fn__flex b3-label"><svg class="ft__on-surface svg fn__flex-center"><use xlink:href="#${type === "tabs" ? "iconTabs" : "iconTabItem"}"></use></svg><span class="fn__space"></span><div class="fn__flex-1 fn__flex-center">${window.siyuan.languages[type]}</div><input class="b3-switch fn__flex-center" data-type="${type}" type="checkbox"${config.types[type] ? " checked" : ""}></label>`).join("")}
     <label class="fn__flex b3-label">
         <svg class="ft__on-surface svg fn__flex-center"><use xlink:href="#iconCallout"></use></svg>
         <span class="fn__space"></span>
@@ -288,7 +290,11 @@ export const filterMenu = (config: Config.IUILayoutTabSearchConfig, cb: () => vo
             }
         });
         cb();
-        window.siyuan.storage[Constants.LOCAL_SEARCHDATA] = Object.assign({}, config);
+        window.siyuan.storage[Constants.LOCAL_SEARCHDATA] = resolvePersistedSearchConfig(
+            config,
+            window.siyuan.storage[Constants.LOCAL_SEARCHDATA],
+            hasSearchConfigTemporaryPath(config),
+        );
         setStorageVal(Constants.LOCAL_SEARCHDATA, window.siyuan.storage[Constants.LOCAL_SEARCHDATA]);
         filterDialog.destroy();
     });
@@ -325,7 +331,11 @@ export const replaceFilterMenu = (config: Config.IUILayoutTabSearchConfig) => {
         filterDialog.element.querySelectorAll(".b3-switch").forEach((item: HTMLInputElement) => {
             config.replaceTypes[item.getAttribute("data-type") as keyof (typeof config.replaceTypes)] = item.checked;
         });
-        window.siyuan.storage[Constants.LOCAL_SEARCHDATA] = Object.assign({}, config);
+        window.siyuan.storage[Constants.LOCAL_SEARCHDATA] = resolvePersistedSearchConfig(
+            config,
+            window.siyuan.storage[Constants.LOCAL_SEARCHDATA],
+            hasSearchConfigTemporaryPath(config),
+        );
         setStorageVal(Constants.LOCAL_SEARCHDATA, window.siyuan.storage[Constants.LOCAL_SEARCHDATA]);
         filterDialog.destroy();
     });
@@ -743,7 +753,7 @@ export const moreMenu = async (config: Config.IUILayoutTabSearchConfig,
 };
 
 const configIsSame = (config: Config.IUILayoutTabSearchConfig, config2: Config.IUILayoutTabSearchConfig) => {
-    if (config2.group === config.group && config2.hPath === config.hPath && config2.hasReplace === config.hasReplace &&
+    if (config2.group === config.group && config2.hasReplace === config.hasReplace &&
         config2.k === config.k && config2.method === config.method && config2.r === config.r &&
         config2.sort === config.sort && objEquals(config2.types, config.types) &&
         objEquals({...getDefaultSubType(), ...config2.subTypes},

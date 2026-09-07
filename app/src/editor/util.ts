@@ -36,6 +36,9 @@ import {Model} from "../layout/Model";
 import {hideElements} from "../protyle/ui/hideElements";
 import {isBrowserRenderableImagePath} from "../util/imageURL";
 import {forEachPluginSubscriber} from "../plugin/EventBusCore";
+import {getHostCapabilities} from "../util/hostCapabilities";
+import {revealTabsForTarget} from "../protyle/render/tabsRender";
+import {shouldCheckOtherWindows} from "./openFileWindow";
 
 const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => {
     if (!options.custom || (options.custom.id && options.custom.id !== type)) {
@@ -58,6 +61,7 @@ export const openFileById = async (options: {
     zoomIn?: boolean
     removeCurrentTab?: boolean
     openNewTab?: boolean
+    forceCurrentWindow?: boolean
     keepAVPanel?: boolean
     afterOpen?: (model: Model) => void,
     scrollPosition?: ScrollLogicalPosition
@@ -97,6 +101,7 @@ export const openFileById = async (options: {
         removeCurrentTab: options.removeCurrentTab,
         afterOpen: options.afterOpen,
         openNewTab: options.openNewTab,
+        forceCurrentWindow: options.forceCurrentWindow,
         keepAVPanel: options.keepAVPanel,
         scrollPosition: options.scrollPosition,
     });
@@ -248,7 +253,7 @@ export const openFile = async (options: IOpenFileOptions) => {
 
     /// #if !BROWSER
     // https://github.com/siyuan-note/siyuan/issues/7491
-    if (!options.position || (options.position === "right" && options.assetPath)) {
+    if (shouldCheckOtherWindows(options)) {
         let hasMatch = false;
         const optionsClone: IObject = {};
         Object.keys(options).forEach((key: keyof IOpenFileOptions) => {
@@ -427,6 +432,9 @@ const switchEditor = (editor: Editor, options: IOpenFileOptions, allModels: IMod
             return true;
         }
     });
+    if (nodeElement) {
+        revealTabsForTarget(nodeElement);
+    }
     if ((!nodeElement || nodeElement?.clientHeight === 0) && options.id !== options.rootID) {
         const getDocParam: IObject = {
             id: options.id,
@@ -652,7 +660,7 @@ export const updatePanelByEditor = (options: {
         if (options.focus) {
             if (options.protyle.toolbar.range) {
                 focusByRange(options.protyle.toolbar.range);
-                countSelectWord(options.protyle.toolbar.range, options.protyle.block.rootID);
+                countSelectWord(options.protyle.toolbar.range, options.protyle);
                 if (options.pushBackStack && options.protyle.preview.element.classList.contains("fn__none")) {
                     pushBack(options.protyle, options.protyle.toolbar.range);
                 }
@@ -661,7 +669,7 @@ export const updatePanelByEditor = (options: {
                 if (options.pushBackStack && options.protyle.preview.element.classList.contains("fn__none")) {
                     pushBack(options.protyle, undefined, options.protyle.wysiwyg.element.firstElementChild);
                 }
-                countBlockWord([], options.protyle.block.rootID);
+                countBlockWord([], options.protyle);
             }
         }
         if (window.siyuan.config.fileTree.alwaysSelectOpenedFile && options.protyle) {
@@ -809,6 +817,9 @@ export const updateBacklinkGraph = (models: IModels, protyle: IProtyle) => {
 };
 
 export const openBy = (url: string, type: "folder" | "app") => {
+    if (!getHostCapabilities().localFileSystem) {
+        return;
+    }
     /// #if !BROWSER
     if (url.startsWith("assets/")) {
         fetchPost("/api/asset/resolveAssetPath", {path: url.replace(/\.pdf\?page=\d{1,}$/, ".pdf")}, (response) => {

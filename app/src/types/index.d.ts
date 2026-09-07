@@ -59,6 +59,7 @@ type TOperation =
     | "duplicateAttrViewView"
     | "duplicateAttrViewRow"
     | "setAttrViewBlockVisibleViews"
+    | "setAttrViewContextFilter"
     | "sortAttrViewView"
     | "setAttrViewPageSize"
     | "updateAttrViewColRelation"
@@ -483,6 +484,7 @@ interface IClipboardData {
     siyuanHTML?: string,
     files?: FileList | DataTransferItemList | File[],
     localFiles?: ILocalFiles[],
+    preserveSourceFormat?: boolean,
 }
 
 interface IRefDefs {
@@ -796,7 +798,7 @@ interface IOperation {
     backRelationKeyID?: string, // 双向关联的目标关联列 ID
     avID?: string,  // av
     format?: string // 属性视图字段格式化
-    keyID?: string // updateAttrViewCell 专享
+    keyID?: string // 属性视图字段 ID
     rowID?: string // updateAttrViewCell 专享
     cellUpdates?: Array<{
         keyID: string,
@@ -887,16 +889,30 @@ interface ILayoutJSON extends ILayoutOptions {
     children?: ILayoutJSON[] | ILayoutJSON
 }
 
+interface ICommandContext {
+    source: "commandPanel" | "shortcut" | "editorShortcut" | "fileTreeShortcut" | "dockShortcut" |
+        "globalShortcut" | "keymap" | "menu" | "api",
+    focus: "global" | "editor" | "fileTree" | "dock",
+    protyle?: IProtyle,
+    range?: Range,
+    fileTree?: import("../layout/dock/Files").Files,
+    dock?: HTMLElement,
+}
+
 interface ICommand {
     langKey: string, // 用于区分不同快捷键的 key, 同时作为 i18n 的字段名
     langText?: string, // 显示的文本, 指定后不再使用 langKey 对应的 i18n 文本
     hotkey?: string, // 快捷键，默认为空字符串
     customHotkey?: string,
-    callback?: () => void   // 其余回调存在时将不会触发
-    globalCallback?: () => void // 焦点不在应用内时执行的回调
-    fileTreeCallback?: (file: import("../layout/dock/Files").Files) => void // 焦点在文档树上时执行的回调
-    editorCallback?: (protyle: IProtyle) => void     // 焦点在编辑器上时执行的回调
-    dockCallback?: (element: HTMLElement) => void    // 焦点在 dock 上时执行的回调
+    execute?: (context: ICommandContext) => void | Promise<void>
+    callback?: (context?: ICommandContext) => void   // 其余回调存在时将不会触发
+    globalCallback?: (context?: ICommandContext) => void // 焦点不在应用内时执行的回调
+    fileTreeCallback?: (
+        file: import("../layout/dock/Files").Files,
+        context?: ICommandContext
+    ) => void // 焦点在文档树上时执行的回调
+    editorCallback?: (protyle: IProtyle, context?: ICommandContext) => void // 焦点在编辑器上时执行的回调
+    dockCallback?: (element: HTMLElement, context?: ICommandContext) => void // 焦点在 dock 上时执行的回调
 }
 
 interface IPluginData {
@@ -952,6 +968,7 @@ interface IOpenFileOptions {
     zoomIn?: boolean // 是否缩放
     removeCurrentTab?: boolean // 在当前页签打开时需移除原有页签
     openNewTab?: boolean // 使用新页签打开
+    forceCurrentWindow?: boolean // 仅在当前桌面窗口中打开
     keepAVPanel?: boolean // 打开时保留数据库面板
     afterOpen?: (model?: import("../layout/Model").Model) => void // 打开后回调
 }
@@ -1136,11 +1153,17 @@ interface IMenu {
     warning?: boolean
 }
 
+interface IBazaarFundingLink {
+    label: string;
+    url: string;
+}
+
 interface IBazaarFunding {
     openCollective?: string;
     patreon?: string;
     github?: string;
     custom?: string[];
+    links?: IBazaarFundingLink[];
 }
 
 type TBazaarRatingDistribution = [number, number, number, number, number];
@@ -1180,6 +1203,7 @@ interface IBazaarItem {
     name: string;
     previewURL: string;
     repoHash: string;
+    repoRef?: string;
     repoURL: string;
     url: string;
     openIssues: number;
@@ -1199,6 +1223,7 @@ interface IBazaarItem {
     bazaarIncompatible?: boolean; // 仅插件/主题
     enabled?: boolean; // 仅 plugin
     userDisabledInPublish?: boolean; // 仅 plugin
+    hasStorageData?: boolean; // 仅插件
     modes?: string[]; // 仅 theme
 }
 
@@ -1240,7 +1265,21 @@ interface IAV {
     customColors?: IAVCustomColor[];
     colorOrder?: string[];
     usedCustomColorIndexes?: number[];
+    contextFilter?: IAVContextFilter | null;
+    contextFilterFields?: IAVContextFilterField[];
     target?: IAVRenderTarget;
+}
+
+interface IAVContextFilter {
+    spec: 1;
+    keyID: string;
+}
+
+interface IAVContextFilterField {
+    id: string;
+    name: string;
+    icon: string;
+    targetAvID: string;
 }
 
 interface IAVRenderTarget {
@@ -1356,6 +1395,7 @@ interface IAVKanban extends IAVView {
 
 interface IAVFilter {
     column?: string,                                  // 叶子节点：字段（列）ID
+    valueSource?: "stored" | "rendered",             // 叶子节点：值来源，默认为存储值
     operator?: TAVFilterOperator,                     // 叶子节点：操作符
     quantifier?: string,                              // 叶子节点：量词
     value?: IAVCellValue,                             // 叶子节点：过滤值
@@ -1374,6 +1414,7 @@ interface IAVRelativeDate {
 
 interface IAVGroup {
     field: string,
+    valueSource?: "stored" | "rendered",             // 值来源，默认为存储值
     method?: number //  0: 按值分组、1: 按数字范围分组、2: 按相对日期分组、3: 按天日期分组、4: 按周日期分组、5: 按月日期分组、6: 按年日期分组
     range?: {
         numStart: number // 数字范围起始值 0
@@ -1386,6 +1427,7 @@ interface IAVGroup {
 
 interface IAVSort {
     column: string,
+    valueSource?: "stored" | "rendered",             // 值来源，默认为存储值
     order: "ASC" | "DESC",
     dateEndpoint?: "start" | "end"
 }
@@ -1405,6 +1447,7 @@ interface IAVColumn {
     numberFormat: string,
     dateFormat?: TAVDateFormat,
     template: string,
+    renderTemplate?: string,
     calc: IAVCalc,
     updated?: {
         includeTime: boolean
@@ -1459,9 +1502,15 @@ interface IAVCellValue {
     id?: string,
     blockID?: string // 为 row id
     type: TAVCol,
+    renderedContent?: string,
     isDetached?: boolean,
     text?: {
-        content: string
+        content: string,
+        rich?: {
+            spec: 1,
+            format: "kramdown",
+            content: string
+        } | null
     },
     number?: {
         content?: number,

@@ -10,7 +10,7 @@ import {bindSyncCloudListEvent, renderSyncCloudList, setKey} from "../../sync/sy
 import {Dialog} from "../../dialog";
 import {genConfigItemMainHtml, genConfigItemName} from "../render/fragments";
 import {getLANSyncSearchAvailability, getSyncProviderConfigKeywords} from "./syncUi";
-import {mountLANSyncStatus, patchSyncConfig} from "./syncRuntime";
+import {mountLANSyncStatus, mountSyncAssetDownloadMode, patchSyncConfig} from "./syncRuntime";
 import {openHistory} from "../../history/history";
 
 const registerSyncGroup = (tab: SettingTabBuilder) => {
@@ -57,6 +57,16 @@ const registerSyncGroup = (tab: SettingTabBuilder) => {
         ],
         save: (value) => patchSyncConfig("sync.mode", value),
     });
+    group.select("sync.assetDownloadMode", {
+        title: window.siyuan.languages.syncAssetDownloadMode,
+        desc: window.siyuan.languages.syncAssetDownloadModeTip,
+        options: [
+            {value: 0, label: window.siyuan.languages.syncAssetDownloadAll},
+            {value: 1, label: window.siyuan.languages.syncAssetDownloadOnDemand},
+        ],
+        save: (value) => patchSyncConfig("sync.assetDownloadMode", value),
+        afterMount: mountSyncAssetDownloadMode,
+    });
     group.number("sync.interval", {
         title: window.siyuan.languages.syncInterval,
         desc: window.siyuan.languages.syncIntervalTip,
@@ -81,7 +91,7 @@ const registerSyncGroup = (tab: SettingTabBuilder) => {
         key: "syncCloudDir",
         keywords: [window.siyuan.languages.cloudSyncDir, window.siyuan.languages.cloudSyncDirTip, window.siyuan.languages.config],
         html: () => `<div class="b3-label config-item" id="syncCloudDirBlock">
-    <div class="fn__flex config-wrap">
+    <div class="fn__flex">
         ${genConfigItemMainHtml(window.siyuan.languages.cloudSyncDir, window.siyuan.languages.cloudSyncDirTip)}
         <div class="fn__space"></div>
         <button class="b3-button b3-button--outline fn__flex-center fn__size200" data-action="config">
@@ -100,7 +110,7 @@ const registerSyncGroup = (tab: SettingTabBuilder) => {
             window.siyuan.languages.dataSnapshot,
         ],
         html: () => `<div class="b3-label config-item" id="syncCloudBackupBlock">
-    <div class="fn__flex config-wrap">
+    <div class="fn__flex">
         ${genConfigItemMainHtml(window.siyuan.languages.cloudBackup, window.siyuan.languages.cloudBackupTip)}
         <div class="fn__space"></div>
         <button class="b3-button b3-button--outline fn__flex-center fn__size200" id="openCloudBackup">
@@ -144,7 +154,7 @@ const registerRepoGroup = (tab: SettingTabBuilder) => {
             window.siyuan.languages.copyKey,
             window.siyuan.languages.resetRepo,
         ],
-        html: () => `<div class="fn__flex b3-label config-item config-wrap">
+        html: () => `<div class="fn__flex b3-label config-item">
     <div class="fn__flex-1 fn__flex-center">
         ${genConfigItemName(window.siyuan.languages.dataRepoKey)}
         <div class="fn__hr--small"></div>

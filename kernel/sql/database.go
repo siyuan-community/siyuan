@@ -525,8 +525,18 @@ func SetIndexAssetPath(b bool) {
 }
 
 func refsFromTree(tree *parse.Tree) (refs []*Ref, fileAnnotationRefs []*FileAnnotationRef) {
-	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithTabTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if entering {
+			if ast.NodeCustomBlock == n.Type {
+				return ast.WalkSkipChildren
+			}
+			if ast.NodeAttributeView == n.Type {
+				for _, ref := range attributeViewRefsFromNode(tree, n) {
+					if !isRepeatedRef(refs, ref) {
+						refs = append(refs, ref)
+					}
+				}
+			}
 			return ast.WalkContinue
 		}
 
@@ -651,7 +661,7 @@ func fromTree(node *ast.Node, tree *parse.Tree) (blocks []*Block, spans []*Span,
 	rootID := tree.Root.ID
 	boxID := tree.Box
 	p := tree.Path
-	ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithTabTitles(node, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
 		}
@@ -689,6 +699,9 @@ func fromTree(node *ast.Node, tree *parse.Tree) (blocks []*Block, spans []*Span,
 		blocks = append(blocks, b)
 		if 0 < len(attrs) {
 			attributes = append(attributes, attrs...)
+		}
+		if ast.NodeCustomBlock == n.Type {
+			return ast.WalkSkipChildren
 		}
 		return ast.WalkContinue
 	})
@@ -1954,6 +1967,7 @@ func OpenEncryptedDB(boxID string, dek []byte) (err error) {
 	dbPath := util.EncryptedDBPath(boxID)
 	// 派生 content 子密钥，与 blocktree/assets/file/AV 用途分离
 	contentKey := util.DeriveSubKey(dek, "siyuan/sqlcipher/content")
+	defer clear(contentKey)
 	// SQLCipher DSN：_key=x'<hex>' 让 go-sqlite3 执行 PRAGMA key；其余 PRAGMA 与全局 siyuan.db 对齐
 	dsn := dbPath + "?_journal_mode=WAL&_synchronous=OFF&_mmap_size=4294967296&_secure_delete=OFF" +
 		"&_cache_size=-128000&_page_size=32768&_busy_timeout=7000&_ignore_check_constraints=ON" +
@@ -1964,6 +1978,10 @@ func OpenEncryptedDB(boxID string, dek []byte) (err error) {
 	}
 	boxDB.SetMaxOpenConns(20)
 	boxDB.SetMaxIdleConns(4)
+	if err = util.CheckEncryptedIndexCompatibility(boxDB, "content", 1); err != nil {
+		boxDB.Close()
+		return err
+	}
 	if err = initEncryptedDBTables(boxDB); err != nil {
 		boxDB.Close()
 		return err
@@ -2007,7 +2025,7 @@ func GetEncryptedBoxIDs() (ret []string) {
 func RemoveEncryptedDBFile(boxID string) {
 	CloseEncryptedDB(boxID)
 	dbPath := util.EncryptedDBPath(boxID)
-	for _, suffix := range []string{"", "-wal", "-shm"} {
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
 		if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
 			logging.LogErrorf("remove encrypted db file [%s] failed: %s", dbPath+suffix, err)
 		}

@@ -3,8 +3,54 @@ import {Constants} from "../../constants";
 import {hasClosestByClassName} from "../util/hasClosest";
 import {looseJsonParse} from "../../util/functions";
 import {genIconHTML} from "./util";
+import {getHostCapabilities, isExternalURLAllowed} from "../../util/hostCapabilities";
+import {escapeHtml} from "../../util/escape";
+
+const secureEChartsOption = (option: any) => {
+    if (!getHostCapabilities().remoteKernel || !option || typeof option !== "object") {
+        return option;
+    }
+    const pending = [option];
+    while (pending.length > 0) {
+        const current = pending.pop();
+        Object.entries(current).forEach(([key, value]) => {
+            if (typeof value === "string" && ["href", "link", "src", "url"].includes(key) &&
+                !isExternalURLAllowed(value, true)) {
+                current[key] = "about:blank";
+                return;
+            }
+            if (key === "tooltip" && value !== false) {
+                if (Array.isArray(value)) {
+                    value.forEach((tooltip) => {
+                        if (tooltip && typeof tooltip === "object") {
+                            tooltip.renderMode = "richText";
+                        }
+                    });
+                } else {
+                    current[key] = {
+                        ...(value && typeof value === "object" ? value : {}),
+                        renderMode: "richText",
+                    };
+                }
+            }
+            if (value && typeof value === "object") {
+                pending.push(value);
+            }
+        });
+    }
+    if (option.tooltip !== false && !Array.isArray(option.tooltip)) {
+        option.tooltip = {
+            ...(option.tooltip && !Array.isArray(option.tooltip) ? option.tooltip : {}),
+            renderMode: "richText",
+        };
+    }
+    return option;
+};
 
 export const chartRender = (element: Element, cdn = Constants.PROTYLE_CDN) => {
+    if (element.closest('[data-protyle-lite-render="safe"]')) {
+        return;
+    }
     let echartsElements: Element[] | NodeListOf<Element> = [];
     if (element.getAttribute("data-subtype") === "echarts" && element.getAttribute("data-render") !== "true") {
         echartsElements = [element];
@@ -22,6 +68,9 @@ export const chartRender = (element: Element, cdn = Constants.PROTYLE_CDN) => {
                 width = wysiswgElement.firstElementChild.clientWidth;
             }
             echartsElements.forEach(async (e: HTMLDivElement) => {
+                if (e.closest('[data-protyle-lite-render="safe"]')) {
+                    return;
+                }
                 e.setAttribute("data-render", "true");
                 if (!e.firstElementChild.classList.contains("protyle-icons")) {
                     e.insertAdjacentHTML("afterbegin", genIconHTML(wysiswgElement, ["refresh", "edit", "more"]));
@@ -38,7 +87,8 @@ export const chartRender = (element: Element, cdn = Constants.PROTYLE_CDN) => {
                         renderElement.lastElementChild.classList.remove("ft__error");
                     }
                     const chartInstance = window.echarts.getInstanceById(renderElement.lastElementChild?.getAttribute("_echarts_instance_"));
-                    const option = await looseJsonParse(Lute.UnEscapeHTMLStr(e.getAttribute("data-content")));
+                    const option = secureEChartsOption(await looseJsonParse(
+                        Lute.UnEscapeHTMLStr(e.getAttribute("data-content"))));
                     if (chartInstance) {
                         if (chartInstance.getOption().series[0]?.type !== option.series[0]?.type) {
                             chartInstance.clear();
@@ -48,7 +98,7 @@ export const chartRender = (element: Element, cdn = Constants.PROTYLE_CDN) => {
                     window.echarts.init(renderElement.lastElementChild, window.siyuan.config.appearance.mode === 1 ? "dark" : undefined, {width}).setOption(option);
                 } catch (error) {
                     window.echarts.dispose(renderElement.lastElementChild);
-                    renderElement.innerHTML = `<span style="position: absolute;left:0;top:0;width: 1px;">${Constants.ZWSP}</span><div class="ft__error" style="height:${e.style.height || "420px"}" contenteditable="false">echarts render error: <br>${error}</div>`;
+                    renderElement.innerHTML = `<span style="position: absolute;left:0;top:0;width: 1px;">${Constants.ZWSP}</span><div class="ft__error" style="height:${e.style.height || "420px"}" contenteditable="false">echarts render error: <br>${escapeHtml(String(error))}</div>`;
                 }
             });
         });
@@ -56,7 +106,7 @@ export const chartRender = (element: Element, cdn = Constants.PROTYLE_CDN) => {
 };
 
 export const refreshChartTheme = (element: Element) => {
-    if (typeof window.echarts === "undefined") {
+    if (element.closest('[data-protyle-lite-render="safe"]') || typeof window.echarts === "undefined") {
         return;
     }
     let echartsElements: HTMLElement[] | NodeListOf<HTMLElement> = [];
@@ -67,6 +117,9 @@ export const refreshChartTheme = (element: Element) => {
     }
     const refreshElements: HTMLElement[] = [];
     echartsElements.forEach((item) => {
+        if (item.closest('[data-protyle-lite-render="safe"]')) {
+            return;
+        }
         const chartElement = item.querySelector<HTMLElement>("[_echarts_instance_]");
         if (!chartElement) {
             return;

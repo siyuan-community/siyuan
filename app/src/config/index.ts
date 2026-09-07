@@ -6,6 +6,7 @@ import {bindSettingSaveDelegation} from "./setting/save";
 import {Dialog} from "../dialog";
 import {Constants} from "../constants";
 import {focusByRange} from "../protyle/util/selection";
+import {initSettingDrag} from "./setting/drag";
 /// #endif
 import {unmountBazaarTab, withMountedBazaar} from "./bazaarTab";
 import {fetchSyncPost} from "../util/fetch";
@@ -19,6 +20,7 @@ import {clearSyncTabElement} from "./tabs/syncRuntime";
 import type {TSettingTab} from "./setting/tabs";
 import type {App} from "../index";
 import {unmountAssetsTab} from "./assets";
+import {getHostCapabilities} from "../util/hostCapabilities";
 
 /// #if !MOBILE
 const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
@@ -56,6 +58,7 @@ const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
         width: "max(70vw, min(90vw, 900px))",
         height: "90vh",
         destroyCallback() {
+            disposeDrag?.();
             const bazaarRoot = settingDialogRef.element?.querySelector('.config__tab-container[data-name="bazaar"]') as HTMLElement | null;
             if (bazaarRoot) {
                 unmountBazaarTab(bazaarRoot);
@@ -72,6 +75,7 @@ const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
         },
     });
     settingDialogRef.element = dialog.element;
+    const disposeDrag = initSettingDrag(dialog.element);
     dialog.element.setAttribute("data-key", Constants.DIALOG_SETTING);
 
     const tabWrap = dialog.element.querySelector(".config__tab-wrap") as HTMLElement;
@@ -92,6 +96,9 @@ const openSettingDialog = (app: App, initialTab: TSettingTab = "editor") => {
 
 export const openSetting = (app: App, tab?: TSettingTab) => {
     if (tab === "bazaar" && !isBazaarAvailable()) {
+        return;
+    }
+    if (tab === "export" && !getHostCapabilities().importExport) {
         return;
     }
     /// #if MOBILE

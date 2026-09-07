@@ -5,6 +5,7 @@ import {
     getAVRowDropTarget,
     getBlockDragInsertPosition,
     getBlockDragoverTarget,
+    getMissingDragIds,
     getSameSuperBlockEdgeTarget,
     getSuperBlockResizeDropTarget,
     getTopListDragTarget,
@@ -12,8 +13,10 @@ import {
     isDragTargetInSource,
     isSameDragEditor,
     isSameSiblingMove,
+    parseBlockDragData,
     replaceDragUndoOperation,
     shouldKeepListBlockDragTarget,
+    stringifyBlockDragData,
     uniqueDragIds
 } from "./dragDocument";
 
@@ -86,6 +89,30 @@ describe("isSameDragEditor", () => {
         const targetEditor = {contains: (element: Element) => element === sourceElement} as unknown as Element;
 
         assert.equal(isSameDragEditor(targetEditor, sourceElement), true);
+    });
+});
+
+describe("block drag data", () => {
+    it("preserves the source editor context", () => {
+        const value = stringifyBlockDragData({
+            html: "<div>content</div>",
+            notebookID: "notebook",
+            rootID: "root",
+        });
+
+        assert.deepEqual(parseBlockDragData(value), {
+            html: "<div>content</div>",
+            notebookID: "notebook",
+            rootID: "root",
+        });
+    });
+
+    it("accepts the raw HTML used by older windows", () => {
+        assert.deepEqual(parseBlockDragData("<div>content</div>"), {
+            html: "<div>content</div>",
+            notebookID: "",
+            rootID: "",
+        });
     });
 });
 
@@ -185,6 +212,14 @@ describe("isAttributeViewTitleTarget", () => {
 describe("uniqueDragIds", () => {
     it("removes empty and duplicate block IDs while preserving their order", () => {
         assert.deepEqual(uniqueDragIds(["a", "", "b", "a", "b", "c"]), ["a", "b", "c"]);
+    });
+});
+
+describe("getMissingDragIds", () => {
+    it("returns source IDs unloaded during dynamic loading", () => {
+        assert.deepEqual(getMissingDragIds(["a", "b"], new Set()), ["a", "b"]);
+        assert.deepEqual(getMissingDragIds(["a", "b", "c"], new Set(["a", "c"])), ["b"]);
+        assert.deepEqual(getMissingDragIds(["a", "b"], new Set(["a", "b"])), []);
     });
 });
 

@@ -528,6 +528,66 @@
   }
   ```
 
+### 相对调整文档顺序
+
+* `/api/filetree/reorderDocs`
+* 参数
+
+  ```json
+  {
+    "sourceIDs": ["20210917220056-yxtyl7i"],
+    "targetID": "20210917220057-abcdefg",
+    "position": "before"
+  }
+  ```
+
+    * `sourceIDs`：按数组顺序插入的源文档 ID
+    * `targetID`：目标兄弟文档 ID
+    * `position`：`before` 或 `after`
+    * 源文档必须在移动后与目标文档属于同一笔记本和父文档；排序基于包含隐藏文档和未列出文档的完整子文档列表
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "changed": true,
+      "notebook": "20210817205410-2kvfpfn",
+      "parentPath": "/"
+    }
+  }
+  ```
+
+### 相对调整笔记本顺序
+
+* `/api/notebook/reorder`
+* 参数
+
+  ```json
+  {
+    "sourceIDs": ["20210817205410-2kvfpfn"],
+    "targetID": "20210817205411-abcdefg",
+    "position": "after"
+  }
+  ```
+
+    * `sourceIDs`：按数组顺序插入的源笔记本 ID
+    * `targetID`：目标笔记本 ID
+    * `position`：`before` 或 `after`
+    * 排序基于包含已关闭笔记本的完整列表
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "changed": true
+    }
+  }
+  ```
+
 ### 设置笔记本和文档排序值
 
 * `/api/filetree/setSort`
@@ -1267,6 +1327,34 @@
   }
   ```
 
+### 将文档保存为模板
+
+* `/api/template/docSaveAsTemplate`
+* 参数
+
+  ```json
+  {
+    "id": "20220724223548-j6g0o87",
+    "name": "项目",
+    "overwrite": false,
+    "databaseMode": "copy"
+  }
+  ```
+
+    * `id`: 源文档 ID
+    * `name`: 模板名称。内核会清理名称并添加 `.md` 扩展名
+    * `overwrite`: 是否覆盖同名模板。为 `false` 且模板已存在时，响应 `code` 为 `1`
+    * `databaseMode`: 文档中所有数据库块的可选处理方式。`copy`（默认值）在每次使用模板时创建独立数据库，并清除块级上下文筛选；`reference` 保留原有数据库 ID 和上下文筛选，使渲染出的块成为与源数据库共享数据和视图配置的镜像。若目标文档的加密边界内无法访问源数据库，引用模式的模板渲染会失败
+* 返回值
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": null
+  }
+  ```
+
 ### 渲染 Sprig
 
 * `/api/template/renderSprig`
@@ -1799,7 +1887,7 @@
   ```
 
     * `id`: 数据库 ID
-    * `blockID`: 嵌入该数据库的数据库块，用于解析当前视图和发布权限。其 `custom-sy-av-view` 缺失或无效时使用第一个可用视图。渲染独立数据库时可省略
+    * `blockID`: 嵌入该数据库的数据库块，用于解析当前视图、发布权限和块级上下文筛选。其 `custom-sy-av-view` 缺失或无效时使用第一个可用视图。渲染独立数据库时可省略；已配置上下文筛选时必须传入有效的数据库块实例
     * `viewID`: 明确指定要渲染的视图。值无效时返回错误；省略时先通过 `blockID` 解析，无法解析则使用第一个可用视图
     * `page`: 页码，从 1 开始。默认为 `1`
     * `pageSize`: 每页条目数。`-1` 或省略表示使用视图默认值（`50`）
@@ -1821,6 +1909,8 @@
       "viewType": "table",
       "viewID": "20240118120204-7rnmyc1",
       "isMirror": false,
+      "contextFilter": null,
+      "contextFilterFields": [],
       "views": [
         {
           "id": "20240118120204-7rnmyc1",
@@ -1896,12 +1986,74 @@
   ```
 
     * `data.view`: 渲染后的视图实例。结构随 `viewType` 而变：`table` 返回 `columns`/`rows`/`rowCount`，`gallery` 和 `kanban` 返回 `fields`/`cards`/`cardCount`。启用分组时，`groups` 包含各分组的视图实例，每个实例含 `groupKey`/`groupValue`。`view` 还包含 `filters`/`sorts`/`group`/`showIcon`/`wrapField`/`groupFolded`/`groupHidden`。注意：启用的过滤或分组可能使条目列表为空，即使条目总数大于 0
-    * `data.view.columns[]`: 每列含 `id`/`name`/`type`/`icon`/`wrap`/`hidden`/`desc`/`calc`/`numberFormat`/`template`/`pin`/`width`；`select`/`mSelect` 列还额外包含 `options`
+    * `data.view.columns[]`: 每列含 `id`/`name`/`type`/`icon`/`wrap`/`hidden`/`desc`/`calc`/`numberFormat`/`template`/`renderTemplate`/`pin`/`width`；`select`/`mSelect` 列还额外包含 `options`。画廊和看板字段在 `data.view.fields[]` 中返回相同的字段元数据
+    * `data.view.columns[].renderTemplate`: 普通字段可选的显示模板，仅改变显示内容，字段原有类型的存储值保持不变
     * `data.view.rows[].id`: 表格行的**条目 ID**（`itemID`），也等于该行主键单元格的 `value.blockID`。对于绑定行，绑定块 ID 位于主键单元格的 `value.block.id`；二者是不同概念，不能假设相等
     * `data.view.cards[].id`: 卡片或看板卡片的**条目 ID**（`itemID`）。启用分组时，表格行或卡片位于 `groups[]` 的对应视图实例中
-    * `data.view.rows[].cells[].value`: 一个 `Value` 对象——所有 value 形态见 [设置单元格值](#设置单元格值)。`createdAt`/`updatedAt` 为 int64 毫秒时间戳
+    * `data.view.rows[].cells[].value`: 一个 `Value` 对象——所有 value 形态见 [设置单元格值](#设置单元格值)。`createdAt`/`updatedAt` 为 int64 毫秒时间戳。当普通字段配置了非空 `renderTemplate` 时，可选属性 `renderedContent` 包含运行时显示模板结果；该属性不会持久化，原有类型属性仍包含存储值。`data.view.cards[]` 中的值遵循相同规则
     * `data.views`: 所有视图的元数据（不含行数据）
     * `data.isMirror`: 当数据库块为数据库的镜像（只读副本）时为 `true`
+    * `data.contextFilter`: 当前数据库块配置的上下文筛选；禁用时为 `null`。当前规格为 `{ "spec": 1, "keyID": "<关联字段 ID>" }`，它会在所有视图中筛选出所选关联字段包含 `blockID` 所在根文档所绑定数据库条目的行，并与当前视图的筛选条件通过“且”组合。所选字段被删除、改为非关联字段或关联目标失效时，该块级配置会保留，但渲染结果为空，直至修复字段、更换字段或禁用上下文筛选
+    * `data.contextFilterFields`: 数据库中所有已配置关联字段的轻量元数据，不受当前所选视图影响。每项包含 `id`、`name`、`icon` 和 `targetAvID`，用于配置 `contextFilter`。发布只读响应会将 `contextFilter` 隐藏为 `null`，并将此列表隐藏为 `[]`，但已保存的上下文筛选仍会应用于渲染结果
+
+### 设置数据库块上下文筛选
+
+* `/api/av/setAttrViewContextFilter`
+* 参数
+
+  ```json
+  {
+    "avID": "20240118120204-kwyzf77",
+    "blockID": "20240118120201-kldj15t",
+    "keyID": "20240118120300-relation"
+  }
+  ```
+
+    * `avID`: 数据库 ID
+    * `blockID`: 要修改上下文筛选的具体数据库块 ID，必须是 `avID` 的实例
+    * `keyID`: 数据库中已配置的关联字段 ID，筛选语义固定等同于 `包含任一 - 当前文档`。传入空字符串可禁用上下文筛选
+* 返回值：`data.contextFilter` 中的规范化配置；禁用后为 `null`
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": {
+      "contextFilter": {
+        "spec": 1,
+        "keyID": "20240118120300-relation"
+      }
+    }
+  }
+  ```
+
+### 获取当前数据库视图中的图片
+
+* `/api/av/getCurrentAttrViewImages`
+* 参数
+
+  ```json
+  {
+    "id": "20240118120204-kwyzf77",
+    "blockID": "20240118120201-kldj15t",
+    "viewID": "20240118120204-7rnmyc1",
+    "query": ""
+  }
+  ```
+
+    * `id`: 数据库 ID
+    * `blockID`: 嵌入该数据库的数据库块，用于解析当前视图、发布权限和块级上下文筛选。仅在独立数据库且不需要块上下文时省略
+    * `viewID`: 可选的明确视图 ID。省略时先通过 `blockID` 解析，无法解析则使用第一个可用视图
+    * `query`: 可选的主键值全文过滤关键字
+* 返回值：应用数据库块上下文筛选、视图筛选与排序后，可见资源字段中的图片资源路径数组
+
+  ```json
+  {
+    "code": 0,
+    "msg": "",
+    "data": ["assets/example-20240118120201-abc1234.png"]
+  }
+  ```
 
 ### 获取
 
@@ -2120,6 +2272,7 @@
 |------------|----------------------------------------------------------------------------------------------------------------------|
 | `block`    | `{"block": {"content": "第一行", "id": "<绑定块ID>"}, "isDetached": false}`                                          |
 | `text`     | `{"text": {"content": "文本"}}`                                                                                      |
+| `text`（富文本） | `{"text": {"content": "文本", "rich": {"spec": 1, "format": "kramdown", "content": "**文本**"}}}`     |
 | `number`   | `{"number": {"content": 42, "isNotEmpty": true}}`（清空用 `{"isNotEmpty": false}`）                                  |
 | `date`     | `{"date": {"content": 1676042451000, "isNotEmpty": true}}`（毫秒时间戳）                                             |
 | `select`   | `{"mSelect": [{"content": "已完成", "color": "1"}]}`（至多一个选项）                                                 |
@@ -2130,6 +2283,8 @@
 | `checkbox` | `{"checkbox": {"checked": true}}`                                                                                    |
 
 > ⚠️ `itemID` 是**条目 ID**，即[渲染](#渲染)返回的条目 `id`：表格为 `rows[].id`，卡片和看板为 `cards[].id`，启用分组时位于 `groups[]` 的对应视图实例中。它也等于主键值的 `value.blockID`。对于绑定条目，绑定块 ID 位于主键值的 `value.block.id`；二者是不同概念，不能假设相等。传入错误的 ID 会把值存为孤儿数据，不会出现在渲染后的单元格中。
+
+对于富文本，`text.rich.content` 是权威的 Kramdown 源。内核会校验其受支持的结构并派生 `text.content` 纯文本投影；调用方提供的纯文本投影会被忽略。为兼容现有 API 客户端，省略 `text.rich` 时，如果 `text.content` 未改变则保留已存储的富文本载荷，如果 `text.content` 改变则以纯文本替换。即使纯文本投影未改变，也可以发送 `"rich": null` 明确移除富文本格式。包含富文本的数据库使用存储规范 9，无法由仅支持更早数据库规范的内核打开。
 
 * `/api/av/setAttributeViewBlockAttr`
 * 参数
@@ -2297,6 +2452,7 @@
     * `blockID`: 拥有该视图的数据库块
     * `group`: 分组规则
     * `group.field`: 用于分组的字段（列）ID。为空字符串表示移除分组
+    * `group.valueSource`: 可选的值来源——`stored` 使用字段存储值，省略时默认为该值；`rendered` 使用字段的显示模板结果，并按文本值分组
     * `group.method`: 分组方式——`0` 按值、`1` 按数字范围、`2` 按相对日期、`3` 按天、`4` 按周、`5` 按月、`6` 按年
     * `group.range`: 可选。`method` 为 `1`（数字范围）时必填：`{ "numStart": 0, "numEnd": 100, "numStep": 10 }`
     * `group.order`: 分组排序——`0` 升序、`1` 降序、`2` 手动、`3` 按选项顺序
@@ -2363,13 +2519,15 @@
 
     * `data.filters`: `ViewFilter` 数组。顶层为单个根组节点 `{ "combination": "and"|"or", "filters": [...] }`，数组元素既可以是叶子过滤条件，也可以是嵌套的分组节点，支持递归的且/或组合
     * `data.filters[].column`: 过滤规则作用的字段（列）ID（仅叶子节点）
+    * `data.filters[].valueSource`: 叶子节点可选的值来源——省略时默认为 `stored`，`rendered` 表示过滤字段的显示模板结果
     * `data.filters[].operator`: 过滤操作符（见下方操作符表；仅叶子节点）
-    * `data.filters[].value`: 过滤值，一个 `Value` 对象（结构见 [设置单元格值](#设置单元格值)；仅叶子节点）
+    * `data.filters[].value`: 过滤操作数，一个 `Value` 对象（结构见 [设置单元格值](#设置单元格值)；仅叶子节点）。当 `valueSource` 为 `rendered` 时，使用 `{ "type": "template", "template": { "content": "..." } }` 形式的模板值
     * `data.filters[].relativeDate`: 可选，日期过滤使用的相对时间描述（`{ "count": 7, "unit": 0, "direction": -1 }`；`unit`：`0` 天、`1` 周、`2` 月、`3` 年；`direction`：`-1` 前、`0` 当前、`1` 后；仅叶子节点）
     * `data.filters[].combination`: 分组组合方式，`"and"` 或 `"or"`（仅分组节点）
     * `data.filters[].filters`: 子过滤节点，递归的 `ViewFilter`（仅分组节点）
     * `data.sorts`: `ViewSort` 数组
     * `data.sorts[].column`: 排序规则作用的字段（列）ID
+    * `data.sorts[].valueSource`: 可选的值来源——省略时默认为 `stored`，`rendered` 表示按字段的显示模板结果排序
     * `data.sorts[].order`: `ASC` 或 `DESC`
 
   过滤操作符：

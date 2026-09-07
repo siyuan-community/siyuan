@@ -27,6 +27,15 @@ import {
 } from "./attributeValue";
 import {isLastPointerMouse} from "../../../util/touchDragBridge";
 import {getLocalDropFiles, hasDataTransferFiles} from "../../upload/localDropFiles";
+import {cloneAVCellValueSnapshot} from "./cellValue";
+import {getEditorFocusRange, restoreEditorFocusRange} from "../../util/editorFocus";
+import {getHostCapabilities} from "../../../util/hostCapabilities";
+import {getAVRichTextSafeURL, renderAVRichTextElements} from "./richText";
+/// #if !MOBILE
+import {openGlobalSearch} from "../../../search/util";
+/// #else
+import {popSearch} from "../../../mobile/menu/search";
+/// #endif
 
 interface IAVAttributeTableData {
     avID: string;
@@ -69,6 +78,53 @@ const handleTemplateInteraction = (protyle: IProtyle, event: MouseEvent) => {
     return true;
 };
 
+const handleRichTextInteraction = (protyle: IProtyle, event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    const richTextElement = target.closest(".av__celltext--rich");
+    if (!richTextElement) {
+        return false;
+    }
+    const blockRefElement = target.closest<HTMLElement>('[data-type~="block-ref"][data-id]');
+    const fileAnnotationElement = target.closest<HTMLElement>('[data-type~="file-annotation-ref"][data-id]');
+    const tagElement = target.closest<HTMLElement>('[data-type~="tag"]');
+    const linkElement = target.closest<HTMLElement>('[data-type~="a"][data-href], a[href]');
+    if (blockRefElement && richTextElement.contains(blockRefElement)) {
+        const link = getAVRichTextSafeURL(`siyuan://blocks/${blockRefElement.dataset.id}`);
+        if (link) {
+            openLink(protyle.app, link, event, event.ctrlKey || event.metaKey);
+        }
+    } else if (fileAnnotationElement && richTextElement.contains(fileAnnotationElement)) {
+        const link = getAVRichTextSafeURL(fileAnnotationElement.dataset.id);
+        if (link) {
+            openLink(protyle.app, link, event, event.ctrlKey || event.metaKey);
+        }
+    } else if (tagElement && richTextElement.contains(tagElement)) {
+        /// #if !MOBILE
+        openGlobalSearch(protyle.app, `#${tagElement.textContent}#`, true, {method: 0});
+        /// #else
+        popSearch(protyle.app, {
+            hasReplace: false,
+            method: 0,
+            hPath: "",
+            idPath: [],
+            k: `#${tagElement.textContent}#`,
+            r: "",
+            page: 1,
+        });
+        /// #endif
+    } else if (linkElement && richTextElement.contains(linkElement)) {
+        const link = getAVRichTextSafeURL(linkElement.dataset.href || linkElement.getAttribute("href"));
+        if (link) {
+            openLink(protyle.app, link, event, event.ctrlKey || event.metaKey);
+        }
+    } else {
+        return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+};
+
 export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IProtyle, cb?: (element: HTMLElement) => void,
                                   row?: { avID: string, itemID: string, valueID: string }) => {
     const renderID = (++attributeViewRenderID).toString();
@@ -88,6 +144,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                     icon: string,
                     id: string,
                     dateFormat?: TAVDateFormat,
+                    renderTemplate?: string,
                     options?: {
                         name: string,
                         color: string
@@ -130,8 +187,9 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                     typeIcon: getColIconByType(item.key.type),
                     selectOptions: item.key.options,
                     dateFormat: item.key.dateFormat,
+                    renderTemplate: item.key.renderTemplate,
                     value,
-                    empty: cellValueIsEmpty(value),
+                    empty: cellValueIsEmpty(value, true, item.key.renderTemplate),
                 });
             });
             innerHTML += `<div class="fn__hr"></div>
@@ -151,6 +209,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
         });
         if (element.innerHTML === "") {
             let dragBlockElement: HTMLElement;
+            let removeEditorRange: Range | undefined;
             element.addEventListener("dragstart", (event: DragEvent) => {
                 const target = event.target as HTMLElement;
                 window.siyuan.dragElement = target.parentElement;
@@ -202,7 +261,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                     const cellElement = element.querySelector(".custom-attr__avvalue--active") as HTMLElement;
                     if (cellElement) {
                         const position = {x: event.clientX, y: event.clientY};
-                        if (!isBrowser()) {
+                        if (!isBrowser() && getHostCapabilities().localFileSystem) {
                             /// #if !BROWSER
                             const files = getLocalDropFiles(event.dataTransfer.files,
                                 file => webUtils.getPathForFile(file));
@@ -299,8 +358,18 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                     }
                 }
             });
+            element.addEventListener("mousedown", (event) => {
+                if (!hasClosestByAttribute(event.target as HTMLElement, "data-type", "remove")) {
+                    return;
+                }
+                const selection = document.getSelection();
+                const currentRange = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+                removeEditorRange = getEditorFocusRange(protyle.wysiwyg.element, currentRange,
+                    protyle.toolbar.range);
+                event.preventDefault();
+            });
             element.addEventListener("click", (event) => {
-                if (handleTemplateInteraction(protyle, event)) {
+                if (handleTemplateInteraction(protyle, event) || handleRichTextInteraction(protyle, event)) {
                     return;
                 }
                 const databaseElement = hasClosestByClassName(event.target as HTMLElement, "popover__block");
@@ -349,6 +418,11 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                 }
                 const removeElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "remove");
                 if (removeElement) {
+                    const selection = document.getSelection();
+                    const currentRange = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+                    const editorRange = removeEditorRange || getEditorFocusRange(protyle.wysiwyg.element,
+                        currentRange, protyle.toolbar.range);
+                    removeEditorRange = undefined;
                     const blockElement = hasClosestBlock(removeElement);
                     if (blockElement) {
                         const table = attributeTableData.get(blockElement as HTMLElement);
@@ -380,7 +454,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                             if (!value || item.key.type === "rollup") {
                                 return;
                             }
-                            const valueData = JSON.parse(JSON.stringify(value)) as IAVCellValue;
+                            const valueData = cloneAVCellValueSnapshot(value);
                             undoOperations.push({
                                 action: "updateAttrViewCell",
                                 avID,
@@ -414,6 +488,8 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                             srcIDs: [rowID],
                             avID,
                         }];
+                        const restoreEditorRange = () => restoreEditorFocusRange(protyle.wysiwyg.element,
+                            editorRange);
                         confirmDialog(window.siyuan.languages.removeAV, window.siyuan.languages.confirmDelete + "?", () => {
                             removeElement.setAttribute("disabled", "true");
                             transaction(protyle, doOperations, undoOperations.length > 0 ? undoOperations : undefined, {
@@ -430,7 +506,8 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                                     }
                                 }
                             });
-                        }, undefined, true);
+                            restoreEditorRange();
+                        }, restoreEditorRange, true);
                     }
                     event.stopPropagation();
                     return;
@@ -442,6 +519,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             });
             element.innerHTML = html;
         }
+        renderAVRichTextElements(element);
         tables.forEach((table: IAVAttributeTableData) => {
             const blockElement = element.querySelector<HTMLElement>(`[data-node-id="${id}"][data-av-id="${table.avID}"]`);
             if (blockElement) {
@@ -530,7 +608,8 @@ const renderAttributeViewBacklinks = (element: HTMLElement, id: string, renderID
 
 const openEdit = (protyle: IProtyle, element: HTMLElement, event: MouseEvent) => {
     let target = event.target as HTMLElement;
-    const blockElement = hasClosestBlock(target);
+    const valueElement = hasClosestByClassName(target, "custom-attr__avvalue");
+    const blockElement = hasClosestBlock(valueElement || target);
     if (!blockElement) {
         return;
     }
@@ -575,6 +654,13 @@ const openEdit = (protyle: IProtyle, element: HTMLElement, event: MouseEvent) =>
                     openLink(protyle.app, target.dataset.url, event, event.ctrlKey || event.metaKey);
                 }
             }
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (["text", "url", "email", "phone", "block"].includes(type) &&
+            (target.querySelector(":scope > .av__celltext--template") ||
+                (type === "text" && target.querySelector(":scope > .av__celltext")))) {
+            popTextCell(protyle, [target], type as TAVCol);
             event.stopPropagation();
             event.preventDefault();
             break;

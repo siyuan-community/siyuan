@@ -6,6 +6,13 @@
   margin-top: 4px !important;
   margin-bottom: 4px !important;
 
+  &--backlink {
+    max-height: min(400px, 60vh);
+    overflow: auto;
+    overscroll-behavior: contain;
+    align-items: flex-start;
+  }
+
   &:hover {
     .av__views .block__icon,
     .av__group-icon--hover {
@@ -276,6 +283,62 @@
     bottom: 0;
     right: 0;
     left: 0;
+  }
+
+  &__richtext-mask {
+    background: rgba(0, 0, 0, .08);
+  }
+
+  &__richtext-editor {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    min-height: 240px;
+    overflow: hidden;
+    border: 1px solid var(--b3-border-color);
+    border-radius: var(--b3-border-radius-b);
+    background: var(--b3-theme-background);
+    box-shadow: var(--b3-dialog-shadow);
+
+    &--mobile {
+      position: fixed;
+      inset: env(safe-area-inset-top) 0 0;
+      max-height: none;
+      border: 0;
+      border-radius: 0;
+    }
+  }
+
+  &__richtext-host {
+    min-height: 0;
+    flex: 1;
+
+    > .protyle,
+    .protyle-content {
+      height: 100%;
+    }
+
+    .protyle-content {
+      overflow: auto;
+    }
+
+    .protyle-wysiwyg {
+      min-height: 100%;
+      padding: 12px;
+      box-sizing: border-box;
+      outline: none;
+      font-size: var(--b3-font-size-editor);
+    }
+  }
+
+  &__richtext-actions {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px;
+    border-top: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-surface);
   }
 
   &__scroll {
@@ -1058,6 +1121,88 @@
 
   &__celltext {
     overflow: hidden;
+
+    &--rich {
+      display: block;
+      width: 100%;
+      overflow: hidden;
+      font: inherit;
+
+      .av__cell[data-wrap="true"] & {
+        white-space: normal;
+
+        p,
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6,
+        li,
+        pre,
+        .render-node {
+          min-height: 0;
+          margin: 0;
+          padding: 0;
+          font-size: inherit;
+          line-height: inherit;
+        }
+
+        blockquote,
+        ul,
+        ol {
+          margin: 0;
+        }
+
+        ul,
+        ol {
+          padding-left: 1.5em;
+        }
+
+        > :not(:first-child) {
+          margin-top: .25em;
+        }
+      }
+
+      .av__cell:not([data-wrap="true"]) & {
+        max-height: 1.625em;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+
+        p,
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6,
+        blockquote,
+        ul,
+        ol,
+        li,
+        pre,
+        .render-node {
+          display: inline;
+          min-height: 0;
+          margin: 0;
+          padding: 0;
+          font-size: inherit;
+          line-height: inherit;
+          list-style: none;
+        }
+
+        > :not(:first-child),
+        li + li,
+        li > :not(:first-child),
+        blockquote > :not(:first-child) {
+          margin-left: .5em;
+        }
+      }
+    }
+
+    &--plain {
+      white-space: pre-wrap;
+    }
 
     &--url,
     &--ref {
@@ -1978,6 +2123,7 @@ img.av__cellassetimg {
     margin: 0 5px 0 -4px;
     vertical-align: top;
 
+    svg,
     img {
       height: calc(1.625em - 8px);
       font-size: 1em;

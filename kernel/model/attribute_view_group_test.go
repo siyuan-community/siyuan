@@ -66,6 +66,36 @@ func TestSetAttributeViewGroupRegeneratesOnlyCurrentView(t *testing.T) {
 	}
 }
 
+func TestSetAttributeViewGroupNormalizesRenderedValueSource(t *testing.T) {
+	oldLang, oldAttrViewLangs := util.Lang, util.AttrViewLangs
+	util.Lang = "en"
+	util.AttrViewLangs = map[string]map[string]any{"en": {"table": "Table"}}
+	defer func() {
+		util.Lang, util.AttrViewLangs = oldLang, oldAttrViewLangs
+	}()
+
+	key := &av.Key{ID: "field", Name: "Field", Type: av.KeyTypeSelect, RenderTemplate: "render"}
+	view := newAttributeViewGroupTestView("view", key.ID)
+	attrView := &av.AttributeView{
+		ID:                "av",
+		KeyValues:         []*av.KeyValues{{Key: key}},
+		Views:             []*av.View{view},
+		RenderedViewables: map[string]av.Viewable{},
+	}
+	group := &av.ViewGroup{
+		Field:       key.ID,
+		ValueSource: av.ValueSourceRendered,
+		Method:      av.GroupMethodRangeNum,
+		Range:       &av.GroupRange{NumStart: 0, NumEnd: 10, NumStep: 1},
+		Order:       av.GroupOrderSelectOption,
+	}
+
+	setAttributeViewGroup(attrView, view, group)
+	if av.GroupMethodValue != view.Group.Method || nil != view.Group.Range || av.GroupOrderAsc != view.Group.Order {
+		t.Fatalf("unexpected rendered group configuration: %+v", view.Group)
+	}
+}
+
 func TestSyncAttrViewGroupHiddenStatesPreservesManualHidden(t *testing.T) {
 	view := &av.View{
 		Group:  &av.ViewGroup{Field: "field", HideEmpty: false},
@@ -144,6 +174,89 @@ func TestRenderReusedGroupViewPreservesFilterSortCalcAndPagination(t *testing.T)
 	calc := table.Columns[0].Calc
 	if nil == calc || nil == calc.Result || nil == calc.Result.Number || 2 != calc.Result.Number.Content {
 		t.Fatalf("unexpected group calculation: %+v", calc)
+	}
+}
+
+func TestHideEmptyGroupViewsUsesUnpaginatedCounts(t *testing.T) {
+	view := &av.View{Group: &av.ViewGroup{Field: "field", HideEmpty: true}}
+	for _, layoutType := range []av.LayoutType{av.LayoutTypeTable, av.LayoutTypeGallery, av.LayoutTypeKanban} {
+		t.Run(string(layoutType), func(t *testing.T) {
+			base := &av.BaseInstance{GroupHidden: 0}
+			var viewable av.Viewable
+			switch layoutType {
+			case av.LayoutTypeTable:
+				viewable = &av.Table{BaseInstance: base, RowCount: 0}
+			case av.LayoutTypeGallery:
+				viewable = &av.Gallery{BaseInstance: base, CardCount: 0}
+			case av.LayoutTypeKanban:
+				viewable = &av.Kanban{BaseInstance: base, CardCount: 0}
+			}
+			hideEmptyGroupViews(view, viewable)
+			if 1 != viewable.GetGroupHidden() {
+				t.Fatal("an empty group should be hidden at runtime")
+			}
+
+			switch layoutType {
+			case av.LayoutTypeTable:
+				viewable.(*av.Table).RowCount = 2
+			case av.LayoutTypeGallery:
+				viewable.(*av.Gallery).CardCount = 2
+			case av.LayoutTypeKanban:
+				viewable.(*av.Kanban).CardCount = 2
+			}
+			hideEmptyGroupViews(view, viewable)
+			if 0 != viewable.GetGroupHidden() {
+				t.Fatal("an unpaginated non-empty group should remain visible when the current page has no items")
+			}
+
+			viewable.SetGroupHidden(2)
+			hideEmptyGroupViews(view, viewable)
+			if 2 != viewable.GetGroupHidden() {
+				t.Fatal("manual group hiding should be preserved")
+			}
+		})
+	}
+}
+
+func TestRenderedGroupsUseItemsBeforeParentPagination(t *testing.T) {
+	oldLang, oldAttrViewLangs := util.Lang, util.AttrViewLangs
+	util.Lang = "en"
+	util.AttrViewLangs = map[string]map[string]any{"en": {"table": "Table"}}
+	defer func() {
+		util.Lang, util.AttrViewLangs = oldLang, oldAttrViewLangs
+	}()
+
+	key := &av.Key{ID: "field", Name: "Field", Type: av.KeyTypeText, RenderTemplate: "render"}
+	view := newAttributeViewGroupTestView("view", key.ID)
+	view.Group = &av.ViewGroup{
+		Field: key.ID, ValueSource: av.ValueSourceRendered, Method: av.GroupMethodValue, Order: av.GroupOrderAsc,
+	}
+	attrView := &av.AttributeView{
+		ID:                "av",
+		KeyValues:         []*av.KeyValues{{Key: key}},
+		Views:             []*av.View{view},
+		RenderedViewables: map[string]av.Viewable{},
+	}
+	first := newAttributeViewGroupTestRow("first", key.ID, "stored")
+	first.Cells[0].Value.RenderedContent = "A"
+	second := newAttributeViewGroupTestRow("second", key.ID, "stored")
+	second.Cells[0].Value.RenderedContent = "B"
+	parent := &av.Table{
+		BaseInstance: av.NewViewBaseInstance(view),
+		Columns: []*av.TableColumn{{BaseInstanceField: &av.BaseInstanceField{
+			ID: key.ID, Type: key.Type, RenderTemplate: key.RenderTemplate,
+		}}},
+		Rows: []*av.TableRow{first, second},
+	}
+	source := sql.NewGroupViewRenderSource(parent, "")
+	parent.Rows = parent.Rows[:1]
+
+	genAttrViewGroupsFromRenderSource(view, attrView, source, "")
+	firstGroup := view.GetGroupByGroupValue("A")
+	secondGroup := view.GetGroupByGroupValue("B")
+	if nil == firstGroup || nil == secondGroup || 1 != len(firstGroup.GroupItemIDs) ||
+		1 != len(secondGroup.GroupItemIDs) || "second" != secondGroup.GroupItemIDs[0] {
+		t.Fatalf("rendered groups lost items outside the parent page: %+v", view.Groups)
 	}
 }
 

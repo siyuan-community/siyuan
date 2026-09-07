@@ -147,30 +147,48 @@ func ExportCodeBlock(blockID string) (filePath string, err error) {
 	return
 }
 
+func getAttrViewCSVRenderedValue(table *av.Table, value *av.Value) (ret string, ok bool) {
+	if nil == table || nil == value {
+		return
+	}
+	column := table.GetColumn(value.KeyID)
+	if nil == column || "" == strings.TrimSpace(column.RenderTemplate) {
+		return
+	}
+	return value.RenderedContent, true
+}
+
 func ExportAv2CSV(avID, blockID string) (zipPath string, err error) {
+	if err = prepareExportBlockAssets(blockID, false); err != nil {
+		return
+	}
 	// Database block supports export as CSV https://github.com/siyuan-note/siyuan/issues/10072
 
 	err = withExportReadLockByBlockID(blockID, func() error {
+		bt := getExportBlockTree(blockID)
+		if nil == bt {
+			return ErrBlockNotFound
+		}
+		node, _, nodeErr := getNodeByBlockID(nil, blockID)
+		if nil != nodeErr {
+			return nodeErr
+		}
+		if nil == node || ast.NodeAttributeView != node.Type || node.AttributeViewID != avID {
+			return av.ErrAttributeViewNotFound
+		}
+
 		avBoxID := ""
-		if bt := getExportBlockTree(blockID); nil != bt && IsEncryptedBox(bt.BoxID) {
+		if IsEncryptedBox(bt.BoxID) {
 			avBoxID = bt.BoxID
 			av.SetAVBoxID(avID, avBoxID)
 		}
 
-		var attrView *av.AttributeView
-		if avBoxID != "" {
-			attrView, err = av.ParseAttributeViewInBox(avID, avBoxID)
-		} else {
-			attrView, err = av.ParseAttributeView(avID)
-		}
+		attrView, parseErr := av.ParseAttributeViewInBox(avID, avBoxID)
+		err = parseErr
 		if err != nil {
 			return err
 		}
 
-		node, _, nodeErr := getNodeByBlockID(nil, blockID)
-		if nil == node {
-			return nodeErr
-		}
 		viewID := node.IALAttr(av.NodeAttrView)
 		view, viewErr := resolveAttributeViewView(attrView, viewID, "", "")
 		if viewErr != nil {
@@ -183,7 +201,11 @@ func ExportAv2CSV(avID, blockID string) (zipPath string, err error) {
 		// 遵循视图过滤和排序规则 Use filtering and sorting of current view settings when exporting database blocks https://github.com/siyuan-note/siyuan/issues/10474
 		cachedAttrViews := map[string]*av.AttributeView{}
 		rollupFurtherCollections := sql.GetFurtherCollections(attrView, cachedAttrViews)
-		av.Filter(table, attrView, rollupFurtherCollections, cachedAttrViews)
+		filterContext, contextErr := resolveAttributeViewFilterContext(attrView, view, blockID)
+		if nil != contextErr {
+			return contextErr
+		}
+		av.FilterWithContext(table, attrView, rollupFurtherCollections, cachedAttrViews, filterContext)
 		av.Sort(table, attrView)
 
 		exportFolder := filepath.Join(util.TempDir, "export")
@@ -224,6 +246,10 @@ func ExportAv2CSV(avID, blockID string) (zipPath string, err error) {
 			for _, cell := range row.Cells {
 				var val string
 				if nil != cell.Value {
+					if rendered, ok := getAttrViewCSVRenderedValue(table, cell.Value); ok {
+						rowVal = append(rowVal, rendered)
+						continue
+					}
 					if av.KeyTypeDate == cell.Value.Type {
 						if nil != cell.Value.Date {
 							key, _ := attrView.GetKey(cell.Value.KeyID)
@@ -344,6 +370,8 @@ func ExportAv2CSV(avID, blockID string) (zipPath string, err error) {
 			targetAbsPath := filepath.Join(exportFolder, AssetPathWithoutQuery(asset))
 			if copyErr := copyAssetDecryptIfEncrypted(srcAbsPath, targetAbsPath); copyErr != nil {
 				logging.LogWarnf("copy asset from [%s] to [%s] failed: %s", srcAbsPath, targetAbsPath, copyErr)
+				f.Close()
+				return copyErr
 			}
 		}
 
@@ -379,6 +407,9 @@ func ExportAv2CSV(avID, blockID string) (zipPath string, err error) {
 }
 
 func Export2Liandi(id string) (err error) {
+	if err = prepareExportBlockAssets(id, false); err != nil {
+		return
+	}
 	err = withExportReadLockByBlockID(id, func() error {
 		tree, loadErr := LoadTreeByBlockID(id)
 		if loadErr != nil {
@@ -667,6 +698,9 @@ func ExportSYs(ids []string) (zipPath string) {
 }
 
 func ExportDataInFolder(exportFolder string) (name string, err error) {
+	if err = EnsureAllSyncAssets(); err != nil {
+		return
+	}
 	util.PushEndlessProgress(Conf.Language(65))
 	defer util.ClearPushProgress(100)
 
@@ -737,6 +771,9 @@ func ExportData() (zipPath string, err error) {
 
 func exportData(exportFolder string) (zipPath string, err error) {
 	FlushTxQueue()
+	if err = EnsureAllSyncAssets(); err != nil {
+		return
+	}
 
 	logging.LogInfof("exporting data...")
 
@@ -784,6 +821,17 @@ func ExportResources(resourcePaths []string, mainName string) (exportFilePath st
 	encryptedBoxID, detectErr := exportResourcesEncryptedBox(resourcePaths)
 	if detectErr != nil {
 		return "", detectErr
+	}
+	if encryptedBoxID != "" && !IsBoxUnlocked(encryptedBoxID) {
+		return "", errors.New(Conf.Language(314))
+	}
+	for _, resourcePath := range resourcePaths {
+		source := filepath.Join(util.WorkspaceDir, resourcePath)
+		if gulu.File.IsSubPath(util.DataDir, source) {
+			if err = EnsureAssetPrefixLocal(source); err != nil {
+				return
+			}
+		}
 	}
 
 	exportBasePath := filepath.Join(util.TempDir, "export")
@@ -1045,6 +1093,9 @@ func ExportPreview(id string, fillCSSVar bool, accessChecker ...EmbedBlockAccess
 }
 
 func ExportDocx(id, savePath string, removeAssets, merge bool, mergeHeadingOptions ...MergeHeadingOptions) (fullPath string, err error) {
+	if err = prepareExportBlockAssets(id, merge); err != nil {
+		return
+	}
 	err = withExportReadLockByBlockID(id, func() error {
 		pandocRuntime := util.GetPandocRuntime()
 		if !util.IsValidPandocBin(pandocRuntime.BinPath) {
@@ -1067,7 +1118,10 @@ func ExportDocx(id, savePath string, removeAssets, merge bool, mergeHeadingOptio
 			return mkdirErr
 		}
 		defer os.RemoveAll(tmpDir)
-		name, content := ExportMarkdownHTML(id, tmpDir, true, merge, mergeHeadingOptions...)
+		name, content, exportErr := exportMarkdownHTML(id, tmpDir, true, merge, mergeHeadingOptions...)
+		if exportErr != nil {
+			return exportErr
+		}
 		content = strings.ReplaceAll(content, "  \n", "<br>\n")
 
 		tmpDocxPath := filepath.Join(tmpDir, name+".docx")
@@ -1087,9 +1141,11 @@ func ExportDocx(id, savePath string, removeAssets, merge bool, mergeHeadingOptio
 			}
 		}
 
-		if !hasPandocOption(args, "--lua-filter") && "" != pandocRuntime.ColorFilterPath {
-			args = append(args, "--lua-filter", pandocRuntime.ColorFilterPath)
+		filterPath, filterErr := writePandocDocxFilter(tmpDir)
+		if nil != filterErr {
+			return filterErr
 		}
+		args = appendBuiltinPandocDocxFilter(args, filterPath)
 
 		if !hasPandocOption(args, "--reference-doc") && "" != pandocRuntime.TemplatePath {
 			args = append(args, "--reference-doc", pandocRuntime.TemplatePath)
@@ -1121,14 +1177,31 @@ func ExportDocx(id, savePath string, removeAssets, merge bool, mergeHeadingOptio
 		}
 		return nil
 	})
+	if err != nil {
+		fullPath = ""
+	}
 	return
 }
 
 func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptions ...MergeHeadingOptions) (name, dom string) {
-	if exportErr := withExportReadLockByBlockID(id, func() error {
+	if err := prepareExportBlockAssets(id, merge); err != nil {
+		util.PushErrMsg(err.Error(), 7000)
+		return
+	}
+	name, dom, err := exportMarkdownHTML(id, savePath, docx, merge, mergeHeadingOptions...)
+	if err != nil {
+		logging.LogErrorf("export markdown html [%s] failed: %s", id, err)
+		util.PushErrMsg(err.Error(), 7000)
+		return "", ""
+	}
+	return name, dom
+}
+
+func exportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptions ...MergeHeadingOptions) (name, dom string, err error) {
+	err = withExportReadLockByBlockID(id, func() error {
 		bt := getExportBlockTree(id)
 		if nil == bt {
-			return nil
+			return ErrBlockNotFound
 		}
 
 		tree := prepareExportTree(bt)
@@ -1138,7 +1211,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 			tree, mergeErr = mergeSubDocs(tree, mergeHeadingOptionsOrDefault(mergeHeadingOptions), Conf.Export.AddTitle)
 			if nil != mergeErr {
 				logging.LogErrorf("merge sub docs failed: %s", mergeErr)
-				return nil
+				return mergeErr
 			}
 		}
 
@@ -1158,7 +1231,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 
 		if err := os.MkdirAll(savePath, 0755); err != nil {
 			logging.LogErrorf("mkdir [%s] failed: %s", savePath, err)
-			return nil
+			return err
 		}
 
 		if docx {
@@ -1179,6 +1252,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 			targetAbsPath := filepath.Join(savePath, AssetPathWithoutQuery(asset))
 			if err = copyAssetDecryptIfEncrypted(srcAbsPath, targetAbsPath); err != nil {
 				logging.LogWarnf("copy asset from [%s] to [%s] failed: %s", srcAbsPath, targetAbsPath, err)
+				return err
 			}
 		}
 
@@ -1204,7 +1278,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 			appearancePath, readErr = filepath.EvalSymlinks(util.AppearancePath)
 			if nil != readErr {
 				logging.LogErrorf("readlink [%s] failed: %s", util.AppearancePath, readErr)
-				return nil
+				return readErr
 			}
 		}
 
@@ -1213,7 +1287,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 			to := filepath.Join(savePath, "appearance", src)
 			if err := filelock.Copy(from, to); err != nil {
 				logging.LogErrorf("copy appearance from [%s] to [%s] failed: %s", from, savePath, err)
-				return nil
+				return err
 			}
 		}
 
@@ -1225,7 +1299,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 			toIconDir := filepath.Join(savePath, "appearance", "icons", "litheness")
 			if err := os.MkdirAll(toIconDir, 0755); err != nil {
 				logging.LogErrorf("mkdir [%s] failed: %s", toIconDir, err)
-				return nil
+				return err
 			}
 			toIconFile := filepath.Join(toIconDir, "icon.js")
 			if err := filelock.Copy(srcIconFile, toIconFile); err != nil {
@@ -1238,7 +1312,7 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 			toIconDir := filepath.Join(savePath, "appearance", "icons", iconName)
 			if err := os.MkdirAll(toIconDir, 0755); err != nil {
 				logging.LogErrorf("mkdir [%s] failed: %s", toIconDir, err)
-				return nil
+				return err
 			}
 			toIconFile := filepath.Join(toIconDir, "icon.js")
 			if err := filelock.Copy(srcIconFile, toIconFile); err != nil {
@@ -1298,9 +1372,9 @@ func ExportMarkdownHTML(id, savePath string, docx, merge bool, mergeHeadingOptio
 			dom = luteEngine.ProtylePreview(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 		}
 		return nil
-	}); exportErr != nil {
-		logging.LogErrorf("export markdown html [%s] failed: %s", id, exportErr)
-		return
+	})
+	if err != nil {
+		return "", "", err
 	}
 	return
 }
@@ -1311,12 +1385,16 @@ func ExportHTML(id, savePath string, pdf, keepFold, merge bool, mergeHeadingOpti
 
 func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle bool, customTitle string,
 	mergeHeadingOptions ...MergeHeadingOptions) (name, dom string, node *ast.Node) {
+	if err := prepareExportBlockAssets(id, merge); err != nil {
+		util.PushErrMsg(err.Error(), 7000)
+		return
+	}
 	if exportErr := withExportReadLockByBlockID(id, func() error {
 		savePath = strings.TrimSpace(savePath)
 
 		bt := getExportBlockTree(id)
 		if nil == bt {
-			return nil
+			return ErrBlockNotFound
 		}
 
 		tree := prepareExportTree(bt)
@@ -1330,7 +1408,7 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 			tree, mergeErr = mergeSubDocs(tree, mergeHeadingOptionsOrDefault(mergeHeadingOptions), addTitle)
 			if nil != mergeErr {
 				logging.LogErrorf("merge sub docs failed: %s", mergeErr)
-				return nil
+				return mergeErr
 			}
 		}
 
@@ -1366,7 +1444,7 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 		if "" != savePath {
 			if err := os.MkdirAll(savePath, 0755); err != nil {
 				logging.LogErrorf("mkdir [%s] failed: %s", savePath, err)
-				return nil
+				return err
 			}
 
 			assets := getAssetsLinkDests(tree.Root, false)
@@ -1379,6 +1457,7 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 				targetAbsPath := filepath.Join(savePath, AssetPathWithoutQuery(asset))
 				if err = copyAssetDecryptIfEncrypted(srcAbsPath, targetAbsPath); err != nil {
 					logging.LogWarnf("copy asset from [%s] to [%s] failed: %s", srcAbsPath, targetAbsPath, err)
+					return err
 				}
 			}
 		}
@@ -1390,7 +1469,7 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 				to := filepath.Join(savePath, src)
 				if err := filelock.Copy(from, to); err != nil {
 					logging.LogErrorf("copy stage from [%s] to [%s] failed: %s", from, savePath, err)
-					return nil
+					return err
 				}
 			}
 
@@ -1407,7 +1486,7 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 				appearancePath, readErr = filepath.EvalSymlinks(util.AppearancePath)
 				if nil != readErr {
 					logging.LogErrorf("readlink [%s] failed: %s", util.AppearancePath, readErr)
-					return nil
+					return readErr
 				}
 			}
 			for _, src := range srcs {
@@ -1426,7 +1505,7 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 				toIconDir := filepath.Join(savePath, "appearance", "icons", "litheness")
 				if err := os.MkdirAll(toIconDir, 0755); err != nil {
 					logging.LogErrorf("mkdir [%s] failed: %s", toIconDir, err)
-					return nil
+					return err
 				}
 				toIconFile := filepath.Join(toIconDir, "icon.js")
 				if err := filelock.Copy(srcIconFile, toIconFile); err != nil {
@@ -1439,7 +1518,7 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 				toIconDir := filepath.Join(savePath, "appearance", "icons", iconName)
 				if err := os.MkdirAll(toIconDir, 0755); err != nil {
 					logging.LogErrorf("mkdir [%s] failed: %s", toIconDir, err)
-					return nil
+					return err
 				}
 				toIconFile := filepath.Join(toIconDir, "icon.js")
 				if err := filelock.Copy(srcIconFile, toIconFile); err != nil {
@@ -1478,7 +1557,8 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 		return nil
 	}); exportErr != nil {
 		logging.LogErrorf("export html [%s] failed: %s", id, exportErr)
-		return
+		util.PushErrMsg(exportErr.Error(), 7000)
+		return "", "", nil
 	}
 	return
 }
@@ -1580,6 +1660,9 @@ func processIFrameWithFilter(tree *parse.Tree, filter func(src string) bool) {
 }
 
 func ProcessPDF(id, p string, merge, removeAssets, watermark bool, mergeHeadingOptions ...MergeHeadingOptions) (err error) {
+	if err = prepareExportBlockAssets(id, merge); err != nil {
+		return
+	}
 	err = withExportReadLockByBlockID(id, func() error {
 		tree, _ := LoadTreeByBlockID(id)
 		if nil == tree {
@@ -1912,7 +1995,7 @@ func processPDFLinkEmbedAssets(pdfCtx *model.Context, assetDests []string, boxID
 		embedPath := absPath
 		if IsEncryptedAssetPath(absPath) {
 			assetBoxID := ExtractBoxIDFromAssetsPath(absPath)
-			plain, readErr := ReadAssetBytesInBox(assetBoxID, sourceURI)
+			plain, readErr := readAssetBytesInBox(assetBoxID, sourceURI, false)
 			if nil != readErr {
 				logging.LogWarnf("read encrypted asset [%s] failed: %s", sourceURI, readErr)
 				continue
@@ -2505,6 +2588,10 @@ func exportBoxSYZip(boxID string) (zipPath string) {
 
 func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, includeBoxConf bool) (zipPath string) {
 	defer util.ClearPushProgress(100)
+	if err := prepareExportAssets(boxID, docPaths); err != nil {
+		util.PushErrMsg(err.Error(), 7000)
+		return
+	}
 
 	dir, name := path.Split(baseFolderName)
 	name = util.FilterFileName(name)
@@ -2534,7 +2621,7 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 			return
 		}
 	}
-	exportDir := filepath.Join(util.TempDir, "export", baseFolderName)
+	exportDir := filepath.Join(util.TempDir, "export", normalExportTempName(baseFolderName))
 	if encrypted {
 		exportDir = filepath.Join(util.TempDir, "export", boxID, "sy", exportID)
 	}
@@ -2697,7 +2784,8 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 			assetErr := copyAssetDecryptIfEncrypted(srcPath, destPath)
 			if nil != assetErr {
 				logging.LogErrorf("copy asset from [%s] to [%s] failed: %s", srcPath, destPath, assetErr)
-				continue
+				util.PushErrMsg(assetErr.Error(), 7000)
+				return
 			}
 			copiedAssets.Add(copyKey)
 
@@ -2763,7 +2851,10 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 			continue
 		}
 
-		exportAv(avID, avBoxes[avID], exportStorageAvDir, exportDir, assetPathMap)
+		if exportErr := exportAv(avID, avBoxes[avID], exportStorageAvDir, exportDir, assetPathMap); exportErr != nil {
+			util.PushErrMsg(exportErr.Error(), 7000)
+			return
+		}
 	}
 
 	if !IsEncryptedBox(box.ID) {
@@ -2856,6 +2947,7 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 
 	if err = zip.Close(); err != nil {
 		logging.LogErrorf("close export .sy.zip failed: %s", err)
+		return ""
 	}
 	if err = os.Rename(zipPartialPath, zipPath); err != nil {
 		logging.LogErrorf("publish export .sy.zip [%s] failed: %s", zipPath, err)
@@ -2871,57 +2963,48 @@ func exportSYZip(boxID, rootDirPath, baseFolderName string, docPaths []string, i
 	return
 }
 
-func exportAv(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap map[string]string) {
+func exportAv(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap map[string]string) error {
 	// 用 box-aware 路径解析 + 自动解密读取 AV 定义明文（加密笔记本的 AV 在 <boxID>/storage/av/，
 	// GetAttributeViewDataPath 只查全局路径会漏；filelock.Copy 会拷密文）。
-	var avData []byte
-	var readErr error
-	if boxID != "" {
-		avData, readErr = av.ReadAttributeViewDataInBox(avID, boxID)
-	} else {
-		avData, readErr = av.ReadAttributeViewData(avID)
-	}
+	avData, readErr := av.ReadAttributeViewDataInBox(avID, boxID)
 	if readErr != nil {
 		logging.LogErrorf("read attribute view [%s] failed: %s", avID, readErr)
-		return
+		return readErr
 	}
 	if boxID != "" && avData != nil {
 		avData, readErr = rewriteAttributeViewDataAssetReferences(avData, assetReferenceRewriteOptions{rewriteUnmapped: true})
 		if readErr != nil {
 			logging.LogErrorf("rewrite exported attribute view assets [%s] failed: %s", avID, readErr)
-			return
+			return readErr
 		}
 	}
 	if avData != nil {
 		if mkdirErr := os.MkdirAll(exportStorageAvDir, 0755); mkdirErr != nil {
 			logging.LogErrorf("create export av folder [%s] failed: %s", exportStorageAvDir, mkdirErr)
-			return
+			return mkdirErr
 		}
 		if writeErr := os.WriteFile(filepath.Join(exportStorageAvDir, avID+".json"), avData, 0644); writeErr != nil {
 			logging.LogErrorf("write av json failed: %s", writeErr)
+			return writeErr
 		}
 	}
 
-	var attrView *av.AttributeView
-	var parseErr error
-	if boxID != "" {
-		attrView, parseErr = av.ParseAttributeViewInBox(avID, boxID)
-	} else {
-		attrView, parseErr = av.ParseAttributeView(avID)
-	}
+	attrView, parseErr := av.ParseAttributeViewInBox(avID, boxID)
 	if parseErr != nil {
 		logging.LogErrorf("parse attribute view [%s] failed: %s", avID, parseErr)
-		return
+		return parseErr
 	}
 
-	copyExportAttributeViewAssets(attrView, boxID, exportFolder, assetPathMap)
+	if err := copyExportAttributeViewAssets(attrView, boxID, exportFolder, assetPathMap); err != nil {
+		return err
+	}
 
 	// 级联导出关联列关联的数据库
-	exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder, assetPathMap)
+	return exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder, assetPathMap)
 }
 
-func copyExportAttributeViewAssets(attrView *av.AttributeView, boxID, exportFolder string, assetPathMap map[string]string) {
-	// 导出资源文件列和指向本地资源的 URL 列 https://github.com/siyuan-note/siyuan/issues/9919
+func copyExportAttributeViewAssets(attrView *av.AttributeView, boxID, exportFolder string, assetPathMap map[string]string) error {
+	// 导出资源文件列、指向本地资源的 URL 列和富文本中的本地资源 https://github.com/siyuan-note/siyuan/issues/9919
 	for _, assetPath := range getAttributeViewAssetsLinkDests(attrView, false, nil) {
 		destPath := filepath.Join(exportFolder, AssetPathWithoutQuery(assetPath))
 		srcPath := ""
@@ -2938,11 +3021,13 @@ func copyExportAttributeViewAssets(attrView *av.AttributeView, boxID, exportFold
 
 		if copyErr := copyAssetDecryptIfEncrypted(srcPath, destPath); nil != copyErr {
 			logging.LogErrorf("copy asset failed: %s", copyErr)
+			return copyErr
 		}
 	}
+	return nil
 }
 
-func exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap map[string]string) {
+func exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder string, assetPathMap map[string]string) error {
 	avIDs := hashset.New()
 	walkRelationAvs(avID, boxID, avIDs)
 
@@ -2951,13 +3036,7 @@ func exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder string, ass
 		if relAvID == avID {
 			continue
 		}
-		var relAvData []byte
-		var readErr error
-		if boxID != "" {
-			relAvData, readErr = av.ReadAttributeViewDataInBox(relAvID, boxID)
-		} else {
-			relAvData, readErr = av.ReadAttributeViewData(relAvID)
-		}
+		relAvData, readErr := av.ReadAttributeViewDataInBox(relAvID, boxID)
 		if readErr != nil {
 			logging.LogErrorf("read relation attribute view [%s] failed: %s", relAvID, readErr)
 			continue
@@ -2977,19 +3056,16 @@ func exportRelationAvs(avID, boxID, exportStorageAvDir, exportFolder string, ass
 			logging.LogErrorf("write av json failed: %s", writeErr)
 		}
 
-		var attrView *av.AttributeView
-		var parseErr error
-		if boxID != "" {
-			attrView, parseErr = av.ParseAttributeViewInBox(relAvID, boxID)
-		} else {
-			attrView, parseErr = av.ParseAttributeView(relAvID)
-		}
+		attrView, parseErr := av.ParseAttributeViewInBox(relAvID, boxID)
 		if parseErr != nil {
 			logging.LogErrorf("parse relation attribute view [%s] failed: %s", relAvID, parseErr)
 			continue
 		}
-		copyExportAttributeViewAssets(attrView, boxID, exportFolder, assetPathMap)
+		if err := copyExportAttributeViewAssets(attrView, boxID, exportFolder, assetPathMap); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func walkRelationAvs(avID, boxID string, exportAvIDs *hashset.Set) {
@@ -2997,12 +3073,7 @@ func walkRelationAvs(avID, boxID string, exportAvIDs *hashset.Set) {
 		return
 	}
 
-	var attrView *av.AttributeView
-	if boxID != "" {
-		attrView, _ = av.ParseAttributeViewInBox(avID, boxID)
-	} else {
-		attrView, _ = av.ParseAttributeView(avID)
-	}
+	attrView, _ := av.ParseAttributeViewInBox(avID, boxID)
 	if nil == attrView {
 		return
 	}
@@ -3092,6 +3163,8 @@ func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string,
 		tagOpenMarker, tagCloseMarker,
 		blockRefTextLeft, blockRefTextRight,
 		addTitle, "", inlineMemo, 0 < len(defBlockIDs), singleFile, accessChecker...)
+	finishTabTitles := treenode.MaterializeTabTitles(tree.Root)
+	defer finishTabTitles()
 	if adjustHeadingLv {
 		bt := treenode.GetBlockTreeInBox(id, tree.Box)
 		adjustHeadingLevel(bt, tree, addTitle)
@@ -3209,6 +3282,8 @@ func exportMarkdownContent0(id string, tree *parse.Tree, cloudAssetsBase string,
 
 	luteEngine.SetUnorderedListMarker("-")
 	luteEngine.SetImgTag(imgTag)
+	prepareMarkdownFontFamilyTextMarks(tree.Root)
+	finishTabTitles()
 	renderer := render.NewProtyleExportMdRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	ret = gulu.Str.FromBytes(renderer.Render())
 	return
@@ -3248,6 +3323,8 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 	// 解析查询嵌入节点
 	depth := 0
 	resolveEmbedR(ret.Root, blockEmbedMode, luteEngine, &[]string{}, &depth, accessChecker...)
+	finishTabTitles := treenode.MaterializeTabTitles(ret.Root)
+	defer finishTabTitles()
 
 	// 将当前文档的块超链接转换为引用
 	blockLink2Ref(ret)
@@ -3564,12 +3641,16 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 		}
 
 		avID := n.AttributeViewID
-		// 用 box-aware 路径解析（加密笔记本的 AV 在 <boxID>/storage/av/，GetAttributeViewDataPath 只查全局会漏）
-		if avJSONPath, _ := av.FindAttributeViewPath(avID); "" == avJSONPath {
+		avBoxID := ""
+		if IsEncryptedBox(tree.Box) {
+			avBoxID = tree.Box
+		}
+		// 数据库定义只能从文档所在的加密边界读取，普通文档不能回退到已解锁的加密笔记本。
+		if avJSONPath, _ := av.FindAttributeViewPathInBox(avID, avBoxID); "" == avJSONPath {
 			return ast.WalkContinue
 		}
 
-		attrView, err := av.ParseAttributeView(avID)
+		attrView, err := av.ParseAttributeViewInBox(avID, avBoxID)
 		if err != nil {
 			logging.LogErrorf("parse attribute view [%s] failed: %s", avID, err)
 			return ast.WalkContinue
@@ -3587,7 +3668,13 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 		// 遵循视图过滤和排序规则 Use filtering and sorting of current view settings when exporting database blocks https://github.com/siyuan-note/siyuan/issues/10474
 		cachedAttrViews := map[string]*av.AttributeView{}
 		rollupFurtherCollections := sql.GetFurtherCollections(attrView, cachedAttrViews)
-		av.Filter(table, attrView, rollupFurtherCollections, cachedAttrViews)
+		filterContext, contextErr := resolveAttributeViewFilterContext(attrView, view, n.ID)
+		if nil != contextErr {
+			logging.LogErrorf("resolve attribute view [%s] filter context failed: %s", avID, contextErr)
+			table.Rows = nil
+		} else {
+			av.FilterWithContext(table, attrView, rollupFurtherCollections, cachedAttrViews, filterContext)
+		}
 		av.Sort(table, attrView)
 
 		aligns := getAttrViewTableAligns(table, avHiddenCol)
@@ -3628,6 +3715,23 @@ func exportTree(tree *parse.Tree, wysiwyg, keepFold, avHiddenCol bool,
 				mdTableRow.AppendChild(mdTableCell)
 				var val string
 				if nil != cell.Value {
+					col := table.GetColumn(cell.Value.KeyID)
+					if nil != col && "" != strings.TrimSpace(col.RenderTemplate) {
+						val = cell.Value.RenderedContent
+						val = strings.ReplaceAll(val, "\\|", "|")
+						val = strings.ReplaceAll(val, "|", "\\|")
+						if col.Wrap {
+							lines := strings.SplitSeq(val, "\n")
+							for line := range lines {
+								mdTableCell.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(line)})
+								mdTableCell.AppendChild(&ast.Node{Type: ast.NodeHardBreak})
+							}
+						} else {
+							val = strings.ReplaceAll(val, "\n", " ")
+							mdTableCell.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte(val)})
+						}
+						continue
+					}
 					if av.KeyTypeBlock == cell.Value.Type {
 						if nil != cell.Value.Block {
 							val = cell.Value.Block.Content
@@ -4241,6 +4345,10 @@ func exportPandocConvertZip(boxID, baseFolderName string, docPaths, defBlockIDs 
 func exportPandocConvertZip0(boxID, baseFolderName string, docPaths, defBlockIDs []string, pandocFrom, pandocTo, ext string,
 	boxPaths map[string]string) (zipPath string) {
 	defer util.ClearPushProgress(100)
+	if err := prepareExportAssets(boxID, docPaths); err != nil {
+		util.PushErrMsg(err.Error(), 7000)
+		return
+	}
 
 	dir, name := path.Split(baseFolderName)
 	name = util.FilterFileName(name)
@@ -4269,7 +4377,7 @@ func exportPandocConvertZip0(boxID, baseFolderName string, docPaths, defBlockIDs
 			return
 		}
 	}
-	exportFolder := filepath.Join(util.TempDir, "export", baseFolderName+ext)
+	exportFolder := filepath.Join(util.TempDir, "export", normalExportTempName(baseFolderName+ext))
 	if encrypted {
 		exportFolder = filepath.Join(util.TempDir, "export", boxID, "markdown", exportID)
 	}
@@ -4365,7 +4473,8 @@ func exportPandocConvertZip0(boxID, baseFolderName string, docPaths, defBlockIDs
 			destPath := filepath.Join(writeFolder, cleanNewAsset)
 			if copyErr := copyAssetDecryptIfEncrypted(srcPath, destPath); copyErr != nil {
 				logging.LogErrorf("copy asset from [%s] to [%s] failed: %s", srcPath, destPath, copyErr)
-				continue
+				util.PushErrMsg(copyErr.Error(), 7000)
+				return
 			}
 		}
 
@@ -4424,6 +4533,7 @@ func exportPandocConvertZip0(boxID, baseFolderName string, docPaths, defBlockIDs
 
 	if err = zip.Close(); err != nil {
 		logging.LogErrorf("close export markdown zip failed: %s", err)
+		return ""
 	}
 	if err = os.Rename(zipPartialPath, zipPath); err != nil {
 		logging.LogErrorf("publish export markdown zip [%s] failed: %s", zipPath, err)
@@ -4451,6 +4561,8 @@ func resolveExportAssetPaths(asset string, assetsOldNew, assetsNewOld map[string
 }
 
 func removeAssetsID(tree *parse.Tree, assetsOldNew, assetsNewOld map[string]string) {
+	finishTabTitles := treenode.MaterializeTabTitles(tree.Root)
+	defer finishTabTitles()
 	assetNodes := getAssetsLinkDestsInTree(tree, false)
 	for _, node := range assetNodes {
 		dests := getAssetsLinkDests(node, false)
@@ -4562,7 +4674,7 @@ func exportRefTrees(tree *parse.Tree, defBlockIDs *[]string, retTrees map[string
 	}
 	retTrees[tree.ID] = tree
 
-	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithTabTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
 		}
@@ -4606,12 +4718,11 @@ func exportRefTrees(tree *parse.Tree, defBlockIDs *[]string, retTrees map[string
 				return ast.WalkContinue
 			}
 
-			var attrView *av.AttributeView
+			avBoxID := ""
 			if IsEncryptedBox(tree.Box) {
-				attrView, _ = av.ParseAttributeViewInBox(avID, tree.Box)
-			} else {
-				attrView, _ = av.ParseAttributeView(avID)
+				avBoxID = tree.Box
 			}
+			attrView, _ := av.ParseAttributeViewInBox(avID, avBoxID)
 			if nil == attrView {
 				return ast.WalkContinue
 			}

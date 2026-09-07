@@ -30,6 +30,7 @@ import {getCardCoverHTML, getCardCoverSource} from "./cover";
 import {getCardFieldsClass} from "./gallery/cardLayout";
 import {getAVFilteredTipContext} from "./filteredTip";
 import {clearAVItemSelectionState} from "./selectionState";
+import {renderAVRichTextElements} from "./richText";
 
 const getGalleryActionsHTML = (data: IAVGallery | IAVKanban, row: IAVGalleryItem, primaryHidden = false) => {
     const canPosition = Boolean(row.coverURL && !row.coverURL.startsWith("background") && getCardCoverSource(data));
@@ -81,7 +82,7 @@ export const getRowHTML = (options: {
             if (cell.valueType === "checkbox") {
                 checkClass = cell.value?.checkbox?.checked ? " av__cell-check" : " av__cell-uncheck";
             }
-            const isEmpty = cellValueIsEmpty(cell.value);
+            const isEmpty = cellValueIsEmpty(cell.value, true, galleryData.fields[fieldsIndex].renderTemplate);
             // NOTE: innerHTML 中不能换行否则 https://github.com/siyuan-note/siyuan/issues/15132
             let ariaLabel = escapeAttr(galleryData.fields[fieldsIndex].name) || getColNameByType(galleryData.fields[fieldsIndex].type);
             if (galleryData.fields[fieldsIndex].desc) {
@@ -102,9 +103,10 @@ data-id="${cell.id}"
 data-field-id="${galleryData.fields[fieldsIndex].id}"
 data-dtype="${cell.valueType}" 
 data-date-format="${galleryData.fields[fieldsIndex].dateFormat || ""}"
+${galleryData.fields[fieldsIndex].renderTemplate?.trim() ? 'data-render-template="true"' : ""}
 ${cell.value?.isDetached ? ' data-detached="true"' : ""} 
 style="${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
-${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, galleryData.showIcon, "gallery", galleryData.fields[fieldsIndex].options, galleryData.fields[fieldsIndex].dateFormat)}</div>`;
+${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, galleryData.showIcon, "gallery", galleryData.fields[fieldsIndex].options, galleryData.fields[fieldsIndex].dateFormat, galleryData.fields[fieldsIndex].renderTemplate)}</div>`;
             if (galleryData.displayFieldName) {
                 html += `<div class="av__gallery-field av__gallery-field--name${fullRowClass}" data-empty="${isEmpty}">
     <div class="av__gallery-name">
@@ -149,7 +151,7 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.ro
             if (cell.valueType === "checkbox") {
                 checkClass = cell.value?.checkbox?.checked ? " av__cell-check" : " av__cell-uncheck";
             }
-            const isEmpty = cellValueIsEmpty(cell.value);
+            const isEmpty = cellValueIsEmpty(cell.value, true, kanbanData.fields[fieldsIndex].renderTemplate);
             // NOTE: innerHTML 中不能换行否则 https://github.com/siyuan-note/siyuan/issues/15132
             let ariaLabel = escapeAttr(kanbanData.fields[fieldsIndex].name) || getColNameByType(kanbanData.fields[fieldsIndex].type);
             if (kanbanData.fields[fieldsIndex].desc) {
@@ -170,9 +172,10 @@ data-id="${cell.id}"
 data-field-id="${kanbanData.fields[fieldsIndex].id}" 
 data-dtype="${cell.valueType}" 
 data-date-format="${kanbanData.fields[fieldsIndex].dateFormat || ""}"
+${kanbanData.fields[fieldsIndex].renderTemplate?.trim() ? 'data-render-template="true"' : ""}
 ${cell.value?.isDetached ? ' data-detached="true"' : ""} 
 style="${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
-${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, kanbanData.showIcon, "kanban", kanbanData.fields[fieldsIndex].options, kanbanData.fields[fieldsIndex].dateFormat)}</div>`;
+${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, kanbanData.showIcon, "kanban", kanbanData.fields[fieldsIndex].options, kanbanData.fields[fieldsIndex].dateFormat, kanbanData.fields[fieldsIndex].renderTemplate)}</div>`;
             if (kanbanData.displayFieldName) {
                 html += `<div class="av__gallery-field av__gallery-field--name${fullRowClass}" data-empty="${isEmpty}">
     <div class="av__gallery-name">
@@ -219,11 +222,12 @@ ${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.ro
 data-wrap="${column.wrap}" 
 data-dtype="${column.type}" 
 data-date-format="${column.dateFormat || ""}"
+${column.renderTemplate?.trim() ? 'data-render-template="true"' : ""}
 data-align="${column.align || ""}"
 ${cell.value?.isDetached ? ' data-detached="true"' : ""} 
 style="width: ${escapeAttr(column.width) || "200px"};
 ${cell.bgColor ? `background-color:${cell.bgColor};` : ""}
-${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, tableData.showIcon, "table", column.options, column.dateFormat)}</div>`;
+${cell.color ? `color:${cell.color};` : ""}">${renderCell(cell.value, options.rowIndex, tableData.showIcon, "table", column.options, column.dateFormat, column.renderTemplate)}</div>`;
 
         if (options.pinIndex === index) {
             html += "</div>";
@@ -480,6 +484,7 @@ ${colType === "block" ? ' data-detached="true"' : ""}>${renderCell(genCellValue(
                         cellItem.innerHTML = renderCell(cellValue, 0, true, "table", undefined,
                             cellItem.dataset.dateFormat as TAVDateFormat);
                         renderCellAttr(cellItem, cellValue);
+                        renderAVRichTextElements(cellItem);
                     }
                 });
             });
@@ -566,7 +571,8 @@ const syncFixedRowPos = (item: HTMLElement, bodyRect: DOMRect, scrollLeft: numbe
 };
 
 export const stickyRow = (blockElement: HTMLElement, scrollElement: HTMLElement, status: "top" | "bottom" | "all") => {
-    const skipFixed = hasTopClosestByAttribute(blockElement, "fold", "1");
+    // 内部滚动的反链数据库不使用相对窗口固定的表头，避免占位和固定坐标干扰内部布局。
+    const skipFixed = blockElement.classList.contains("av--backlink") || hasTopClosestByAttribute(blockElement, "fold", "1");
     if (skipFixed) {
         const viewsElement = blockElement.querySelector(".av__views") as HTMLElement;
         if (viewsElement) {
@@ -576,7 +582,7 @@ export const stickyRow = (blockElement: HTMLElement, scrollElement: HTMLElement,
             removeFixedRow(item, "av__row--header--fixed", "av__row--header-placeholder");
         });
         blockElement.querySelectorAll(".av__row--footer--fixed").forEach((item: HTMLElement) => {
-            removeFixedRow(item, "av__row--footer--fixed", "av__row--footer-placeholder");
+            removeFixedRow(item, "av__row--footer--fixed", "av__row--footer--placeholder");
         });
         return;
     }

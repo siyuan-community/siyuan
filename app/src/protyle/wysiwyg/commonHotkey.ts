@@ -15,7 +15,13 @@ import {copyTextByType} from "../toolbar/util";
 import {hasClosestByTag, hasTopClosestByClassName} from "../util/hasClosest";
 import {removeEmbed} from "./removeEmbed";
 import {clearBlockElement} from "../util/clear";
+import {remapTabsDOMIDs} from "../util/tabsCopy";
 import {isEncryptedBox} from "../../util/pathName";
+import {normalizeHTMLAssetIFrameBlockDOM} from "../../asset/html";
+import {captureCommandContext} from "../../command/context";
+import {resolvePluginCommandCallback, supportsPluginCommandSource} from "../../plugin/commandAdapter";
+import {areProtylePluginExtensionsEnabled} from "../runtimeCapabilities";
+import {waitForPendingTransactions} from "../util/transactionQueue";
 
 export const commonHotkey = (protyle: IProtyle, event: KeyboardEvent, nodeElement?: HTMLElement) => {
     if (matchHotKey(window.siyuan.config.keymap.editor.general.netImg2LocalAsset.custom, event)) {
@@ -110,21 +116,31 @@ export const commonHotkey = (protyle: IProtyle, event: KeyboardEvent, nodeElemen
         return true;
     }
     /// #if !MOBILE
-    let matchCommand = false;
-    protyle.app.plugins.find(item => {
-        item.commands.find(command => {
-            if (command.editorCallback && matchHotKey(command.customHotkey, event)) {
-                matchCommand = true;
-                command.editorCallback(protyle);
+    if (areProtylePluginExtensionsEnabled(protyle)) {
+        let matchedCommand: ICommand | undefined;
+        protyle.app.plugins.find(item => {
+            item.commands.find(command => {
+                if (supportsPluginCommandSource(command, "editorShortcut") &&
+                    matchHotKey(command.customHotkey, event)) {
+                    matchedCommand = command;
+                    return true;
+                }
+            });
+            return Boolean(matchedCommand);
+        });
+        if (matchedCommand) {
+            const commandContext = captureCommandContext({
+                app: protyle.app,
+                source: "editorShortcut",
+                protyle,
+                range: protyle.toolbar.range,
+            });
+            const callback = resolvePluginCommandCallback(matchedCommand, commandContext);
+            if (callback) {
+                void callback();
                 return true;
             }
-        });
-        if (matchCommand) {
-            return true;
         }
-    });
-    if (matchCommand) {
-        return true;
     }
     /// #endif
 };
@@ -171,7 +187,7 @@ export const upSelect = (options: {
     options.protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select").forEach(item => {
         ids.push(item.getAttribute("data-node-id"));
     });
-    countBlockWord(ids, options.protyle.block.rootID);
+    countBlockWord(ids, options.protyle);
     options.event.stopPropagation();
     options.event.preventDefault();
 };
@@ -225,7 +241,7 @@ export const downSelect = (options: {
     options.protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select").forEach(item => {
         ids.push(item.getAttribute("data-node-id"));
     });
-    countBlockWord(ids, options.protyle.block.rootID);
+    countBlockWord(ids, options.protyle);
     options.event.stopPropagation();
     options.event.preventDefault();
 };
@@ -256,6 +272,17 @@ export const getStartEndElement = (selectElements: NodeListOf<Element> | Element
 };
 
 export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle) => {
+    // 折叠内容需要从内核读取，先等待源块的创建与编辑事务完成。
+    if (!protyle.lite && nodeElements.some(item =>
+        item.getAttribute("data-type") === "NodeHeading" && item.getAttribute("fold") === "1" ||
+        item.getAttribute("data-type") !== "NodeBlockQueryEmbed" &&
+        !!item.querySelector('[data-type="NodeHeading"][fold="1"]'))) {
+        const rootID = protyle.block.rootID;
+        await waitForPendingTransactions(protyle);
+        if (rootID !== protyle.block.rootID || nodeElements.some(item => !item.isConnected)) {
+            return;
+        }
+    }
     let focusElement: Element;
     const doOperations: IOperation[] = [];
     const undoOperations: IOperation[] = [];
@@ -291,7 +318,7 @@ export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle)
                 notebook: protyle.notebookId,
             });
             const foldTempElement = document.createElement("template");
-            foldTempElement.innerHTML = response.data.dom;
+            foldTempElement.innerHTML = normalizeHTMLAssetIFrameBlockDOM(response.data.dom);
             tempElement = foldTempElement.content.firstElementChild as HTMLElement;
         }
         if (item.getAttribute("data-type") === "NodeListItem" && !isSameLi) {
@@ -314,16 +341,19 @@ export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle)
         if (index === nodeElements.length - 1) {
             focusElement = tempElement;
         }
+        const copiedIDs = new Map<string, string>([[tempElement.getAttribute("data-node-id"), newId]]);
         tempElement.setAttribute("data-node-id", newId);
         tempElement.setAttribute("updated", newId.split("-")[0]);
         clearBlockElement(tempElement);
         tempElement.classList.add("protyle-wysiwyg--select");
         tempElement.querySelectorAll("[data-node-id]").forEach(childItem => {
             const subNewId = Lute.NewNodeID();
+            copiedIDs.set(childItem.getAttribute("data-node-id"), subNewId);
             childItem.setAttribute("data-node-id", subNewId);
             childItem.setAttribute("updated", subNewId.split("-")[0]);
             clearBlockElement(childItem);
         });
+        remapTabsDOMIDs(tempElement, copiedIDs);
         if (typeof starIndex === "number") {
             const orderIndex = starIndex + index + 1;
             tempElement.setAttribute("data-marker", (orderIndex) + ".");
@@ -347,17 +377,22 @@ export const duplicateBlock = async (nodeElements: Element[], protyle: IProtyle)
                 removeFoldAttr: false,
             });
             const foldElement = document.createElement("template");
-            foldElement.innerHTML = responseHTML.data;
+            foldElement.innerHTML = normalizeHTMLAssetIFrameBlockDOM(responseHTML.data);
             let previousID = newId;
             Array.from(foldElement.content.children).slice(1).forEach((childItem: HTMLElement) => {
                 childItem.removeAttribute("parent-heading");
+                const foldedIDs = new Map<string, string>();
                 childItem.querySelectorAll("[data-node-id]").forEach(subItem => {
-                    subItem.setAttribute("data-node-id", Lute.NewNodeID());
+                    const id = Lute.NewNodeID();
+                    foldedIDs.set(subItem.getAttribute("data-node-id"), id);
+                    subItem.setAttribute("data-node-id", id);
                     clearBlockElement(subItem);
                 });
                 const newChildId = Lute.NewNodeID();
+                foldedIDs.set(childItem.getAttribute("data-node-id"), newChildId);
                 childItem.setAttribute("data-node-id", newChildId);
                 clearBlockElement(childItem);
+                remapTabsDOMIDs(childItem, foldedIDs);
                 doOperations.push({
                     context: {
                         ignoreProcess: "true"

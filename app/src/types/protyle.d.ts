@@ -142,6 +142,9 @@ declare class Viz {
 
 declare class Viewer {
     public destroyed: boolean;
+    public image: HTMLImageElement;
+    public viewed: boolean;
+    public toolbar: HTMLElement;
 
     constructor(element: Element, options: {
         title: [number, (image: HTMLImageElement, imageData: IObject) => string],
@@ -149,6 +152,9 @@ declare class Viewer {
         initialViewIndex?: number,
         transition: boolean,
         hidden: () => void,
+        ready?: (this: HTMLElement, event: CustomEvent) => void,
+        view?: (this: HTMLElement, event: CustomEvent) => void,
+        viewed?: (this: HTMLElement, event: CustomEvent) => void,
         toolbar: {
             zoomIn: boolean,
             zoomOut: boolean,
@@ -161,6 +167,8 @@ declare class Viewer {
             rotateRight: boolean,
             flipHorizontal: boolean,
             flipVertical: boolean,
+            copy?: () => void,
+            copyFile?: () => void,
             close: () => void
         }
     })
@@ -233,6 +241,10 @@ declare class Lute {
 
     public SetCallout(enable: boolean): void;
 
+    public SetTabs(enable: boolean): void;
+
+    public SetCustomBlock(enable: boolean): void;
+
     public SetTag(enable: boolean): void;
 
     public SetInlineMath(enable: boolean): void;
@@ -282,6 +294,8 @@ declare class Lute {
     public Md2BlockDOM(html: string): string;
 
     public Md2BlockDOMWithAutoLink(html: string): string;
+
+    public InlineMd2BlockDOM(markdown: string): string;
 
     public SetProtyleWYSIWYG(wysiwyg: boolean): void;
 
@@ -529,6 +543,24 @@ interface IProtyleOptions {
     lite?: boolean;
 }
 
+interface ITrackedRangeHandle {
+    readonly id: string;
+}
+
+interface ITrackRangeOptions {
+    /** 用于在插件卸载时自动释放句柄 */
+    owner: import("../plugin").Plugin;
+    /** 同一位置插入新内容时，锚点保留在新内容之前还是之后，默认为 before */
+    affinity?: "before" | "after";
+}
+
+type TTrackedRangeResult = {
+    status: "resolved";
+    range: Range;
+} | {
+    status: "invalid";
+};
+
 interface IProtyle {
     highlight: {
         mark: Highlight
@@ -538,6 +570,9 @@ interface IProtyle {
         styleElement: HTMLStyleElement
     }
     getInstance: () => import("../protyle").Protyle,
+    trackRange: (range: Range, options: ITrackRangeOptions) => ITrackedRangeHandle,
+    resolveTrackedRange: (handle: ITrackedRangeHandle) => TTrackedRangeResult,
+    releaseTrackedRange: (handle: ITrackedRangeHandle) => void,
     observerLoad?: ResizeObserver,
     observer?: ResizeObserver,
     app: import("../index").App,

@@ -29,7 +29,7 @@ const genNotebookSavePathHtml = (
     ${genConfigItemName(title)}
     <div class="b3-label__text">${desc}</div>
     <div class="fn__hr--small"></div>
-    <div class="fn__flex config-wrap">
+    <div class="fn__flex">
         <select class="b3-select fn__size200" id="${selectId}">${optionsHtml}</select>
         <div class="fn__space"></div>
         <input class="b3-text-field fn__flex-1" id="${pathId}" value="">
@@ -40,10 +40,10 @@ const genNotebookSavePathHtml = (
     <input class="b3-text-field fn__flex-center fn__block" id="${template.id}" value="">` : ""}
 </div>`;
 
-/// #if !MOBILE
 const registerFileTreeBehaviorGroup = (tab: SettingTabBuilder) => {
     const group = tab.group("behavior", window.siyuan.languages.configGroupBehavior);
 
+    /// #if !MOBILE
     group.switch("fileTree.docIconClickExpand", {
         title: window.siyuan.languages.docIconClickExpand,
         desc: window.siyuan.languages.docIconClickExpandTip,
@@ -58,10 +58,12 @@ const registerFileTreeBehaviorGroup = (tab: SettingTabBuilder) => {
             getAllModels().files.forEach((files) => files.updateDocActions());
         }),
     });
+    /// #endif
     group.switch("fileTree.alwaysSelectOpenedFile", {
         title: window.siyuan.languages.selectOpen,
         desc: window.siyuan.languages.fileTree2,
     });
+    /// #if !MOBILE
     group.switch("fileTree.openFilesUseCurrentTab", {
         title: window.siyuan.languages.fileTree7,
         desc: window.siyuan.languages.fileTree8,
@@ -70,8 +72,8 @@ const registerFileTreeBehaviorGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.noSplitScreenWhenOpenTab,
         desc: window.siyuan.languages.noSplitScreenWhenOpenTabTip,
     });
+    /// #endif
 };
-/// #endif
 
 const registerTabStartupGroup = (tab: SettingTabBuilder) => {
     const group = tab.group("tabStartup", window.siyuan.languages.tabStartup);
@@ -198,7 +200,8 @@ const registerFileNewDocumentGroup = (tab: SettingTabBuilder) => {
                 shorthandDesc,
                 "fileTree.shorthandSaveBox",
                 "fileTree.shorthandSavePath",
-                genNotebookOption(window.siyuan.config.fileTree.shorthandSaveBox, undefined, true),
+                genNotebookOption(window.siyuan.config.fileTree.shorthandSaveBox, undefined, true,
+                    (item) => !item.closed && !item.encrypted),
             ),
             afterMount: (root) => {
                 const el = root.querySelector<HTMLInputElement>(`#${CSS.escape("fileTree.shorthandSavePath")}`);
@@ -247,7 +250,7 @@ const registerFileManagementGroup = (tab: SettingTabBuilder) => {
         ${genConfigItemName(window.siyuan.languages.historyRetentionDaysTip)}
     </div>
     <div class="fn__hr--small"></div>
-    <div class="fn__flex config-wrap">
+    <div class="fn__flex">
         <div class="fn__block">
             <div class="b3-label__text">${window.siyuan.languages.clearHistory}</div>
         </div>
@@ -255,7 +258,7 @@ const registerFileManagementGroup = (tab: SettingTabBuilder) => {
         ${genButtonHtml("clearHistory", window.siyuan.languages.purge, "iconTrashcan")}
     </div>
     <div class="fn__hr--small"></div>
-    <div class="fn__flex config-wrap">
+    <div class="fn__flex">
         <div class="fn__block">
             <div class="b3-label__text">${window.siyuan.languages.historyRetentionDays}</div>
         </div>
@@ -330,9 +333,7 @@ const registerFileOthersGroup = (tab: SettingTabBuilder) => {
 };
 
 export const registerFileTab = (tab: SettingTabBuilder) => {
-    /// #if !MOBILE
     registerFileTreeBehaviorGroup(tab);
-    /// #endif
     registerTabStartupGroup(tab);
     registerFileNewDocumentGroup(tab);
     registerFileManagementGroup(tab);

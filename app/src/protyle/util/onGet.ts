@@ -4,6 +4,7 @@ import {fetchPost} from "../../util/fetch";
 import {processRender} from "./processCode";
 import {highlightRender} from "../render/highlightRender";
 import {blockRender} from "../render/blockRender";
+import {revealTabsForTarget} from "../render/tabsRender";
 import {bgFade, scrollCenter} from "../../util/highlightById";
 /// #if !MOBILE
 import {pushBack} from "../../util/backForward";
@@ -31,9 +32,12 @@ import {disabledWYSIWYG} from "./disabledWYSIWYG";
 import {getEmbeddedDocInfoResponse} from "./docInfo";
 import {updateWidgetCacheVersion} from "./widgetCache";
 import {normalizeHTMLAssetIFrameSources} from "../../asset/html";
-import {hasFocusOffsets} from "./focusRestore";
+import {getSavedTabFocusTarget, hasFocusOffsets} from "./focusRestore";
 import {isIPhone} from "./compatibility";
 import {forEachPluginSubscriber} from "../../plugin/EventBusCore";
+import {disposeCustomBlocksInElement, setCustomBlockRootReady} from "../../plugin/customBlockRender";
+import {invalidateTrackedRanges, invalidateTrackedRangesInElement} from "./trackedRange";
+import {areProtylePluginExtensionsEnabled} from "../runtimeCapabilities";
 /// #if MOBILE
 import {updateMobileTitleReadonly} from "./setEditMode";
 /// #endif
@@ -65,6 +69,7 @@ export const onGet = (options: {
     if (options.data.code === 1) {
         // 其他报错
         if (!options.action.includes(Constants.CB_GET_APPEND)) {    // 向下加载时块可能还没有创建 https://github.com/siyuan-note/siyuan/issues/10851
+            invalidateTrackedRanges(options.protyle);
             if (options.protyle.model) {
                 options.protyle.model.parent.parent.removeTab(options.protyle.model.parent.id);
             } else {
@@ -75,7 +80,12 @@ export const onGet = (options: {
     }
     if (options.data.code === 3) {
         // block not found
+        invalidateTrackedRanges(options.protyle);
         return;
+    }
+    if (!options.action.includes(Constants.CB_GET_APPEND) &&
+        !options.action.includes(Constants.CB_GET_BEFORE)) {
+        invalidateTrackedRanges(options.protyle);
     }
     options.protyle.notebookId = options.data.data.box;
     options.protyle.path = options.data.data.path;
@@ -229,6 +239,7 @@ const setHTML = (options: {
     if (protyle.contentElement.classList.contains("fn__none") && protyle.wysiwyg.element.innerHTML !== "") {
         return;
     }
+    setCustomBlockRootReady(protyle.wysiwyg.element, false);
 
     // XSS in inline memo elements https://github.com/siyuan-note/siyuan/issues/15280
     const parser = new DOMParser();
@@ -265,6 +276,8 @@ const setHTML = (options: {
             }
             const lastRemoveTop = removeElement.getBoundingClientRect().top;
             removeElements.forEach(item => {
+                invalidateTrackedRangesInElement(protyle, item);
+                disposeCustomBlocksInElement(item);
                 item.remove();
             });
             protyle.contentElement.scrollTop = protyle.contentElement.scrollTop + (removeElement.getBoundingClientRect().top - lastRemoveTop) - 1;
@@ -292,11 +305,15 @@ const setHTML = (options: {
                 scrollHeight -= lastElement.clientHeight + 8;   // 大部分元素的 margin
             }
             removeElements.forEach((item) => {
+                invalidateTrackedRangesInElement(protyle, item);
+                disposeCustomBlocksInElement(item);
                 item.remove();
             });
             hideElements(["toolbar"], protyle);
         }
     } else {
+        invalidateTrackedRanges(protyle);
+        disposeCustomBlocksInElement(protyle.wysiwyg.element);
         protyle.wysiwyg.element.innerHTML = options.content;
         // 设置 innerHTML 会导致浏览器将 scrollTop 重置为 0，此处立即恢复以避免页面跳转到开头
         // https://github.com/siyuan-note/siyuan/issues/17886
@@ -375,7 +392,13 @@ const setHTML = (options: {
             setReadonlyByConfig(protyle, updateReadonly);
         }
     }
+    setCustomBlockRootReady(protyle.wysiwyg.element, true);
 
+    const tabItem = protyle.wysiwyg.element.querySelector(`[data-type="NodeTabItem"][data-node-id="${protyle.block.id}"]`);
+    if (tabItem) {
+        // 浮窗和聚焦视图默认展示被引用的页签，不改写文档中的选中状态。
+        revealTabsForTarget(tabItem, false);
+    }
     focusElementById(protyle, options.action, options.scrollAttr, options.scrollPosition,
         options.focusAfterZoom, options.suppressFocus);
 
@@ -392,12 +415,14 @@ const setHTML = (options: {
     });
     protyle.options.defIds = [];
     if (options.action.includes(Constants.CB_GET_APPEND) || options.action.includes(Constants.CB_GET_BEFORE)) {
-        forEachPluginSubscriber("loaded-protyle-dynamic", eventBus => {
-            eventBus.emit("loaded-protyle-dynamic", {
-                protyle,
-                position: options.action.includes(Constants.CB_GET_APPEND) ? "afterend" : "beforebegin"
+        if (areProtylePluginExtensionsEnabled(protyle)) {
+            forEachPluginSubscriber("loaded-protyle-dynamic", eventBus => {
+                eventBus.emit("loaded-protyle-dynamic", {
+                    protyle,
+                    position: options.action.includes(Constants.CB_GET_APPEND) ? "afterend" : "beforebegin"
+                });
             });
-        });
+        }
         return;
     }
 
@@ -446,9 +471,11 @@ const setHTML = (options: {
         }
 
     }
-    forEachPluginSubscriber("loaded-protyle-static", eventBus => {
-        eventBus.emit("loaded-protyle-static", {protyle});
-    });
+    if (areProtylePluginExtensionsEnabled(protyle)) {
+        forEachPluginSubscriber("loaded-protyle-static", eventBus => {
+            eventBus.emit("loaded-protyle-static", {protyle});
+        });
+    }
 };
 
 export const disabledForeverProtyle = (protyle: IProtyle) => {
@@ -571,6 +598,11 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
     } else if (!focusElement || action.includes(Constants.CB_GET_FOCUSFIRST)) {
         focusElement = protyle.wysiwyg.element.firstElementChild;
     }
+    const hasScrollTop = scrollAttr && typeof scrollAttr.scrollTop === "number";
+    const savedFocusElement = focusElement;
+    if (hasScrollTop && scrollAttr.focusId && !action.includes(Constants.CB_GET_HL)) {
+        focusElement = getSavedTabFocusTarget(focusElement);
+    }
     if (action.includes(Constants.CB_GET_HL)) {
         preventScroll(protyle); // 搜索页签滚动会导致再次请求
         bgFade(focusElement);
@@ -578,7 +610,7 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
     if (!suppressFocus && (action.includes(Constants.CB_GET_FOCUS) || action.includes(Constants.CB_GET_FOCUSFIRST))) {
         setTimeout(() => {
             let range: Range;
-            if (hasFocusOffsets(scrollAttr)) {
+            if (savedFocusElement === focusElement && hasFocusOffsets(scrollAttr)) {
                 range = focusByOffset(focusElement, scrollAttr.focusStart, scrollAttr.focusEnd) as Range;
             } else {
                 range = focusBlock(focusElement, undefined, !action.includes(Constants.CB_GET_OUTLINE),
@@ -591,7 +623,6 @@ const focusElementById = (protyle: IProtyle, action: string[], scrollAttr?: IScr
             /// #endif
         }, focusElement.getAttribute("data-type") === "NodeCodeBlock" ? Constants.TIMEOUT_TRANSITION : 0);
     }
-    const hasScrollTop = scrollAttr && typeof scrollAttr.scrollTop === "number";
     if (hasScrollTop) {
         protyle.contentElement.scrollTop = scrollAttr.scrollTop;
     }

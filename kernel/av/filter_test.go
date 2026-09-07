@@ -672,6 +672,7 @@ func TestRemoveExactRelationFiltersByColumn(t *testing.T) {
 	if !changed || 1 != len(got) || 1 != len(got[0].Filters) || got[0].Filters[0] != keyword {
 		t.Fatalf("only exact filters for the retargeted relation column should be removed")
 	}
+
 }
 
 func TestAttributeViewRemoveRelationFilterItems(t *testing.T) {
@@ -735,6 +736,9 @@ func TestRenameSelectOptionInFilters(t *testing.T) {
 func TestCloneFilters(t *testing.T) {
 	endpointLeaf := leaf("c1")
 	endpointLeaf.DateEndpoint = DateEndpointEnd
+	endpointLeaf.ValueSource = ValueSourceRendered
+	endpointLeaf.Value.Text = &ValueText{Content: "original"}
+	endpointLeaf.RelativeDate = &RelativeDate{Count: 1, Unit: RelativeDateUnitDay}
 	original := []*ViewFilter{group(FilterCombinationAnd, endpointLeaf, group(FilterCombinationOr, leaf("c2")))}
 	cloned := CloneFilters(original)
 	if len(cloned) != len(original) {
@@ -751,6 +755,42 @@ func TestCloneFilters(t *testing.T) {
 	}
 	if DateEndpointEnd != cloned[0].Filters[0].DateEndpoint {
 		t.Fatalf("date endpoint not cloned")
+	}
+	if ValueSourceRendered != cloned[0].Filters[0].ValueSource {
+		t.Fatalf("value source not cloned")
+	}
+	cloned[0].Filters[0].Value.Text.Content = "changed"
+	cloned[0].Filters[0].RelativeDate.Count = 2
+	if "original" != original[0].Filters[0].Value.Text.Content || 1 != original[0].Filters[0].RelativeDate.Count {
+		t.Fatal("filter values and relative dates should be deeply cloned")
+	}
+}
+
+func TestFilterByRenderedValue(t *testing.T) {
+	value := &Value{
+		Type:            KeyTypeNumber,
+		Number:          &ValueNumber{Content: 10, IsNotEmpty: true},
+		RenderedContent: "high",
+	}
+	filter := &ViewFilter{
+		ValueSource: ValueSourceRendered,
+		Operator:    FilterOperatorContains,
+		Value:       &Value{Type: KeyTypeTemplate, Template: &ValueTemplate{Content: "igh"}},
+	}
+	if !evalLeaf(filter, []*Value{value}, 0, nil, "item", nil, nil) {
+		t.Fatal("rendered value should satisfy the template filter")
+	}
+
+	filter.Value = &Value{Type: KeyTypeText, Text: &ValueText{Content: "igh"}}
+	if !evalLeaf(filter, []*Value{value}, 0, nil, "item", nil, nil) {
+		t.Fatal("rendered value should normalize legacy non-template filter inputs")
+	}
+
+	value.RenderedContent = "10"
+	filter.Operator = FilterOperatorIsEqual
+	filter.Value = &Value{Type: KeyTypeNumber, Number: &ValueNumber{Content: 10, IsNotEmpty: true}}
+	if !evalLeaf(filter, []*Value{value}, 0, nil, "item", nil, nil) {
+		t.Fatal("rendered value should normalize legacy numeric inputs like the template data model")
 	}
 }
 
@@ -811,8 +851,8 @@ func TestUpgradeSpec5(t *testing.T) {
 	// spec 4 + 扁平叶子 → 包装成根组
 	av4 := &AttributeView{Spec: 4, Views: []*View{{Filters: []*ViewFilter{leaf("c1"), leaf("c2")}}}}
 	UpgradeSpec(av4)
-	if av4.Spec != CurrentSpec {
-		t.Fatalf("spec should be upgraded to %d, got %d", CurrentSpec, av4.Spec)
+	if av4.Spec != PlainTextSpec {
+		t.Fatalf("spec should be upgraded to %d, got %d", PlainTextSpec, av4.Spec)
 	}
 	filters := av4.Views[0].Filters
 	if len(filters) != 1 || !filters[0].IsGroup() || FilterCombinationAnd != filters[0].Combination {

@@ -20,7 +20,7 @@ import {getInstanceById, saveLayout} from "../../layout/util";
 import {getActiveTab, getDockByType, switchTabByIndex} from "../../layout/tabUtil";
 import {Tab} from "../../layout/Tab";
 import {Editor} from "../../editor";
-import {setEditMode} from "../../protyle/util/setEditMode";
+import {toggleEditMode} from "../../protyle/util/toggleEditMode";
 import {rename} from "../../editor/rename";
 import {Files} from "../../layout/dock/Files";
 import {newDailyNote} from "../../util/mount";
@@ -29,9 +29,9 @@ import {fetchPost} from "../../util/fetch";
 import {goBack, goForward} from "../../util/backForward";
 import {getDisplayName, getNotebookName, isEncryptedBox} from "../../util/pathName";
 import {openFileById} from "../../editor/util";
-import {getAllDocks, getAllModels, getAllTabs} from "../../layout/getAll";
+import {getAllDocks, getAllEditor, getAllModels, getAllTabs} from "../../layout/getAll";
 import {getDockHotkey} from "../../layout/dock/hotkey";
-import {focusBlock, focusByRange, getBlockElementsByRange} from "../../protyle/util/selection";
+import {focusBlock, focusByRange, getBlockElementsByRange, selectBlocksByRange} from "../../protyle/util/selection";
 import {initFileMenu, initNavigationMenu} from "../../menus/navigation";
 import {bindMenuKeydown} from "../../menus/Menu";
 import {Dialog} from "../../dialog";
@@ -44,7 +44,6 @@ import {getNextFileLi, getPreviousFileLi} from "../../protyle/wysiwyg/getBlock";
 import {Backlink} from "../../layout/dock/Backlink";
 /// #if !BROWSER
 import {setZoom} from "../../layout/topBar";
-import {ipcRenderer} from "electron";
 /// #endif
 import {openHistory} from "../../history/history";
 import {openCard, openCardByData} from "../../card/openCard";
@@ -54,7 +53,6 @@ import {reloadProtyle} from "../../protyle/util/reload";
 import {openRecentDocs} from "../../business/openRecentDocs";
 import type {App} from "../../index";
 import {toggleDockPanel} from "../../layout/dock/panel";
-import {clearDisallowedTextInputHotkey} from "../../util/hotKeyPolicy";
 import {openBacklink, openGraph, openOutline, toggleDockBar} from "../../layout/dock/util";
 import {workspaceMenu} from "../../menus/workspace";
 import {Search} from "../../search";
@@ -66,7 +64,10 @@ import {searchKeydown} from "./searchKeydown";
 import {historyKeydown} from "../../history/keydown";
 import {zoomOut} from "../../menus/protyle";
 import {getPlainText} from "../../protyle/util/paste";
-import {commandPanel, execByCommand} from "./command/panel";
+import {commandPanel} from "./command/panel";
+import {execByCommand} from "../../command/executor";
+import {captureCommandContext} from "../../command/context";
+import {resolvePluginCommandCallback, supportsPluginCommandSource} from "../../plugin/commandAdapter";
 import {filterHotkey} from "./commonHotkey";
 import {editorConfigApi} from "../../config/tabs/editorRuntime";
 import {copyPNGByLink} from "../../menus/util";
@@ -87,6 +88,22 @@ const EDITOR_FONT_SIZE_COMMANDS: Array<{
     {command: "decreaseEditorFontSize", action: "decrease"},
     {command: "resetEditorFontSize", action: "reset"},
 ];
+
+const selectReadonlyBlocksByRange = (range: Range) => {
+    const startElement = hasClosestBlock(range.startContainer);
+    const endElement = hasClosestBlock(range.endContainer);
+    if (!startElement || !endElement || startElement === endElement) {
+        return false;
+    }
+    const protyle = getAllEditor().find(item => item.protyle.wysiwyg.element.contains(startElement) &&
+        item.protyle.wysiwyg.element.contains(endElement))?.protyle;
+    if (!protyle?.disabled) {
+        return false;
+    }
+    hideElements(["toolbar", "hint", "util", "select"], protyle);
+    selectBlocksByRange(protyle, range);
+    return true;
+};
 
 const switchDialogEvent = (app: App, event: MouseEvent) => {
     event.preventDefault();
@@ -529,15 +546,9 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.preview.custom, event)) {
-        setEditMode(protyle, "preview");
-        saveLayout();
-        event.preventDefault();
-        return true;
-    }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.wysiwyg.custom, event) && !protyle.options.backlinkData) {
-        setEditMode(protyle, "wysiwyg");
-        reloadProtyle(protyle, true);
+    if (!event.repeat && !protyle.options.backlinkData &&
+        matchHotKey(window.siyuan.config.keymap.editor.general.editMode.custom, event)) {
+        toggleEditMode(protyle);
         saveLayout();
         event.preventDefault();
         return true;
@@ -609,24 +620,31 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return false;
     }
 
-    let matchCommand = false;
+    const liElements = Array.from(files.element.querySelectorAll(".b3-list-item--focus"));
+    let matchedCommand: ICommand | undefined;
     app.plugins.find(item => {
         item.commands.find(command => {
-            if (command.fileTreeCallback && matchHotKey(command.customHotkey, event)) {
-                matchCommand = true;
-                command.fileTreeCallback(files);
+            if (supportsPluginCommandSource(command, "fileTreeShortcut") &&
+                matchHotKey(command.customHotkey, event)) {
+                matchedCommand = command;
                 return true;
             }
         });
-        if (matchCommand) {
+        return Boolean(matchedCommand);
+    });
+    if (matchedCommand) {
+        const commandContext = captureCommandContext({
+            app,
+            source: "fileTreeShortcut",
+            fileLiElements: liElements,
+        });
+        const callback = resolvePluginCommandCallback(matchedCommand, commandContext);
+        if (callback) {
+            void callback();
             return true;
         }
-    });
-    if (matchCommand) {
-        return true;
     }
 
-    const liElements = Array.from(files.element.querySelectorAll(".b3-list-item--focus"));
     if (liElements.length === 0) {
         if (event.key.startsWith("Arrow") && isNotCtrl(event)) {
             const liElement = files.element.querySelector(".b3-list-item");
@@ -1039,23 +1057,30 @@ const panelTreeKeydown = (app: App, event: KeyboardEvent) => {
         return false;
     }
 
-    let matchCommand = false;
+    let matchedCommand: ICommand | undefined;
     if (!bottomBacklink) {
         app.plugins.find(item => {
             item.commands.find(command => {
-                if (command.dockCallback && matchHotKey(command.customHotkey, event)) {
-                    matchCommand = true;
-                    command.dockCallback(activePanelElement as HTMLElement);
+                if (supportsPluginCommandSource(command, "dockShortcut") &&
+                    matchHotKey(command.customHotkey, event)) {
+                    matchedCommand = command;
                     return true;
                 }
             });
-            if (matchCommand) {
-                return true;
-            }
+            return Boolean(matchedCommand);
         });
     }
-    if (matchCommand) {
-        return true;
+    if (matchedCommand) {
+        const commandContext = captureCommandContext({
+            app,
+            source: "dockShortcut",
+            dockElement: activePanelElement as HTMLElement,
+        });
+        const callback = resolvePluginCommandCallback(matchedCommand, commandContext);
+        if (callback) {
+            void callback();
+            return true;
+        }
     }
     const matchCollapse = matchHotKey(window.siyuan.config.keymap.editor.general.collapse.custom, event);
     const matchExpand = matchHotKey(window.siyuan.config.keymap.editor.general.expand.custom, event);
@@ -1637,6 +1662,10 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         if (getSelection().rangeCount > 0) {
             const range = getSelection().getRangeAt(0);
             if (hasClosestByClassName(range.startContainer, "protyle-content", true)) {
+                if (!event.repeat && selectReadonlyBlocksByRange(range)) {
+                    event.preventDefault();
+                    return;
+                }
                 focusByRange(range);
                 return;
             }
@@ -1835,25 +1864,25 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         return;
     }
 
-    let matchCommand = false;
+    let matchedCommand: ICommand | undefined;
     app.plugins.find(item => {
         item.commands.find(command => {
-            if (command.callback &&
-                !command.fileTreeCallback && !command.editorCallback && !command.dockCallback && !command.globalCallback
-                && matchHotKey(command.customHotkey, event)) {
-                matchCommand = true;
-                command.callback();
+            if (supportsPluginCommandSource(command, "shortcut") && matchHotKey(command.customHotkey, event)) {
+                matchedCommand = command;
                 return true;
             }
         });
-        if (matchCommand) {
+        return Boolean(matchedCommand);
+    });
+    if (matchedCommand) {
+        const commandContext = captureCommandContext({app, source: "shortcut"});
+        const callback = resolvePluginCommandCallback(matchedCommand, commandContext);
+        if (callback) {
+            void callback();
+            event.stopPropagation();
+            event.preventDefault();
             return true;
         }
-    });
-    if (matchCommand) {
-        event.stopPropagation();
-        event.preventDefault();
-        return true;
     }
 
     if (matchHotKey(window.siyuan.config.keymap.general.replace.custom, event)) {
@@ -1885,50 +1914,4 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-};
-
-export const sendGlobalShortcut = (app: App) => {
-    /// #if !BROWSER
-    if (isWindow()) {
-        return;
-    }
-    const hotkeys = [clearDisallowedTextInputHotkey(window.siyuan.config.keymap.general.toggleWin.custom)];
-    app.plugins.forEach(plugin => {
-        plugin.commands.forEach(command => {
-            if (command.globalCallback && command.customHotkey) {
-                const hotkey = clearDisallowedTextInputHotkey(command.customHotkey);
-                if (hotkey) {
-                    hotkeys.push(hotkey);
-                }
-            }
-        });
-    });
-    ipcRenderer.send(Constants.SIYUAN_HOTKEY, {
-        languages: window.siyuan.languages["_trayMenu"],
-        hotkeys
-    });
-    /// #endif
-};
-
-
-export const sendUnregisterGlobalShortcut = (app: App) => {
-    /// #if !BROWSER
-    if (isWindow()) {
-        return;
-    }
-    ipcRenderer.send(Constants.SIYUAN_CMD, {
-        cmd: "unregisterGlobalShortcut",
-        accelerator: window.siyuan.config.keymap.general.toggleWin.custom
-    });
-    app.plugins.forEach(plugin => {
-        plugin.commands.forEach(command => {
-            if (command.globalCallback) {
-                ipcRenderer.send(Constants.SIYUAN_CMD, {
-                    cmd: "unregisterGlobalShortcut",
-                    accelerator: command.customHotkey
-                });
-            }
-        });
-    });
-    /// #endif
 };

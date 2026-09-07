@@ -38,7 +38,7 @@ import * as dayjs from "dayjs";
 import {openCalcMenu} from "./calc";
 import {avRender, initUnfoldedGroupTables, setAVGroupFolded as setGroupFolded} from "./render";
 import {addView, openViewMenu} from "./view";
-import {isOnlyMeta, writeText} from "../../util/compatibility";
+import {isOnlyMeta, writeBlockDOMClipboard, writeText} from "../../util/compatibility";
 import {selectAVItemRange, setAVItemAnchor} from "./rangeSelect";
 import {openSearchAV} from "./relation";
 import {Constants} from "../../../constants";
@@ -64,14 +64,24 @@ import {getEditableAVFields, openAVFieldEditor, updateAVFieldValue} from "./batc
 import {getAVTemplateInteractiveElement, isAVTemplateLink} from "./attributeValue";
 import {isMobile} from "../../../util/functions";
 import {getAVCurrentViewID} from "./viewVisibility";
+import {cloneAVCellValueSnapshot} from "./cellValue";
 import {formatAVItemLinks, genAVItemLink} from "./itemLink";
+import {openLink} from "../../../editor/openLink";
+import {
+    getAVRichTextBlockDOM,
+    getAVRichTextLute,
+    getAVRichTextSafeURL,
+    getAVTextSource,
+    renderAVRichTextElements
+} from "./richText";
+/// #if !MOBILE
+import {openGlobalSearch} from "../../../search/util";
+/// #else
+import {popSearch} from "../../../mobile/menu/search";
+/// #endif
 /// #if MOBILE
 import {activeBlur} from "../../../mobile/util/keyboardToolbar";
 /// #endif
-
-const isDetachedDatabaseCell = (cellElement: HTMLElement) => {
-    return cellElement.dataset.detached === "true" || !cellElement.querySelector(".av__celltext--ref");
-};
 
 const getPrimaryRowInfo = (blockElement: HTMLElement, rowElement?: HTMLElement, itemID = rowElement?.dataset.id) => {
     const cellElement = rowElement?.querySelector('.av__cell[data-dtype="block"]') as HTMLElement;
@@ -84,7 +94,7 @@ const getPrimaryRowInfo = (blockElement: HTMLElement, rowElement?: HTMLElement, 
             fieldID: cellElement.dataset.fieldId || cellElement.dataset.colId,
             content: value.block?.content || "",
             blockID: value.block?.id || "",
-            isDetached: isDetachedDatabaseCell(cellElement),
+            isDetached: value.isDetached === true || !value.block?.id,
         };
     }
     const cell = getAVPrimaryCell(blockElement, itemID);
@@ -92,7 +102,7 @@ const getPrimaryRowInfo = (blockElement: HTMLElement, rowElement?: HTMLElement, 
         return;
     }
     return {
-        value: cell.value,
+        value: cloneAVCellValueSnapshot(cell.value),
         valueID: cell.id,
         fieldID: cell.value.keyID,
         content: cell.value.block?.content || "",
@@ -197,7 +207,8 @@ const updateDatabaseRow = (protyle: IProtyle, target: HTMLElement) => {
     focusByRange(protyle.toolbar.range);
     cellElement.classList.add("av__cell--select");
     addDragFill(cellElement);
-    hintRef(textElement.textContent.trim(), protyle, "av");
+    const value = genCellValueByElement("block", cellElement);
+    hintRef(value.block?.content?.trim() || textElement.textContent.trim(), protyle, "av");
 };
 
 const getAVEditFieldMenuItems = (protyle: IProtyle, blockElement: HTMLElement): IMenu[] => {
@@ -284,15 +295,60 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
     const templateInteractiveElement = getAVTemplateInteractiveElement(event.target);
     if (templateInteractiveElement) {
         if (isAVTemplateLink(templateInteractiveElement)) {
-            event.preventDefault();
+            const link = templateInteractiveElement.getAttribute("data-href") ||
+                templateInteractiveElement.getAttribute("href");
+            if (link) {
+                openLink(protyle.app, link, event, event.ctrlKey || event.metaKey);
+                event.preventDefault();
+            }
         }
         event.stopPropagation();
         return true;
     }
+    const richTextElement = event.target.closest<HTMLElement>(".av__celltext--rich");
+    if (richTextElement) {
+        const blockRefElement = event.target.closest<HTMLElement>('[data-type~="block-ref"][data-id]');
+        const fileAnnotationElement = event.target.closest<HTMLElement>('[data-type~="file-annotation-ref"][data-id]');
+        const tagElement = event.target.closest<HTMLElement>('[data-type~="tag"]');
+        const linkElement = event.target.closest<HTMLElement>('[data-type~="a"][data-href], a[href]');
+        let href = "";
+        if (blockRefElement && richTextElement.contains(blockRefElement)) {
+            href = getAVRichTextSafeURL(`siyuan://blocks/${blockRefElement.dataset.id}`);
+        } else if (fileAnnotationElement && richTextElement.contains(fileAnnotationElement)) {
+            href = getAVRichTextSafeURL(fileAnnotationElement.dataset.id);
+        } else if (tagElement && richTextElement.contains(tagElement)) {
+            /// #if !MOBILE
+            openGlobalSearch(protyle.app, `#${tagElement.textContent}#`, true, {method: 0});
+            /// #else
+            popSearch(protyle.app, {
+                hasReplace: false,
+                method: 0,
+                hPath: "",
+                idPath: [],
+                k: `#${tagElement.textContent}#`,
+                r: "",
+                page: 1,
+            });
+            /// #endif
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (linkElement && richTextElement.contains(linkElement)) {
+            href = getAVRichTextSafeURL(linkElement.dataset.href || linkElement.getAttribute("href"));
+        }
+        if (href) {
+            openLink(protyle.app, href, event, event.ctrlKey || event.metaKey);
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+    }
     if (isOnlyMeta(event)) {
         return false;
     }
-    const blockElement = hasClosestBlock(event.target);
+    // 富文本预览以 b3-typography 作为渲染边界，先回到单元格再查找数据库块。
+    const cellElement = hasClosestByClassName(event.target, "av__cell");
+    const blockElement = hasClosestBlock(cellElement || event.target);
     if (!blockElement) {
         return false;
     }
@@ -377,6 +433,11 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             return true;
         } else if (type === "av-sort" && !protyle.disabled) {
             openMenuPanel({protyle, blockElement, type: "sorts"});
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        } else if (type === "av-context-filter" && !protyle.disabled) {
+            openMenuPanel({protyle, blockElement, type: "contextFilter"});
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -686,6 +747,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             previewAttrViewImages(
                 removeCompressURL((target as HTMLImageElement).getAttribute("src")),
                 blockElement.getAttribute("data-av-id"),
+                blockElement.getAttribute("data-node-id"),
                 blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW),
                 blockElement.querySelector('[data-type="av-search"]')?.textContent.trim() || ""
             );
@@ -702,8 +764,24 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.stopPropagation();
             return true;
         } else if (type === "copy") {
-            writeText(getCellText(hasClosestByClassName(target, "av__cell")));
-            showMessage(window.siyuan.languages.copied);
+            const cellElement = hasClosestByClassName(target, "av__cell") as HTMLElement;
+            const source = getAVTextSource(genCellValueByElement("text", cellElement));
+            if (source.kind === "rich") {
+                const blockDOM = getAVRichTextBlockDOM(source.content);
+                if (blockDOM) {
+                    void writeBlockDOMClipboard(getAVRichTextLute(), blockDOM).then((copied) => {
+                        if (copied) {
+                            showMessage(window.siyuan.languages.copied);
+                        }
+                    });
+                } else {
+                    writeText(getCellText(cellElement));
+                    showMessage(window.siyuan.languages.copied);
+                }
+            } else {
+                writeText(getCellText(cellElement));
+                showMessage(window.siyuan.languages.copied);
+            }
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -1310,6 +1388,16 @@ export const updateAttrViewCellAnimation = (cellElement: HTMLElement, value: IAV
         }
         const viewType = blockElement.getAttribute("data-av-type") as TAVView;
         const iconElement = cellElement.querySelector(".b3-menu__avemoji");
+        const renderTemplate = cellElement.dataset.renderTemplate;
+        if (renderTemplate?.trim() && typeof value.renderedContent !== "string" &&
+            cellElement.querySelector(".av__celltext--template")) {
+            const valueElement = cellElement.querySelector<HTMLElement>("[data-cell-value]");
+            if (valueElement) {
+                valueElement.dataset.cellValue = encodeURIComponent(JSON.stringify(cloneAVCellValueSnapshot(value)));
+            }
+            renderCellAttr(cellElement, value);
+            return;
+        }
         if (["gallery", "kanban"].includes(viewType)) {
             if (value.type === "checkbox") {
                 value.checkbox = {
@@ -1318,16 +1406,18 @@ export const updateAttrViewCellAnimation = (cellElement: HTMLElement, value: IAV
                 };
             }
             cellElement.innerHTML = renderCell(value, 0, iconElement ? !iconElement.classList.contains("fn__none") : false,
-                viewType, undefined, cellElement.dataset.dateFormat as TAVDateFormat);
-            cellElement.parentElement.setAttribute("data-empty", cellValueIsEmpty(value).toString());
+                viewType, undefined, cellElement.dataset.dateFormat as TAVDateFormat, renderTemplate);
+            cellElement.parentElement.setAttribute("data-empty",
+                cellValueIsEmpty(value, true, renderTemplate).toString());
         } else {
             cellElement.innerHTML = renderCell(value, 0, iconElement ? !iconElement.classList.contains("fn__none") : false,
-                undefined, undefined, cellElement.dataset.dateFormat as TAVDateFormat);
+                undefined, undefined, cellElement.dataset.dateFormat as TAVDateFormat, renderTemplate);
         }
         if (hasDragFill) {
             addDragFill(cellElement);
         }
         renderCellAttr(cellElement, value);
+        renderAVRichTextElements(cellElement);
     }
 };
 

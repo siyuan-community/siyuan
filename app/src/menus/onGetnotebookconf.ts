@@ -21,7 +21,8 @@ declare interface INotebookConf {
     }
 }
 
-export const genNotebookOption = (id: string, notebookId?: string, noCurrent?: boolean) => {
+export const genNotebookOption = (id: string, notebookId?: string, noCurrent?: boolean,
+                                  filter?: (item: INotebook) => boolean) => {
     let html = "";
     if (!noCurrent) {
         html = `<option value="">${window.siyuan.languages.currentNotebook}</option>`;
@@ -30,9 +31,14 @@ export const genNotebookOption = (id: string, notebookId?: string, noCurrent?: b
     Object.keys(Constants.HELP_PATH).forEach((key: "zh-CN") => {
         helpIds.push(Constants.HELP_PATH[key]);
     });
+    const configuredNotebook = window.siyuan.notebooks.find((item) => item.id === id);
+    if (noCurrent && id && (!configuredNotebook || helpIds.includes(id) || (filter && !filter(configuredNotebook)))) {
+        const name = configuredNotebook?.name || id;
+        html += `<option value="${id}" selected disabled>${escapeHtml(name)} (${window.siyuan.languages.agentCapabilitiesUnavailable})</option>`;
+    }
     let firstNotebookId = "";
     window.siyuan.notebooks.forEach((item) => {
-        if (helpIds.includes(item.id) || item.id === notebookId) {
+        if (helpIds.includes(item.id) || item.id === notebookId || (filter && !filter(item))) {
             return;
         }
         if ("" === firstNotebookId) {
@@ -44,6 +50,9 @@ export const genNotebookOption = (id: string, notebookId?: string, noCurrent?: b
         }
         html += `<option value="${item.id}" ${selected ? "selected" : ""}>${escapeHtml(item.name)}</option>`;
     });
+    if (noCurrent && !firstNotebookId && !id) {
+        html = `<option value="" selected disabled>${window.siyuan.languages.agentCapabilitiesUnavailable}</option>`;
+    }
     return html;
 };
 
@@ -57,7 +66,7 @@ export const onGetnotebookconf = (data: INotebookConf) => {
     <div class="config-name">${window.siyuan.languages.fileTree12}</div>
     <div class="b3-label__text">${window.siyuan.languages.fileTree13}</div>
     <span class="fn__hr"></span>
-    <div class="fn__flex config-wrap">
+    <div class="fn__flex">
         <select class="b3-select fn__size200" id="docCreateSaveBox">${genNotebookOption(data.conf.docCreateSaveBox, data.box)}</select>
         <div class="fn__space"></div>
         <input class="b3-text-field fn__flex-1" id="docCreateSavePath" value="">
@@ -71,7 +80,7 @@ export const onGetnotebookconf = (data: INotebookConf) => {
     <div class="config-name">${window.siyuan.languages.fileTree5}</div>
     <div class="b3-label__text">${window.siyuan.languages.fileTree6}</div>
     <span class="fn__hr"></span>
-    <div class="fn__flex config-wrap">
+    <div class="fn__flex">
         <select class="b3-select fn__size200" id="refCreateSaveBox">${genNotebookOption(data.conf.refCreateSaveBox, data.box)}</select>
         <div class="fn__space"></div>
         <input class="b3-text-field fn__flex-1" id="refCreateSavePath" value="">

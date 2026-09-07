@@ -28,6 +28,7 @@ import (
 // ViewSort 描述了视图排序规则的结构。
 type ViewSort struct {
 	Column       string       `json:"column"`                 // 字段（列）ID
+	ValueSource  ValueSource  `json:"valueSource,omitempty"`  // 值来源
 	Order        SortOrder    `json:"order"`                  // 排序顺序
 	DateEndpoint DateEndpoint `json:"dateEndpoint,omitempty"` // 日期端点
 }
@@ -48,6 +49,7 @@ func Sort(viewable Viewable, attrView *AttributeView) {
 
 	type FieldIndexSort struct {
 		Index        int
+		ValueSource  ValueSource
 		Order        SortOrder
 		DateEndpoint DateEndpoint
 	}
@@ -59,6 +61,7 @@ func Sort(viewable Viewable, attrView *AttributeView) {
 			if c.GetID() == s.Column {
 				fieldIndexSorts = append(fieldIndexSorts, &FieldIndexSort{
 					Index:        i,
+					ValueSource:  s.ValueSource,
 					Order:        s.Order,
 					DateEndpoint: s.DateEndpoint,
 				})
@@ -90,7 +93,7 @@ func Sort(viewable Viewable, attrView *AttributeView) {
 	editedValItems := map[string]bool{}
 	for i, item := range items {
 		for _, fieldIndexSort := range fieldIndexSorts {
-			val := items[i].GetValues()[fieldIndexSort.Index]
+			val := ResolveValueSource(items[i].GetValues()[fieldIndexSort.Index], fieldIndexSort.ValueSource)
 			if KeyTypeCheckbox == val.Type {
 				if block := item.GetBlockValue(); nil != block && block.IsEdited() {
 					// 如果主键编辑过，则复选框也算作编辑过，参与排序 https://github.com/siyuan-note/siyuan/issues/11016
@@ -117,28 +120,15 @@ func Sort(viewable Viewable, attrView *AttributeView) {
 		}
 	}
 
-	sort.Slice(uneditedItems, func(i, j int) bool {
-		val1 := uneditedItems[i].GetBlockValue()
-		if nil == val1 {
-			return true
-		}
-		val2 := uneditedItems[j].GetBlockValue()
-		if nil == val2 {
-			return false
-		}
-		return val1.CreatedAt < val2.CreatedAt
-	})
-
-	sort.Slice(editedItems, func(i, j int) bool {
-		sorted := true
+	// 同值项目保留视图中的手动顺序，未编辑项目也保留各自的手动顺序。
+	sort.SliceStable(editedItems, func(i, j int) bool {
 		for _, fieldIndexSort := range fieldIndexSorts {
-			val1 := editedItems[i].GetValues()[fieldIndexSort.Index]
-			val2 := editedItems[j].GetValues()[fieldIndexSort.Index]
+			val1 := ResolveValueSource(editedItems[i].GetValues()[fieldIndexSort.Index], fieldIndexSort.ValueSource)
+			val2 := ResolveValueSource(editedItems[j].GetValues()[fieldIndexSort.Index], fieldIndexSort.ValueSource)
 			if isSortValueEmpty(val1, fieldIndexSort.DateEndpoint) {
 				if !isSortValueEmpty(val2, fieldIndexSort.DateEndpoint) {
 					return false
 				}
-				sorted = false
 				continue
 			} else {
 				if isSortValueEmpty(val2, fieldIndexSort.DateEndpoint) {
@@ -148,10 +138,8 @@ func Sort(viewable Viewable, attrView *AttributeView) {
 
 			result := val1.compare(val2, optionSortByIndex[fieldIndexSort.Index], fieldIndexSort.DateEndpoint)
 			if 0 == result {
-				sorted = false
 				continue
 			}
-			sorted = true
 
 			switch fieldIndexSort.Order {
 			case SortOrderAsc:
@@ -163,17 +151,6 @@ func Sort(viewable Viewable, attrView *AttributeView) {
 			}
 		}
 
-		if !sorted {
-			key1 := editedItems[i].GetBlockValue()
-			if nil == key1 {
-				return false
-			}
-			key2 := editedItems[j].GetBlockValue()
-			if nil == key2 {
-				return false
-			}
-			return key1.CreatedAt < key2.CreatedAt
-		}
 		return false
 	})
 
