@@ -22,7 +22,7 @@ import (
 	"github.com/88250/lute/html/atom"
 	"github.com/88250/lute/parse"
 	luteutil "github.com/88250/lute/util"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // normalizeImportedHTMLTextStyles 将含文本样式的 Markdown HTML 块转换为可编辑的原生块。

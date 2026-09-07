@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // legacyEncryptedAssetFixture 按无版本字段的资源格式生成样本，不调用当前资源编码器。

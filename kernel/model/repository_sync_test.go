@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/emirpasic/gods/sets/hashset"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func TestRemoveEmptyPackageDirs(t *testing.T) {

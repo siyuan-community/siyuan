@@ -15,10 +15,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/dejavu/cloud"
 	"github.com/siyuan-note/httpclient"
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 func setupCloudAccountAuthTest(t *testing.T) *conf.User {

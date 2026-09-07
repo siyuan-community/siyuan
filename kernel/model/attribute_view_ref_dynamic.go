@@ -18,10 +18,10 @@ package model
 
 import (
 	"github.com/88250/lute/ast"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
 )
 
 type attributeViewRefSource struct {

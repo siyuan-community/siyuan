@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // fileTreeSortLess 只比较排序规则字段，相同值由自定义顺序决定。

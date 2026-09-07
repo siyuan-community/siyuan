@@ -24,7 +24,7 @@ import (
 
 	"github.com/88250/gulu"
 	ignore "github.com/sabhiram/go-gitignore"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // PathsAffectSync 判断指定路径的变更是否会影响数据同步仓库。

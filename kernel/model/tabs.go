@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 )
 
 // remapTabTitleBlockIDs 改写页签标题内的块引用和块链接，保留对外部块的引用。

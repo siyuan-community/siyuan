@@ -20,8 +20,8 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 const historyKEKAAD = "siyuan:history-kek:v1"

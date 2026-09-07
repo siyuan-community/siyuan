@@ -11,10 +11,10 @@ import (
 	"strings"
 
 	"github.com/88250/lute/ast"
+	"github.com/siyuan-community/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
-	"github.com/siyuan-note/siyuan/kernel/sql"
-	"github.com/siyuan-note/siyuan/kernel/treenode"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 // openEncryptedBoxIndexes 只在源文档认证成功后重建不兼容或损坏的派生索引，保留源密文和密钥材料。

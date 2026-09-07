@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/88250/lute/ast"
-	"github.com/siyuan-note/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/av"
 )
 
 func newAttributeViewRowSortTestData(layout av.LayoutType) (*av.AttributeView, *av.View, []string) {

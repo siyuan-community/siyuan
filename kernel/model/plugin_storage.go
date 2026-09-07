@@ -22,9 +22,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/siyuan-community/siyuan/kernel/bazaar"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
-	"github.com/siyuan-note/siyuan/kernel/bazaar"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 type packageDirContainsFileFunc func(string) (bool, error)

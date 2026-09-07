@@ -18,11 +18,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/dejavu"
 	"github.com/siyuan-note/dejavu/cloud"
 	"github.com/siyuan-note/dejavu/entity"
-	"github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
 // 资源下载不持有同步锁，避免调用方的笔记本读锁与同步后的笔记本更新互相等待。

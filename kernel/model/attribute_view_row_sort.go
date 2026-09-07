@@ -6,8 +6,8 @@ import (
 	"slices"
 
 	"github.com/88250/gulu"
-	"github.com/siyuan-note/siyuan/kernel/av"
-	"github.com/siyuan-note/siyuan/kernel/sql"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 )
 
 // AttributeViewRowSortRequest 描述同一分组内的一次完整拖拽，落点可使用前项或后项定位。

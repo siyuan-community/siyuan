@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	kernelConf "github.com/siyuan-note/siyuan/kernel/conf"
-	"github.com/siyuan-note/siyuan/kernel/model"
-	"github.com/siyuan-note/siyuan/kernel/util"
+	kernelConf "github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/model"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 func setSkillToolTestEnvironment(t *testing.T) string {
