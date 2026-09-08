@@ -43,6 +43,7 @@ jobs:
           echo "value=$(jq .version ${{ env.package_json }} -r)" >> $GITHUB_OUTPUT
 
       - name: Checkout siyuan-android
+        if: ${{ github.repository_owner == 'siyuan-note' }}
         uses: actions/checkout@v6
         with:
           repository: siyuan-note/siyuan-android
@@ -51,6 +52,7 @@ jobs:
 
       - name: Verify siyuan-android version
         id: android_version
+        if: ${{ github.repository_owner == 'siyuan-note' }}
         # Android 的 siyuanVersionName 必须与 package.json 版本一致，否则在打包前终止整个流程。
         run: |
           ANDROID_VERSION=$(sed -nE 's/^[[:space:]]*siyuanVersionName[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' build.gradle)
