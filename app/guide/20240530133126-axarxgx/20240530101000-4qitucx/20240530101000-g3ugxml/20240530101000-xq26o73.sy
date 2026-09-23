@@ -7,7 +7,7 @@
 		"id": "20240530101000-xq26o73",
 		"title": "カーネルパラメータ",
 		"type": "doc",
-		"updated": "20260718113226"
+		"updated": "20260917190844"
 	},
 	"Children": [
 		{
@@ -249,7 +249,7 @@
 			"Properties": {
 				"ID": "20240530101000-rje9q9t",
 				"id": "20240530101000-pzmi4gj",
-				"updated": "20260302173724"
+				"updated": "20260914011526"
 			},
 			"Children": [
 				{
@@ -264,7 +264,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20240530101000-bqisa84",
-				"updated": "20260718113226"
+				"updated": "20260914011526"
 			},
 			"Children": [
 				{
@@ -418,6 +418,15 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
+					"TextMarkTextContent": "sr"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "​、"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
 					"TextMarkTextContent": "th"
 				},
 				{
@@ -469,7 +478,7 @@
 			"Properties": {
 				"ID": "20240530101000-jc2iusi",
 				"id": "20240530101000-au2afuj",
-				"updated": "20240530101000"
+				"updated": "20260917190844"
 			},
 			"Children": [
 				{
@@ -527,7 +536,7 @@
 			"Properties": {
 				"ID": "20240530101000-tgko9uw",
 				"id": "20240530101000-ykliek4",
-				"updated": "20240530101000"
+				"updated": "20260917190844"
 			},
 			"Children": [
 				{
@@ -559,7 +568,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ が使用されます。"
+					"Data": "​ が使用されます。この外観フォルダには内蔵リソースを保存します。サードパーティのテーマとアイコンパッケージは、実行モードに関係なく workspace/data/themes/ と workspace/data/icons/ を使用します。"
 				}
 			]
 		},

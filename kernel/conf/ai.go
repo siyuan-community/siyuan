@@ -34,11 +34,21 @@ type AI struct {
 	MCP             *MCP             `json:"mcp"`
 	Embedding       *Embedding       `json:"embedding"`
 	Rerank          *Rerank          `json:"rerank"`
+	Decision        *Decision        `json:"decision"`
 	Agent           *Agent           `json:"agent"`
 	Editing         *Editing         `json:"editing"`
 	ImageGeneration *ImageGeneration `json:"imageGeneration"`
 	Providers       []*Provider      `json:"providers"`
 }
+
+// DefaultAgentConfirmTimeout 是智能体确认超时时间的默认值（秒），也用于智能体提问的等待时长。
+const DefaultAgentConfirmTimeout = 600
+
+// DefaultAgentSessionTimeout 是智能体会话总超时时间的默认值（秒）。
+const DefaultAgentSessionTimeout = 1800
+
+// MaxAgentSessionTimeout 是智能体会话总超时时间的上限（秒）。
+const MaxAgentSessionTimeout = 3600
 
 type Agent struct {
 	ModelID             string            `json:"modelId"`
@@ -108,6 +118,23 @@ type Embedding struct {
 	Dimensions int    `json:"dimensions"` // 输出向量维度，仅 text-embedding-3 及以上模型支持；0 表示用模型默认值（不传该参数）
 }
 
+// Decision 配置智能体使用的 TypeSafe System One 决策模型。
+type Decision struct {
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint"`
+	APIKey   string `json:"apiKey"`
+	Name     string `json:"name"`
+	Timeout  int    `json:"timeout"`
+}
+
+func (decision *Decision) Configured() bool {
+	return decision != nil && decision.Endpoint != "" && decision.APIKey != "" && decision.Name != ""
+}
+
+func defaultDecision() *Decision {
+	return &Decision{Endpoint: "https://api.typesafe.ai/v1/systemone", Name: "jev-latest", Timeout: 30}
+}
+
 // Rerank 配置语义搜索结果的重排模型。重排在向量召回后对 query 与候选文档逐对精排，
 // 采用主流重排服务的 /rerank 协议（OpenAI 官方暂无 rerank API）。
 // 各服务商端点路径不一（Jina /v1/rerank、阿里云 /v1/reranks 等），故 Endpoint 为完整端点地址。
@@ -123,14 +150,15 @@ type Rerank struct {
 }
 
 type Provider struct {
-	ID             string   `json:"id"`
-	DisplayName    string   `json:"displayName,omitempty"`
-	Enabled        bool     `json:"enabled"`
-	APIKey         string   `json:"apiKey"`
-	BaseURL        string   `json:"baseURL"`
-	Protocol       string   `json:"protocol,omitempty"`
-	RequestTimeout int      `json:"requestTimeout"`
-	Models         []*Model `json:"models"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	ID             string            `json:"id"`
+	DisplayName    string            `json:"displayName,omitempty"`
+	Enabled        bool              `json:"enabled"`
+	APIKey         string            `json:"apiKey"`
+	BaseURL        string            `json:"baseURL"`
+	Protocol       string            `json:"protocol,omitempty"`
+	RequestTimeout int               `json:"requestTimeout"`
+	Models         []*Model          `json:"models"`
 }
 
 // Model is the provider-scoped model registry entry. MaxTokens/Temperature/
@@ -179,9 +207,9 @@ func defaultRerank() *Rerank {
 
 func defaultAgent() *Agent {
 	return &Agent{
-		SessionTimeout:      600,
+		SessionTimeout:      DefaultAgentSessionTimeout,
 		StreamIdleTimeout:   120,
-		ConfirmTimeout:      120,
+		ConfirmTimeout:      DefaultAgentConfirmTimeout,
 		MaxRetries:          3,
 		Temperature:         1.0,
 		MaxCompletionTokens: 0,
@@ -270,6 +298,7 @@ func NewAI() *AI {
 		MCP:             &MCP{Servers: []MCPServer{}, ExposurePolicy: defaultCapabilityPolicy()},
 		Embedding:       defaultEmbedding(),
 		Rerank:          defaultRerank(),
+		Decision:        defaultDecision(),
 		Agent:           defaultAgent(),
 		Editing:         defaultEditing(),
 		ImageGeneration: defaultImageGeneration(),
@@ -535,8 +564,8 @@ func (ai *AI) Normalize() {
 		}
 		if ai.Agent.SessionTimeout < 0 {
 			ai.Agent.SessionTimeout = 0
-		} else if ai.Agent.SessionTimeout > 3600 {
-			ai.Agent.SessionTimeout = 3600
+		} else if ai.Agent.SessionTimeout > MaxAgentSessionTimeout {
+			ai.Agent.SessionTimeout = MaxAgentSessionTimeout
 		}
 		if ai.Agent.StreamIdleTimeout < 1 {
 			ai.Agent.StreamIdleTimeout = 120
@@ -595,6 +624,9 @@ func (ai *AI) Normalize() {
 		p.BaseURL = strings.TrimSpace(p.BaseURL)
 		if "" == p.BaseURL {
 			p.BaseURL = "https://api.openai.com/v1"
+			if util.IsAnthropicMessagesProtocol(p.Protocol) {
+				p.BaseURL = "https://api.anthropic.com/v1"
+			}
 		}
 		p.DisplayName = strings.TrimSpace(p.DisplayName)
 		p.APIKey = strings.TrimSpace(p.APIKey)
@@ -646,6 +678,23 @@ func (ai *AI) Normalize() {
 	}
 	if ai.Rerank == nil {
 		ai.Rerank = defaultRerank()
+	}
+	if ai.Decision == nil {
+		ai.Decision = defaultDecision()
+	}
+	ai.Decision.Endpoint = strings.TrimSpace(ai.Decision.Endpoint)
+	ai.Decision.APIKey = strings.TrimSpace(ai.Decision.APIKey)
+	ai.Decision.Name = strings.TrimSpace(ai.Decision.Name)
+	if ai.Decision.Endpoint == "" {
+		ai.Decision.Endpoint = defaultDecision().Endpoint
+	}
+	if ai.Decision.Name == "" {
+		ai.Decision.Name = defaultDecision().Name
+	}
+	if ai.Decision.Timeout < 1 {
+		ai.Decision.Timeout = 30
+	} else if ai.Decision.Timeout > 600 {
+		ai.Decision.Timeout = 600
 	}
 	if ai.Rerank.Timeout < 1 {
 		ai.Rerank.Timeout = 30
@@ -724,6 +773,13 @@ func normalizeApprovalPolicy(policy *ApprovalPolicy) {
 }
 
 func (ai *AI) DecryptAPIKeys() {
+	if ai.Decision != nil && ai.Decision.APIKey != "" {
+		if dec := util.AESDecrypt(ai.Decision.APIKey); dec != nil {
+			if plain, err := hex.DecodeString(string(dec)); err == nil {
+				ai.Decision.APIKey = string(plain)
+			}
+		}
+	}
 	for _, p := range ai.Providers {
 		if p == nil || p.APIKey == "" {
 			continue
@@ -757,6 +813,9 @@ func (ai *AI) DecryptAPIKeys() {
 }
 
 func (ai *AI) EncryptAPIKeys() {
+	if ai.Decision != nil && ai.Decision.APIKey != "" {
+		ai.Decision.APIKey = util.AESEncrypt(ai.Decision.APIKey)
+	}
 	for _, p := range ai.Providers {
 		if p == nil || p.APIKey == "" {
 			continue

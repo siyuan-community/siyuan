@@ -69,8 +69,11 @@ func renderOutline(heading *ast.Node, luteEngine *lute.Lute) (ret string) {
 		case ast.NodeHeading:
 			// Show heading block appearance style in the Outline Panel https://github.com/siyuan-note/siyuan/issues/7872
 			if style := n.IALAttr("style"); "" != style {
+				// 样式值按属性值转义后再拼接，否则其中的引号会闭合 style 属性注入标签；
+				// 转义后的实体在解析属性值时会被还原，不影响样式展示
+				// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-928g-4hfq-qwvx
 				buf.WriteString("<span style=\"")
-				buf.WriteString(style)
+				buf.WriteString(util.EscapeHTML(style))
 				buf.WriteString("\">")
 			}
 		case ast.NodeText, ast.NodeLinkText, ast.NodeCodeBlockCode, ast.NodeMathBlockContent:
@@ -415,7 +418,9 @@ func resolveEmbedR(n *ast.Node, blockEmbedMode int, luteEngine *lute.Lute, resol
 						hChildren = append(hChildren, treenode.HeadingChildren(h)...)
 					}
 					hChildren = cleanRenderNodes(hChildren, true)
-					if 0 == blockEmbedMode {
+					if level := explicitEmbedHeadingLevel(n, sqlBlock.ID); level != 0 {
+						adjustEmbedHeadingLevels(hChildren, level)
+					} else if 0 == blockEmbedMode && treenode.GetEmbedBlockRef(n) != sqlBlock.ID {
 						embedTopLevel := 0
 						for _, hChild := range hChildren {
 							if ast.NodeHeading == hChild.Type {

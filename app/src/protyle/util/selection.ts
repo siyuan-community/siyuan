@@ -1,4 +1,5 @@
 import {revealTabsForTarget} from "../render/tabsRender";
+import {getTextWithLegacyInlineBoundary} from "./inlineElementBoundary";
 import {isHiddenTabContent} from "../render/tabsVisibility";
 import {
     getContenteditableElement,
@@ -16,6 +17,7 @@ import {
     hasClosestByTag,
     isInEmbedBlock
 } from "./hasClosest";
+import {getAtomicVerticalNavigationOwner} from "../wysiwyg/verticalNavigationState";
 import {countBlockWord, countSelectWord} from "../../layout/status";
 import {hideElements} from "../ui/hideElements";
 import {genRenderFrame} from "../render/util";
@@ -27,7 +29,7 @@ import {
     getSemanticMarkerPrefixLengthForNode,
     stripSemanticMarkersFromRangeText
 } from "./inlineElementMarker";
-import {getSelectAllBlockAction} from "../wysiwyg/blockSelection";
+import {getSelectAllBlockAction, setBlockSelectionModeElement} from "../wysiwyg/blockSelection";
 
 const selectIsEditor = (editor: Element, range?: Range) => {
     if (!range) {
@@ -63,7 +65,10 @@ export const fixTableRange = (range: Range) => {
     }
 };
 
-export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range): boolean => {
+export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range, allowBlockSelection = true): boolean => {
+    if (!allowBlockSelection) {
+        hideElements(["select"], protyle);
+    }
     const blockSelectionAction = getSelectAllBlockAction(protyle.wysiwyg.element);
     if (blockSelectionAction !== "none") {
         range.collapse(true);
@@ -134,6 +139,10 @@ export const selectAll = (protyle: IProtyle, nodeElement: Element, range: Range)
             }
         }
     }
+    if (!allowBlockSelection) {
+        // 没有块菜单的编辑器保留文字选区，供工具栏继续操作。
+        return !range.collapsed;
+    }
     range.collapse(true);
     hideElements(["select", "toolbar"], protyle);
     const ids: string[] = [];
@@ -174,6 +183,10 @@ export const selectBlocksByRange = (protyle: IProtyle, range: Range) => {
             item.classList.remove("protyle-wysiwyg--select");
         });
     });
+    // 将选区末端所属的已选块设为当前块，使转换后的选择支持块模式按键。
+    const currentElement = selectElements.find(item => item.contains(range.endContainer)) ||
+        selectElements[selectElements.length - 1];
+    setBlockSelectionModeElement(protyle.wysiwyg.element, currentElement);
     range.collapse(false);
     countBlockWord(selectElements.map(item => item.getAttribute("data-node-id")), protyle);
 };
@@ -202,6 +215,18 @@ export const getEditorRange = (element: Element): Range => {
     if (getSelection().rangeCount > 0) {
         range = getSelection().getRangeAt(0);
         if (element === range.startContainer || element.contains(range.startContainer)) {
+            // 纵向导航建立的原子 Range 已是合法位置，读取选区时不能再次聚焦其正文。
+            const atomicOwner = getAtomicVerticalNavigationOwner(range);
+            if (atomicOwner) {
+                if (range.startContainer === atomicOwner) {
+                    return range;
+                }
+                // 对调用方保持块所有者坐标，不改写浏览器中稳定的外侧选区。
+                const ownerRange = document.createRange();
+                ownerRange.setStart(atomicOwner, 0);
+                ownerRange.collapse(true);
+                return ownerRange;
+            }
             if (range.toString() === "" && range.startContainer.nodeType === 1) {
                 // 有时候点击编辑器头部需要矫正到第一个块中
                 if (range.startOffset === 0 && (range.startContainer as HTMLElement).classList.contains("protyle-wysiwyg")) {
@@ -576,10 +601,10 @@ export const getBlockRanges = (editorElement: Element, selectedRange: Range, exc
         } else {
             const blockRange = document.createRange();
             blockRange.selectNodeContents(editableElement);
-            if (item === startElement) {
+            if (item === startElement && editableElement.contains(selectedRange.startContainer)) {
                 blockRange.setStart(selectedRange.startContainer, selectedRange.startOffset);
             }
-            if (item === endElement) {
+            if (item === endElement && editableElement.contains(selectedRange.endContainer)) {
                 blockRange.setEnd(selectedRange.endContainer, selectedRange.endOffset);
             }
             if (!blockRange.collapsed) {
@@ -636,6 +661,15 @@ Record<string, string> | undefined => {
         undoFocusEnd: end.toString(),
         undoFocusIgnoreZWSP: ignoreZWSP.toString(),
     };
+    if (startBlockElement === endBlockElement && startBlockElement.getAttribute("data-type") === "NodeTable") {
+        const cell = hasClosestByTag(range.startContainer, "TH") || hasClosestByTag(range.startContainer, "TD");
+        if (cell && cell.contains(range.endContainer)) {
+            context.undoFocusTableCell = Array.from(startBlockElement.querySelectorAll("th, td")).indexOf(cell).toString();
+            const offset = getSelectionOffset(cell, undefined, range, ignoreZWSP);
+            context.undoFocusStart = offset.start.toString();
+            context.undoFocusEnd = offset.end.toString();
+        }
+    }
     if (startEditableElement.classList.contains("callout-title") &&
         endEditableElement.classList.contains("callout-title")) {
         context.undoFocusCalloutTitle = "true";
@@ -647,19 +681,17 @@ Record<string, string> | undefined => {
     return context;
 };
 
-export const restoreFocusContext = (protyle: IProtyle, context: Record<string, string>) => {
+export const restoreFocusContext = (protyle: IProtyle, context: Pick<IOperation["context"],
+    "undoFocusStart" | "undoFocusEnd" | "undoFocusId" | "undoFocusIndex" | "undoFocusEndId" |
+    "undoFocusEndIndex" | "undoFocusEmbedId" | "undoFocusTableCell" | "undoFocusTableSelection" |
+    "undoFocusCalloutTitle" | "undoFocusIgnoreZWSP" | "undoFocusCollapseToEnd" | "undoFocusStartAtEnd">) => {
     const start = Number(context.undoFocusStart);
     const end = Number(context.undoFocusEnd);
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < 0) {
         return false;
     }
-    const focusScopeElement = context.undoFocusEmbedId ? protyle.wysiwyg.element.querySelector(
-        `[data-type="NodeBlockQueryEmbed"][data-node-id="${context.undoFocusEmbedId}"]`
-    ) : protyle.wysiwyg.element;
-    if (!focusScopeElement) {
-        return false;
-    }
-    const startBlockElements = Array.from(focusScopeElement.querySelectorAll(
+    // 副本序号以整个编辑器为参照保存；恢复时保留同一候选顺序，再校验嵌入作用域。
+    const startBlockElements = Array.from(protyle.wysiwyg.element.querySelectorAll(
         `[data-node-id="${context.undoFocusId}"]`
     ));
     const startBlockElement = getUndoFocusElement(
@@ -668,7 +700,7 @@ export const restoreFocusContext = (protyle: IProtyle, context: Record<string, s
         item => !isInEmbedBlock(item, false),
     );
     const endBlockElements = context.undoFocusEndId === context.undoFocusId ?
-        startBlockElements : Array.from(focusScopeElement.querySelectorAll(
+        startBlockElements : Array.from(protyle.wysiwyg.element.querySelectorAll(
             `[data-node-id="${context.undoFocusEndId || context.undoFocusId}"]`
         ));
     const endBlockElement = getUndoFocusElement(
@@ -678,6 +710,57 @@ export const restoreFocusContext = (protyle: IProtyle, context: Record<string, s
     );
     if (!startBlockElement || !endBlockElement) {
         return false;
+    }
+    // 持久 ID 可对应多个嵌入副本；作用域由已定位的端点所属显示实例确定。
+    const startEmbed = isInEmbedBlock(startBlockElement, false);
+    const endEmbed = isInEmbedBlock(endBlockElement, false);
+    if (startEmbed !== endEmbed || (context.undoFocusEmbedId &&
+        (!startEmbed || startEmbed.getAttribute("data-node-id") !== context.undoFocusEmbedId))) {
+        return false;
+    }
+    if (context.undoFocusTableCell !== undefined && startBlockElement.getAttribute("data-type") === "NodeTable") {
+        const index = Number(context.undoFocusTableCell);
+        const cell = Number.isInteger(index) && index >= 0 ?
+            startBlockElement.querySelectorAll<HTMLTableCellElement>("th, td")[index] : undefined;
+        if (!cell || cell.classList.contains("fn__none")) {
+            return false;
+        }
+        const cellRange = context.undoFocusTableSelection === undefined ?
+            focusByOffset(cell, context.undoFocusCollapseToEnd === "true" ? end : start, end, false,
+                context.undoFocusIgnoreZWSP === "true") : undefined;
+        if (cellRange && cell.getAttribute("contenteditable") !== "false") {
+            // 按单元格定位，避免空单元格与前一单元格末尾的文本偏移相同。
+            focusByRange(cellRange);
+            return true;
+        }
+        try {
+            const saved = context.undoFocusTableSelection === undefined ? undefined : JSON.parse(context.undoFocusTableSelection);
+            if (context.undoFocusTableSelection !== undefined && (!saved ||
+                ![saved.startIndex, saved.endIndex, saved.start, saved.end].every(value =>
+                    Number.isInteger(value) && value >= 0) || typeof saved.backward !== "boolean")) {
+                return false;
+            }
+            // 单元格内部块没有持久 ID，使用单元格序号和片段内选区恢复编辑位置。
+            const range = cellRange || document.createRange();
+            if (!cellRange) {
+                range.selectNodeContents(cell);
+                range.collapse(true);
+            }
+            cell.tabIndex = -1;
+            cell.focus({preventScroll: true});
+            focusByRange(range);
+            void import("../render/tableCellRichEditor").then(module => {
+                if (cell.isConnected && cell.contains(getSelection().focusNode)) {
+                    module.openTableCellRichEditor(protyle, cell, undefined, undefined, saved);
+                    if (getSelection().rangeCount) {
+                        protyle.toolbar.range = getSelection().getRangeAt(0);
+                    }
+                }
+            });
+            return true;
+        } catch (_error) {
+            return false;
+        }
     }
     const startFocusElement = context.undoFocusCalloutTitle === "true" ?
         startBlockElement.querySelector(".callout-title") : startBlockElement;
@@ -827,7 +910,7 @@ export const setFirstNodeRange = (editElement: Element, range: Range) => {
 };
 
 const getDOMOffset = (textNode: Text, offset: number, skipZWSP: boolean) => {
-    const text = textNode.data;
+    const text = getTextWithLegacyInlineBoundary(textNode);
     const semanticPrefixLength = getSemanticMarkerPrefixLengthForNode(textNode);
     let domOffset = 0;
     let textOffset = 0;

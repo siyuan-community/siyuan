@@ -2,9 +2,26 @@
 @use "toolbar" as *;
 @use "wysiwyg" as *;
 @use "attr" as *;
+@use "list-mindmap" as *;
 
 .protyle-lite-fragment .protyle-action__menu {
   display: none;
+}
+
+.protyle-lite-fragment .protyle-action__copy {
+  border-radius: var(--b3-border-radius);
+}
+
+.table__cell-editor,
+.list-mindmap__editor {
+  .code-block .protyle-action__menu {
+    display: block;
+  }
+
+  .code-block .protyle-action__copy {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
 }
 
 .protyle-scroll {
@@ -14,6 +31,14 @@
   top: 30px;
   width: 16px;
   bottom: 9px; // 下图标 hover 时，需要留出一定的空间
+  // 空白区域透传点击，避免遮挡编辑器右侧的反链计数。
+  pointer-events: none;
+
+  &__down,
+  &__up,
+  &__bar {
+    pointer-events: auto;
+  }
 
   svg {
     height: 16px;
@@ -348,14 +373,9 @@
       padding: 5px;
       width: 24px;
 
-      &:hover,
-      &:focus-visible {
+      &:hover {
         background-color: var(--b3-list-hover);
         color: var(--b3-theme-on-background);
-      }
-
-      &:focus-visible {
-        outline: 1px solid var(--b3-theme-primary);
       }
 
       svg {
@@ -409,14 +429,9 @@
     }
 
     &:hover,
-    &:focus-visible,
     &--active {
       color: var(--b3-theme-on-background);
       background-color: var(--b3-list-hover);
-    }
-
-    &:focus-visible {
-      outline: 1px solid var(--b3-theme-primary);
     }
   }
 }
@@ -531,6 +546,94 @@
 }
 
 .sy__backlink {
+  .backlinkList__source {
+    appearance: none;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 4px 28px;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    background-color: transparent;
+    color: var(--b3-theme-on-surface-light);
+    font: inherit;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: start;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+
+    &:hover {
+      background-color: var(--b3-list-hover);
+      color: var(--b3-theme-on-background);
+    }
+
+    &:focus-visible {
+      outline: 1px solid var(--b3-theme-primary);
+      outline-offset: -1px;
+    }
+  }
+
+  // 仅为上下文首块已有的属性栏留出空间，普通块保持紧凑。
+  .protyle-wysiwyg > .protyle-breadcrumb__bar + [data-node-id]:is(
+    [name]:not([name=""]),
+    [alias]:not([alias=""]),
+    [memo]:not([memo=""]),
+    [bookmark]:not([bookmark=""]),
+    [custom-avs]:not([custom-avs=""])
+  ) {
+    margin-top: 12px;
+  }
+
+  .backlinkList__loading {
+    align-items: center;
+    box-sizing: border-box;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    min-height: 40px;
+    width: 100%;
+  }
+
+  [data-backlink-type-folded] {
+    display: none !important;
+  }
+
+  .backlinkTypeFold {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    margin: 4px 0;
+    padding: 0 4px;
+    padding-inline-end: 8px;
+    border: 0;
+    border-radius: var(--b3-border-radius);
+    background-color: transparent;
+    color: var(--b3-theme-on-surface);
+    font: inherit;
+    font-size: 14px;
+    line-height: 24px;
+    flex-shrink: 0;
+    cursor: pointer;
+
+    &:hover {
+      background-color: var(--b3-list-hover);
+      color: var(--b3-theme-on-background);
+    }
+
+    svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+  }
+
   > .backlinkList,
   > .backlinkMList {
     > .b3-list > .backlinkList__item {
@@ -554,11 +657,14 @@
         }
 
         > .counter {
-          background-color: transparent;
+          background-color: var(--b3-theme-background-light);
           color: var(--b3-theme-on-surface-light);
+          height: 18px;
+          line-height: 18px;
+          padding: 0 4px;
 
           &:hover {
-            background-color: transparent;
+            background-color: var(--b3-theme-background-light);
             color: var(--b3-theme-on-surface-light);
           }
         }
@@ -568,6 +674,13 @@
 }
 
 .sy__backlink--bottom {
+  // 避免浏览器锚定下方提及内容，导致折叠时标题随滚动补偿移动。
+  overflow-anchor: none;
+
+  .backlinkList__loading {
+    height: 40px;
+  }
+
   box-sizing: border-box;
   min-height: 32px;
   outline: none;
@@ -647,13 +760,6 @@
         margin-right: -4px;
       }
     }
-  }
-
-  .backlinkList__loading {
-    align-items: center;
-    display: flex;
-    height: 40px;
-    justify-content: center;
   }
 
   > .backlinkList--divider-spacing:not(.fn__none) + .block__icons {
@@ -837,6 +943,202 @@
   }
 }
 
+.table__cell-rich,
+.table__cell-editor {
+  // 跟随单元格的可用宽度，保证预览与编辑使用相同的折行边界。
+  width: auto;
+  max-width: 100%;
+}
+
+.table__cell-rich .code-block,
+.table__cell-editor .code-block,
+.list-mindmap__content .code-block {
+  // 预览与编辑共用最小宽度，为代码内容和顶部操作区保留空间。
+  min-width: 200px;
+
+  .protyle-action__language {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.table__cell-rich {
+  min-width: 0;
+  min-height: 1.6em;
+  white-space: normal;
+  cursor: text;
+  padding: 0 !important;
+
+  .protyle-action {
+    pointer-events: none;
+  }
+
+  .protyle-icons,
+  .protyle-icon,
+  .protyle-action__language {
+    display: none !important;
+  }
+}
+
+.table__cell-editor {
+  min-width: 0;
+  min-height: 0;
+  white-space: normal;
+
+  [contenteditable="true"]:focus {
+    outline: none;
+  }
+
+  &.protyle {
+    background-color: transparent;
+  }
+
+  .protyle-content {
+    overflow: visible;
+
+    &[data-padding-mode="responsive"] {
+      // 单元格由内容参与列宽计算，不能隔离内部列表等块的固有宽度。
+      container-type: normal;
+    }
+  }
+
+  .protyle-wysiwyg {
+    padding: 0 !important;
+    min-height: 1.6em;
+    // 继承单元格字号，保持预览与编辑时的文字大小一致。
+    font-size: inherit;
+  }
+}
+
+.table__cell-rich.table__cell--inline,
+.table__cell-editor.table__cell--inline {
+  min-width: 0;
+  min-height: 0;
+  padding: 0 !important;
+
+  &,
+  .protyle-wysiwyg {
+    padding: 0 !important;
+    min-height: 0;
+
+    > .p {
+      margin: 0;
+      padding: 0;
+      line-height: inherit;
+
+      > [contenteditable] {
+        min-height: 1lh;
+      }
+    }
+  }
+}
+
+.table__cell-rich.table__cell--empty,
+.table__cell-editor.table__cell--empty {
+  // 空内容填满单元格，避免零宽编辑容器裁掉光标。
+  width: 100%;
+}
+
+.table__cell-rich [data-table-cell-content],
+.table__cell-editor .protyle-wysiwyg [contenteditable="true"] {
+  // 为空列表项等块的文字区域保留光标宽度，预览和编辑时保持一致。
+  min-width: 1px;
+}
+
+.table__cell-rich > .list[data-type="NodeList"],
+.table__cell-editor .protyle-wysiwyg > .list[data-type="NodeList"] {
+  // 首层列表按内容宽度整体对齐，内部保留左对齐，窄列中仍限制宽度以便换行。
+  margin-inline: var(--b3-table-cell-list-start, -8px) var(--b3-table-cell-list-end, 0);
+  width: fit-content;
+  max-width: calc(100% + var(--b3-table-cell-list-inset, 8px));
+  text-align: left;
+}
+
+.protyle-wysiwyg :is(td, th) {
+  // 普通左对齐抵消列表起始侧留白，居中和居右则使用单元格内容边界。
+  &[align="center"]:not([style*="text-align:"]),
+  &[style*="text-align: center"] {
+    --b3-table-cell-list-start: auto;
+    --b3-table-cell-list-end: auto;
+    --b3-table-cell-list-inset: 0px;
+  }
+
+  &[align="right"]:not([style*="text-align:"]),
+  &[style*="text-align: right"] {
+    --b3-table-cell-list-start: auto;
+    --b3-table-cell-list-end: 0;
+    --b3-table-cell-list-inset: 0px;
+  }
+}
+
+.table__cell-rich .li [data-table-cell-content],
+.table__cell-editor .protyle-wysiwyg .li [contenteditable="true"] {
+  // 列宽收缩时，列表缩进之外至少保留一个字符的空间。
+  min-width: 1em;
+}
+
+.table__cell-editor .protyle-wysiwyg [data-node-id] {
+  // 单元格的对齐方式优先于正文的两端对齐设置。
+  text-align: inherit;
+}
+
+.table__cell-rich > :is(.p, .h1, .h2, .h3, .h4, .h5, .h6)[data-table-cell-node],
+.table__cell-editor .protyle-wysiwyg > :is(.p, .h1, .h2, .h3, .h4, .h5, .h6) {
+  // 单元格已提供侧边留白，多段落和标题与普通文本使用相同的对齐边界。
+  padding-inline: 0;
+}
+
+.protyle-wysiwyg [data-type="NodeTable"] {
+  td.dragover__top,
+  td.dragover__bottom,
+  th.dragover__top,
+  th.dragover__bottom {
+    position: relative;
+
+    // 与空单元格的占位行分离，避免占位行高度覆盖插入线高度。
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background-color: var(--b3-theme-primary-lighter);
+      pointer-events: none;
+    }
+  }
+
+  td.dragover__top::before,
+  th.dragover__top::before {
+    top: -4px;
+  }
+
+  td.dragover__bottom::before,
+  th.dragover__bottom::before {
+    bottom: -4px;
+  }
+
+  td[tabindex="-1"]:focus,
+  th[tabindex="-1"]:focus {
+    outline: none;
+  }
+
+  td:empty::after,
+  th:empty::after {
+    // 空单元格与输入文字共用行盒高度，避免输入第一个字符时改变整行高度。
+    content: "\200b";
+    display: block;
+    height: auto;
+  }
+}
+
+.table__cell-editor .protyle-wysiwyg > .p > [contenteditable]:empty {
+  &::before,
+  &::after {
+    content: none !important;
+  }
+}
+
 table[contenteditable="false"] + .protyle-action__table > .table__resize {
   display: none !important;
 }
@@ -960,8 +1262,7 @@ table + .protyle-action__table {
       transition: opacity 150ms linear;
     }
 
-    &:hover,
-    &:focus-visible {
+    &:hover {
       &::before {
         opacity: 0;
       }

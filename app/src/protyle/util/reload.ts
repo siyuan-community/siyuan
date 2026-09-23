@@ -10,8 +10,15 @@ import {hideKeyboardToolbar} from "../../mobile/util/keyboardToolbar";
 /// #endif
 import {restoreLuteMarkdownSyntax} from "./paste";
 import {invalidateTrackedRanges} from "./trackedRange";
+import {updateBacklinkReferenceVisibility} from "../wysiwyg/backlinkReference";
+import {shouldReloadProtyle} from "./reloadState";
 
 export const reloadProtyle = (protyle: IProtyle, focus: boolean, updateReadonly?: boolean) => {
+    if (!shouldReloadProtyle(protyle)) {
+        return;
+    }
+    updateBacklinkReferenceVisibility(protyle);
+    protyle.wysiwyg.element.setAttribute("spellcheck", window.siyuan.config.editor.spellcheck.toString());
     invalidateTrackedRanges(protyle);
     /// #if MOBILE
     hideKeyboardToolbar();
@@ -52,7 +59,7 @@ export const reloadProtyle = (protyle: IProtyle, focus: boolean, updateReadonly?
         if (tabElement) {
             const inputsElement = tabElement.querySelectorAll(".b3-text-field") as NodeListOf<HTMLInputElement>;
             const keyword = isMention ? inputsElement[1].value : inputsElement[0].value;
-            const param: IObject = {
+            const param: import("../../types/api").BacklinkDocumentRequestInput = {
                 defID: protyle.element.getAttribute("data-defid"),
                 refTreeID: protyle.block.rootID,
                 highlight: !isSupportCSSHL(),
@@ -66,7 +73,7 @@ export const reloadProtyle = (protyle: IProtyle, focus: boolean, updateReadonly?
                 param.knownRevision = revision;
             }
             fetchPost(isMention ? "/api/ref/getBackmentionDoc" : "/api/ref/getBacklinkDoc", param, response => {
-                if (!response.data) {
+                if (response.code !== 0 || !response.data) {
                     removeLoading(protyle);
                     return;
                 }

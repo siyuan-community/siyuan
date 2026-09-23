@@ -183,6 +183,9 @@ export const isLastPointerMouse = (): boolean => {
     return lastPointerType === "mouse";
 };
 
+let touchResizeHandle: HTMLElement | null = null;
+let touchResizeEdges: HTMLElement[] = [];
+
 // 触摸起始：先判断是否命中原生 Drag API（draggable="true"），命中则走原生路径；否则判断手动 mousedown 白名单
 const handleTouchStart = (e: TouchEvent) => {
     if (e.touches.length !== 1) return;
@@ -204,7 +207,7 @@ const handleTouchStart = (e: TouchEvent) => {
     if (!target.classList.contains("av__widthdrag") && !target.classList.contains("av__freeze-drag")) {
         const draggable = getDraggableAncestor(target);
         if (draggable) {
-            dragState = createDragState(draggable, touch, "touch", isMouseInput(touch));
+            dragState = createDragState(draggable, target, touch, "touch", isMouseInput(touch));
             // WebKit 会接管 draggable 元素的长按并取消触摸序列，临时关闭原生拖拽以保留 touchend。
             suspendNativeDrag(dragState);
             return;
@@ -246,6 +249,30 @@ const handleTouchStart = (e: TouchEvent) => {
         view: window,
     });
     target.dispatchEvent(mouseEvent);
+    // 仅在触摸命中可操作边界后提示，不改变鼠标反馈或内容区的长按行为。
+    if (!isMouseInput(touch) && document.onmousemove) {
+        touchResizeHandle = target.closest<HTMLElement>(
+            ".layout__resize, .layout__dockresize, " +
+            ".b3-dialog .resize__rd, .b3-dialog .resize__ld, .b3-dialog .resize__rt, " +
+            ".b3-dialog .resize__lt, .b3-dialog .resize__r, .b3-dialog .resize__l, " +
+            ".b3-dialog .resize__t, .b3-dialog .resize__d",
+        );
+        if (touchResizeHandle) {
+            touchResizeHandle.classList.add("touch-resize-active");
+            // 角把手在相邻边缘显示局部高亮，让手指外侧也能看到反馈。
+            const corner = ["rd", "ld", "rt", "lt"].find(direction =>
+                touchResizeHandle.classList.contains(`resize__${direction}`));
+            if (corner) {
+                touchResizeEdges = Array.from(touchResizeHandle.parentElement.children)
+                    .filter((child): child is HTMLElement => child instanceof HTMLElement &&
+                        [...corner].some(direction => child.classList.contains(`resize__${direction}`)));
+                touchResizeEdges.forEach(edge => {
+                    edge.dataset.touchResizeCorner = corner;
+                    edge.classList.add("touch-resize-active");
+                });
+            }
+        }
+    }
     manualState = {
         startX: touch.clientX,
         startY: touch.clientY,
@@ -334,8 +361,11 @@ const getDraggableAncestor = (el: Element): HTMLElement | null => {
     return null;
 };
 
-const createDragState = (draggableElement: HTMLElement, point: DragPoint, inputType: "touch" | "pointer",
+const createDragState = (draggableElement: HTMLElement, target: Element, point: DragPoint, inputType: "touch" | "pointer",
                          isMouse: boolean, pointerId?: number): DragState & LongPressGate => {
+    // 菜单和列表正文优先滚动，抓手仍可直接拖拽。
+    const isListContent = (draggableElement.classList.contains("b3-menu__item") ||
+        draggableElement.classList.contains("b3-list-item")) && !target.closest(".fn__grab");
     return {
         dataTransfer: null,
         ghostElement: null,
@@ -347,10 +377,11 @@ const createDragState = (draggableElement: HTMLElement, point: DragPoint, inputT
         startY: point.clientY,
         touchStartTime: Date.now(),
         // 触摸操作和 Android 外接鼠标在文件树、画廊、页签和列表操作中需长按，以避免与滚动冲突。
-        requireLongPress: shouldRequireLongPress(draggableElement.closest(".sy__file") !== null ||
+        requireLongPress: shouldRequireLongPress(isListContent || draggableElement.closest(".sy__file") !== null ||
             draggableElement.closest(".sy__outline") !== null ||
             draggableElement.closest(".av__gallery-item") !== null ||
             draggableElement.closest(".av__group-title") !== null ||
+            draggableElement.closest(".av__cell--header") !== null ||
             draggableElement.closest(".layout-tab-bar") !== null ||
             draggableElement.closest(".protyle-action") !== null, isMouse, !!isInAndroid()),
         longPressCancelled: false,
@@ -417,7 +448,7 @@ const handlePointerDown = (event: PointerEvent) => {
         return;
     }
 
-    dragState = createDragState(draggable, event, "pointer", true, event.pointerId);
+    dragState = createDragState(draggable, event.target as Element, event, "pointer", true, event.pointerId);
     // 原生 dragstart 会取消 Pointer 流，临时关闭 draggable 以保留 pointermove 和 pointerup。
     suspendNativeDrag(dragState);
 };
@@ -1061,6 +1092,13 @@ const handleCancel = () => {
 // 取消手动桥接（mousedown）路径：派发 mouseup 以触发各组件注册的清理回调（如 Outline.bindSort 的 mouseup 会清空 document.onmousemove 等），并复位状态
 // event.ts 的 touchend 会无条件前置调用它，确保 Outline.bindSort 等注册的 onmousemove/onmouseup 不残留，避免被后续事件误触发（创建拖拽 ghost、启动滚动动画等）
 export const cancelManualTouch = () => {
+    touchResizeHandle?.classList.remove("touch-resize-active");
+    touchResizeHandle = null;
+    touchResizeEdges.forEach(edge => {
+        edge.classList.remove("touch-resize-active");
+        delete edge.dataset.touchResizeCorner;
+    });
+    touchResizeEdges = [];
     if (manualState && document.onmouseup && typeof document.onmouseup === "function") {
         document.onmouseup(new MouseEvent("mouseup", {bubbles: true}));
     }
@@ -1098,13 +1136,6 @@ export const initTouchDragBridge = () => {
         document.addEventListener("lostpointercapture", handleLostPointerCapture, {capture: true, passive: true});
         document.addEventListener("click", handleMouseClick, {capture: true, passive: false});
         document.addEventListener("mouseup", handleForeignMouseUp, {capture: true, passive: true});
-        window.addEventListener("blur", () => {
-            if (dragState?.inputType === "pointer" &&
-                shouldCancelPointerDragAfterWindowExit(!!isInAndroid(), dragState.isDragging,
-                    !!dragState.relayId)) {
-                completeBridgeDrag(undefined, true);
-            }
-        });
     }
 
     document.addEventListener("wheel", handleDragWheel, {capture: true, passive: true});
@@ -1112,6 +1143,16 @@ export const initTouchDragBridge = () => {
     document.addEventListener("keydown", handleDragKey, {capture: true});
     document.addEventListener("keyup", handleDragKey, {capture: true});
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", () => {
+        if (enablePointerBridge && dragState?.inputType === "pointer" &&
+            shouldCancelPointerDragAfterWindowExit(!!isInAndroid(), dragState.isDragging,
+                !!dragState.relayId)) {
+            completeBridgeDrag(undefined, true);
+        }
+        if (touchResizeHandle) {
+            cancelManualTouch();
+        }
+    });
 
     // 触摸事件桥接：原生 Drag API（draggable="true"）与手动 mousedown 拖拽（dock/outline/resize 把手）统一入口
     document.addEventListener("touchstart", handleTouchStart, {passive: false});

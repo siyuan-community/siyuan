@@ -1,3 +1,5 @@
+import {keymapPayload} from "../../config/keymapPayload";
+import {mergeKeymapDefault} from "../../util/keymapBindings";
 import {Constants} from "../../constants";
 import {fetchPost} from "../../util/fetch";
 /// #if !BROWSER
@@ -55,7 +57,7 @@ const matchKeymap = (keymap: Config.IKeys, key1: "general" | "editor", key2?: "g
                 });
                 /// #endif
                 match = false;
-                window.siyuan.config.keymap[key1][key] = keymap[key];
+                window.siyuan.config.keymap[key1][key] = mergeKeymapDefault(window.siyuan.config.keymap[key1][key], keymap[key]);
             }
         } else {
             if (!window.siyuan.config.keymap[key1][key2][key] || window.siyuan.config.keymap[key1][key2][key].default !== keymap[key].default) {
@@ -66,14 +68,14 @@ const matchKeymap = (keymap: Config.IKeys, key1: "general" | "editor", key2?: "g
                 });
                 /// #endif
                 match = false;
-                window.siyuan.config.keymap[key1][key2][key] = keymap[key];
+                window.siyuan.config.keymap[key1][key2][key] = mergeKeymapDefault(window.siyuan.config.keymap[key1][key2][key], keymap[key]);
             }
         }
     });
     return match;
 };
 
-const hasKeymap = (keymap: Record<string, IKeymapItem>, key1: "general" | "editor", key2?: "general" | "insert" | "heading" | "list" | "table") => {
+const hasKeymap = (keymap: Config.IKeys, key1: "general" | "editor", key2?: "general" | "insert" | "heading" | "list" | "table") => {
     let match = true;
     if (key1 === "editor") {
         if (Object.keys(window.siyuan.config.keymap[key1][key2]).length !== Object.keys(Constants.SIYUAN_KEYMAP[key1][key2]).length) {
@@ -150,7 +152,7 @@ export const correctHotkey = (app: App) => {
         });
         /// #endif
         fetchPost("/api/setting/setKeymap", {
-            data: window.siyuan.config.keymap
+            data: keymapPayload(window.siyuan.config.keymap)
         }, () => {
             /// #if !BROWSER
             sendGlobalShortcut(app);
@@ -160,14 +162,14 @@ export const correctHotkey = (app: App) => {
     }
 };
 
-let lastHotkeys: Record<string, string>;
+let lastAppMenuSync: string;
 
-export const syncAppMenuShortcuts = () => {
+export const syncAppMenuShortcuts = (suspended = false) => {
     /// #if !BROWSER
     if (!isMac()) {
         return;
     }
-    const appMenuHotkeyItems: Record<string, IKeymapItem> = {
+    const appMenuHotkeyItems: Config.IKeys = {
         config: window.siyuan.config.keymap.general.config,
         toggleWin: window.siyuan.config.keymap.general.toggleWin,
         undo: window.siyuan.config.keymap.editor.general.undo,
@@ -176,47 +178,21 @@ export const syncAppMenuShortcuts = () => {
     const hotkey: Record<string, string> = {};
     Object.keys(appMenuHotkeyItems).forEach(id => {
         const item = appMenuHotkeyItems[id];
-        hotkey[id] = item.custom ?? item.default ?? "";
+        hotkey[id] = suspended ? "" : item.custom ?? item.default ?? "";
     });
-    if (lastHotkeys && Object.keys(appMenuHotkeyItems).every(id => lastHotkeys[id] === hotkey[id])) {
-        return;
-    }
-    lastHotkeys = {...hotkey};
-    ipcRenderer.send(Constants.SIYUAN_SYNC_APP_MENU, {
+    const data = {
         workspaceDir: getHostCapabilities().workspaces ? window.siyuan.config.system.workspaceDir : "",
         lang: window.siyuan.config.lang,
         readonly: window.siyuan.config.readonly,
         hotkey,
-        i18n: {
-            config: window.siyuan.languages.config,
-            about: window.siyuan.languages.appMenuAbout,
-            services: window.siyuan.languages.appMenuServices,
-            toggleMainWindow: window.siyuan.languages.toggleWin,
-            hide: window.siyuan.languages.appMenuHide,
-            hideOthers: window.siyuan.languages.appMenuHideOthers,
-            showAll: window.siyuan.languages.showAll,
-            quit: window.siyuan.languages.appMenuQuit,
-            edit: window.siyuan.languages.edit,
-            undo: window.siyuan.languages.undo,
-            redo: window.siyuan.languages.redo,
-            cut: window.siyuan.languages.cut,
-            copy: window.siyuan.languages.copy,
-            paste: window.siyuan.languages.paste,
-            pasteAndMatchStyle: window.siyuan.languages.pasteAsPlainText,
-            selectAll: window.siyuan.languages.selectAll,
-            window: window.siyuan.languages.appMenuWindow,
-            minimize: window.siyuan.languages.appMenuMinimize,
-            zoom: window.siyuan.languages.zoom,
-            togglefullscreen: window.siyuan.languages.appMenuTogglefullscreen,
-            help: window.siyuan.languages.help,
-            userGuide: window.siyuan.languages.userGuide,
-            feedback: window.siyuan.languages.feedback,
-            debug: window.siyuan.languages.debug,
-            officialWebsite: window.siyuan.languages._trayMenu.officialWebsite,
-            openSource: window.siyuan.languages._trayMenu.openSource,
-            bringAllToFront: window.siyuan.languages.appMenuBringAllToFront,
-        },
-    });
+    };
+    // 语言、工作空间和只读状态同样影响菜单，不能只比较快捷键。
+    const signature = JSON.stringify(data);
+    if (lastAppMenuSync === signature) {
+        return;
+    }
+    ipcRenderer.send(Constants.SIYUAN_SYNC_APP_MENU, data);
+    lastAppMenuSync = signature;
     /// #endif
 };
 

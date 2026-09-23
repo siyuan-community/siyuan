@@ -7,7 +7,9 @@ import {exitSiYuan, processSync} from "../dialog/processSystem";
 import {goBack, goForward} from "../util/backForward";
 import {syncGuide} from "../sync/syncGuide";
 import {workspaceMenu} from "../menus/workspace";
+import {initTopBarMenu} from "../menus/topBar";
 import {MenuItem} from "../menus/Menu";
+import {hideTooltip} from "../dialog/tooltip";
 import {setMode} from "../util/assets";
 import {openSetting} from "../config";
 import {openSearch} from "../search/spread";
@@ -24,6 +26,8 @@ import {exportLayout, resizeTopBar} from "./util";
 import {setTabPosition} from "./tabUtil";
 import {commandPanel} from "../boot/globalEvent/command/panel";
 import {openTopBarMenu} from "../plugin/openTopBarMenu";
+import {newDailyNote} from "../util/mount";
+import {openCard} from "../card/openCard";
 import {getWorkspaceName, setTitle} from "../util/processTitle";
 import {bindTopBarDrag} from "./topBarDrag";
 import {
@@ -81,6 +85,12 @@ export const initBar = (app: App) => {
 <div id="barSync" data-topbar-entry="barSync" class="ariaLabel toolbar__item${window.siyuan.config.readonly ? " fn__none" : ""}">
     <svg><use xlink:href="#iconCloudSucc"></use></svg>
 </div>
+<button id="barDailyNote" data-topbar-entry="barDailyNote" class="ariaLabel toolbar__item${window.siyuan.config.readonly ? " fn__none" : ""}" aria-label="${window.siyuan.languages.dailyNote} ${updateHotkeyTip(window.siyuan.config.keymap.general.dailyNote.custom)}">
+    <svg><use xlink:href="#iconCalendar"></use></svg>
+</button>
+<button id="barRiffCard" data-topbar-entry="barRiffCard" class="ariaLabel toolbar__item${window.siyuan.config.readonly ? " fn__none" : ""}" aria-label="${window.siyuan.languages.riffCard} ${updateHotkeyTip(window.siyuan.config.keymap.general.riffCard.custom)}">
+    <svg><use xlink:href="#iconRiffCard"></use></svg>
+</button>
 <button id="barBack" data-topbar-entry="barBack" class="ariaLabel toolbar__item toolbar__item--disabled" aria-label="${window.siyuan.languages.goBack} ${updateHotkeyTip(window.siyuan.config.keymap.general.goBack.custom)}">
     <svg><use xlink:href="#iconBack"></use></svg>
 </button>
@@ -105,9 +115,9 @@ export const initBar = (app: App) => {
 <div id="barMode" data-topbar-entry="barMode" class="toolbar__item ariaLabel${window.siyuan.config.readonly ? " fn__none" : ""}" aria-label="${window.siyuan.languages.appearanceMode}">
     <svg><use xlink:href="#icon${window.siyuan.config.appearance.modeOS ? "Mode" : (window.siyuan.config.appearance.mode === 0 ? "Light" : "Dark")}"></use></svg>
 </div>
-<div id="barExit" data-topbar-entry="barExit" class="ft__error toolbar__item ariaLabel${isInMobileApp() ? "" : " fn__none"}" aria-label="${window.siyuan.languages.safeQuit}">
+${isInMobileApp() ? `<div id="barExit" data-topbar-entry="barExit" class="ft__error toolbar__item ariaLabel" aria-label="${window.siyuan.languages.safeQuit}">
     <svg><use xlink:href="#iconQuit"></use></svg>
-</div>
+</div>` : ""}
 <div id="barMore" class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.more}">
     <svg><use xlink:href="#iconMore"></use></svg>
 </div>
@@ -122,6 +132,12 @@ export const initBar = (app: App) => {
     window.addEventListener("siyuan-entry-visibility", updateTopBarLayout);
     window.addEventListener("siyuan-topbar-change", updateTopBarLayout);
     processSync();
+    /// #if !BROWSER
+    ipcRenderer.on(Constants.SIYUAN_TOPBAR_CONTEXT_MENU, (event, position: IPosition) => {
+        hideTooltip();
+        initTopBarMenu().popup(position);
+    });
+    /// #endif
     toolbarElement.addEventListener("click", (event: MouseEvent) => {
         let target = event.target as HTMLElement;
         if (typeof event.detail === "string") {
@@ -168,11 +184,19 @@ export const initBar = (app: App) => {
                     window.siyuan.menus.menu.append(new MenuItem(menuOptions).element);
                 });
                 const rect = target.getBoundingClientRect();
-                window.siyuan.menus.menu.popup({x: rect.right, y: rect.bottom, isLeft: true});
+                window.siyuan.menus.menu.popup({x: rect.right, y: rect.bottom, h: rect.height, isLeft: true});
                 event.stopPropagation();
                 break;
             } else if (targetId === "barForward") {
                 goForward(app);
+                event.stopPropagation();
+                break;
+            } else if (targetId === "barDailyNote") {
+                newDailyNote(app);
+                event.stopPropagation();
+                break;
+            } else if (targetId === "barRiffCard") {
+                openCard(app);
                 event.stopPropagation();
                 break;
             } else if (targetId === "barSync") {
@@ -229,7 +253,7 @@ export const initBar = (app: App) => {
                 if (rect.width === 0) {
                     rect = toolbarElement.querySelector("#barMore").getBoundingClientRect();
                 }
-                window.siyuan.menus.menu.popup({x: rect.right, y: rect.bottom, isLeft: true});
+                window.siyuan.menus.menu.popup({x: rect.right, y: rect.bottom, h: rect.height, isLeft: true});
                 event.stopPropagation();
                 break;
             } else if (targetId === "toolbarVIP" || targetId === "toolbarTitle") {
@@ -279,6 +303,7 @@ export const initBar = (app: App) => {
                 }).element);
                 window.siyuan.menus.menu.append(new MenuItem({
                     label: window.siyuan.languages.reset,
+                    icon: "iconRefresh",
                     accelerator: "⌘0",
                     click: () => {
                         setZoom("restore");
@@ -288,7 +313,7 @@ export const initBar = (app: App) => {
                 if (rect.width === 0) {
                     rect = toolbarElement.querySelector("#barMore").getBoundingClientRect();
                 }
-                window.siyuan.menus.menu.popup({x: rect.right, y: rect.bottom, isLeft: true});
+                window.siyuan.menus.menu.popup({x: rect.right, y: rect.bottom, h: rect.height, isLeft: true});
                 event.stopPropagation();
                 break;
             }

@@ -25,6 +25,8 @@ export interface IEntryCatalogNode {
     sortable?: boolean;
     fixed?: boolean;
     defaultVisible?: () => boolean;
+    simpleDefaultVisible?: boolean;
+    customDefaultVisible?: boolean;
     children?: IEntryCatalogNode[];
 }
 
@@ -39,7 +41,8 @@ const lang = (key: string) => () => window.siyuan.languages[key] || key;
 const literal = (value: string) => () => value;
 const location = (...labels: Array<() => string>) => () => labels.map((label) => label()).join(" - ");
 const node = (key: string, label: () => string, simple = true, children?: IEntryCatalogNode[],
-              sortable?: boolean, options?: Pick<IEntryCatalogNode, "defaultVisible" | "fixed">): IEntryCatalogNode => ({
+              sortable?: boolean, options?: Pick<IEntryCatalogNode,
+                  "defaultVisible" | "simpleDefaultVisible" | "customDefaultVisible" | "fixed">): IEntryCatalogNode => ({
     key,
     label,
     simple,
@@ -137,7 +140,8 @@ const importChildren = () => [
 ];
 
 const docTreeCommon = (multi = false) => [
-    node("copy", lang("copy"), true, [...copyChildren(), node("duplicate", lang("duplicateCopy"))]),
+    node("copy", lang("copy"), true, [...copyChildren(), node("duplicate", lang("duplicateCopy")),
+        ...(!multi ? [node("duplicateTree", lang("duplicateDocTree"))] : [])]),
     node("move", lang("move")),
     node("addToDatabase", lang("addToDatabase"), false),
     node("delete", lang("delete")),
@@ -170,6 +174,8 @@ const docTreeDocument = () => {
         separator("separator_2"),
         node("rename", lang("rename")),
         node("attr", lang("attr")),
+        node("pinDoc", lang("pinDoc")),
+        node("unpinDoc", lang("unpinDoc")),
         node("sort", lang("sort"), true, sortChildren("sortByParent")),
         riffCard,
         node("search", lang("search")),
@@ -184,21 +190,25 @@ const docTreeDocument = () => {
 
 const docTreeMultiple = () => {
     const [copy, move, addToDatabase, remove, riffCard, openBy, exportEntry] = docTreeCommon(true);
-    return [copy, move, addToDatabase, remove, separator("separator_1"), riffCard,
+    return [copy, move, addToDatabase, remove, node("pinDoc", lang("pinDoc")), node("unpinDoc", lang("unpinDoc")), separator("separator_1"), riffCard,
         separator("separator_2"), openBy, exportEntry];
 };
 
-const gutterCopyChildren = (includeCopyAsPNG = false) => [
-    ...copyChildren(),
+const gutterCopyChildren = (single = false) => [
+    ...copyChildren().slice(0, 6),
+    ...(single ? [node("copyAVID", lang("copyAVID"))] : []),
+    ...copyChildren().slice(6),
+    node("copyText", lang("copyText")),
     node("copyRichText", lang("copyRichText")),
     node("copyPlainText", lang("copyPlainText")),
-    ...(includeCopyAsPNG ? [node("copyAsPNG", lang("copyAsPNG"))] : []),
-    node("copyText", lang("copyText")),
+    ...(single ? [node("copyAsPNG", lang("copyAsPNG"))] : []),
+    ...(single ? [node("copyMirror", lang("copyMirror"))] : []),
     node("copy", lang("copy")),
-    node("copyAVID", lang("copyAVID")),
     node("duplicate", lang("duplicateCopy")),
-    node("duplicateMirror", lang("duplicateMirror")),
-    node("duplicateCompletely", lang("duplicateCompletely")),
+    ...(single ? [
+        node("duplicateMirror", lang("duplicateMirror")),
+        node("duplicateCompletely", lang("duplicateCompletely")),
+    ] : []),
 ];
 
 const gutterTurnInto = (multi: boolean) => node("turnInto", lang("turnInto"), true, [
@@ -215,6 +225,7 @@ const gutterTurnInto = (multi: boolean) => node("turnInto", lang("turnInto"), tr
         node("list", lang("list")),
         node("orderedList", lang("ordered-list")),
         node("check", lang("check")),
+        ...(!multi ? [node("listMindmap", lang("mindmap"))] : []),
         node("heading1", lang("heading1")),
         node("heading2", lang("heading2")),
         node("heading3", lang("heading3")),
@@ -223,7 +234,7 @@ const gutterTurnInto = (multi: boolean) => node("turnInto", lang("turnInto"), tr
         node("heading6", lang("heading6")),
         ...(!multi ? [node("superBlock", lang("superBlock"))] : []),
         node("code", lang("code")),
-        node("table", lang("table")),
+        node("table", lang("tableBlock")),
         node("line", lang("line")),
         node("math", lang("math")),
         node("includeSublists", lang("includeSublists"), true, [
@@ -290,7 +301,8 @@ const gutterHeight = () => node("height", lang("height"), true, [
     node("default", lang("default")),
 ]);
 
-const gutterTable = () => node("table", lang("table"), true, [
+const gutterTable = () => node("table", lang("tableBlock"), true, [
+    node("cancelMerged", lang("cancelMerged")),
     node("useDefaultWidth", lang("useDefaultWidth")),
     node("distributeAllColWidths", lang("distributeAllColWidths")),
     node("useDefaultWidthForAllColumns", lang("useDefaultWidthForAllColumns")),
@@ -299,6 +311,7 @@ const gutterTable = () => node("table", lang("table"), true, [
     node("tableHeaderRow", lang("tableHeaderRow")),
     node("tableHeaderColumn", lang("tableHeaderColumn")),
     node("title", lang("title")),
+    node("transposeTable", lang("transposeTable")),
     separator("separator_1"),
     node("alignment", lang("alignment"), true, [
         node("alignLeft", lang("alignLeft")),
@@ -357,7 +370,13 @@ const gutterMultiple = () => [
 const gutterSingle = () => [
     ...gutterBase(false),
     separator("separator_listBlock"),
-    node("listBlock", lang("listBlock"), true, [
+    node("listBlock", () => `${lang("listBlock")()} / ${lang("listItem")()}`, true, [
+        node("taskStatusTodo", lang("taskStatusTodo")),
+        node("taskStatusInProgress", lang("taskStatusInProgress")),
+        node("taskStatusDone", lang("taskStatusDone")),
+        node("taskStatusCanceled", lang("taskStatusCanceled")),
+        node("customTaskStatus", lang("customTaskStatus")),
+        separator("separator_taskStatus"),
         node("orderedListStart", lang("orderedListStart")),
         node("continueListNumbering", lang("continueListNumbering")),
         separator("separator_numbering"),
@@ -368,6 +387,7 @@ const gutterSingle = () => [
     node("tabs", lang("tabs"), true, [
         node("tabsPositionTop", lang("tabsPositionTop")),
         node("tabsPositionLeft", lang("tabsPositionLeft")),
+        separator("separator_tabsTask"),
         node("tabsTask", lang("task")),
     ]),
     separator("separator_cancelSuperBlock"),
@@ -389,8 +409,10 @@ const gutterSingle = () => [
     separator("separator_table"),
     gutterTable(),
     separator("separator_exportCSV"),
-    node("exportCSV", () => `${window.siyuan.languages.export} CSV`),
-    node("showDatabaseInFolder", lang("showInFolder")),
+    node("database", lang("databaseBlock"), true, [
+        node("exportCSV", () => `${window.siyuan.languages.export} CSV`),
+        node("showDatabaseInFolder", lang("showInFolder")),
+    ]),
     separator("separator_VideoOrAudio"),
     node("assetVideo", location(lang("video"), lang("assets")), true, [
         node("asset", lang("assets")),
@@ -415,7 +437,7 @@ const gutterSingle = () => [
         node("openBy", lang("openBy")),
     ]),
     separator("separator_html"),
-    node("html", literal("HTML")),
+    node("html", lang("htmlBlock")),
     separator("separator_blockEmbed"),
     node("blockEmbed", lang("blockEmbed"), true, [
         node("refresh", lang("refresh")),
@@ -427,6 +449,10 @@ const gutterSingle = () => [
             node("showHeadingOnlyTitle", lang("showHeadingOnlyTitle")),
             node("showHeadingOnlyBlocks", lang("showHeadingOnlyBlocks")),
             node("default", lang("default")),
+        ]),
+        node("embedHeadingLevel", lang("embedHeadingLevel"), true, [
+            node("auto", lang("embedHeadingLevelPreserve")),
+            ...[1, 2, 3, 4, 5, 6].map(level => node(`heading${level}`, lang(`heading${level}`))),
         ]),
     ]),
     separator("separator_1"),
@@ -467,9 +493,18 @@ const gutterSingle = () => [
 
 export const SLASH_MENU_ROOT_PATH = "editor.slash.menu";
 
-const toolbarBuiltinChildren = DESKTOP_TOOLBAR_ENTRIES.map((item) => item.separator
-    ? separator(item.key)
-    : node(item.key, lang(item.lang)));
+// 共享工具栏声明决定目录默认顺序，字体和字号位于外观之前。
+const toolbarBuiltinChildren = DESKTOP_TOOLBAR_ENTRIES.map((item) => {
+    if (item.separator) {
+        return separator(item.key);
+    }
+    const fontControl = ["font-family", "font-size"].includes(item.key);
+    return node(item.key, lang(item.lang), !fontControl, undefined, undefined,
+        fontControl ? {
+            defaultVisible: () => typeof window === "undefined" || !window.siyuan.mobile,
+            customDefaultVisible: false,
+        } : undefined);
+});
 const toolbarBuiltinNodeMap = new Map(toolbarBuiltinChildren.map((item) => [item.key, item]));
 
 const slashMenuBuiltinChildren = [
@@ -492,6 +527,7 @@ const slashMenuBuiltinChildren = [
     node("list", lang("list")),
     node("orderedList", lang("ordered-list")),
     node("check", lang("check")),
+    node("mindmap", lang("mindmap")),
     node("quote", lang("quote")),
     node("tabs", lang("tabs")),
     node("calloutNote", location(lang("callout"), literal("Note"))),
@@ -505,6 +541,8 @@ const slashMenuBuiltinChildren = [
     node("math", lang("math")),
     node("html", literal("HTML")),
     node("databaseTableView", lang("databaseTableView")),
+    node("databaseListView", lang("databaseListView")),
+    node("databaseCalendarView", lang("databaseCalendarView")),
     node("databaseKanbanView", lang("databaseKanbanView")),
     node("databaseGalleryView", lang("databaseGalleryView")),
     separator("separator_2"),
@@ -534,7 +572,6 @@ const slashMenuBuiltinChildren = [
     node("flowChart", literal("FlowChart")),
     node("graph", literal("Graphviz")),
     node("mermaid", literal("Mermaid")),
-    node("mindmap", literal("Mind map")),
     node("UML", literal("PlantUML")),
     separator("separator_5"),
     node("infoStyle", lang("infoStyle")),
@@ -556,23 +593,44 @@ const toolbarCatalogSection: IEntryCatalogSection = {
 };
 
 export const TOP_BAR_ROOT_PATH = "topBar";
+export const STATUS_BAR_ROOT_PATH = "statusBar";
+
+const statusBarCatalogSection: IEntryCatalogSection = {
+    key: STATUS_BAR_ROOT_PATH,
+    label: lang("entryStatusBar"),
+    children: [
+        node("barDock", lang("toggleDock")),
+        node("message", lang("entryStatusMessage")),
+        fixed("spacer", lang("entryStatusSpacer")),
+        node("backgroundTask", lang("entryStatusTask")),
+        node("counter", lang("entryDocumentStatistics")),
+        node("statusHelp", lang("help")),
+    ],
+};
 
 const topBarBuiltinChildren = [
     node("barSync", lang("syncNow")),
+    node("barDailyNote", lang("dailyNote"), true, undefined, undefined, {
+        defaultVisible: () => false,
+        simpleDefaultVisible: true,
+        customDefaultVisible: false,
+    }),
+    node("barRiffCard", lang("riffCard"), true, undefined, undefined, {
+        defaultVisible: () => false,
+        simpleDefaultVisible: true,
+        customDefaultVisible: false,
+    }),
     node("barBack", lang("goBack")),
     node("barForward", lang("goForward")),
     fixed("drag", lang("entryTopBarDrag")),
-    node("toolbarVIP", lang("accountDisplayVIP"), true, undefined, undefined, {
-        defaultVisible: () => window.siyuan.config.account.displayVIP,
-    }),
-    node("toolbarTitle", lang("accountDisplayTitle"), true, undefined, undefined, {
-        defaultVisible: () => window.siyuan.config.account.displayTitle,
-    }),
+    node("toolbarVIP", lang("accountDisplayVIP")),
+    node("toolbarTitle", lang("accountDisplayTitle")),
     node("barPlugins", lang("plugin")),
     node("barCommand", lang("commandPanel")),
     node("barSearch", lang("globalSearch")),
     node("barZoom", lang("zoom")),
     node("barMode", lang("appearanceMode")),
+    // 仅在平板原生应用中显示，保留目录标识以兼容已有可见性和排序配置。
     node("barExit", lang("safeQuit")),
 ];
 
@@ -629,6 +687,7 @@ const dockCatalogSection: IEntryCatalogSection = {
 
 export const entryCatalog: IEntryCatalogSection[] = [
     topBarCatalogSection,
+    statusBarCatalogSection,
     dockCatalogSection,
     {
         key: "docTree.panel",
@@ -649,6 +708,8 @@ export const entryCatalog: IEntryCatalogSection[] = [
             node("openDocument", lang("openDocument")),
             node("rename", lang("rename")),
             node("config", lang("config")),
+            node("pinDoc", lang("pinDoc")),
+            node("unpinDoc", lang("unpinDoc")),
             node("sort", lang("sort"), true, sortChildren("sortByFiletree")),
             node("riffCard", lang("riffCard"), false),
             node("search", lang("search")),
@@ -832,6 +893,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
             node("deleteColumn", lang("delete-column")),
             separator("separator_3"),
             node("more", lang("more"), true, [
+                node("cancelMerged", lang("cancelMerged")),
                 node("useDefaultWidth", lang("useDefaultWidth")),
                 node("pinTableHead", lang("pinTableHead")),
                 node("unpinTableHead", lang("unpinTableHead")),
@@ -843,19 +905,11 @@ export const entryCatalog: IEntryCatalogSection[] = [
                 node("alignCenter", lang("alignCenter")),
                 node("alignRight", lang("alignRight")),
                 node("useDefaultAlign", lang("useDefaultAlign")),
-                separator("separator_insert"),
-                node("insertRowAbove", lang("insertRowAbove")),
-                node("insertRowBelow", lang("insertRowBelow")),
-                node("insertColumnLeft", lang("insertColumnLeft")),
-                node("insertColumnRight", lang("insertColumnRight")),
                 separator("separator_2"),
                 node("moveToUp", lang("moveToUp")),
                 node("moveToDown", lang("moveToDown")),
                 node("moveToLeft", lang("moveToLeft")),
                 node("moveToRight", lang("moveToRight")),
-                separator("separator_delete"),
-                node("deleteRow", lang("delete-row")),
-                node("deleteColumn", lang("delete-column")),
             ]),
         ],
     },
@@ -905,6 +959,7 @@ export const entryCatalog: IEntryCatalogSection[] = [
                 node("default", lang("default")),
             ]),
             separator("separator_3"),
+            node("openBy", lang("openBy")),
             node("export", lang("export")),
             node("copyFile", lang("copyFile"), false),
             node("copyAsPNG", lang("copyAsPNG"), false),
@@ -933,8 +988,14 @@ export const entryCatalog: IEntryCatalogSection[] = [
                 node("text*", () => `${window.siyuan.languages.text} *`),
                 node("link", lang("hyperlink")),
                 node("blockEmbed", lang("blockEmbed")),
-                node("defBlock", lang("defBlock"), false),
-                node("defBlockChildren", lang("defBlockChildren"), false),
+                node("defBlock", lang("defBlock"), false, [
+                    node("originalToRef", lang("originalToRef")),
+                    node("originalToEmbed", lang("originalToEmbed")),
+                ]),
+                node("defBlockChildren", lang("defBlockChildren"), false, [
+                    node("originalToRef", lang("originalToRef")),
+                    node("originalToEmbed", lang("originalToEmbed")),
+                ]),
             ]),
             node("copy", lang("copy")),
             node("cut", lang("cut")),
@@ -1030,6 +1091,8 @@ export const getEntryParentPath = (path: string) => parentMap.get(path);
 export const isEntryCatalogNodeConfigurable = (item: IEntryCatalogNode) => item.fixed !== true;
 export const getEntryCatalogDefaultVisibility = (path: string) =>
     getEntryCatalogNode(path)?.defaultVisible?.() ?? true;
+export const getEntryCatalogCustomDefaultVisibility = (path: string) =>
+    getEntryCatalogNode(path)?.customDefaultVisible ?? getEntryCatalogDefaultVisibility(path);
 export const getEntryPaths = () => Array.from(entryMap.entries())
     .filter(([, item]) => isEntryCatalogNodeConfigurable(item))
     .map(([path]) => path);

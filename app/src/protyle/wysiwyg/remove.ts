@@ -1,4 +1,5 @@
 import {isHiddenTabContent} from "../render/tabsVisibility";
+import {prepareInlineElementBoundaryMutation} from "../util/inlineElementBoundary";
 import {captureTabsRemoval} from "./tabsRemoval";
 import {
     focusBlock,
@@ -73,6 +74,7 @@ import {
 } from "./removeRange";
 import {confirmBlockRef} from "../../util/checkBlockRef";
 import {input} from "./input";
+import {getFoldedNavigationOwner} from "./verticalVisibility";
 import {isWindows} from "../util/compatibility";
 import {
     BLOCK_SELECTION_MODE_CLASS,
@@ -393,6 +395,7 @@ const deleteCrossBlockRangeContents = (rangesByBlock: ReturnType<typeof getCross
                 .filter(refElement => refElement.getAttribute("data-type")?.split(" ").includes("block-ref") &&
                     refElement.getAttribute("data-subtype") === "d")
                 .map(refElement => [refElement, refElement.textContent] as const));
+            prepareInlineElementBoundaryMutation(item.range);
             item.range.deleteContents();
             dynamicRefTexts.forEach((text, refElement) => {
                 if (refElement.isConnected && refElement.textContent !== text) {
@@ -1147,6 +1150,9 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                         const foldTransaction = await fetchSyncPost("/api/block/getHeadingDeleteTransaction", {
                             id: foldId,
                         });
+                        if (foldTransaction.code !== 0) {
+                            return;
+                        }
                         unfoldData[foldId] = {
                             element: foldPreviousBlockElement,
                             previousID: foldTransaction.data.doOperations[foldTransaction.data.doOperations.length - 1].id
@@ -1175,6 +1181,9 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
                         const foldTransaction = await fetchSyncPost("/api/block/getHeadingDeleteTransaction", {
                             id: foldId,
                         });
+                        if (foldTransaction.code !== 0) {
+                            return;
+                        }
                         unfoldData[foldId] = {
                             element: previousBlockElement,
                             previousID: foldTransaction.data.doOperations[foldTransaction.data.doOperations.length - 1].id
@@ -1207,7 +1216,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         }
         tabsRemoval.normalize();
         Object.keys(unfoldData).forEach(item => {
-            const foldOperations = setFold(protyle, unfoldData[item].element, true, false, false, true);
+            const foldOperations = setFold(protyle, unfoldData[item].element, true, false, true);
             deletes.push(...foldOperations.doOperations);
             inserts.splice(0, 0, ...foldOperations.undoOperations);
         });
@@ -1544,11 +1553,11 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         const previousBlockElement = getPreviousBlockSibling(blockElement);
         if (previousBlockElement?.getAttribute("data-type") === "NodeHeading" &&
             previousBlockElement.getAttribute("fold") === "1") {
-            setFold(protyle, previousBlockElement, true, false, false, false, false);
+            setFold(protyle, previousBlockElement, true, false, false, false);
         }
         if (blockType === "NodeHeading" &&
             blockElement.getAttribute("fold") === "1") {
-            setFold(protyle, blockElement, true, false, false, false, false);
+            setFold(protyle, blockElement, true, false, false, false);
         }
         turnsIntoTransaction({
             protyle: protyle,
@@ -1588,6 +1597,12 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
     const parentElement = hasClosestBlock(getParentBlock(blockElement));
     const editableElement = getContenteditableElement(blockElement);
     let previousLastElement = getLastBlock(previousElement) as HTMLElement;
+    const foldedListItem = getFoldedNavigationOwner(previousLastElement);
+    if (foldedListItem?.getAttribute("data-type") === "NodeListItem") {
+        // 删除合并定位到折叠列表项的可见文本，避免在隐藏子列表中插入光标。
+        previousLastElement = (hasClosestBlock(getContenteditableElement(foldedListItem)) ||
+            foldedListItem.querySelector("[data-node-id]")) as HTMLElement;
+    }
     if (range.toString() === "" && isMobile() && previousLastElement &&
         previousLastElement.classList.contains("hr") && editableElement && getSelectionOffset(editableElement).start === 0) {
         if (!await confirmRefRemoval(protyle,
@@ -1775,7 +1790,7 @@ export const removeBlock = async (protyle: IProtyle, blockElement: Element, rang
         // https://github.com/siyuan-note/siyuan/issues/12327
         if (removeParentElement.classList.contains("li") && removeParentElement.childElementCount === 4 &&
             removeParentElement.getAttribute("fold") === "1") {
-            const foldOperations = setFold(protyle, removeParentElement, true, false, false, true);
+            const foldOperations = setFold(protyle, removeParentElement, true, false, true);
             doOperations.push(...foldOperations.doOperations);
             undoOperations.splice(0, 0, ...foldOperations.undoOperations);
         }
@@ -2169,7 +2184,7 @@ const removeLi = async (protyle: IProtyle, blockElement: Element, range: Range, 
     }
 
     if (foldElement) {
-        const foldOperations = setFold(protyle, foldElement, true, false, false, true);
+        const foldOperations = setFold(protyle, foldElement, true, false, true);
         doOperations.push(...foldOperations.doOperations);
         undoOperations.push(...foldOperations.undoOperations);
         if (foldElement.parentElement.getAttribute("data-subtype") === "o") {

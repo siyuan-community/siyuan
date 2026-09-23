@@ -5,7 +5,7 @@ import {genUUID} from "../../util/genID";
 import {
     entryCatalog,
     getEntryCatalogChildren,
-    getEntryCatalogDefaultVisibility,
+    getEntryCatalogCustomDefaultVisibility,
     getEntryCatalogPathChain,
     getEntryPaths,
     IEntryCatalogNode,
@@ -16,6 +16,7 @@ import {
     refreshSlashMenuCatalog,
     refreshTopBarCatalog,
     TOP_BAR_ROOT_PATH,
+    STATUS_BAR_ROOT_PATH,
 } from "./catalog";
 import {
     createEntryProfileSnapshot,
@@ -23,7 +24,7 @@ import {
     ENTRY_PROFILE_FULL,
     ENTRY_PROFILE_SIMPLE,
     ENTRY_VISIBILITY_VERSION,
-    isEntryVisible,
+    getConfiguredEntryVisibility as isEntryVisible,
     saveEntryVisibility,
     TEntryVisibilityTemplate,
 } from "./runtime";
@@ -40,6 +41,9 @@ import {
     TEntryVisibilityImportProfile,
 } from "./profile";
 import {getHostCapabilities} from "../../util/hostCapabilities";
+import {isMobile} from "../../util/functions";
+import {isInMobileApp} from "../../protyle/util/compatibility";
+import {MOBILE_TOOLBAR_NAMES, TOOLBAR_ENTRY_ROOT_PATH} from "../../protyle/toolbar/defaults";
 import {
     DOCK_ORDER_SCOPES,
     DOCK_ORDER_SCOPES_BY_SIDE,
@@ -51,6 +55,18 @@ import {
     TDockOrderScope,
     TDockOrderSnapshot,
 } from "./dockOrder";
+
+const getVisibleEntryCatalog = () => isMobile() ? entryCatalog.filter(item =>
+    item.key === TOOLBAR_ENTRY_ROOT_PATH)
+    .map(item => ({...item, children: item.children.filter(child => child.type === "separator" ||
+        MOBILE_TOOLBAR_NAMES.includes(child.key) || child.key.startsWith("plugin:"))})) : entryCatalog.map(item =>
+    item.key === TOP_BAR_ROOT_PATH && !isInMobileApp() ?
+        {...item, children: item.children.filter(child => child.key !== "barExit")} : item);
+
+const renderTouchOrderButtons = (enabled: boolean) => isMobile() && enabled ? ["up", "down"].map(direction =>
+    `<button type="button" class="block__icon block__icon--show" data-entry-move="${direction}"
+        aria-label="${escapeAttr(window.siyuan.languages[direction])}">
+        <svg><use xlink:href="#${direction === "up" ? "iconUp" : "iconDown"}"></use></svg></button>`).join("") : "";
 
 type TImportFile = {
     type: "siyuan-entry-profile" | "siyuan-entry-profile-bundle";
@@ -154,6 +170,9 @@ const createEntryView = (root: HTMLElement) => {
     removeEntryView(root);
     const view = document.createElement("div");
     view.className = "config-entry-visibility__view config__view";
+    if (isMobile()) {
+        view.classList.add("config-entry-visibility__view--mobile");
+    }
     view.innerHTML = `<div class="b3-dialog__header fn__flex">
     <div class="block__logo fn__pointer fn__flex-1" data-action="back">
         <svg class="block__logoicon"><use xlink:href="#iconLeft"></use></svg>
@@ -182,8 +201,8 @@ const profileCard = (
     <div class="b3-card__actions b3-card__actions--right">
         ${active ? "" : `<button class="b3-button b3-button--outline" data-action="activate">${window.siyuan.languages.use}</button>`}
         <button class="block__icon block__icon--show ariaLabel" data-action="duplicate" data-position="north" aria-label="${window.siyuan.languages.duplicateCopy}"><svg><use xlink:href="#iconCopy"></use></svg></button>
-        ${builtin || !getHostCapabilities().importExport ? "" : `<button class="block__icon block__icon--show ariaLabel" data-action="export" data-position="north" aria-label="${window.siyuan.languages.export}"><svg><use xlink:href="#iconDownload"></use></svg></button>`}
-        <button class="block__icon block__icon--show${active || builtin ? " fn__none" : " block__icon--warning"} ariaLabel" data-action="delete" data-position="north" aria-label="${window.siyuan.languages.delete}"><svg><use xlink:href="#iconTrashcan"></use></svg></button>
+        ${builtin || !getHostCapabilities().importExport ? "" : `<button class="block__icon block__icon--show ariaLabel" data-action="export" data-position="north" aria-label="${window.siyuan.languages.export}"><svg><use xlink:href="#iconUpload"></use></svg></button>`}
+        <button class="block__icon block__icon--show${builtin ? " fn__none" : " block__icon--warning"} ariaLabel" data-action="delete" data-position="north" aria-label="${window.siyuan.languages.delete}"><svg><use xlink:href="#iconTrashcan"></use></svg></button>
     </div>
 </div>`;
 
@@ -209,6 +228,9 @@ const resolveProfileEntryOrder = (profile: Config.IEntryVisibilityProfile, paren
     if (parentPath === TOP_BAR_ROOT_PATH) {
         return resolveEntryOrderWithBoundaryDefaults(defaultOrder, profile.orders?.[parentPath], "drag", separatorKeys);
     }
+    if (parentPath === STATUS_BAR_ROOT_PATH) {
+        return resolveEntryOrderWithBoundaryDefaults(defaultOrder, profile.orders?.[parentPath], "spacer", separatorKeys);
+    }
     return resolveEntryOrder(defaultOrder, profile.orders?.[parentPath], separatorKeys);
 };
 
@@ -228,12 +250,12 @@ const orderEntryNodes = (profile: Config.IEntryVisibilityProfile, parentPath: st
 };
 
 const renderEntrySwitch = (profile: Config.IEntryVisibilityProfile, path: string, item: IEntryCatalogNode,
-                           parentEnabled: boolean, readOnly: boolean) => {
-    const label = item.type === "separator" ? window.siyuan.languages.entrySeparator : item.label();
+                           parentEnabled: boolean, readOnly: boolean,
+                           label = item.type === "separator" ? window.siyuan.languages.entrySeparator : item.label()) => {
     return `<input class="b3-switch" type="checkbox"
     aria-label="${escapeAttr(label)}" data-entry-path="${escapeAttr(path)}"${readOnly ? ' data-entry-readonly aria-disabled="true"' : ""}
     ${!parentEnabled && !readOnly ? " disabled" : ""}${getProfileEntryVisibility(profile, path,
-        getEntryCatalogDefaultVisibility(path)) ? " checked" : ""}>`;
+        getEntryCatalogCustomDefaultVisibility(path)) ? " checked" : ""}>`;
 };
 
 const renderEntryRows = (profile: Config.IEntryVisibilityProfile, prefix: string,
@@ -244,11 +266,16 @@ const renderEntryRows = (profile: Config.IEntryVisibilityProfile, prefix: string
         const configurable = isEntryCatalogNodeConfigurable(item);
         const draggable = sortable && parentEnabled && configurable;
         if (item.type === "separator") {
+            const separatorIndex = (getEntryCatalogChildren(prefix) || nodes)
+                .filter(node => node.type === "separator").findIndex(node => node.key === item.key) + 1;
+            const label = window.siyuan.languages.entrySeparator +
+                (prefix === TOOLBAR_ENTRY_ROOT_PATH ? ` ${separatorIndex}` : "");
             return `<div class="config-entry-visibility__row config-entry-visibility__row--separator${parentEnabled ? "" : " config-entry-visibility__row--disabled"}${readOnly ? " config-entry-visibility__row--readonly" : ""}"
                 data-entry-row data-entry-key="${escapeAttr(item.key)}" data-entry-parent="${escapeAttr(prefix)}">
                 ${draggable ? '<span class="config-entry-visibility__drag" draggable="true"><svg><use xlink:href="#iconDrag"></use></svg></span>' : ""}
-                <span class="config-entry-visibility__label">${window.siyuan.languages.entrySeparator}</span>
-                ${renderEntrySwitch(profile, path, item, parentEnabled, readOnly)}
+                <span class="config-entry-visibility__label">${escapeHtml(label)}</span>
+                ${renderEntrySwitch(profile, path, item, parentEnabled, readOnly, label)}
+                ${renderTouchOrderButtons(draggable && !readOnly)}
                 <span class="config-entry-visibility__arrow-space"></span>
             </div>`;
         }
@@ -265,6 +292,7 @@ const renderEntryRows = (profile: Config.IEntryVisibilityProfile, prefix: string
                 <span>${escapeHtml(label)}</span>
             </button>` : `<span class="config-entry-visibility__label" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`}
             ${configurable ? renderEntrySwitch(profile, path, item, parentEnabled, readOnly) : ""}
+            ${renderTouchOrderButtons(draggable && !readOnly)}
             ${hasChildren ? `<button class="block__icon block__icon--show config-entry-visibility__arrow" data-action="navigate-entry"
                 data-entry-path="${escapeAttr(path)}" data-entry-depth="${depth}" aria-label="${escapeAttr(window.siyuan.languages.expand)}">
                 <svg><use xlink:href="#iconRight"></use></svg>
@@ -409,17 +437,18 @@ const getDockEntrySelectedPaths = (key: string) => [`${DOCK_SECTION_KEY}.${key}`
 const renderEntryColumns = (profile: Config.IEntryVisibilityProfile, sectionKey: string,
                             selectedPaths: string[], readOnly: boolean, visiblePaths?: Set<string>,
                             visibleSectionKeys?: Set<string>, dockOrderSnapshot = getDockEntryOrderSnapshot()) => {
+    const catalog = getVisibleEntryCatalog();
     const sections = visibleSectionKeys
-        ? entryCatalog.filter((item) => visibleSectionKeys.has(item.key))
-        : entryCatalog;
-    const section = sections.find((item) => item.key === sectionKey) || sections[0] || entryCatalog[0];
+        ? catalog.filter((item) => visibleSectionKeys.has(item.key))
+        : catalog;
+    const section = sections.find((item) => item.key === sectionKey) || sections[0] || catalog[0];
     const locationColumn = `<section class="config-entry-visibility__column config-entry-visibility__column--locations" data-entry-column>
     <div class="config-entry-visibility__column-title">${window.siyuan.languages.position}</div>
     <div class="config-entry-visibility__column-list">
         ${sections.map((item) => renderEntryLocation(profile, item, item.key === section.key, readOnly)).join("")}
     </div>
 </section>`;
-    const columns = [locationColumn];
+    const columns = isMobile() ? [] : [locationColumn];
     if (section.key === DOCK_SECTION_KEY) {
         renderDockColumns(columns, profile, selectedPaths, readOnly, dockOrderSnapshot, visiblePaths);
         return `<div class="config-entry-visibility__columns">${columns.join("")}</div>`;
@@ -434,7 +463,7 @@ const renderEntryColumns = (profile: Config.IEntryVisibilityProfile, sectionKey:
     let title = directDisplayRoot?.label() || section.label();
     let parentEnabled = directDisplayRoot
         ? getProfileEntryVisibility(profile, directDisplayRootPath,
-            getEntryCatalogDefaultVisibility(directDisplayRootPath))
+            getEntryCatalogCustomDefaultVisibility(directDisplayRootPath))
         : true;
     let depth = 0;
     while (nodes.length > 0) {
@@ -453,7 +482,7 @@ const renderEntryColumns = (profile: Config.IEntryVisibilityProfile, sectionKey:
             break;
         }
         parentEnabled = parentEnabled && getProfileEntryVisibility(profile, selectedPath,
-            getEntryCatalogDefaultVisibility(selectedPath));
+            getEntryCatalogCustomDefaultVisibility(selectedPath));
         nodes = selectedNode.children;
         prefix = selectedPath;
         title = selectedNode.label();
@@ -486,7 +515,7 @@ const getEntrySearchResults = (query: string) => {
             }
         });
     };
-    entryCatalog.forEach((section) => visit(section, section.key, section.children, [section.label()]));
+    getVisibleEntryCatalog().forEach((section) => visit(section, section.key, section.children, [section.label()]));
     return results;
 };
 
@@ -549,8 +578,8 @@ const openProfileEditor = (root: HTMLElement, profileID?: string) => {
     </div>`}
     <div class="config-group">
         ${builtin ? `<div class="config-title">${escapeHtml(draft.name)}</div>` : ""}
-        <div class="fn__flex">
-            <input class="b3-text-field fn__flex-1" data-type="entry-search" placeholder="${escapeAttr(window.siyuan.languages.searchPlaceholder)}">
+        <div class="fn__flex config-entry-visibility__search">
+            <input spellcheck="false" class="b3-text-field fn__flex-1" data-type="entry-search" placeholder="${escapeAttr(window.siyuan.languages.searchPlaceholder)}">
         </div>
     </div>
     <div class="config-entry-visibility__browser" data-type="entry-browser"></div>
@@ -562,7 +591,7 @@ const openProfileEditor = (root: HTMLElement, profileID?: string) => {
 </div>`;
     const browser = view.querySelector<HTMLElement>("[data-type='entry-browser']");
     const searchInput = view.querySelector<HTMLInputElement>("[data-type='entry-search']");
-    let selectedSectionKey = entryCatalog[0].key;
+    let selectedSectionKey = getVisibleEntryCatalog()[0].key;
     let selectedPaths: string[] = [];
     let previousQuery = "";
     let dragging: {
@@ -635,6 +664,35 @@ const openProfileEditor = (root: HTMLElement, profileID?: string) => {
     };
     renderBrowser();
     searchInput.addEventListener("input", () => renderBrowser());
+    browser.addEventListener("click", event => {
+        const button = (event.target as Element).closest<HTMLElement>("[data-entry-move]");
+        if (!button) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (builtin || searchInput.value.trim()) {
+            return;
+        }
+        const row = button.closest<HTMLElement>("[data-entry-row]");
+        const parent = row.dataset.entryParent;
+        const nodes = getEntryCatalogChildren(parent);
+        const order = getProfileEntryOrder(draft, parent, nodes);
+        const rows = Array.from(row.parentElement.querySelectorAll<HTMLElement>("[data-entry-row]"));
+        const after = button.dataset.entryMove === "down";
+        const target = rows[rows.indexOf(row) + (after ? 1 : -1)];
+        if (!target) {
+            return;
+        }
+        const updated = moveEntryOrder(order, row.dataset.entryKey, target.dataset.entryKey, after,
+            new Set(nodes.filter(item => item.type === "separator").map(item => item.key)));
+        if (updated) {
+            draft.orders ||= {};
+            draft.orders[parent] = mergeEntryOrderPreservingUnknown(nodes.map(item => item.key),
+                draft.orders[parent], updated, new Set(nodes.filter(item => item.type === "separator").map(item => item.key)));
+            renderBrowser();
+        }
+    });
     browser.addEventListener("dragstart", (event: DragEvent) => {
         if (builtin || searchInput.value.trim()) {
             event.preventDefault();
@@ -887,11 +945,11 @@ const importProfiles = async (root: HTMLElement, file: File) => {
 
 export const genEntryVisibilityHtml = () => `<div class="b3-label config-item" data-type="entry-visibility">
     <div class="fn__flex">
-        <div><div class="config-name">${window.siyuan.languages.entryVisibility}</div><div class="b3-label__text">${window.siyuan.languages.entryVisibilityTip}</div></div>
+        <div><div class="config-name">${window.siyuan.languages.entryVisibility}</div><div class="b3-label__text">${isMobile() ? window.siyuan.languages.mobileToolbarEntryTip : window.siyuan.languages.entryVisibilityTip}</div></div>
         <span class="fn__space fn__flex-1"></span>
-        ${getHostCapabilities().importExport ? `<button class="b3-button b3-button--outline" data-action="import"><svg class="b3-button__icon"><use xlink:href="#iconUpload"></use></svg>${window.siyuan.languages.import}</button>
+        ${getHostCapabilities().importExport ? `<button class="b3-button b3-button--outline" data-action="import"><svg class="b3-button__icon"><use xlink:href="#iconDownload"></use></svg>${window.siyuan.languages.import}</button>
         <span class="fn__space"></span>
-        <button class="b3-button b3-button--outline" data-action="export-all"><svg class="b3-button__icon"><use xlink:href="#iconDownload"></use></svg>${window.siyuan.languages.export}</button>
+        <button class="b3-button b3-button--outline" data-action="export-all"><svg class="b3-button__icon"><use xlink:href="#iconUpload"></use></svg>${window.siyuan.languages.export}</button>
         <span class="fn__space"></span>` : ""}
         <button class="b3-button b3-button--outline" data-action="create"><svg class="b3-button__icon"><use xlink:href="#iconAdd"></use></svg>${window.siyuan.languages.entryCreateProfile}</button>
         <input class="fn__none" data-type="entry-import" type="file" accept="application/json,.json">
@@ -940,11 +998,14 @@ export const mountEntryVisibility = (root: HTMLElement) => {
             renderProfileCards(root);
         } else if (action === "export" && profile) {
             exportProfile(profile);
-        } else if (action === "delete" && profile && config.active !== profile.id) {
+        } else if (action === "delete" && profile) {
             confirmDialog(window.siyuan.languages.deleteOpConfirm,
                 window.siyuan.languages.confirmDeleteTip.replace("${x}", escapeHtml(profile.name)), () => {
                     const latest = cloneConfig();
                     latest.profiles = latest.profiles.filter((item) => item.id !== profile.id);
+                    if (latest.active === profile.id) {
+                        latest.active = ENTRY_PROFILE_FULL;
+                    }
                     saveEntryVisibility(latest);
                     renderProfileCards(root);
                 }, undefined, true);

@@ -141,6 +141,7 @@ declare class Viz {
 }
 
 declare class Viewer {
+    public viewer: HTMLElement;
     public destroyed: boolean;
     public image: HTMLImageElement;
     public viewed: boolean;
@@ -150,6 +151,8 @@ declare class Viewer {
         title: [number, (image: HTMLImageElement, imageData: IObject) => string],
         button: boolean,
         initialViewIndex?: number,
+        magnifier?: boolean,
+        navigation?: boolean,
         transition: boolean,
         hidden: () => void,
         ready?: (this: HTMLElement, event: CustomEvent) => void,
@@ -169,7 +172,7 @@ declare class Viewer {
             flipVertical: boolean,
             copy?: () => void,
             copyFile?: () => void,
-            close: () => void
+            close?: () => void
         }
     })
 
@@ -186,8 +189,6 @@ declare class Lute {
     public static Caret: string;
 
     public static New(): Lute;
-
-    public static EChartsMindmapStr(text: string): string;
 
     public static NewNodeID(): string;
 
@@ -489,6 +490,7 @@ interface IProtyleOptions {
         snapshot?: string
     },
     backlinkData?: {
+        referenceBlockID?: string,
         id?: string,
         revision?: string,
         blockPaths: IBreadcrumb[],
@@ -501,7 +503,7 @@ interface IProtyleOptions {
     blockId?: string
     rootId?: string
     notebookId?: string
-    originalRefBlockIDs?: IObject
+    originalRefBlockIDs?: Record<string, string>
     key?: string
     defIds?: string[]
     render?: {

@@ -1,5 +1,7 @@
 import {addScript, addScriptSync} from "../protyle/util/addScript";
 import {Constants} from "../constants";
+import {systemConfig} from "../config/systemConfig";
+import {openStandaloneDatabaseItemByURI} from "../protyle/render/av/openStandaloneDatabaseItem";
 import {onMessage} from "./util/onMessage";
 import {genUUID} from "../util/genID";
 import {
@@ -14,6 +16,7 @@ import {Menus} from "../menus";
 import {addBaseURL, parseSiYuanUriInfo, setNoteBook} from "../util/pathName";
 import {activateQueuedAVLocate, queueAVLocateRequest} from "../protyle/render/av/locate";
 import {
+    handleTouchCancel,
     handleTouchEnd,
     handleTouchMove,
     handleTouchSelectionChange,
@@ -26,7 +29,12 @@ import {initAssets} from "../util/assets";
 import {bootSync, lockScreen} from "../dialog/processSystem";
 import {initMessage, showMessage} from "../dialog/message";
 import {goBack} from "./util/MobileBackFoward";
-import {activeBlur, hideKeyboardToolbarByApp, showKeyboardToolbar} from "./util/keyboardToolbar";
+import {
+    activeBlur,
+    hideKeyboardToolbarByApp,
+    hideKeyboardToolbarUtilOnEditorClick,
+    showKeyboardToolbar,
+} from "./util/keyboardToolbar";
 import {
     getLocalStorage,
     initWindowOpenOverride,
@@ -62,6 +70,7 @@ import {updateMobileTopBarLayout} from "./util/mobileTopBar";
 import {showMobileBars} from "./util/mobileBars";
 import {initializeEnglishCommandTranslations} from "../command/english";
 import {scrollInputIntoView} from "./util/visibleViewport";
+import {installPluginStorageFetchAppId} from "../util/fetchAppId";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -129,6 +138,7 @@ class App {
                 }, Constants.TIMEOUT_TRANSITION);
             }
             if (editableElement) {
+                hideKeyboardToolbarUtilOnEditorClick();
                 // 原生 App 通过桥接主动唤起键盘；移动端浏览器没有桥接，但点击可编辑区域后也会立刻触发 resize，
                 // 进而调用 activeBlur 关闭键盘（比如三星键盘 https://github.com/siyuan-note/siyuan/issues/18078），所以此处也需要上锁
                 if (window.JSAndroid && window.JSAndroid.showKeyboard || window.JSHarmony && window.JSHarmony.showKeyboard) {
@@ -177,7 +187,7 @@ class App {
         fetchPost("/api/system/getConf", {}, async (confResponse) => {
             await addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
             addScript(`${Constants.PROTYLE_CDN}/js/protyle-html.js?v=${Constants.SIYUAN_VERSION}`, "protyleWcHtmlScript");
-            window.siyuan.config = confResponse.data.conf;
+            window.siyuan.config = systemConfig(confResponse.data.conf);
             window.siyuan.isPublish = confResponse.data.isPublish;
             document.body.classList.toggle("body--android", Boolean(isInAndroid()));
             correctHotkey(siyuanApp);
@@ -210,7 +220,7 @@ class App {
                         document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-visual, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
                     }
                     fetchPost("/api/setting/getCloudUser", {}, async userResponse => {
-                        window.siyuan.user = userResponse.data;
+                        window.siyuan.user = userResponse.data && "userId" in userResponse.data ? userResponse.data : null;
                         await ensureOnboarding();
                         fetchPost("/api/system/getEmojiConf", {}, async emojiResponse => {
                             window.siyuan.emojis = emojiResponse.data as IEmoji[];
@@ -231,7 +241,7 @@ class App {
             document.addEventListener("touchstart", handleTouchStart, false);
             document.addEventListener("touchmove", handleTouchMove, false);
             document.addEventListener("touchend", handleTouchEnd, false);
-            document.addEventListener("touchcancel", handleTouchEnd, false);
+            document.addEventListener("touchcancel", handleTouchCancel, false);
             document.addEventListener("selectionchange", handleTouchSelectionChange, true);
             window.addEventListener("nativePhysicalTouchUp", handleTouchUp, false);
             window.addEventListener("keyup", () => {
@@ -267,6 +277,7 @@ class App {
     }
 }
 
+installPluginStorageFetchAppId(window, Constants.SIYUAN_APPID, window.location.href);
 const siyuanApp = new App();
 
 initWindowOpenOverride(siyuanApp, openByMobile);
@@ -302,6 +313,9 @@ window.hideKeyboardToolbar = hideKeyboardToolbarByApp;
 window.openFileByURL = (openURL) => {
     const blockInfo = parseSiYuanUriInfo(openURL);
     if (blockInfo != null) {
+        if (openStandaloneDatabaseItemByURI(siyuanApp, blockInfo)) {
+            return true;
+        }
         if (blockInfo.avItemID) {
             queueAVLocateRequest(blockInfo.id, {
                 itemID: blockInfo.avItemID,
@@ -311,7 +325,7 @@ window.openFileByURL = (openURL) => {
         }
         openMobileFileById(siyuanApp, blockInfo.id, blockInfo.avItemID ? [Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL] :
             (blockInfo.focus ? [Constants.CB_GET_ALL] : [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]),
-        undefined, undefined, blockInfo.avItemID ? (protyle) => activateQueuedAVLocate(protyle, blockInfo.id) : undefined);
+        blockInfo.avItemID ? undefined : "start", undefined, blockInfo.avItemID ? (protyle) => activateQueuedAVLocate(protyle, blockInfo.id) : undefined);
         return true;
     }
     return false;

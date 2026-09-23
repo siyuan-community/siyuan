@@ -1,3 +1,4 @@
+import {isTableLikeView} from "./viewType";
 import {Constants} from "../../../constants";
 import {getRowHTML} from "./row";
 import {IAVSelectedCell, reconcileAVSelectedItemIDs, restoreAVCellSelection} from "./selectionState";
@@ -24,15 +25,14 @@ interface IBodyState {
     selectedRowIds?: Set<string>;
 }
 
-const dataStore = new Map<string, {
+const dataStore = new WeakMap<HTMLElement, {
     protyle: IProtyle;
     data: IAV;
+    lastScrollTop?: number;
 }>();
 const blockDataStore = new WeakMap<HTMLElement, IAV>();
 const bodyStates = new WeakMap<HTMLElement, IBodyState>();
 const trimPending = new WeakSet<HTMLElement>();
-let lastScrollTop: number;
-const localScrollTops = new WeakMap<HTMLElement, number>();
 
 // 测量 DOM 变更前后容器 scrollHeight 的差值，用于精确计算 gallery 多列网格中行移除/回填的实际高度（含 gap）
 const measureHeightDiff = (el: HTMLElement, mutate: () => void): number => {
@@ -70,6 +70,81 @@ const syncTableBottomSpacer = (bodyEl: HTMLElement, state: IBodyState, dataEnd: 
     spacerElement.style.height = height + "px";
 };
 
+const rebuildTableWindow = (bodyEl: HTMLElement, state: IBodyState,
+                            renderWindow: ReturnType<typeof getGroupTableViewportWindow>) => {
+    const endMarker = bodyEl.querySelector(".av__spacer--bottom") || bodyEl.querySelector(".av__row--util");
+    if (!renderWindow || !endMarker) {
+        return false;
+    }
+    const rows = (state.view as IAVTable).rows;
+    let rowsHTML = renderWindow.topSpacerHeight > 0 ?
+        `<div class="av__spacer" style="height:${renderWindow.topSpacerHeight}px"></div>` : "";
+    for (let i = renderWindow.renderedStart; i <= renderWindow.renderedEnd; i++) {
+        rowsHTML += getRowHTML({data: state.view, row: rows[i - state.dataOffset], rowIndex: i,
+            pinIndex: state.pinIndex, type: bodyEl.closest<HTMLElement>(".av").dataset.avType as TAVView});
+    }
+    bodyEl.querySelectorAll(".av__row[data-id], .av__spacer:not(.av__spacer--bottom)").forEach(row => row.remove());
+    endMarker.insertAdjacentHTML("beforebegin", rowsHTML);
+    state.renderedStart = renderWindow.renderedStart;
+    state.renderedEnd = renderWindow.renderedEnd;
+    state.topSpacerHeight = renderWindow.topSpacerHeight;
+    syncTableBottomSpacer(bodyEl, state, state.dataOffset + rows.length - 1);
+    bodyEl.querySelectorAll<HTMLElement>(".av__row[data-id]").forEach(row => {
+        if (state.selectedRowIds?.has(row.dataset.id)) {
+            row.classList.add("av__row--select");
+            row.querySelector(".av__firstcol use")?.setAttribute("xlink:href", "#iconCheck");
+        }
+    });
+    restoreAVCellSelection(bodyEl.closest(".av"));
+    renderAVRichTextElements(bodyEl);
+    return true;
+};
+
+// 跨块进入表格时按当前已加载数据定位边界，仅回填边界附近的虚拟窗口。
+export const ensureAVTableBoundaryRow = (blockElement: HTMLElement, direction: "up" | "down") => {
+    const bodies = Array.from(blockElement.querySelectorAll<HTMLElement>(".av__body")).filter(body =>
+        body.closest(".av") === blockElement && body.getClientRects().length > 0 && !body.classList.contains("fn__none"));
+    if (direction === "up") {
+        bodies.reverse();
+    }
+    for (const body of bodies) {
+        const view = getBodyData(body) as IAVTable;
+        if (!view) {
+            return;
+        }
+        if (!view.rows?.length) {
+            continue;
+        }
+        const state = bodyStates.get(body);
+        if (state && state.view !== view) {
+            return;
+        }
+        const row = view.rows[direction === "down" ? 0 : view.rows.length - 1];
+        const findRow = () => Array.from(body.querySelectorAll<HTMLElement>(".av__row[data-id]"))
+            .find(item => item.dataset.id === row.id);
+        const existing = findRow();
+        if (existing) {
+            return existing;
+        }
+        if (!state || !blockElement.isConnected) {
+            return;
+        }
+        const dataStart = state.dataOffset;
+        const dataEnd = dataStart + view.rows.length - 1;
+        const rowHeight = Math.max(state.rowHeight || 36, 1);
+        const viewportHeight = (getBacklinkScrollElement(blockElement) ||
+            dataStore.get(blockElement)?.protyle.contentElement)?.clientHeight || rowHeight;
+        const targetTop = (direction === "down" ? 0 : view.rows.length - 1) * rowHeight;
+        if (!rebuildTableWindow(body, state, getGroupTableViewportWindow({
+            dataStart, dataEnd, bodyTop: 0, headerHeight: 0, rowHeight,
+            viewportTop: targetTop, viewportBottom: targetTop + viewportHeight,
+        }))) {
+            return;
+        }
+        return findRow();
+    }
+};
+
 const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
     const localScroller = getBacklinkScrollElement(blockElement);
     if (localScroller) {
@@ -83,19 +158,16 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
 
     // AV 重渲/新增分组/局部更新未走完整 initVirtualScroll 时 dataStore 可能缺失，跳过本次 trim，
     // 等下次 initVirtualScroll 重新登记后再处理，避免解引用 undefined.protyle
-    const stored = dataStore.get(blockElement.getAttribute("data-av-id") + blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW));
+    const stored = dataStore.get(blockElement);
     if (!stored) {
         return;
     }
     const protyle = stored.protyle;
     const scrollTop = (localScroller || protyle.contentElement).scrollTop;
-    const previousScrollTop = localScroller ? localScrollTops.get(localScroller) : lastScrollTop;
+    const previousScrollTop = stored.lastScrollTop;
     const isScrollingUp = previousScrollTop !== undefined && previousScrollTop > scrollTop;
-    if (localScroller) {
-        localScrollTops.set(localScroller, scrollTop);
-    } else {
-        lastScrollTop = scrollTop;
-    }
+    // 每个显示实例独立消费滚动位置，避免同帧中其他数据库先更新方向。
+    stored.lastScrollTop = scrollTop;
 
     if ((blockRect.bottom < elementRect.top && !isScrollingUp) || (blockRect.top > elementRect.bottom && isScrollingUp)) {
         return;
@@ -110,12 +182,12 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         if (!state) {
             return;
         }
-        const dataRows = type === "table" ? (state.view as IAVTable).rows : (state.view as IAVKanban).cards;
+        const dataRows = isTableLikeView(type) ? (state.view as IAVTable).rows : (state.view as IAVKanban).cards;
         const dataStart = state.dataOffset;
         const dataEnd = dataStart + dataRows.length - 1;
         let currentRows: NodeListOf<HTMLElement>;
         let bottomElement: Element;
-        if (type === "table") {
+        if (isTableLikeView(type)) {
             currentRows = bodyEl.querySelectorAll(".av__row:not(.av__row--header):not(.av__row--footer):not(.av__row--util)") as NodeListOf<HTMLElement>;
             bottomElement = bodyEl.querySelector(".av__spacer--bottom") || bodyEl.querySelector(".av__row--util");
         } else {
@@ -129,7 +201,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         // 全部渲染即可，避免短列因 trim 导致 spacer 抖动或全部移除后无法回填
         const trimRange = viewportHeight + buffer * 2;
         const coversAllRows = state.renderedStart <= dataStart && state.renderedEnd >= dataEnd;
-        const groupedTable = type === "table" && stored.data.view.groups?.length > 0;
+        const groupedTable = isTableLikeView(type) && stored.data.view.groups?.length > 0;
         if (!groupedTable && coversAllRows && bodyEl.dataset.avLocateWindow !== "true" &&
             dataRows.length <= Math.ceil(trimRange / Math.max(state.rowHeight || currentRows[0].offsetHeight, 1))) {
             // 数据已经完整渲染时无需 trim，清理可能残留的 spacer。
@@ -159,9 +231,9 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         // 给回填的行恢复选中态：遍历 body 内现存数据行，命中 selectedRowIds 的补回高亮类与选中图标。
         const restoreSelect = () => {
             if (state.selectedRowIds.size > 0) {
-                bodyEl.querySelectorAll(type === "table" ? ".av__row[data-id]" : ".av__gallery-item[data-id]").forEach((row: HTMLElement) => {
+                bodyEl.querySelectorAll(isTableLikeView(type) ? ".av__row[data-id]" : ".av__gallery-item[data-id]").forEach((row: HTMLElement) => {
                     if (state.selectedRowIds.has(row.getAttribute("data-id"))) {
-                        row.classList.add(type === "table" ? "av__row--select" : "av__gallery-item--select");
+                        row.classList.add(isTableLikeView(type) ? "av__row--select" : "av__gallery-item--select");
                         const use = row.querySelector(".av__firstcol use") as SVGUseElement;
                         if (use) {
                             use.setAttribute("xlink:href", "#iconCheck");
@@ -169,7 +241,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                     }
                 });
             }
-            if (type === "table") {
+            if (isTableLikeView(type)) {
                 restoreAVCellSelection(blockElement);
             }
         };
@@ -178,7 +250,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         const toRemoveAbove: HTMLElement[] = [];
         const toRemoveBelow: HTMLElement[] = [];
         const minRetainedRows = groupedTable ? 1 : 10;
-        let galleryColumn = type === "table" ? 1 : 0;
+        let galleryColumn = isTableLikeView(type) ? 1 : 0;
         // 行高缓存，避免每帧读 offsetHeight 触发布局
         const rowHeight = state.rowHeight || currentRows[0].offsetHeight;
         state.rowHeight = rowHeight;
@@ -191,40 +263,15 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
         const bottomSpacerElement = bodyEl.querySelector(".av__spacer--bottom") as HTMLElement;
         const firstRowRect = currentRows[0].getBoundingClientRect();
         const lastRowRect = currentRows[currentRows.length - 1].getBoundingClientRect();
-        const rebuildTableWindow = (renderWindow: ReturnType<typeof getGroupTableViewportWindow>) => {
-            if (!renderWindow) {
-                return;
-            }
-            currentRows.forEach(row => row.remove());
-            spacerElement?.remove();
-            let rowsHTML = renderWindow.topSpacerHeight > 0 ?
-                `<div class="av__spacer" style="height:${renderWindow.topSpacerHeight}px"></div>` : "";
-            for (let i = renderWindow.renderedStart; i <= renderWindow.renderedEnd; i++) {
-                rowsHTML += getRowHTML({
-                    data: state.view,
-                    row: dataRows[i - dataStart],
-                    rowIndex: i,
-                    pinIndex: state.pinIndex,
-                    type: "table"
-                });
-            }
-            const endMarker = bottomSpacerElement?.isConnected ? bottomSpacerElement :
-                bodyEl.querySelector(".av__row--util");
-            endMarker?.insertAdjacentHTML("beforebegin", rowsHTML);
-            state.renderedStart = renderWindow.renderedStart;
-            state.renderedEnd = renderWindow.renderedEnd;
-            state.topSpacerHeight = renderWindow.topSpacerHeight;
-            syncTableBottomSpacer(bodyEl, state, dataEnd);
-            restoreSelect();
-        };
         const viewportTop = Math.max(elementRect.top, blockRect.top);
         const viewportBottom = Math.min(elementRect.bottom, blockRect.bottom);
         const windowOutsideBuffer = lastRowRect.bottom < topLimit || firstRowRect.top > bottomLimit;
         const bodyIntersectsViewport = bodyRect.bottom > viewportTop && bodyRect.top < viewportBottom;
         if (groupedTable && (spacerElement || bottomSpacerElement) && windowOutsideBuffer && bodyIntersectsViewport) {
             // 当前窗口完全离开缓冲区时，按视口在分组中的位置重建附近窗口。
-            const headerHeight = (bodyEl.querySelector(".av__row--header") as HTMLElement)?.offsetHeight || rowHeight;
-            rebuildTableWindow(getGroupTableViewportWindow({
+            const headerHeight = type === "list" ? 0 :
+                (bodyEl.querySelector(".av__row--header") as HTMLElement)?.offsetHeight || rowHeight;
+            rebuildTableWindow(bodyEl, state, getGroupTableViewportWindow({
                 dataStart,
                 dataEnd,
                 bodyTop: bodyRect.top,
@@ -292,7 +339,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                     toRemoveBelow.push(currentRows[i]);
                 }
                 // 表格下滚时 top 单调递增，后续行必然都在下方，可提前结束扫描
-                if (type === "table" && !isScrollingUp) {
+                if (isTableLikeView(type) && !isScrollingUp) {
                     break;
                 }
             }
@@ -330,7 +377,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                             row.remove();
                         });
                     });
-                } else if (type === "table" && topElement) {
+                } else if (isTableLikeView(type) && topElement) {
                     const removeStartTop = toRemoveAbove[0].getBoundingClientRect().top;
                     const removeEndTop = topElement.getBoundingClientRect().top;
                     removeHeight = removeEndTop - removeStartTop;
@@ -409,7 +456,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
                     });
                 } else {
                     topElement.insertAdjacentHTML("beforebegin", rowsHTML);
-                    if (type === "table") {
+                    if (isTableLikeView(type)) {
                         const firstInsertedElement = bodyEl.querySelector(
                             `.av__row[data-index="${firstVisibleIndex}"]`) as HTMLElement;
                         if (firstInsertedElement) {
@@ -445,7 +492,7 @@ const doTrim = (blockElement: HTMLElement, elementRect: DOMRect): void => {
             }
         }
         } finally {
-            if (type === "table") {
+            if (isTableLikeView(type)) {
                 syncTableBottomSpacer(bodyEl, state, dataEnd);
             }
             bodyStates.set(bodyEl, state);
@@ -494,7 +541,7 @@ export const getBodyVirtualData = (bodyEl: HTMLElement, endSelector: string, fir
 const getBodyData = (bodyEl: HTMLElement) => {
     const avEl = bodyEl.closest(".av") as HTMLElement;
     if (!avEl) return null;
-    const stored = dataStore.get(avEl.getAttribute("data-av-id") + avEl.getAttribute(Constants.CUSTOM_SY_AV_VIEW));
+    const stored = dataStore.get(avEl);
     const data = blockDataStore.get(avEl) || stored?.data;
     if (!data) return null;
 
@@ -549,7 +596,7 @@ export const ensureAVTableAdjacentRow = (rowElement: HTMLElement, direction: "pr
         row,
         rowIndex: targetIndex,
         pinIndex: state.pinIndex,
-        type: "table",
+        type: bodyElement.closest<HTMLElement>(".av").dataset.avType as TAVView,
     }));
     if (direction === "previous") {
         state.renderedStart = targetIndex;
@@ -794,7 +841,7 @@ export const getAVSelectedItemIDs = (blockElement: HTMLElement) => {
 };
 
 export const getAVSelectedTableCells = (blockElement: HTMLElement): IAVSelectedCell[] => {
-    if (blockElement.dataset.avType !== "table") {
+    if (!isTableLikeView(blockElement.dataset.avType)) {
         return [];
     }
     const selectedKeys = new Set(getAVSelectedItemPoints(blockElement).map(getAVItemPointKey));
@@ -876,16 +923,15 @@ export const initVirtualScroll = (options: {
 }): void => {
     setAVData(options.blockElement, options.data);
     const virtualized = options.blockElement.getAttribute(Constants.ATTRIBUTE_V_SCROLL) === "true";
-    const needsGroupedTableState = options.data.viewType === "table" && options.data.view.groups?.length > 0;
-    const storeKey = options.blockElement.getAttribute("data-av-id") +
-        options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW);
+    const needsGroupedTableState = isTableLikeView(options.data.viewType) && options.data.view.groups?.length > 0;
     if (virtualized) {
-        dataStore.set(storeKey, {
+        dataStore.set(options.blockElement, {
             protyle: options.protyle,
             data: options.data,
+            lastScrollTop: (getBacklinkScrollElement(options.blockElement) || options.protyle.contentElement).scrollTop,
         });
     } else {
-        dataStore.delete(storeKey);
+        dataStore.delete(options.blockElement);
     }
     if (!virtualized && !needsGroupedTableState) {
         return;
@@ -899,7 +945,7 @@ export const initVirtualScroll = (options: {
         }
         // 从现存 DOM 初始化选中行 ID 快照，重渲后保留选中态
         const selectedRowCandidates = new Set<string>();
-        item.querySelectorAll(options.data.viewType === "table" ? ".av__row--select" : ".av__gallery-item--select").forEach((row: HTMLElement) => {
+        item.querySelectorAll(isTableLikeView(options.data.viewType) ? ".av__row--select" : ".av__gallery-item--select").forEach((row: HTMLElement) => {
             const id = row.getAttribute("data-id");
             if (id) {
                 selectedRowCandidates.add(id);
@@ -918,14 +964,14 @@ export const initVirtualScroll = (options: {
             if (!selectedRowIds.has(row.dataset.id)) {
                 return;
             }
-            if (options.data.viewType === "table") {
+            if (isTableLikeView(options.data.viewType)) {
                 row.classList.add("av__row--select");
                 row.querySelector(".av__firstcol use")?.setAttribute("xlink:href", "#iconCheck");
             } else {
                 row.classList.add("av__gallery-item--select");
             }
         });
-        if (options.data.viewType === "table") {
+        if (isTableLikeView(options.data.viewType)) {
             const firstRow = item.querySelector(".av__row[data-id]") as HTMLElement;
             let lastRow = item.querySelector(".av__row--util")?.previousElementSibling as HTMLElement;
             while (lastRow && !lastRow.dataset.index) {

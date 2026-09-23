@@ -1,3 +1,4 @@
+import type {BlockQueryRequestInput} from "../types/api";
 import type {App} from "../index";
 import {hideMessage} from "../dialog/message";
 import {hideElements} from "../protyle/ui/hideElements";
@@ -9,6 +10,9 @@ import {getAllModels} from "../layout/getAll";
 import {setStorageVal} from "../protyle/util/compatibility";
 import type {Tab} from "../layout/Tab";
 import {setTitle} from "./processTitle";
+/// #if MOBILE
+import {getMobileBacklinkPanels, removeMobileBacklinkContent} from "../mobile/util/backlinkPanels";
+/// #endif
 /// #if !MOBILE
 import {removeBlockPanelEditors} from "../block/panelRemoval";
 /// #endif
@@ -26,6 +30,11 @@ export const reloadSync = (
         hideMessage();
     }
     /// #if MOBILE
+    removeMobileBacklinkContent({rootIDs: data.removeRootIDs});
+    getMobileBacklinkPanels().forEach(panel => {
+        panel.markIndexDirty({backlinkChanged: true, backlinkFull: true});
+        panel.refreshAfterIndex();
+    });
     if (window.siyuan.mobile.popEditor && window.siyuan.mobile.popEditor.protyle) {
         if (data.removeRootIDs.includes(window.siyuan.mobile.popEditor.protyle.block.rootID)) {
             hideElements(["dialog"]);
@@ -42,7 +51,7 @@ export const reloadSync = (
             }
         } else {
             window.siyuan.mobile.editor.reload(false, updateReadonly);
-            const docInfoParam: IObject = {
+            const docInfoParam: BlockQueryRequestInput = {
                 id: window.siyuan.mobile.editor.protyle.block.rootID
             };
             if (isEncryptedBox(window.siyuan.mobile.editor.protyle.notebookId)) {
@@ -66,7 +75,7 @@ export const reloadSync = (
     removeBlockPanelEditors({rootIDs: data.removeRootIDs});
     const allModels = getAllModels();
     const updateTitle = (rootID: string, tab: Tab, protyle?: IProtyle) => {
-        const docInfoParam: IObject = {
+        const docInfoParam: BlockQueryRequestInput = {
             id: rootID
         };
         if (protyle && isEncryptedBox(protyle.notebookId)) {
@@ -82,7 +91,7 @@ export const reloadSync = (
     };
     allModels.editor.forEach(item => {
         if (data.upsertRootIDs.includes(item.editor.protyle.block.rootID)) {
-            const docInfoParam: IObject = {
+            const docInfoParam: BlockQueryRequestInput = {
                 id: item.editor.protyle.block.rootID,
             };
             if (isEncryptedBox(item.editor.protyle.notebookId)) {
@@ -112,7 +121,7 @@ export const reloadSync = (
     allModels.outline.forEach(item => {
         if (item.type === "local" && data.removeRootIDs.includes(item.blockId)) {
             item.parent.parent.removeTab(item.parent.id, false, false);
-        } else if (item.type !== "local" || data.upsertRootIDs.includes(item.blockId)) {
+        } else if (item.blockId && (item.type !== "local" || data.upsertRootIDs.includes(item.blockId))) {
             const outlineParam: IObject = {
                 id: item.blockId,
                 preview: item.isPreview

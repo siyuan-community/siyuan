@@ -1,5 +1,6 @@
 import {confirmDialog} from "../dialog/confirmDialog";
 import {showMessage} from "../dialog/message";
+import {progressLoading} from "../dialog/processSystem";
 import {waitForPendingTransactions} from "../protyle/util/transactionQueue";
 import {fetchSyncPost} from "./fetch";
 
@@ -13,23 +14,44 @@ export interface IBlockRefCheckOptions {
 }
 
 const pendingChecks = new WeakSet<IProtyle>();
+let activeChecks = 0;
+let progressTimeout: number;
+const progressID = "checkBlockRefProgress";
 
 export const checkBlockRef = async (options: IBlockRefCheckOptions, protyle?: IProtyle) => {
     if (window.siyuan.config.editor.checkBlockRef === false) {
         return false;
     }
+    activeChecks++;
     try {
+        if (activeChecks === 1) {
+            // 检查持续一段时间后再显示遮罩，避免快速删除或剪切时闪屏。
+            progressTimeout = window.setTimeout(() => {
+                progressLoading({code: 1, msg: window.siyuan.languages.checkBlockRefProgress}, progressID);
+            }, 300);
+        }
         if (protyle) {
             await waitForPendingTransactions(protyle);
         }
-        const response = await fetchSyncPost("/api/block/checkBlockRef", options);
+        // process=false：该请求由本函数统一处理错误提示，避免 fetchSyncPost 内部再弹一次
+        const response = await fetchSyncPost("/api/block/checkBlockRef", options, undefined, false);
         if (response.code !== 0) {
+            // 检查失败时给出内核原因（例如加密笔记本已锁定）；字段校验类报错属于调用方参数问题，不打扰用户
+            if (response.msg && !response.msg.startsWith("Field [")) {
+                showMessage(response.msg, 6000, "error");
+            }
             return;
         }
         return response.data === true;
     } catch (error) {
         console.warn("Check block ref failed:", error);
         showMessage(error instanceof Error ? error.message : String(error), 7000, "error");
+    } finally {
+        activeChecks--;
+        if (activeChecks === 0) {
+            window.clearTimeout(progressTimeout);
+            progressLoading({code: 2, msg: ""}, progressID);
+        }
     }
 };
 

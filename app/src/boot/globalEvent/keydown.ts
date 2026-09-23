@@ -1,3 +1,6 @@
+import type {BlockQueryRequestInput} from "../../types/api";
+import {isAbove} from "../../util/zIndex";
+import {stripSemanticMarkersFromRangeText} from "../../protyle/util/inlineElementMarker";
 import {
     copyPlainText,
     isMac,
@@ -30,7 +33,8 @@ import {goBack, goForward} from "../../util/backForward";
 import {getDisplayName, getNotebookName, isEncryptedBox} from "../../util/pathName";
 import {openFileById} from "../../editor/util";
 import {getAllDocks, getAllEditor, getAllModels, getAllTabs} from "../../layout/getAll";
-import {getDockHotkey} from "../../layout/dock/hotkey";
+import {getDockHotkey, getDockKeymap} from "../../layout/dock/hotkey";
+import {getKeymapBindings} from "../../util/keymapBindings";
 import {focusBlock, focusByRange, getBlockElementsByRange, selectBlocksByRange} from "../../protyle/util/selection";
 import {initFileMenu, initNavigationMenu} from "../../menus/navigation";
 import {bindMenuKeydown} from "../../menus/Menu";
@@ -67,7 +71,7 @@ import {getPlainText} from "../../protyle/util/paste";
 import {commandPanel} from "./command/panel";
 import {execByCommand} from "../../command/executor";
 import {captureCommandContext} from "../../command/context";
-import {resolvePluginCommandCallback, supportsPluginCommandSource} from "../../plugin/commandAdapter";
+import {captureShortcutContext, dispatchPluginShortcut} from "../../command/shortcutRuntime";
 import {filterHotkey} from "./commonHotkey";
 import {editorConfigApi} from "../../config/tabs/editorRuntime";
 import {copyPNGByLink} from "../../menus/util";
@@ -79,6 +83,7 @@ import {cancelDrag} from "./dragover";
 import {bindAVPanelKeydown} from "../../protyle/render/av/keydown";
 import {formatPainter} from "../../protyle/toolbar/FormatPainter";
 import {adjustEditorFontSize, type TEditorFontSizeAction} from "../../util/editorFontSize";
+import {areProtylePluginExtensionsEnabled} from "../../protyle/runtimeCapabilities";
 
 const EDITOR_FONT_SIZE_COMMANDS: Array<{
     command: "increaseEditorFontSize" | "decreaseEditorFontSize" | "resetEditorFontSize",
@@ -89,15 +94,23 @@ const EDITOR_FONT_SIZE_COMMANDS: Array<{
     {command: "resetEditorFontSize", action: "reset"},
 ];
 
-const selectReadonlyBlocksByRange = (range: Range) => {
+const getReadonlyBlockSelectionProtyle = (range: Range) => {
     const startElement = hasClosestBlock(range.startContainer);
     const endElement = hasClosestBlock(range.endContainer);
     if (!startElement || !endElement || startElement === endElement) {
-        return false;
+        return;
     }
     const protyle = getAllEditor().find(item => item.protyle.wysiwyg.element.contains(startElement) &&
         item.protyle.wysiwyg.element.contains(endElement))?.protyle;
     if (!protyle?.disabled) {
+        return;
+    }
+    return protyle;
+};
+
+const selectReadonlyBlocksByRange = (range: Range) => {
+    const protyle = getReadonlyBlockSelectionProtyle(range);
+    if (!protyle) {
         return false;
     }
     hideElements(["toolbar", "hint", "util", "select"], protyle);
@@ -203,23 +216,156 @@ const dialogArrow = (app: App, element: HTMLElement, event: KeyboardEvent) => {
     }
 };
 
+// 文档操作只依赖所属编辑器，可选选区仅用于正文中的引用定位和搜索。
+const documentKeydown = (app: App, event: KeyboardEvent, protyle: IProtyle, range: Range, isFileFocus: boolean) => {
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.replace, event)) {
+        execByCommand({
+            command: "replace",
+            app,
+            protyle,
+            previousRange: range
+        });
+        event.preventDefault();
+        return true;
+    }
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.search, event)) {
+        execByCommand({
+            command: "search",
+            app,
+            protyle,
+            previousRange: range
+        });
+        event.preventDefault();
+        return true;
+    }
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition, event) &&
+        !window.siyuan.config.readonly && !isEncryptedBox(protyle.notebookId)) {
+        fetchPost("/api/riff/getTreeRiffDueCards", {rootID: protyle.block.rootID}, (response) => {
+            openCardByData(app, response.data, "doc", protyle.block.rootID, protyle.title?.editElement.textContent || window.siyuan.languages.untitled);
+        });
+        event.preventDefault();
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.exitFocus, event)) {
+        event.preventDefault();
+        zoomOut({protyle, id: protyle.block.rootID, focusId: protyle.block.id});
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.switchReadonly, event)) {
+        event.preventDefault();
+        onlyProtyleCommand({
+            protyle,
+            command: "switchReadonly",
+            previousRange: range,
+        });
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.switchAdjust, event)) {
+        event.preventDefault();
+        onlyProtyleCommand({
+            protyle,
+            command: "switchAdjust",
+            previousRange: range,
+        });
+        return true;
+    }
+
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.backlinks, event)) {
+        event.preventDefault();
+        if (range) {
+            const refElement = hasClosestByAttribute(range.startContainer, "data-type", "block-ref");
+            if (refElement) {
+                openBacklink({
+                    app: protyle.app,
+                    blockId: refElement.dataset.id,
+                    notebookId: protyle.notebookId,
+                });
+                return true;
+            }
+        }
+        openBacklink({
+            app: protyle.app,
+            blockId: protyle.block.id,
+            rootId: protyle.block.rootID,
+            notebookId: protyle.notebookId,
+            useBlockId: protyle.block.showAll,
+            title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null,
+        });
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.graphView, event)) {
+        event.preventDefault();
+        if (range) {
+            const refElement = hasClosestByAttribute(range.startContainer, "data-type", "block-ref");
+            if (refElement) {
+                openGraph({
+                    app: protyle.app,
+                    blockId: refElement.dataset.id,
+                    notebookId: protyle.notebookId,
+                });
+                return true;
+            }
+        }
+        openGraph({
+            app: protyle.app,
+            blockId: protyle.block.id,
+            rootId: protyle.block.rootID,
+            notebookId: protyle.notebookId,
+            useBlockId: protyle.block.showAll,
+            title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null,
+        });
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.outline, event)) {
+        event.preventDefault();
+        openOutline({
+            app,
+            rootId: protyle.block.rootID,
+            notebookId: protyle.notebookId,
+            title: protyle.options.render.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : "",
+            isPreview: !protyle.preview.element.classList.contains("fn__none")
+        });
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.refresh, event)) {
+        reloadProtyle(protyle, true);
+        event.preventDefault();
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.fullscreen, event)) {
+        const editor = protyle.getInstance();
+        editor.setFullscreen(!editor.isFullscreen());
+        event.preventDefault();
+        return true;
+    }
+    if (!event.repeat && !protyle.options.backlinkData &&
+        matchHotKey(window.siyuan.config.keymap.editor.general.editMode, event)) {
+        toggleEditMode(protyle);
+        saveLayout();
+        event.preventDefault();
+        return true;
+    }
+    return false;
+};
+
 const editKeydown = (app: App, event: KeyboardEvent) => {
     const eventTarget = event.target as HTMLElement;
     if (hasClosestByClassName(eventTarget, "sy__backlink--bottom", true) &&
         !hasClosestByClassName(eventTarget, "protyle", true)) {
         return false;
     }
-    let protyle: IProtyle;
+    // 优先使用事件所属编辑器，避免只读正文获得焦点后仍命中其它编辑器的选区。
+    let protyle = getAllEditor().find(item => item.protyle.element.contains(eventTarget))?.protyle;
     let range: Range;
     if (getSelection().rangeCount > 0) {
         range = getSelection().getRangeAt(0);
     }
     const activePanelElement = document.querySelector(".layout__tab--active");
     let isFileFocus = false;
-    if (activePanelElement && activePanelElement.classList.contains("sy__file")) {
+    if (!protyle && activePanelElement && activePanelElement.classList.contains("sy__file")) {
         isFileFocus = true;
     }
-    if (range) {
+    if (!protyle && range) {
         window.siyuan.dialogs.find(item => {
             if (item.editors) {
                 Object.keys(item.editors).find(key => {
@@ -304,27 +450,32 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
             return false;
         }
     }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.replace.custom, event)) {
-        execByCommand({
-            command: "replace",
-            app,
-            protyle,
-            previousRange: range
-        });
+    if (protyle.disabled && [
+        window.siyuan.config.keymap.general.move,
+        window.siyuan.config.keymap.general.addToDatabase,
+        window.siyuan.config.keymap.editor.general.quickMakeCard,
+        window.siyuan.config.keymap.editor.general.duplicate,
+        window.siyuan.config.keymap.editor.general.duplicateCompletely,
+        window.siyuan.config.keymap.editor.general.undo,
+        window.siyuan.config.keymap.editor.general.redo,
+    ].some(keymap => matchHotKey(keymap, event))) {
+        // 内容修改在编辑快捷键入口拦截，不阻断搜索、导航和其它全局操作。
         event.preventDefault();
         return true;
     }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.search.custom, event)) {
-        execByCommand({
-            command: "search",
-            app,
-            protyle,
-            previousRange: range
-        });
-        event.preventDefault();
+    // 控件焦点不携带正文残留选区，文档命令仍使用事件所属编辑器。
+    const isEditorControl = !!eventTarget.closest('.protyle-action, button, [role="tab"], [role="checkbox"]');
+    if (isEditorControl || !range || !protyle.element.contains(range.commonAncestorContainer)) {
+        range = undefined;
+    }
+    if (documentKeydown(app, event, protyle, range, isFileFocus)) {
         return true;
     }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard.custom, event) && !window.siyuan.config.readonly && !isEncryptedBox(protyle.notebookId)) {
+    // 正文命令需要正文上下文，控件未处理的快捷键继续交给全局处理器。
+    if (isEditorControl) {
+        return false;
+    }
+    if (!isFileFocus && range && matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard, event) && !window.siyuan.config.readonly && !isEncryptedBox(protyle.notebookId)) {
         if (protyle.title?.editElement.contains(range.startContainer)) {
             quickMakeCard(protyle, [protyle.title.element]);
         } else {
@@ -343,7 +494,7 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.addToDatabase.custom, event)) {
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.addToDatabase, event)) {
         execByCommand({
             command: "addToDatabase",
             app,
@@ -353,15 +504,7 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition.custom, event) &&
-        !window.siyuan.config.readonly && !isEncryptedBox(protyle.notebookId)) {
-        fetchPost("/api/riff/getTreeRiffDueCards", {rootID: protyle.block.rootID}, (response) => {
-            openCardByData(app, response.data, "doc", protyle.block.rootID, protyle.title?.editElement.textContent || window.siyuan.languages.untitled);
-        });
-        event.preventDefault();
-        return true;
-    }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.move.custom, event)) {
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.general.move, event)) {
         execByCommand({
             command: "move",
             app,
@@ -372,8 +515,8 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (!isFileFocus && !event.repeat && !protyle.disabled &&
-        matchHotKey(window.siyuan.config.keymap.editor.general.duplicate.custom, event)) {
+    if (!isFileFocus && range && !event.repeat && !protyle.disabled &&
+        matchHotKey(window.siyuan.config.keymap.editor.general.duplicate, event)) {
         event.preventDefault();
         event.stopPropagation();
         let selectsElement: HTMLElement[] = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
@@ -408,96 +551,15 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.exitFocus.custom, event)) {
-        event.preventDefault();
-        zoomOut({protyle, id: protyle.block.rootID, focusId: protyle.block.id});
-        return true;
-    }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.focusBreadcrumb.custom, event)) {
+    if (range && matchHotKey(window.siyuan.config.keymap.editor.general.focusBreadcrumb, event)) {
         if (protyle.breadcrumb?.focus(range)) {
             event.preventDefault();
             return true;
         }
     }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.switchReadonly.custom, event)) {
-        event.preventDefault();
-        onlyProtyleCommand({
-            protyle,
-            command: "switchReadonly",
-            previousRange: range,
-        });
-        return true;
-    }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.switchAdjust.custom, event)) {
-        event.preventDefault();
-        onlyProtyleCommand({
-            protyle,
-            command: "switchAdjust",
-            previousRange: range,
-        });
-        return true;
-    }
-
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.backlinks.custom, event)) {
-        event.preventDefault();
-        if (range) {
-            const refElement = hasClosestByAttribute(range.startContainer, "data-type", "block-ref");
-            if (refElement) {
-                openBacklink({
-                    app: protyle.app,
-                    blockId: refElement.dataset.id,
-                    notebookId: protyle.notebookId,
-                });
-                return true;
-            }
-        }
-        openBacklink({
-            app: protyle.app,
-            blockId: protyle.block.id,
-            rootId: protyle.block.rootID,
-            notebookId: protyle.notebookId,
-            useBlockId: protyle.block.showAll,
-            title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null,
-        });
-        return true;
-    }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.graphView.custom, event)) {
-        event.preventDefault();
-        if (range) {
-            const refElement = hasClosestByAttribute(range.startContainer, "data-type", "block-ref");
-            if (refElement) {
-                openGraph({
-                    app: protyle.app,
-                    blockId: refElement.dataset.id,
-                    notebookId: protyle.notebookId,
-                });
-                return true;
-            }
-        }
-        openGraph({
-            app: protyle.app,
-            blockId: protyle.block.id,
-            rootId: protyle.block.rootID,
-            notebookId: protyle.notebookId,
-            useBlockId: protyle.block.showAll,
-            title: protyle.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : null,
-        });
-        return true;
-    }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.outline.custom, event)) {
-        event.preventDefault();
-        openOutline({
-            app,
-            rootId: protyle.block.rootID,
-            notebookId: protyle.notebookId,
-            title: protyle.options.render.title ? (protyle.title.editElement.textContent || window.siyuan.languages.untitled) : "",
-            isPreview: !protyle.preview.element.classList.contains("fn__none")
-        });
-        return true;
-    }
     /// #if !MOBILE
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.copyRichText.custom, event)) {
-        if (!hasClosestBlock(range.startContainer)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.copyRichText, event)) {
+        if (!range || !hasClosestBlock(range.startContainer)) {
             return false;
         }
         protyle.wysiwyg.copyRichText();
@@ -505,7 +567,10 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
     /// #endif
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.copyPlainText.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.copyPlainText, event)) {
+        if (!range) {
+            return false;
+        }
         const nodeElement = hasClosestBlock(range.startContainer);
         if (!nodeElement) {
             return false;
@@ -521,12 +586,15 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
             });
             copyPlainText(html.trimEnd());
         } else {
-            copyPlainText(range.toString());
+            copyPlainText(stripSemanticMarkersFromRangeText(range));
         }
         event.preventDefault();
         return true;
     }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.duplicateCompletely.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.duplicateCompletely, event)) {
+        if (!range) {
+            return false;
+        }
         const nodeElement = hasClosestBlock(range.startContainer);
         if (!nodeElement || !nodeElement.classList.contains("av")) {
             return false;
@@ -535,25 +603,7 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.refresh.custom, event)) {
-        reloadProtyle(protyle, true);
-        event.preventDefault();
-        return true;
-    }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.fullscreen.custom, event)) {
-        const editor = protyle.getInstance();
-        editor.setFullscreen(!editor.isFullscreen());
-        event.preventDefault();
-        return true;
-    }
-    if (!event.repeat && !protyle.options.backlinkData &&
-        matchHotKey(window.siyuan.config.keymap.editor.general.editMode.custom, event)) {
-        toggleEditMode(protyle);
-        saveLayout();
-        event.preventDefault();
-        return true;
-    }
-    if (range && !isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.copyBlockRef.custom, event)) {
+    if (range && !isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.copyBlockRef, event)) {
         event.preventDefault();
         event.stopPropagation();
         if (hasClosestByClassName(range.startContainer, "protyle-title")) {
@@ -583,16 +633,32 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         }
         return true;
     }
+    // 只读正文的快捷键使用所属编辑器上下文，插件命令仍遵循自身的可用性判断。
+    if (protyle.disabled && !isFileFocus && !event.isComposing &&
+        (target === document.body || protyle.wysiwyg.element.contains(target)) &&
+        areProtylePluginExtensionsEnabled(protyle) &&
+        dispatchPluginShortcut(app, event, "editorShortcut", () => {
+            const context = captureCommandContext({app, source: "editorShortcut", protyle, range});
+            // 无有效正文选区时，不携带上下文采集回退得到的历史选区。
+            if (!range) {
+                context.range = undefined;
+                context.block = undefined;
+                context.tableCell = undefined;
+            }
+            return context;
+        })) {
+        return true;
+    }
     if (hasClosestByClassName(target, "protyle-title__input")) {
         return false;
     }
     // 没有光标时，无法撤销 https://ld246.com/article/1624021111567
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.undo.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.undo, event)) {
         protyle.undo.undo(protyle);
         event.preventDefault();
         return true;
     }
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.redo.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.redo, event)) {
         protyle.undo.redo(protyle);
         event.preventDefault();
         return true;
@@ -610,39 +676,15 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.selectOpen1.custom, event)) {
-        event.preventDefault();
-        globalCommand("selectOpen1", app);
-        return;
-    }
-
     if (!files.element.parentElement.classList.contains("layout__tab--active")) {
         return false;
     }
 
     const liElements = Array.from(files.element.querySelectorAll(".b3-list-item--focus"));
-    let matchedCommand: ICommand | undefined;
-    app.plugins.find(item => {
-        item.commands.find(command => {
-            if (supportsPluginCommandSource(command, "fileTreeShortcut") &&
-                matchHotKey(command.customHotkey, event)) {
-                matchedCommand = command;
-                return true;
-            }
-        });
-        return Boolean(matchedCommand);
-    });
-    if (matchedCommand) {
-        const commandContext = captureCommandContext({
-            app,
-            source: "fileTreeShortcut",
-            fileLiElements: liElements,
-        });
-        const callback = resolvePluginCommandCallback(matchedCommand, commandContext);
-        if (callback) {
-            void callback();
-            return true;
-        }
+    if (dispatchPluginShortcut(app, event, "fileTreeShortcut", () => captureCommandContext({
+        app, source: "fileTreeShortcut", fileLiElements: liElements,
+    }))) {
+        return true;
     }
 
     if (liElements.length === 0) {
@@ -670,7 +712,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         }
     });
 
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition.custom, event) && !window.siyuan.config.readonly && !isEncryptedBox(notebookId)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition, event) && !window.siyuan.config.readonly && !isEncryptedBox(notebookId)) {
         if (isFile) {
             const id = liElements[0].getAttribute("data-node-id");
             fetchPost("/api/riff/getTreeRiffDueCards", {rootID: id}, (response) => {
@@ -685,7 +727,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard.custom, event) && !isEncryptedBox(notebookId)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard, event) && !isEncryptedBox(notebookId)) {
         if (ids.length > 0) {
             transaction(undefined, [{
                 action: "addFlashcards",
@@ -697,7 +739,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.addToDatabase.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.addToDatabase, event)) {
         execByCommand({
             command: "addToDatabase",
             app,
@@ -707,10 +749,10 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.rename.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.rename, event)) {
         window.siyuan.menus.menu.remove();
         if (isFile) {
-            const docInfoParam: IObject = {
+            const docInfoParam: BlockQueryRequestInput = {
                 id: liElements[0].getAttribute("data-node-id")
             };
             if (isEncryptedBox(notebookId)) {
@@ -750,7 +792,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.duplicate.custom, event)) {
+    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.duplicate, event)) {
         event.preventDefault();
         event.stopPropagation();
         ids.forEach(item => {
@@ -761,47 +803,47 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyBlockRef.custom, event)) {
+    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyBlockRef, event)) {
         event.preventDefault();
         event.stopPropagation();
         copyTextByType(ids, "ref");
         return true;
     }
 
-    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyBlockEmbed.custom, event)) {
+    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyBlockEmbed, event)) {
         event.preventDefault();
         event.stopPropagation();
         copyTextByType(ids, "blockEmbed");
         return true;
     }
 
-    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyProtocol.custom, event)) {
+    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyProtocol, event)) {
         event.preventDefault();
         event.stopPropagation();
         copyTextByType(ids, "protocol");
         return true;
     }
 
-    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyProtocolInMd.custom, event)) {
+    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyProtocolInMd, event)) {
         event.preventDefault();
         event.stopPropagation();
         copyTextByType(ids, "protocolMd");
         return true;
     }
-    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyHPath.custom, event)) {
+    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyHPath, event)) {
         event.preventDefault();
         event.stopPropagation();
         copyTextByType(ids, "hPath");
         return true;
     }
-    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyID.custom, event)) {
+    if (!event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.copyID, event)) {
         event.preventDefault();
         event.stopPropagation();
         copyTextByType(ids, "id");
         return true;
     }
 
-    if (isFile && matchHotKey(window.siyuan.config.keymap.general.move.custom, event)) {
+    if (isFile && matchHotKey(window.siyuan.config.keymap.general.move, event)) {
         window.siyuan.menus.menu.remove();
         execByCommand({
             command: "move",
@@ -812,7 +854,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (isFile && matchHotKey(window.siyuan.config.keymap.editor.general.insertRight.custom, event)) {
+    if (isFile && matchHotKey(window.siyuan.config.keymap.editor.general.insertRight, event)) {
         window.siyuan.menus.menu.remove();
         openFileById({
             app,
@@ -824,7 +866,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.replace.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.replace, event)) {
         window.siyuan.menus.menu.remove();
         execByCommand({
             command: "replace",
@@ -834,7 +876,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.search.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.search, event)) {
         window.siyuan.menus.menu.remove();
         execByCommand({
             command: "search",
@@ -1041,15 +1083,9 @@ const panelTreeKeydown = (app: App, event: KeyboardEvent) => {
     const bottomBacklinkElement = hasClosestByClassName(target, "sy__backlink--bottom", true);
     const bottomBacklink = bottomBacklinkElement ? getAllModels().backlink.find(item =>
         item.type === "bottom" && item.element === bottomBacklinkElement) : undefined;
-    let activePanelElement = bottomBacklinkElement || document.querySelector(".layout__tab--active");
-    if (!activePanelElement) {
-        Array.from(document.querySelectorAll(".layout__wnd--active .layout-tab-container > div")).find(item => {
-            if (!item.classList.contains("fn__none") && item.className.indexOf("sy__") > -1) {
-                activePanelElement = item;
-                return true;
-            }
-        });
-    }
+    const activePanelElement = bottomBacklinkElement ||
+        target.closest(".layout__tab--active, .layout__wnd--active .layout-tab-container > div") ||
+        (target === document.body ? document.querySelector(".layout__tab--active") : undefined);
     if (!activePanelElement) {
         return false;
     }
@@ -1057,33 +1093,13 @@ const panelTreeKeydown = (app: App, event: KeyboardEvent) => {
         return false;
     }
 
-    let matchedCommand: ICommand | undefined;
-    if (!bottomBacklink) {
-        app.plugins.find(item => {
-            item.commands.find(command => {
-                if (supportsPluginCommandSource(command, "dockShortcut") &&
-                    matchHotKey(command.customHotkey, event)) {
-                    matchedCommand = command;
-                    return true;
-                }
-            });
-            return Boolean(matchedCommand);
-        });
+    if (!bottomBacklink && dispatchPluginShortcut(app, event, "dockShortcut", () => captureCommandContext({
+        app, source: "dockShortcut", dockElement: activePanelElement as HTMLElement,
+    }))) {
+        return true;
     }
-    if (matchedCommand) {
-        const commandContext = captureCommandContext({
-            app,
-            source: "dockShortcut",
-            dockElement: activePanelElement as HTMLElement,
-        });
-        const callback = resolvePluginCommandCallback(matchedCommand, commandContext);
-        if (callback) {
-            void callback();
-            return true;
-        }
-    }
-    const matchCollapse = matchHotKey(window.siyuan.config.keymap.editor.general.collapse.custom, event);
-    const matchExpand = matchHotKey(window.siyuan.config.keymap.editor.general.expand.custom, event);
+    const matchCollapse = matchHotKey(window.siyuan.config.keymap.editor.general.collapse, event);
+    const matchExpand = matchHotKey(window.siyuan.config.keymap.editor.general.expand, event);
     if (bottomBacklink && (matchCollapse || matchExpand)) {
         return false;
     }
@@ -1294,12 +1310,11 @@ const panelTreeKeydown = (app: App, event: KeyboardEvent) => {
 
 let switchDialog: Dialog;
 export const windowKeyDown = (app: App, event: KeyboardEvent) => {
-    if (filterHotkey(event, app)) {
+    if (event.defaultPrevented || filterHotkey(event, app)) {
         return;
     }
     if (switchDialog &&
-        (matchAuxiliaryHotKey(window.siyuan.config.keymap.general.goToEditTabNext.custom, event) ||
-            matchAuxiliaryHotKey(window.siyuan.config.keymap.general.goToEditTabPrev.custom, event))
+        matchAuxiliaryHotKey(switchDialog.element.dataset.shortcut || window.siyuan.config.keymap.general.goToEditTabNext, event)
         && event.key.startsWith("Arrow")) {
         dialogArrow(app, switchDialog.element, event);
         return;
@@ -1312,9 +1327,50 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
     }
 
     const isTabWindow = isWindow();
-    if (matchHotKey(window.siyuan.config.keymap.general.goToEditTabNext.custom, event) ||
-        matchHotKey(window.siyuan.config.keymap.general.goToEditTabPrev.custom, event)) {
+    if (bindMenuKeydown(event)) {
+        event.preventDefault();
+        return;
+    }
+
+    if (bindAVPanelKeydown(event)) {
+        event.preventDefault();
+        return;
+    }
+
+    let readonlyBlockSelection: IProtyle;
+    if (event.key === "Escape" && !event.isComposing && !event.repeat) {
+        const selection = getSelection();
+        if (selection.rangeCount > 0) {
+            readonlyBlockSelection = getReadonlyBlockSelectionProtyle(selection.getRangeAt(0));
+        }
+    }
+
+    // 当前焦点范围先处理快捷键，未命中再按固定顺序处理通用操作。
+    // 按键目标为 body 时，优先使用活动面板，否则回退到活动窗口的当前页签。
+    const shortcutTarget = event.target === document.body ?
+        document.querySelector<HTMLElement>(".layout__tab--active") || getActiveTab()?.panelElement || document.body :
+        event.target as HTMLElement;
+    // 只读正文无法获得焦点，跨块选区的 Esc 不应按上一次活动面板分派。
+    if (!readonlyBlockSelection && !shortcutTarget.closest("input, textarea, .b3-menu, .av__panel, .av__mask")) {
+        if (shortcutTarget.closest(".protyle") && editKeydown(app, event)) {
+            return;
+        }
+        if (!isTabWindow && shortcutTarget.closest(".sy__file") && fileTreeKeydown(app, event)) {
+            return;
+        }
+        if (!shortcutTarget.closest(".protyle, .sy__file") &&
+            (!isTabWindow || shortcutTarget.closest(".sy__backlink--bottom")) &&
+            shortcutTarget.closest(".layout__tab--active, .sy__backlink--bottom, .layout__wnd--active .layout-tab-container > div") &&
+            panelTreeKeydown(app, event)) {
+            return;
+        }
+    }
+
+    const switchHotkey = [...getKeymapBindings(window.siyuan.config.keymap.general.goToEditTabNext),
+        ...getKeymapBindings(window.siyuan.config.keymap.general.goToEditTabPrev)].find(key => matchHotKey(key, event));
+    if (switchHotkey) {
         if (switchDialog && switchDialog.element.parentElement) {
+            switchDialog.element.dataset.shortcut = switchHotkey;
             return;
         }
         let tabHtml = "";
@@ -1373,6 +1429,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
 </div>`,
         });
         switchDialog.element.setAttribute("data-key", Constants.DIALOG_SWITCHTAB);
+        switchDialog.element.dataset.shortcut = switchHotkey;
         // 需移走光标，否则编辑器会继续监听并执行按键操作
         switchDialog.element.querySelector("input").focus();
         if (isMac()) {
@@ -1400,18 +1457,8 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         }
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.recentDocs.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.recentDocs, event)) {
         openRecentDocs();
-        event.preventDefault();
-        return;
-    }
-
-    if (bindMenuKeydown(event)) {
-        event.preventDefault();
-        return;
-    }
-
-    if (bindAVPanelKeydown(event)) {
         event.preventDefault();
         return;
     }
@@ -1461,74 +1508,74 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
     }
     /// #endif
 
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.syncNow.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.syncNow, event)) {
         event.preventDefault();
         syncGuide(app);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.commandPanel.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.commandPanel, event)) {
         event.preventDefault();
         commandPanel(app);
         return;
     }
     const editorFontSizeCommand = EDITOR_FONT_SIZE_COMMANDS.find((item) =>
-        matchHotKey(window.siyuan.config.keymap.general[item.command].custom, event));
+        matchHotKey(window.siyuan.config.keymap.general[item.command], event));
     if (editorFontSizeCommand) {
         event.preventDefault();
         adjustEditorFontSize(editorFontSizeCommand.action);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.editReadonly.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.editReadonly, event)) {
         event.preventDefault();
         editorConfigApi.patch("editor.readOnly", !window.siyuan.config.editor.readOnly);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.lockScreen.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.lockScreen, event)) {
         lockScreen();
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.dataHistory.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.dataHistory, event)) {
         openHistory(app);
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleDock.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleDock, event)) {
         toggleDockBar(document.querySelector("#barDock use"));
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.switchLeftDock.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.switchLeftDock, event)) {
         window.siyuan.layout.leftDock.togglePin();
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.switchRightDock.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.switchRightDock, event)) {
         window.siyuan.layout.rightDock.togglePin();
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.switchBottomDock.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.switchBottomDock, event)) {
         window.siyuan.layout.bottomDock.togglePin();
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleLeftDockPanel.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleLeftDockPanel, event)) {
         toggleDockPanel("Left");
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleRightDockPanel.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleRightDockPanel, event)) {
         toggleDockPanel("Right");
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleBottomDockPanel.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.toggleBottomDockPanel, event)) {
         toggleDockPanel("Bottom");
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && !window.siyuan.config.readonly && matchHotKey(window.siyuan.config.keymap.general.config.custom, event)) {
+    if (!isTabWindow && !window.siyuan.config.readonly && matchHotKey(window.siyuan.config.keymap.general.config, event)) {
         openSetting(app);
         event.preventDefault();
         return;
@@ -1538,7 +1585,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         return;
     }
     const matchDock = getAllDocks().find(item => {
-        if (matchHotKey(getDockHotkey(item), event)) {
+        if (matchHotKey(getDockKeymap(item), event)) {
             getDockByType(item.type).toggleModel(item.type);
             event.preventDefault();
             return true;
@@ -1547,7 +1594,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
     if (matchDock) {
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.riffCard.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.riffCard, event)) {
         openCard(app);
         if (document.activeElement) {
             (document.activeElement as HTMLElement).blur();
@@ -1555,13 +1602,13 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return;
     }
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.dailyNote.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.dailyNote, event)) {
         newDailyNote(app);
         event.stopPropagation();
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.newFile.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.newFile, event)) {
         newFile(app);
         event.preventDefault();
         return;
@@ -1599,7 +1646,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
 
         if (!window.siyuan.menus.menu.element.classList.contains("fn__none")) {
             if (window.siyuan.dialogs.length > 0 &&
-                window.siyuan.menus.menu.element.style.zIndex < (window.siyuan.dialogs[0].element.querySelector(".b3-dialog") as HTMLElement).style.zIndex) {
+                isAbove(window.siyuan.dialogs[0].element.querySelector(".b3-dialog"), window.siyuan.menus.menu.element)) {
                 // 窗口高于菜单时，先关闭窗口，如 av 修改列 icon 时
             } else {
                 window.siyuan.menus.menu.remove(true);
@@ -1683,26 +1730,26 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         return;
     }
 
-    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.mainMenu.custom, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.mainMenu, event)) {
         workspaceMenu(app, document.querySelector("#barWorkspace").getBoundingClientRect());
         event.preventDefault();
         return;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.goForward.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goForward, event)) {
         goForward(app);
         event.preventDefault();
         return;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.goBack.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goBack, event)) {
         goBack(app);
         event.preventDefault();
         return;
     }
 
     // close tab
-    if (matchHotKey(window.siyuan.config.keymap.general.closeTab.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.closeTab, event) && !event.repeat) {
         execByCommand({
             command: "closeTab"
         });
@@ -1710,7 +1757,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         return;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.recentClosed.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.recentClosed, event)) {
         execByCommand({
             command: "recentClosed",
             app
@@ -1719,173 +1766,147 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         return;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab1.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab1, event) && !event.repeat) {
         switchTabByIndex(0);
         event.preventDefault();
         return;
     }
 
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab2.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab2, event) && !event.repeat) {
         switchTabByIndex(1);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab3.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab3, event) && !event.repeat) {
         switchTabByIndex(2);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab4.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab4, event) && !event.repeat) {
         switchTabByIndex(3);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab5.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab5, event) && !event.repeat) {
         switchTabByIndex(4);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab6.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab6, event) && !event.repeat) {
         switchTabByIndex(5);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab7.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab7, event) && !event.repeat) {
         switchTabByIndex(6);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab8.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab8, event) && !event.repeat) {
         switchTabByIndex(7);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTab9.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTab9, event) && !event.repeat) {
         switchTabByIndex(-1);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTabNext.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTabNext, event) && !event.repeat) {
         switchTabByIndex(-3);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.goToTabPrev.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.goToTabPrev, event) && !event.repeat) {
         switchTabByIndex(-2);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.closeOthers.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.closeOthers, event) && !event.repeat) {
         execByCommand({
             command: "closeOthers"
         });
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.closeAll.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.closeAll, event) && !event.repeat) {
         execByCommand({
             command: "closeAll"
         });
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.closeUnmodified.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.closeUnmodified, event) && !event.repeat) {
         execByCommand({
             command: "closeUnmodified"
         });
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.closeLeft.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.closeLeft, event) && !event.repeat) {
         execByCommand({
             command: "closeLeft"
         });
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.closeRight.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.closeRight, event) && !event.repeat) {
         execByCommand({
             command: "closeRight"
         });
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.splitLR.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.splitLR, event) && !event.repeat) {
         event.preventDefault();
         globalCommand("splitLR", app);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.splitMoveR.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.splitMoveR, event) && !event.repeat) {
         event.preventDefault();
         globalCommand("splitMoveR", app);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.splitTB.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.splitTB, event) && !event.repeat) {
         event.preventDefault();
         globalCommand("splitTB", app);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.tabToWindow.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.tabToWindow, event) && !event.repeat) {
         event.preventDefault();
         globalCommand("tabToWindow", app);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.splitMoveB.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.splitMoveB, event) && !event.repeat) {
         event.preventDefault();
         globalCommand("splitMoveB", app);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.stickSearch.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.stickSearch, event)) {
         globalCommand("stickSearch", app);
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.unsplit.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.unsplit, event) && !event.repeat) {
         event.preventDefault();
         globalCommand("unsplit", app);
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.unsplitAll.custom, event) && !event.repeat) {
+    if (matchHotKey(window.siyuan.config.keymap.general.unsplitAll, event) && !event.repeat) {
         event.preventDefault();
         globalCommand("unsplitAll", app);
         return;
     }
-    if (editKeydown(app, event)) {
+    if (!isTabWindow && matchHotKey(window.siyuan.config.keymap.general.selectOpen1, event)) {
+        event.preventDefault();
+        globalCommand("selectOpen1", app);
         return;
     }
-
-    // 文件树的操作
-    if (!isTabWindow && fileTreeKeydown(app, event)) {
-        return;
+    if (dispatchPluginShortcut(app, event, "shortcut", () => captureShortcutContext(app, event))) {
+        return true;
     }
 
-    // 面板的操作
-    if ((!isTabWindow || hasClosestByClassName(target, "sy__backlink--bottom", true)) && panelTreeKeydown(app, event)) {
-        return;
-    }
-
-    let matchedCommand: ICommand | undefined;
-    app.plugins.find(item => {
-        item.commands.find(command => {
-            if (supportsPluginCommandSource(command, "shortcut") && matchHotKey(command.customHotkey, event)) {
-                matchedCommand = command;
-                return true;
-            }
-        });
-        return Boolean(matchedCommand);
-    });
-    if (matchedCommand) {
-        const commandContext = captureCommandContext({app, source: "shortcut"});
-        const callback = resolvePluginCommandCallback(matchedCommand, commandContext);
-        if (callback) {
-            void callback();
-            event.stopPropagation();
-            event.preventDefault();
-            return true;
-        }
-    }
-
-    if (matchHotKey(window.siyuan.config.keymap.general.replace.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.replace, event)) {
         execByCommand({
             command: "replace",
             app,
@@ -1893,7 +1914,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return;
     }
-    if (matchHotKey(window.siyuan.config.keymap.general.globalSearch.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.general.globalSearch, event)) {
         execByCommand({
             command: "globalSearch",
             app,
@@ -1901,7 +1922,7 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return;
     }
-    if (!hasClosestByClassName(target, "pdf__outer") && matchHotKey(window.siyuan.config.keymap.general.search.custom, event)) {
+    if (!hasClosestByClassName(target, "pdf__outer") && matchHotKey(window.siyuan.config.keymap.general.search, event)) {
         execByCommand({
             command: "search",
             app,

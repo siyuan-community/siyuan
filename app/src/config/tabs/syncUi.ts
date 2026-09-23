@@ -1,5 +1,7 @@
 import {showMessage} from "../../dialog/message";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
+import {ContractFormData} from "../../util/contractFormData";
+import type {APICallbackResponse, APIPOSTRoutes} from "../../types/api";
 import {confirmDialog} from "../../dialog/confirmDialog";
 import {isInIOS, saveExportFile} from "../../protyle/util/compatibility";
 import {isPaidUser, needSubscribe} from "../../util/needSubscribe";
@@ -308,14 +310,14 @@ const genProviderField = (field: SyncProviderFieldDef): string => {
 const genProviderFlexInput = (label: string, id: string, attrs = "") => `<div class="b3-label b3-label--inner fn__flex">
     <div class="fn__flex-center fn__size200">${label}</div>
     <div class="fn__space"></div>
-    <input id="${id}" class="b3-text-field fn__block"${attrs ? ` ${attrs}` : ""}>
+    <input spellcheck="false" id="${id}" class="b3-text-field fn__block"${attrs ? ` ${attrs}` : ""}>
 </div>`;
 
 const genProviderFlexPassword = (label: string, id: string) => `<div class="b3-label b3-label--inner fn__flex">
     <div class="fn__flex-center fn__size200">${label}</div>
     <div class="fn__space"></div>
     <div class="b3-form__icona fn__block">
-        <input id="${id}" type="password" class="b3-text-field b3-form__icona-input">
+        <input spellcheck="false" id="${id}" type="password" class="b3-text-field b3-form__icona-input">
         <svg class="b3-form__icona-icon" data-action="togglePassword"><use xlink:href="#iconEye"></use></svg>
     </div>
 </div>`;
@@ -329,17 +331,15 @@ const genProviderFlexSelect = (label: string, id: string, optionsHtml: string) =
 </div>`;
 
 const genProviderActionButtons = (dataType: SyncProviderConfigKey) => {
-    const importExportHtml = getHostCapabilities().importExport && (dataType === "s3" || dataType === "webdav") ? `<div class="fn__space"></div>
+    const importExportHtml = getHostCapabilities().importExport && (dataType === "s3" || dataType === "webdav") ? `
     <button class="b3-button b3-button--outline fn__size200" style="position: relative">
         <input id="importSyncConfig" class="b3-form__upload" type="file" data-type="${dataType}">
         <svg><use xlink:href="#iconDownload"></use></svg>${window.siyuan.languages.import}
     </button>
-    <div class="fn__space"></div>
     <button class="b3-button b3-button--outline fn__size200" id="exportSyncConfig" data-type="${dataType}">
         <svg><use xlink:href="#iconUpload"></use></svg>${window.siyuan.languages.export}
     </button>` : "";
-    return `<div class="b3-label b3-label--inner fn__flex fn__flex-wrap">
-    <div class="fn__flex-1"></div>
+    return `<div class="b3-label b3-label--inner fn__flex fn__flex-wrap" style="gap: 8px; justify-content: flex-end">
     <button class="b3-button b3-button--outline fn__size200" id="purgeCloudData">
         <svg><use xlink:href="#iconTrashcan"></use></svg>${window.siyuan.languages.cloudStoragePurge}
     </button>${importExportHtml}
@@ -347,6 +347,7 @@ const genProviderActionButtons = (dataType: SyncProviderConfigKey) => {
 };
 
 const syncProviderConfigBoundElements = new WeakSet<Element>();
+const syncProviderConfigSaves = new WeakMap<Element, Promise<void>>();
 
 const bindProviderConfigEvent = (configElement: Element, root: Element) => {
     const togglePasswordIcon = configElement.querySelector('[data-action="togglePassword"]');
@@ -362,11 +363,10 @@ const bindProviderConfigEvent = (configElement: Element, root: Element) => {
         if (!getHostCapabilities().importExport) {
             return;
         }
-        const formData = new FormData();
-        formData.append("file", importElement.files[0]);
+        const formData = new ContractFormData({file: importElement.files[0]});
         const isS3 = importElement.getAttribute("data-type") === "s3";
-        fetchPost(isS3 ? "/api/sync/importSyncProviderS3" : "/api/sync/importSyncProviderWebDAV", formData, (response) => {
-            if (isS3) {
+        fetchPost(isS3 ? "/api/sync/importSyncProviderS3" : "/api/sync/importSyncProviderWebDAV", formData, (response: APICallbackResponse<APIPOSTRoutes["/api/sync/importSyncProviderS3" | "/api/sync/importSyncProviderWebDAV"]["response"]>) => {
+            if ("s3" in response.data) {
                 window.siyuan.config.sync.s3 = response.data.s3;
             } else {
                 window.siyuan.config.sync.webdav = response.data.webdav;
@@ -419,17 +419,34 @@ const saveSyncProviderConfigValues = (configElement: Element) => {
     }
     const data = readProviderConfigFields(configElement, def.getConfig());
     const configKey = def.configKey;
-    // 使用 fetchSyncPost：内核返回 code < 0 时 fetchPost 不会调用回调，此处需始终回写界面与已保存配置一致
-    fetchSyncPost(def.api, {[configKey]: data})
+    if (configKey === "s3") {
+        for (const key of ["endpoint", "accessKey", "secretKey", "bucket", "region"]) {
+            const input = configElement.querySelector<HTMLInputElement>(`#${key}`);
+            if (!input.value.trim()) {
+                return;
+            }
+        }
+    }
+    // 记录提交时的控件和值，仅回填未被继续编辑的控件，失败时保留输入。
+    const fields = def.fields.map((field) => {
+        const element = configElement.querySelector<HTMLInputElement | HTMLSelectElement>(`#${field.id}`);
+        return {key: field.id, element, value: element.value};
+    });
+    // 同一表单的保存按编辑顺序执行，防止较早的响应覆盖后续配置。
+    const saving = (syncProviderConfigSaves.get(configElement) || Promise.resolve())
+        .then(() => fetchSyncPost(def.api, {[configKey]: data}))
         .then((response) => {
             if (response.code === 0 && response.data?.[configKey]) {
                 window.siyuan.config.sync[configKey] = response.data[configKey];
+                fields.forEach(({key, element, value}) => {
+                    if (element.value === value) {
+                        element.value = String(response.data[configKey][key]);
+                    }
+                });
             }
         })
-        .finally(() => {
-            fillSyncProviderConfigValues(configElement);
-        })
         .catch(() => {});
+    syncProviderConfigSaves.set(configElement, saving);
 };
 
 const fillSyncProviderConfigValues = (configElement: Element) => {

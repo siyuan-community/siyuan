@@ -1,4 +1,5 @@
 import {BlockPanel} from "./Panel";
+import {isAbove} from "../util/zIndex";
 import {hasClosestByAttribute, hasClosestByClassName,} from "../protyle/util/hasClosest";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {hideTooltip, showTooltip} from "../dialog/tooltip";
@@ -20,6 +21,24 @@ import {Tab} from "../layout/Tab";
 /// #endif
 
 let popoverTargetElement: HTMLElement;
+let popoverGeneration = 0;
+let cancelPopoverTimers: () => void;
+const popoverInteractions = new Set<HTMLElement>();
+
+const isPopoverSuspended = () => window.siyuan.dragElement || document.onmousemove || popoverInteractions.size > 0;
+
+export const suspendBlockPopover = (root: HTMLElement, event: PointerEvent) => {
+    popoverInteractions.add(root);
+    popoverGeneration++;
+    cancelPopoverTimers?.();
+    tooltipAbortController?.abort();
+    tooltipAbortController = null;
+    hideTooltip();
+    if (window.siyuan.menus) {
+        hidePopover(event, root);
+    }
+    return () => popoverInteractions.delete(root);
+};
 
 const getPopoverNotebookId = () => {
     const notebookId = popoverTargetElement?.closest("[data-notebook-id]")?.getAttribute("data-notebook-id") || "";
@@ -32,6 +51,12 @@ export const initBlockPopover = (app: App) => {
     let timeoutHide: number;
     let penTimeout: number;
     let penTimeoutHide: number;
+    cancelPopoverTimers = () => {
+        clearTimeout(timeout);
+        clearTimeout(timeoutHide);
+        clearTimeout(penTimeout);
+        clearTimeout(penTimeoutHide);
+    };
     let lastPointerMoveLogTime = 0;
     const logAndroidInputEvent = (event: MouseEvent | PointerEvent) => {
         if (!window.JSAndroid?.logInputEvent) {
@@ -63,7 +88,7 @@ export const initBlockPopover = (app: App) => {
         logAndroidInputEvent(event);
         if (!window.siyuan.config || !window.siyuan.menus ||
             // 拖拽时禁止
-            window.siyuan.dragElement || document.onmousemove) {
+            isPopoverSuspended()) {
             hideTooltip();
             return;
         }
@@ -331,7 +356,7 @@ export const initBlockPopover = (app: App) => {
             clearTimeout(penTimeoutHide);
             if (event.buttons !== 0 ||
                 !window.siyuan.config || !window.siyuan.menus ||
-                window.siyuan.dragElement || document.onmousemove ||
+                isPopoverSuspended() ||
                 window.siyuan.config.editor.floatWindowMode !== 0 || window.siyuan.shiftIsPressed) {
                 return;
             }
@@ -389,9 +414,9 @@ export const initBlockPopover = (app: App) => {
     }
 };
 
-const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
+const hidePopover = (event: MouseEvent & { path?: HTMLElement[] }, interactionRoot?: HTMLElement) => {
     // pad 端点击后 event.target 不会更新。
-    const target = isTouchDevice() ? document.elementFromPoint(event.clientX, event.clientY) : event.target as HTMLElement;
+    const target = interactionRoot || (isTouchDevice() ? document.elementFromPoint(event.clientX, event.clientY) : event.target as HTMLElement);
     if (!target) {
         return false;
     }
@@ -417,7 +442,7 @@ const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
     if (avPanelElement) {
         // 浮窗上点击 av 操作，浮窗不能消失
         const blockPanel = window.siyuan.blockPanels.find((item) => {
-            if (item.element.style.zIndex < avPanelElement.style.zIndex) {
+            if (isAbove(avPanelElement, item.element)) {
                 return true;
             }
         });
@@ -429,7 +454,7 @@ const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
         const menuElement = hasClosestByClassName(target, "b3-menu");
         if (menuElement && menuElement.getAttribute("data-name") !== Constants.MENU_DOC_TREE_MORE) {
             const blockPanel = window.siyuan.blockPanels.find((item) => {
-                if (item.element.style.zIndex < menuElement.style.zIndex) {
+                if (isAbove(menuElement, item.element)) {
                     return true;
                 }
             });
@@ -533,7 +558,8 @@ const hidePopover = (event: MouseEvent & { path: HTMLElement[] }) => {
 };
 
 const getTarget = (event: MouseEvent & { target: HTMLElement }, aElement: false | HTMLElement) => {
-    if (window.siyuan.config.editor.floatWindowMode === 2 || hasClosestByClassName(event.target, "history__repo", true)) {
+    if (isPopoverSuspended() || window.siyuan.config.editor.floatWindowMode === 2 ||
+        hasClosestByClassName(event.target, "history__repo", true)) {
         return false;
     }
     popoverTargetElement = hasClosestByAttribute(event.target, "data-type", "block-ref") as HTMLElement ||
@@ -571,11 +597,14 @@ const getTarget = (event: MouseEvent & { target: HTMLElement }, aElement: false 
 };
 
 export const showPopover = async (app: App, showRef = false) => {
-    if (!popoverTargetElement || (window.siyuan.menus.menu.data && window.siyuan.menus.menu.data === popoverTargetElement)) {
+    if (isPopoverSuspended() || !popoverTargetElement ||
+        (window.siyuan.menus.menu.data && window.siyuan.menus.menu.data === popoverTargetElement)) {
         return;
     }
+    const targetElement = popoverTargetElement;
+    const generation = popoverGeneration;
     let refDefs: IRefDefs[] = [];
-    let originalRefBlockIDs: IObject;
+    let originalRefBlockIDs: Record<string, string>;
     const notebookId = getPopoverNotebookId();
     const dataId = popoverTargetElement.getAttribute("data-id");
     if (dataId) {
@@ -585,6 +614,9 @@ export const showPopover = async (app: App, showRef = false) => {
                 id: dataId,
                 notebook: notebookId
             });
+            if (postResponse.code !== 0) {
+                return;
+            }
             refDefs = postResponse.data.refDefs;
             originalRefBlockIDs = postResponse.data.originalRefBlockIDs;
         } else {
@@ -601,6 +633,9 @@ export const showPopover = async (app: App, showRef = false) => {
             anchor: popoverTargetElement.textContent,
             notebook: notebookId
         });
+        if (postResponse.code !== 0) {
+            return;
+        }
         refDefs = postResponse.data.refDefs;
     } else if (popoverTargetElement.getAttribute("data-type")?.split(" ").includes("a")) {
         // 以思源协议开头的链接
@@ -656,7 +691,9 @@ export const showPopover = async (app: App, showRef = false) => {
         }
     }
 
-    if (refDefs.length === 0) {
+    // 交互开始后，即使请求在松手后才返回，也不能重新打开交互前的浮窗。
+    if (generation !== popoverGeneration || targetElement !== popoverTargetElement ||
+        !targetElement.isConnected || isPopoverSuspended() || refDefs.length === 0) {
         return;
     }
 

@@ -176,11 +176,11 @@ func RenderGroupViewWithSourceContext(attrView *av.AttributeView, view, groupVie
 	source *GroupViewRenderSource, ignoreRows bool, context *AttributeViewRenderContext) (ret av.Viewable) {
 	var err error
 	switch groupView.LayoutType {
-	case av.LayoutTypeTable:
+	case av.LayoutTypeTable, av.LayoutTypeList, av.LayoutTypeCalendar:
 		// 这里需要使用深拷贝，因为字段上可能会带有计算（FieldCalc），每个分组视图的计算结果都需要分别存储在不同的字段实例上
-		err = copier.CopyWithOption(&groupView.Table.Columns, &view.Table.Columns, copier.Option{DeepCopy: true})
-		groupView.Table.ShowIcon = view.Table.ShowIcon
-		groupView.Table.WrapField = view.Table.WrapField
+		err = copier.CopyWithOption(&groupView.GetTableLayout().Columns, &view.GetTableLayout().Columns, copier.Option{DeepCopy: true})
+		groupView.GetTableLayout().ShowIcon = view.GetTableLayout().ShowIcon
+		groupView.GetTableLayout().WrapField = view.GetTableLayout().WrapField
 	case av.LayoutTypeGallery:
 		err = copier.CopyWithOption(&groupView.Gallery.CardFields, &view.Gallery.CardFields, copier.Option{DeepCopy: true})
 		groupView.Gallery.ShowIcon = view.Gallery.ShowIcon
@@ -216,8 +216,8 @@ func RenderGroupViewWithSourceContext(attrView *av.AttributeView, view, groupVie
 	if nil != err {
 		logging.LogErrorf("copy view fields [%s] to group [%s] failed: %s", view.ID, groupView.ID, err)
 		switch groupView.LayoutType {
-		case av.LayoutTypeTable:
-			groupView.Table.Columns = view.Table.Columns
+		case av.LayoutTypeTable, av.LayoutTypeList, av.LayoutTypeCalendar:
+			groupView.GetTableLayout().Columns = view.GetTableLayout().Columns
 		case av.LayoutTypeGallery:
 			groupView.Gallery.CardFields = view.Gallery.CardFields
 		case av.LayoutTypeKanban:
@@ -287,8 +287,8 @@ func renderViewWithContext(attrView *av.AttributeView, view *av.View, query stri
 	renderedAttrViews[attrView.ID] = attrView
 	ret = renderView(attrView, view, query, &depth, renderedAttrViews, ignoreRows, deferTemplateValues, renderContext)
 
-	// 元数据和延迟模板渲染不写入缓存，避免后续全集渲染读取到不完整条目。
-	if !ignoreRows && !deferTemplateValues {
+	// 元数据、延迟模板和日历区间渲染不写入缓存，避免后续全集渲染读取到不完整条目。
+	if !ignoreRows && !deferTemplateValues && view.LayoutType != av.LayoutTypeCalendar {
 		attrView.RenderedViewables[ret.GetID()] = ret
 	}
 	renderedAttrViews[attrView.ID] = attrView
@@ -307,6 +307,14 @@ func renderView(attrView *av.AttributeView, view *av.View, query string, depth *
 	case av.LayoutTypeTable:
 		ret = renderAttributeViewTable(attrView, view, query, depth, cachedAttrViews, ignoreRows, deferTemplateValues,
 			renderContext)
+	case av.LayoutTypeCalendar:
+		table := renderAttributeViewTable(attrView, view, query, depth, cachedAttrViews, ignoreRows, deferTemplateValues, renderContext)
+		settings := view.Calendar.Settings
+		table.Calendar = &settings
+		table.Group = nil
+		ret = &av.Calendar{Table: table}
+	case av.LayoutTypeList:
+		ret = &av.List{Table: renderAttributeViewTable(attrView, view, query, depth, cachedAttrViews, ignoreRows, deferTemplateValues, renderContext)}
 	case av.LayoutTypeGallery:
 		ret = renderAttributeViewGallery(attrView, view, query, depth, cachedAttrViews, ignoreRows, deferTemplateValues,
 			renderContext)
@@ -1185,10 +1193,13 @@ func removeMissingField(attrView *av.AttributeView, view *av.View, missingKeyID 
 	logging.LogWarnf("key [%s] is missing", missingKeyID)
 
 	changed := false
-	if nil != view.Table {
-		for i, column := range view.Table.Columns {
+	for _, layout := range []*av.LayoutTable{view.Table, view.List} {
+		if nil == layout {
+			continue
+		}
+		for i, column := range layout.Columns {
 			if column.ID == missingKeyID {
-				view.Table.Columns = append(view.Table.Columns[:i], view.Table.Columns[i+1:]...)
+				layout.Columns = append(layout.Columns[:i], layout.Columns[i+1:]...)
 				changed = true
 				break
 			}

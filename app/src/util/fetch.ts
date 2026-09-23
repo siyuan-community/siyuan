@@ -4,14 +4,18 @@ import {ipcRenderer} from "electron";
 /// #endif
 import {processMessage} from "./processMessage";
 import {kernelError} from "./kernelFault";
+import {withFetchTimeout} from "./fetchTimeout";
+import type {FetchGet, FetchPost, FetchSyncPost} from "../types/api";
 
-export const fetchPost = (
+export const fetchPost = ((
     url: string,
     data?: any,
     cb?: (response: IWebSocketData) => void,
     headers?: Record<string, string>,
     failCallback?: (response: IWebSocketData) => void,
-    signal?: AbortSignal) => {
+    signal?: AbortSignal,
+    timeout = url === "/api/system/exit" || url === "/api/system/setWorkspaceDir" ||
+        (url === "/api/system/setUILayout" && data?.errorExit) ? 30000 : 0) => {
     const init: RequestInit = {
         method: "POST",
     };
@@ -41,7 +45,7 @@ export const fetchPost = (
         init.signal = signal;
     }
     let isGetFile202 = false;
-    return fetch(url, init).then((response) => {
+    return withFetchTimeout((requestSignal) => fetch(url, {...init, signal: requestSignal}).then((response) => {
         switch (response.status) {
             case 403:
             case 404:
@@ -71,7 +75,7 @@ export const fetchPost = (
                     return response.text();
                 }
         }
-    }).then((response: IWebSocketData) => {
+    }), signal, timeout).then((response: IWebSocketData) => {
         if (failCallback && url === "/api/file/getFile" && isGetFile202) {
             failCallback(response);
             return;
@@ -119,9 +123,9 @@ export const fetchPost = (
         }
         /// #endif
     });
-};
+}) as FetchPost<IWebSocketData>;
 
-export const fetchSyncPost = async (url: string, data?: any, headers?: Record<string, string>, process = true,
+export const fetchSyncPost = (async (url: string, data?: any, headers?: Record<string, string>, process = true,
                                     signal?: AbortSignal) => {
     const init: RequestInit = {
         method: "POST",
@@ -143,9 +147,9 @@ export const fetchSyncPost = async (url: string, data?: any, headers?: Record<st
         processMessage(res2);
     }
     return res2;
-};
+}) as FetchSyncPost<IWebSocketData>;
 
-export const fetchGet = (url: string, cb: (response: IWebSocketData | IObject | string) => void) => {
+export const fetchGet = ((url: string, cb: (response: IWebSocketData | IObject | string) => void) => {
     fetch(url, {cache: "no-store"}).then((response) => {
         if (response.headers.get("content-type")?.indexOf("application/json") > -1) {
             return response.json();
@@ -155,4 +159,4 @@ export const fetchGet = (url: string, cb: (response: IWebSocketData | IObject | 
     }).then((response) => {
         cb(response);
     });
-};
+}) as FetchGet<IWebSocketData | IObject | string>;

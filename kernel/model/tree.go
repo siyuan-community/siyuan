@@ -66,20 +66,6 @@ func resetTree(tree *parse.Tree, titleSuffix string, removeAvBinding bool) {
 	tree.Path = p
 	tree.HPath = tree.HPath + " " + titleSuffix
 
-	// 收集所有引用
-	refIDs := map[string]string{}
-	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
-		if !entering || !treenode.IsBlockRef(n) {
-			return ast.WalkContinue
-		}
-		defID, _, _ := treenode.GetBlockRef(n)
-		if "" == defID {
-			return ast.WalkContinue
-		}
-		refIDs[defID] = "1"
-		return ast.WalkContinue
-	})
-
 	// 重置块 ID
 	blockIDs := map[string]string{oldRootID: tree.ID}
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
@@ -89,34 +75,13 @@ func resetTree(tree *parse.Tree, titleSuffix string, removeAvBinding bool) {
 		if n.IsBlock() && "" != n.ID {
 			newID := ast.NewNodeID()
 			blockIDs[n.ID] = newID
-			if "1" == refIDs[n.ID] {
-				// 如果是文档自身的内部引用
-				refIDs[n.ID] = newID
-			}
 			n.ID = newID
 			n.SetIALAttr("id", n.ID)
 		}
 		return ast.WalkContinue
 	})
 
-	treenode.RemapTabsActiveIDs(tree.Root, blockIDs)
-	remapTabTitleBlockIDs(tree.Root, blockIDs)
-	// 重置内部引用
-	treenode.WalkWithTabTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
-		if !entering || !treenode.IsBlockRef(n) {
-			return ast.WalkContinue
-		}
-		defID, _, _ := treenode.GetBlockRef(n)
-		if "" == defID {
-			return ast.WalkContinue
-		}
-		if "1" != refIDs[defID] {
-			if ast.NodeTextMark == n.Type {
-				n.TextMarkBlockRefID = refIDs[defID]
-			}
-		}
-		return ast.WalkContinue
-	})
+	remapDuplicateDocTreeReferences(tree.Root, blockIDs)
 
 	var attrViewIDs []string
 	// 绑定镜像数据库
@@ -139,10 +104,25 @@ func resetTree(tree *parse.Tree, titleSuffix string, removeAvBinding bool) {
 }
 
 func pagedPaths(localPath string, pageSize int) (ret map[int][]string) {
+	ret, _ = pagedPathsWithWalker(localPath, pageSize, false, filelock.Walk)
+	return
+}
+
+func pagedPathsWithError(localPath string, pageSize int) (ret map[int][]string, err error) {
+	return pagedPathsWithWalker(localPath, pageSize, true, filelock.Walk)
+}
+
+func pagedPathsWithWalker(localPath string, pageSize int, strict bool, walk func(string, fs.WalkDirFunc) error) (ret map[int][]string, err error) {
 	ret = map[int][]string{}
 	page := 1
-	filelock.Walk(localPath, func(path string, d fs.DirEntry, err error) error {
-		if nil != err || nil == d {
+	err = walk(localPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if strict {
+				return err
+			}
+			return nil
+		}
+		if d == nil {
 			return nil
 		}
 
@@ -336,6 +316,21 @@ func loadTreeByBlockIDInBox0(id, boxID string, logNotFound bool) (ret *parse.Tre
 var searchTreeLimiter = rate.NewLimiter(rate.Every(3*time.Second), 1)
 
 func indexTreeInFilesystem(blockID string) error {
+	return indexTreeInFilesystem0(blockID, false)
+}
+
+// ReindexMissingNormalBlock 在请求取得加密笔记本租约前，仅恢复普通笔记本中缺失的块索引。
+func ReindexMissingNormalBlock(blockID string) error {
+	if !ast.IsNodeIDPattern(blockID) {
+		return ErrInvalidID
+	}
+	if task.ContainIndexTask() {
+		return ErrIndexing
+	}
+	return indexTreeInFilesystem0(blockID, true)
+}
+
+func indexTreeInFilesystem0(blockID string, normalOnly bool) error {
 	if !searchTreeLimiter.Allow() {
 		return ErrIndexing
 	}
@@ -345,7 +340,7 @@ func indexTreeInFilesystem(blockID string) error {
 
 	logging.LogWarnf("searching tree on filesystem [id=%s]", blockID)
 
-	unindexedTreePath := findUnindexedTreePathInAllBoxes(blockID)
+	unindexedTreePath := findUnindexedTreePath(blockID, normalOnly)
 	if "" == unindexedTreePath {
 		logging.LogInfof("tree not found on filesystem [id=%s]", blockID)
 		return ErrTreeNotFound
@@ -402,9 +397,16 @@ func loadParentTree(tree *parse.Tree) (ret *parse.Tree) {
 }
 
 func findUnindexedTreePathInAllBoxes(id string) (ret string) {
+	return findUnindexedTreePath(id, false)
+}
+
+func findUnindexedTreePath(id string, normalOnly bool) (ret string) {
 	boxes := Conf.GetBoxes()
 	luteEngine := util.NewLute()
 	for _, box := range boxes {
+		if normalOnly && IsEncryptedBox(box.ID) {
+			continue
+		}
 		root := filepath.Join(util.DataDir, box.ID)
 		paths := search.FindAllMatchedPaths(root, []string{id})
 		var rootIDs []string

@@ -17,7 +17,9 @@ type ModelPickerGroup = "editing" | "agent" | "imageGeneration";
 export const getProvidersBlockKeywords = (): string[] => [
     window.siyuan.languages.apiKeyRequired,
     window.siyuan.languages.apiProvider,
-    window.siyuan.languages.openAICompatibleProvider,
+    "Chat Completions",
+    "Responses",
+    "Anthropic Messages",
     window.siyuan.languages.apiProviderTip,
     window.siyuan.languages.aiProviderOfficial,
     window.siyuan.languages.aiProviderAggregator,
@@ -79,15 +81,10 @@ export const mountEmbeddingStatsBlock = (root: HTMLElement) => {
 
     const render = () => {
         fetchPost("/api/ai/embeddingStat", {}, (response) => {
-            const stat = response.data as {
-                total: number,
-                indexed: number,
-                pending: number,
-                failed: number,
-                ignoredByLen: number,
-                ignoredByConfig: number,
-                enabled: boolean,
-            };
+            if (response.code !== 0) {
+                return;
+            }
+            const stat = response.data;
             if (!stat) {
                 return;
             }
@@ -173,7 +170,8 @@ export const mountEmbeddingStatsBlock = (root: HTMLElement) => {
     window.requestAnimationFrame(cleanup);
 };
 
-const mountModelTestButton = (root: HTMLElement, inputId: string, buttonId: string) => {
+const mountModelTestButton = (root: HTMLElement, inputId: string, buttonId: string,
+                              position: "description" | "input" = "description") => {
     const inputElement = root.querySelector<HTMLInputElement>(`[id="${inputId}"]`);
     const itemElement = inputElement?.closest<HTMLElement>(".config-item");
     const wrapperElement = itemElement?.querySelector<HTMLElement>(":scope > .fn__block");
@@ -184,17 +182,27 @@ const mountModelTestButton = (root: HTMLElement, inputId: string, buttonId: stri
         return;
     }
 
+    const spaceElement = document.createElement("div");
+    spaceElement.className = "fn__space";
+    const buttonElement = document.createElement("div");
+    buttonElement.innerHTML = `<button class="b3-button b3-button--outline" id="${buttonId}"><svg class="b3-button__icon"><use xlink:href="#iconPlugZap"></use></svg><span>${window.siyuan.languages.testConnection}</span></button>`;
+    if (position === "input") {
+        const inputRow = document.createElement("div");
+        inputRow.className = "fn__flex";
+        inputElement.classList.replace("fn__block", "fn__flex-1");
+        buttonElement.className = "fn__flex-shrink";
+        inputElement.replaceWith(inputRow);
+        inputRow.append(inputElement, spaceElement, buttonElement);
+        return buttonElement.querySelector<HTMLButtonElement>(`#${buttonId}`);
+    }
+
     const headerElement = document.createElement("div");
     headerElement.className = "fn__flex";
     const textElement = document.createElement("div");
     textElement.className = "fn__flex-1";
     textElement.append(nameElement, descriptionElement);
-    const spaceElement = document.createElement("div");
-    spaceElement.className = "fn__space";
-    const buttonElement = document.createElement("div");
     buttonElement.style.textAlign = "right";
     buttonElement.style.marginTop = "8px";
-    buttonElement.innerHTML = `<button class="b3-button b3-button--outline" id="${buttonId}"><svg class="b3-button__icon"><use xlink:href="#iconPlugZap"></use></svg><span>${window.siyuan.languages.testConnection}</span></button>`;
     headerElement.append(textElement, spaceElement, buttonElement);
     separatorElement.className = "fn__hr";
     itemElement.replaceChildren(headerElement, separatorElement, inputElement);
@@ -227,7 +235,10 @@ export const mountEmbeddingTestBtn = (root: HTMLElement) => {
         };
         fetchPost("/api/ai/testEmbeddingModel", {}, (response) => {
             restoreBtn();
-            const data = response.data || {};
+            if (response.code !== 0) {
+                return;
+            }
+            const data = response.data;
             if (data.matched) {
                 const dims = data.dimensions;
                 showMessage(
@@ -274,7 +285,10 @@ export const mountRerankTestBtn = (root: HTMLElement) => {
         };
         fetchPost("/api/ai/testRerankModel", {}, (response) => {
             restoreBtn();
-            const data = response.data || {};
+            if (response.code !== 0) {
+                return;
+            }
+            const data = response.data;
             if (data.matched) {
                 showMessage(window.siyuan.languages.testConnectionSuccess, undefined, "info");
                 return;
@@ -286,6 +300,38 @@ export const mountRerankTestBtn = (root: HTMLElement) => {
                 undefined, "error",
             );
         });
+    });
+};
+
+// mountDecisionTestBtn 将测试按钮放在模型名称输入框右侧，并在网络或内核错误后恢复按钮。
+export const mountDecisionTestBtn = (root: HTMLElement) => {
+    const button = mountModelTestButton(root, "ai.decision.name", "aiDecisionTestBtn", "input");
+    if (!button) {
+        return;
+    }
+    const label = button.querySelector("span");
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        label.textContent = window.siyuan.languages.testConnectionTesting;
+        try {
+            if (!await aiConfigApi.waitForSave()) {
+                showMessage(window.siyuan.languages.testConnectionFail, undefined, "error");
+                return;
+            }
+            await fetchPost("/api/ai/testDecisionModel", {}, response => {
+                const data = response.data;
+                if (data.matched) {
+                    showMessage(window.siyuan.languages.testConnectionSuccess, undefined, "info");
+                    return;
+                }
+                showMessage(data.msg
+                    ? window.siyuan.languages.testConnectionFailMsg.replace("${msg}", escapeHtml(data.msg))
+                    : window.siyuan.languages.testConnectionFail, undefined, "error");
+            }, undefined, () => showMessage(window.siyuan.languages.testConnectionFail, undefined, "error"));
+        } finally {
+            button.disabled = false;
+            label.textContent = window.siyuan.languages.testConnection;
+        }
     });
 };
 
@@ -397,15 +443,10 @@ export const mountMcpServersBlock = (root: HTMLElement) => {
     // 轮询 MCP 连接状态，刷新每个 server 名称旁的状态圆点颜色、tooltip，以及标题右侧的汇总。
     const renderMcpStatus = () => {
         fetchPost("/api/ai/mcpStatus", {}, (response) => {
-            const items = response.data as Array<{
-                id: string;
-                name: string;
-                status: string;
-                tools: number;
-                error?: string;
-                authorizationURL?: string;
-                authorized: boolean;
-            }>;
+            if (response.code !== 0) {
+                return;
+            }
+            const items = response.data;
             if (!items) {
                 return;
             }
@@ -632,7 +673,10 @@ interface MCPEnvironmentVariablesData {
 
 const openMcpServerDialog = (root: HTMLElement, serverName: string | null) => {
     fetchPost("/api/ai/mcpEnvironmentVariables", {}, (response) => {
-        const data = response.data as MCPEnvironmentVariablesData;
+        if (response.code !== 0) {
+            return;
+        }
+        const data = response.data;
         openMcpServerDialogWithEnvironment(root, serverName, {
             names: Array.isArray(data?.names) ? data.names : [],
             defaults: Array.isArray(data?.defaults) ? data.defaults : [],
@@ -783,13 +827,13 @@ const openMcpServerDialogWithEnvironment = (root: HTMLElement, serverName: strin
         <div class="config-name">${window.siyuan.languages.args}</div>
         <div class="b3-label__text">${window.siyuan.languages.aiMcpArgsTip}</div>
         <div class="fn__hr"></div>
-        <textarea class="b3-text-field fn__block" id="aiMcpServerArgs" rows="4" style="resize: vertical;">${Lute.EscapeHTMLStr(argsText)}</textarea>
+        <textarea spellcheck="false" class="b3-text-field fn__block" id="aiMcpServerArgs" rows="4" style="resize: vertical;">${Lute.EscapeHTMLStr(argsText)}</textarea>
     </div>
     <div class="b3-label b3-label--inner${mcpTypeHidden("stdio")}" data-mcp-type="stdio">
         <div class="config-name">${window.siyuan.languages.aiMcpInheritEnv}</div>
         <div class="b3-label__text">${window.siyuan.languages.aiMcpInheritEnvTip}</div>
         <div class="fn__hr"></div>
-        <input class="b3-text-field fn__block" id="aiMcpServerEnvSearch" type="search" placeholder="${window.siyuan.languages.search}"/>
+        <input spellcheck="false" class="b3-text-field fn__block" id="aiMcpServerEnvSearch" type="search" placeholder="${window.siyuan.languages.search}"/>
         <div class="fn__hr--small"></div>
         <div class="b3-list b3-list--border b3-list--background" id="aiMcpServerInheritEnv" style="max-height: 180px; overflow: auto;">
             ${renderEnvironmentVariableOptions(environment.names, selectedEnvironmentNames)}
@@ -817,7 +861,7 @@ const openMcpServerDialogWithEnvironment = (root: HTMLElement, serverName: strin
         <div class="config-name">${window.siyuan.languages.aiMcpHttpHeaders}</div>
         <div class="b3-label__text">${window.siyuan.languages.fillJsonObject}</div>
         <div class="fn__hr"></div>
-        <textarea class="b3-text-field fn__block" id="aiMcpServerHeaders" rows="3" style="resize: vertical;" placeholder='{"Authorization":"Bearer ..."}'>${Lute.EscapeHTMLStr(headersText)}</textarea>
+        <textarea spellcheck="false" class="b3-text-field fn__block" id="aiMcpServerHeaders" rows="3" style="resize: vertical;" placeholder='{"Authorization":"Bearer ..."}'>${Lute.EscapeHTMLStr(headersText)}</textarea>
     </div>
     <div class="b3-label b3-label--inner fn__flex${mcpTypeHidden("http")}" data-mcp-type="http">
         <div class="fn__flex-1">

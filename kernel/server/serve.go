@@ -317,7 +317,7 @@ func Serve(fastMode bool, cookieKey string) {
 
 func gzipMiddleware() gin.HandlerFunc {
 	return gzip.Gzip(gzip.DefaultCompression,
-		gzip.WithExcludedExtensions([]string{".pdf", ".mp3", ".wav", ".ogg", ".mov", ".weba", ".mkv", ".mp4", ".webm", ".flac", ".gz"}),
+		gzip.WithExcludedExtensions([]string{".png", ".gif", ".jpeg", ".jpg", ".webp", ".avif", ".pdf", ".mp3", ".wav", ".ogg", ".mov", ".weba", ".mkv", ".mp4", ".webm", ".flac", ".gz"}),
 		gzip.WithExcludedPathsRegexs([]string{`(?i)\.hei[cf]$`}))
 }
 
@@ -447,11 +447,20 @@ func serveWidgets(ginServer *gin.Engine) {
 	widgets := ginServer.Group("/widgets/", model.CheckAuth)
 	registerStaticFileHandlers(widgets, filepath.Join(util.DataDir, "widgets"), true, func(c *gin.Context, relativePath string) bool {
 		if model.IsReadOnlyRoleContext(c) {
-			name, _, _ := strings.Cut(filepath.ToSlash(relativePath), "/")
+			c.Header("Cache-Control", "private, no-store")
+			resource := strings.TrimPrefix(c.Param("filepath"), "/")
+			if strings.HasSuffix(resource, "/") {
+				resource += "index.html"
+			}
+			name, _, _ := strings.Cut(resource, "/")
 			if !model.CheckWidgetAccessableByPublishAccess(c, name, model.GetPublishAccess()) {
-				c.Header("Cache-Control", "private, no-store")
 				return false
 			}
+			file, err := util.OpenPublishFile(util.DataDir, "widgets/"+resource)
+			if err != nil {
+				return false
+			}
+			return serveOpenedPublishFile(c, file, resource)
 		}
 		setWidgetCacheControl(c, relativePath)
 		return true
@@ -473,9 +482,32 @@ func servePlugins(ginServer *gin.Engine) {
 		if !model.IsReadOnlyRoleContext(c) {
 			return true
 		}
-		name, _, _ := strings.Cut(filepath.ToSlash(relativePath), "/")
-		return model.CheckPluginAccessableInPublish(name)
+		c.Header("Cache-Control", "private, no-store")
+		requestPath := strings.TrimPrefix(c.Param("filepath"), "/")
+		if strings.HasSuffix(requestPath, "/") {
+			requestPath += "index.html"
+		}
+		name, resource, ok := strings.Cut(requestPath, "/")
+		if !ok {
+			return false
+		}
+		file, err := model.OpenPluginPublishResource(name, resource)
+		if err != nil {
+			return false
+		}
+		return serveOpenedPublishFile(c, file, resource)
 	})
+}
+
+func serveOpenedPublishFile(c *gin.Context, file *os.File, resource string) bool {
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	http.ServeContent(c.Writer, c.Request, resource, info.ModTime(), file)
+	c.Abort()
+	return true
 }
 
 func serveBootAppearanceAssets(ginServer *gin.Engine) {
@@ -520,7 +552,26 @@ func serveTemplates(ginServer *gin.Engine) {
 
 func servePublic(ginServer *gin.Engine) {
 	// Support directly access `data/public/*` contents via URL link https://github.com/siyuan-note/siyuan/issues/8593
-	ginServer.Static("/public/", filepath.Join(util.DataDir, "public"))
+	handler := func(c *gin.Context) {
+		relative := strings.TrimPrefix(c.Param("filepath"), "/")
+		if relative == "" || strings.HasSuffix(relative, "/") {
+			relative += "index.html"
+		}
+		file, err := util.OpenPublishFile(util.DataDir, "public/"+relative)
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		http.ServeContent(c.Writer, c.Request, relative, info.ModTime(), file)
+	}
+	ginServer.GET("/public/*filepath", handler)
+	ginServer.HEAD("/public/*filepath", handler)
 }
 
 func serveSnippets(ginServer *gin.Engine) {
@@ -583,6 +634,9 @@ func registerStaticFileHandlers(group *gin.RouterGroup, root string, packageScop
 		}
 		if accessCheck != nil && !accessCheck(c, relativePath) {
 			c.Status(http.StatusForbidden)
+			return
+		}
+		if c.IsAborted() {
 			return
 		}
 		serveStaticFile(c, root, relativePath, packageScoped)
@@ -735,18 +789,17 @@ func serveAppearance(ginServer *gin.Engine) {
 		c.Redirect(302, location.String())
 	})
 
-	appearancePath := util.AppearancePath
-	if "dev" == util.Mode {
-		appearancePath = filepath.Join(util.WorkingDir, "appearance")
-	}
+	appearancePath := util.BuiltInAppearancePath()
 	siyuan.GET("/appearance/*filepath", func(c *gin.Context) {
-		filePath := filepath.Join(appearancePath, strings.TrimPrefix(c.Request.URL.Path, "/appearance/"))
-		if !gulu.File.IsSubPath(appearancePath, filePath) {
-			c.Status(http.StatusUnauthorized)
+		requestPath := strings.TrimPrefix(c.Request.URL.Path, "/appearance/")
+		filePath, status := resolveAppearanceFile(appearancePath, requestPath)
+		if status != 0 {
+			c.Status(status)
 			return
 		}
 
-		if strings.HasPrefix(c.Request.URL.Path, "/appearance/themes/") {
+		resourceKind := strings.ToLower(strings.SplitN(requestPath, "/", 2)[0])
+		if resourceKind == "themes" || resourceKind == "icons" {
 			c.Header("Cache-Control", "private, no-store")
 		}
 		if strings.HasSuffix(c.Request.URL.Path, "/theme.js") {
@@ -762,7 +815,11 @@ func serveAppearance(ginServer *gin.Engine) {
 			if "zh-CN" != lang && "en" != lang {
 				// 多语言配置缺失项使用对应英文配置项补齐 https://github.com/siyuan-note/siyuan/issues/5322
 
-				enUSFilePath := filepath.Join(appearancePath, "langs", "en.json")
+				enUSFilePath, status := resolveAppearanceFile(appearancePath, "langs/en.json")
+				if status != 0 {
+					c.Status(status)
+					return
+				}
 				enUSData, err := os.ReadFile(enUSFilePath)
 				if err != nil {
 					logging.LogErrorf("read en_US.json [%s] failed: %s", enUSFilePath, err)
@@ -905,27 +962,69 @@ func setAssetsAttachmentDisposition(c *gin.Context, pathForBaseName string) {
 
 const htmlAssetIFrameCSP = "sandbox allow-scripts; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
-// isAssetInlineUnsafe 判断资产是否禁止浏览器内联渲染，采用媒体类型白名单策略：
-// 仅图片、音视频、PDF 和纯文本允许内联渲染；白名单之外的任何类型（包括所有 text/html、
-// text/xml 及 +xml 类型，以及无法识别 Content-Type 的扩展名）一律强制以附件形式下载。
-// 无法识别的类型可能被 http.ServeFile 内容嗅探识别为 text/html，因此同样视为不安全
+// assetInlineMediaType 使用固定映射决定允许内联的类型，避免宿主 MIME 配置改变安全边界。
+// 未列出的扩展名一律强制下载，SVG 等可执行脚本的格式不允许内联。
 // https://github.com/siyuan-note/siyuan/security/advisories/GHSA-7h8j-qw37-w46g
+func assetInlineMediaType(absPath string) string {
+	switch strings.ToLower(filepath.Ext(absPath)) {
+	case ".jpg", ".jpe", ".jpeg", ".jfif", ".pjp", ".pjpeg":
+		return "image/jpeg"
+	case ".png", ".apng":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".ico", ".cur":
+		return "image/x-icon"
+	case ".avif":
+		return "image/avif"
+	case ".heic":
+		return "image/heic"
+	case ".heif":
+		return "image/heif"
+	case ".tif", ".tiff":
+		return "image/tiff"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".wav":
+		return "audio/wav"
+	case ".ogg", ".oga", ".opus":
+		return "audio/ogg"
+	case ".m4a":
+		return "audio/mp4"
+	case ".aac":
+		return "audio/aac"
+	case ".flac":
+		return "audio/flac"
+	case ".weba":
+		return "audio/webm"
+	case ".mov":
+		return "video/quicktime"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".ogv":
+		return "video/ogg"
+	case ".mpeg", ".mpg":
+		return "video/mpeg"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".pdf":
+		return "application/pdf"
+	case ".txt", ".text", ".log":
+		return "text/plain; charset=utf-8"
+	}
+	return ""
+}
+
 func isAssetInlineUnsafe(absPath string) bool {
-	ext := strings.ToLower(filepath.Ext(absPath))
-	mediaType := mime.TypeByExtension(ext)
-	if mediaType == "" {
-		return true
-	}
-	mediaType, _, _ = mime.ParseMediaType(mediaType)
-	switch {
-	case strings.HasPrefix(mediaType, "image/") && "image/svg+xml" != mediaType:
-		return false
-	case strings.HasPrefix(mediaType, "audio/"), strings.HasPrefix(mediaType, "video/"):
-		return false
-	case "application/pdf" == mediaType, "text/plain" == mediaType:
-		return false
-	}
-	return true
+	return assetInlineMediaType(absPath) == ""
 }
 
 // secureAssetContentHeaders 统一为资产响应设置安全头：
@@ -939,6 +1038,9 @@ func secureAssetContentHeaders(context *gin.Context, absPath, dispositionName st
 		return
 	}
 	setAssetsAttachmentDisposition(context, dispositionName)
+	if mediaType := assetInlineMediaType(absPath); mediaType != "" {
+		context.Header("Content-Type", mediaType)
+	}
 	if isAssetInlineUnsafe(absPath) {
 		context.Header("Content-Disposition", formatContentDispositionAttachment(filepath.Base(dispositionName)))
 	}
@@ -1688,7 +1790,7 @@ func serveWebSocket(ginServer *gin.Engine) {
 	util.WebSocketServer = melody.New()
 	// 校验 Origin，防止跨站 WebSocket 劫持（CSWSH） https://github.com/siyuan-note/siyuan/security/advisories/GHSA-3cc2-h3v6-rqpq
 	util.WebSocketServer.Upgrader.CheckOrigin = func(r *http.Request) bool {
-		return util.IsSessionOriginAllowed(r.Header.Get("Origin"), r.Host)
+		return util.IsSessionOriginAllowedRequest(r)
 	}
 	util.WebSocketServer.Config.MaxMessageSize = 1024 * 1024 * 8
 
@@ -2074,7 +2176,7 @@ func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Credentials", "true")
-		c.Header("Access-Control-Allow-Headers", "origin, Content-Length, Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Headers", "origin, Content-Length, Content-Type, Authorization, X-SiYuan-App-ID")
 		c.Header("Access-Control-Allow-Private-Network", "false")
 
 		if strings.HasPrefix(c.Request.RequestURI, "/webdav") {

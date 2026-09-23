@@ -233,7 +233,7 @@ const assets = {
                     const blockIDs = JSON.parse(target.getAttribute("data-id")) as string[];
                     if (blockIDs.length > 0) {
                         /// #if MOBILE
-                        openMobileFileById(app, blockIDs[0], [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL]);
+                        openMobileFileById(app, blockIDs[0], [Constants.CB_GET_HL, Constants.CB_GET_CONTEXT, Constants.CB_GET_ROOTSCROLL], "start");
                         /// #else
                         window.siyuan.blockPanels.push(new BlockPanel({
                             app,
@@ -269,7 +269,7 @@ const assets = {
                     break;
                 } else if (type === "clear") {
                     const liElement = target.parentElement;
-                    confirmDialog(window.siyuan.languages.deleteOpConfirm, `${window.siyuan.languages.delete} <b>${liElement.querySelector(".b3-list-item__text").textContent}</b>`, () => {
+                    confirmDialog(window.siyuan.languages.deleteOpConfirm, `${window.siyuan.languages.delete} <b>${escapeHtml(liElement.querySelector(".b3-list-item__text").textContent)}</b>`, () => {
                         if (liElement.getAttribute("data-tab-type") === "unRefAV") {
                             const id = liElement.getAttribute("data-item");
                             fetchPost("/api/av/removeUnusedAttributeView", {

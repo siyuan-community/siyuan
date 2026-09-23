@@ -1,7 +1,8 @@
 import {Constants} from "../constants";
 import {fetchPost} from "../util/fetch";
 import {setStorageVal} from "../protyle/util/compatibility";
-import {getArticle, getAttr} from "./util";
+import {getArticle} from "./util";
+import {getAttr} from "./attrs";
 import {escapeAriaLabel, escapeLessThans} from "../util/escape";
 import {getIconByType} from "../editor/getIcon";
 import {unicode2Emoji} from "../emoji";
@@ -196,6 +197,6 @@ export const unRefMoreMenu = (target: Element, element: Element, edit: Protyle) 
     menu.fullscreen();
     /// #else
     const rect = target.getBoundingClientRect();
-    menu.open({x: rect.right, y: rect.bottom, isLeft: true});
+    menu.open({x: rect.right, y: rect.bottom, h: rect.height, isLeft: true});
     /// #endif
 };

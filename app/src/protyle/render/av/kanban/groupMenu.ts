@@ -53,6 +53,7 @@ export const openKanbanGroupMenu = (options: {
                         action: "removeAttrViewColOption",
                         id: colID,
                         avID,
+                        blockID,
                         data: name,
                     }, {
                         action: "doUpdateUpdated",
@@ -62,6 +63,7 @@ export const openKanbanGroupMenu = (options: {
                         action: "updateAttrViewColOptions",
                         id: colID,
                         avID,
+                        blockID,
                         data: colOptions,
                     }]);
                 },
@@ -98,6 +100,7 @@ export const openKanbanGroupMenu = (options: {
         iconHTML: "",
         label: colorHTML,
         bind(element) {
+            element.classList.add("b3-menu__custom");
             element.addEventListener("click", (event) => {
                 const colorTarget = (event.target as HTMLElement).closest<HTMLElement>("button");
                 if (colorTarget?.dataset.type === AV_MANAGE_CUSTOM_COLORS_TYPE) {
@@ -120,6 +123,7 @@ export const openKanbanGroupMenu = (options: {
                     action: "updateAttrViewColOption",
                     id: colID,
                     avID,
+                    blockID,
                     data: {
                         oldName: name,
                         newName: name,
@@ -135,6 +139,7 @@ export const openKanbanGroupMenu = (options: {
                     action: "updateAttrViewColOption",
                     id: colID,
                     avID,
+                    blockID,
                     data: {
                         oldName: name,
                         newName: name,

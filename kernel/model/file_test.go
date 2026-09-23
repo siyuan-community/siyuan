@@ -29,6 +29,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 )
@@ -575,6 +576,29 @@ func TestCreateDocByMdConvertsHTMLTagsToTextMarks(t *testing.T) {
 	}
 }
 
+func TestCreateDocByMdKeepsOrdinaryTableSpec(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	tree, err := CreateDocByMd(fixture.box.ID, "/20260718000004-abcdefg.sy", "Ordinary table",
+		"| Header |\n| --- |\n| **bold** |", nil, nil)
+	if nil != err {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cache.RemoveTreeData(tree.ID)
+		cache.RemoveDocIAL(tree.Path)
+	})
+	if tree.Root.Spec != treenode.BaseSpec {
+		t.Fatalf("ordinary table must use base spec, got %s", tree.Root.Spec)
+	}
+	loaded, err := filesys.LoadTree(tree.Box, tree.Path, util.NewLute())
+	if nil != err {
+		t.Fatal(err)
+	}
+	if loaded.Root.Spec != treenode.BaseSpec {
+		t.Fatalf("persisted ordinary table must use base spec, got %s", loaded.Root.Spec)
+	}
+}
+
 func TestValidateCreateDocReportsClosedNotebook(t *testing.T) {
 	fixture := setupFileOperationTest(t)
 	boxConf := fixture.box.GetConf()
@@ -802,6 +826,21 @@ func TestPerformCreateDocTransactionSyncReturnsWriteError(t *testing.T) {
 	}
 }
 
+func TestCreateDocByMdSyncReturnsWriteError(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	docID := "20260718000009-abcdefg\x00"
+	tree, err := CreateDocByMdSync(fixture.box.ID, "/"+docID+".sy", "Inbox", "Keep the cloud original", nil, nil)
+	if tree == nil {
+		t.Fatal("expected document validation to succeed before the filesystem write fails")
+	}
+	if err == nil {
+		t.Fatal("expected Markdown document creation to return the write error")
+	}
+	if bt := treenode.GetBlockTree(docID); bt != nil {
+		t.Fatal("failed document remains in the block tree")
+	}
+}
+
 func TestGetHPathsByPathsUsesDocumentRoot(t *testing.T) {
 	fixture := setupFileOperationTest(t)
 	tree, err := LoadTreeByBlockID(fixture.sourceID)
@@ -954,6 +993,38 @@ func TestMoveDocsRejectsInvalidPathsBeforeMoving(t *testing.T) {
 				t.Fatalf("target document was created for invalid source paths [%v]", test.fromPaths)
 			}
 		})
+	}
+}
+
+func TestMoveDocsRejectsSelfAndDescendantsBeforeMoving(t *testing.T) {
+	fixture := setupFileOperationTest(t)
+	childPath := strings.TrimSuffix(fixture.sourcePath, ".sy") + "/20260718000003-abcdefg.sy"
+	grandchildPath := strings.TrimSuffix(childPath, ".sy") + "/20260718000004-abcdefg.sy"
+	for _, docPath := range []string{childPath, grandchildPath} {
+		tree := treenode.NewTree(fixture.box.ID, docPath, "/Source/Descendant", "Descendant")
+		if _, err := filesys.WriteTree(tree); err != nil {
+			t.Fatal(err)
+		}
+		treenode.UpsertBlockTree(tree)
+		t.Cleanup(func() {
+			cache.RemoveTreeData(tree.ID)
+			cache.RemoveDocIAL(tree.Path)
+		})
+	}
+	for _, targetPath := range []string{fixture.sourcePath, childPath, grandchildPath} {
+		for _, sources := range [][]string{{fixture.sourcePath}, {fixture.targetPath, fixture.sourcePath}} {
+			if err := MoveDocs(sources, fixture.box.ID, targetPath, nil); err == nil || err.Error() != Conf.Language(87) {
+				t.Fatalf("expected invalid move target error for %v to %s, got %v", sources, targetPath, err)
+			}
+			for _, docPath := range []string{fixture.sourcePath, fixture.targetPath, childPath, grandchildPath} {
+				if !fixture.box.Exist(docPath) {
+					t.Fatalf("invalid move changed document %s", docPath)
+				}
+				if bt := treenode.GetBlockTree(util.GetTreeID(docPath)); bt == nil || bt.Path != docPath {
+					t.Fatalf("invalid move changed document index %s: %+v", docPath, bt)
+				}
+			}
+		}
 	}
 }
 
@@ -1121,6 +1192,32 @@ func TestSortSearchDocResults(t *testing.T) {
 		if hPath != results[i].data["hPath"] {
 			t.Fatalf("unexpected search result order at %d: got %q, want %q", i, results[i].data["hPath"], hPath)
 		}
+	}
+}
+
+func TestSearchDocBlockExactMatching(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		block     sql.Block
+		keyword   string
+		sensitive bool
+		want      bool
+	}{
+		{"title", sql.Block{Content: "Math"}, "Math", true, true},
+		{"name", sql.Block{Name: "Math"}, "Math", true, true},
+		{"alias", sql.Block{Alias: "Algebra,Math,Geometry"}, "Math", true, true},
+		{"partial alias", sql.Block{Alias: "Higher Math"}, "Math", true, false},
+		{"multiple aliases", sql.Block{Alias: "Math,Algebra"}, "Math,Algebra", true, false},
+		{"sensitive", sql.Block{Name: "Math", Alias: "Math"}, "math", true, false},
+		{"insensitive name", sql.Block{Name: "Math"}, "math", false, true},
+		{"insensitive alias", sql.Block{Alias: "Algebra,Math"}, "math", false, true},
+		{"literal", sql.Block{Alias: "Other,Math%_\\"}, "Math%_\\", true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isExactSearchDocBlockMatch(&test.block, test.keyword, test.sensitive); got != test.want {
+				t.Fatalf("got %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 

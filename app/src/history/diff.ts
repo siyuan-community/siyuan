@@ -60,7 +60,7 @@ const snapshotFileKinds: SnapshotFileKind[] = [
 ];
 
 const getSnapshotFileKind = (filePath: string): SnapshotFileKind => {
-    const normalizedPath = filePath.replaceAll("\\", "/").replace(/^\/+/, "");
+    const normalizedPath = filePath.replace(/\\/g, "/").replace(/^\/+/, "");
     if (normalizedPath.endsWith(".sy")) {
         return "document";
     }
@@ -217,7 +217,7 @@ const genItem = (items: SnapshotDiffItem[], hasUndo = true) => {
     let html = "";
     items.forEach((item) => {
         const compareID = item.compareFile ? ` data-id2="${item.compareFile.fileID}"` : "";
-        html += `<li class="b3-list-item b3-list-item--hide-action history__diff-item"${compareID} data-created="${item.file.updated}" data-id="${item.file.fileID}" data-kind="${item.kind}" data-title="${escapeAttr(item.file.title)}">
+        html += `<li class="b3-list-item b3-list-item--hide-action history__diff-item"${compareID} data-created="${item.file.updated}" data-id="${item.file.fileID}" data-path="${escapeAttr(item.file.path)}" data-kind="${item.kind}" data-title="${escapeAttr(escapeHtml(item.file.title))}">
     <span class="history__diff-file">
         <span class="history__diff-title">${escapeHtml(item.file.title)}</span>
         <span class="history__diff-path" title="${escapeAttr(item.file.path)} ${item.file.hSize}">${escapeHtml(item.file.path)}</span>
@@ -260,6 +260,7 @@ const genSnapshotSide = (state: SnapshotDiffFilterState) => {
 };
 
 const resetSnapshotPreview = (dialog: Dialog) => {
+    dialog.element.querySelector(".history__snapshot-diff")?.classList.remove("history__snapshot-diff--preview");
     dialog.element.querySelectorAll('[data-type="editors"] > div').forEach((item) => item.classList.add("fn__none"));
 };
 
@@ -306,6 +307,17 @@ const renderCompare = (app: App, element: HTMLElement) => {
         }
     }
     const editorsElement = dialogContainerElement.querySelector('[data-type="editors"]');
+    const panel = dialogContainerElement.querySelector<HTMLElement>(".history__snapshot-diff");
+    panel.classList.add("history__snapshot-diff--preview");
+    panel.dataset.side = "left";
+    panel.querySelectorAll<HTMLElement>('[data-type="snapshotVersion"]').forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.side === "left"));
+        button.classList.toggle("fn__none", button.dataset.side === "right" && !id2);
+        const snapshotIndex = button.dataset.side === "right" || element.parentElement.dataset.type === "update" ? 1 : 0;
+        const snapshot = dialogContainerElement.querySelectorAll<HTMLElement>(".b3-dialog__header [data-snapshot]")[snapshotIndex];
+        button.textContent = dayjs(parseInt(snapshot.dataset.created)).format("MM-DD HH:mm");
+        button.setAttribute("aria-label", dayjs(parseInt(snapshot.dataset.created)).format("YYYY-MM-DD HH:mm"));
+    });
     const leftElement = editorsElement.firstElementChild;
     const rightElement = editorsElement.lastElementChild;
     if (!leftEditor) {
@@ -368,6 +380,7 @@ const renderCompare = (app: App, element: HTMLElement) => {
             });
         }
         titleElement.textContent = response.data.title;
+        titleElement.setAttribute("title", response.data.title);
         leftElement.querySelector(".history__date").textContent = dayjs(response.data.updated).format("YYYY-MM-DD HH:mm");
     });
     if (id2) {
@@ -398,6 +411,7 @@ const renderCompare = (app: App, element: HTMLElement) => {
                 });
             }
             titleElement.textContent = response.data.title;
+            titleElement.setAttribute("title", response.data.title);
             rightElement.querySelector(".history__date").textContent = dayjs(response.data.updated).format("YYYY-MM-DD HH:mm");
         });
     } else {
@@ -427,9 +441,9 @@ export const showDiff = (app: App, data: { id: string, time: string }[]) => {
     const dialog = new Dialog({
         title: window.siyuan.languages.compare,
         content: "",
-        width: isMobile() ? "92vw" : "90vw",
-        height: "80vh",
-        containerClassName: "b3-dialog__container--theme",
+        width: isMobile() ? "100vw" : "90vw",
+        height: isMobile() ? "100%" : "80vh",
+        containerClassName: `b3-dialog__container--theme${isMobile() ? " history__snapshot-diff-dialog" : ""}`,
         destroyCallback() {
             leftEditor = undefined;
             rightEditor = undefined;
@@ -445,7 +459,20 @@ export const showDiff = (app: App, data: { id: string, time: string }[]) => {
         }
         let target = event.target as HTMLElement;
         while (target && target !== dialog.element) {
-            if (target.dataset.type === "snapshotAggregate") {
+            if (target.dataset.type === "snapshotBack") {
+                dialog.element.querySelector(".history__snapshot-diff").classList.remove("history__snapshot-diff--preview");
+                event.preventDefault();
+                event.stopPropagation();
+                break;
+            } else if (target.dataset.type === "snapshotVersion") {
+                dialog.element.querySelector<HTMLElement>(".history__snapshot-diff").dataset.side = target.dataset.side;
+                dialog.element.querySelectorAll<HTMLElement>('[data-type="snapshotVersion"]').forEach(button => {
+                    button.setAttribute("aria-pressed", String(button.dataset.side === target.dataset.side));
+                });
+                event.preventDefault();
+                event.stopPropagation();
+                break;
+            } else if (target.dataset.type === "snapshotAggregate") {
                 filterState.aggregate = target.dataset.value as SnapshotDiffAggregate;
                 filterState.kind = "all";
                 renderSnapshotSide(dialog, filterState);
@@ -472,7 +499,7 @@ export const showDiff = (app: App, data: { id: string, time: string }[]) => {
                 event.stopPropagation();
                 break;
             } else if (target.classList.contains("b3-list-item") && target.dataset.id) {
-                if (target.classList.contains("b3-list-item--focus") &&
+                if (!isMobile() && target.classList.contains("b3-list-item--focus") &&
                     !(target.dataset.kind === "document" && target.dataset.id2)) {
                     return;
                 }
@@ -483,19 +510,20 @@ export const showDiff = (app: App, data: { id: string, time: string }[]) => {
                 event.stopPropagation();
                 break;
             } else if (target.classList.contains("block__icon")) {
+                const selectedPath = dialog.element.querySelector<HTMLElement>(".history__side .b3-list-item--focus")?.dataset.path;
                 if (target.getAttribute("data-direct") === "left") {
                     target.setAttribute("data-direct", "right");
-                    genHTML(right, left, dialog, "right", filterState);
+                    genHTML(app, right, left, dialog, "right", filterState, selectedPath);
                 } else {
                     target.setAttribute("data-direct", "left");
-                    genHTML(left, right, dialog, "left", filterState);
+                    genHTML(app, left, right, dialog, "left", filterState, selectedPath);
                 }
                 event.preventDefault();
                 event.stopPropagation();
                 break;
             } else if (target.getAttribute("data-type") == "rollback") {
                 confirmDialog("⚠️ " + window.siyuan.languages.rollback,
-                    window.siyuan.languages.rollbackConfirm.replace("${name}", target.parentElement.dataset.title).replace("${time}", dayjs(parseInt(target.parentElement.dataset.created)).format("YYYY-MM-DD HH:mm:ss")),
+                    window.siyuan.languages.rollbackConfirm.replace("${name}", () => escapeHtml(target.parentElement.dataset.title)).replace("${time}", dayjs(parseInt(target.parentElement.dataset.created)).format("YYYY-MM-DD HH:mm:ss")),
                     () => {
                         fetchPost("/api/repo/rollbackRepoSnapshotFile", {id: target.parentElement.dataset.id});
                     });
@@ -506,11 +534,12 @@ export const showDiff = (app: App, data: { id: string, time: string }[]) => {
             target = target.parentElement;
         }
     });
-    genHTML(left, right, dialog, "left", filterState);
+    genHTML(app, left, right, dialog, "left", filterState);
     (document.activeElement as HTMLElement)?.blur();
 };
 
-const genHTML = (left: string, right: string, dialog: Dialog, direct: string, filterState: SnapshotDiffFilterState) => {
+const genHTML = (app: App, left: string, right: string, dialog: Dialog, direct: string,
+                 filterState: SnapshotDiffFilterState, selectedPath?: string) => {
     leftEditor = undefined;
     rightEditor = undefined;
     const isPhone = isMobile();
@@ -534,20 +563,25 @@ const genHTML = (left: string, right: string, dialog: Dialog, direct: string, fi
     ${dayjs(response.data.right.created).format("YYYY-MM-DD HH:mm")}
     <span class="fn__flex-1"></span>
 </div>`;
-        headElement.nextElementSibling.innerHTML = `<div class="fn__flex history__panel" style="height: 100%">
+        headElement.nextElementSibling.innerHTML = `<div class="fn__flex history__panel history__snapshot-diff" style="height: 100%" data-side="left">
     <div class="history__side history__side--diff" ${isMobile() ? "" : `style="width: ${window.siyuan.storage[Constants.LOCAL_HISTORY].sideDiffWidth}"`}>${genSnapshotSide(filterState)}</div>
     <div class="history__resize"></div>
+    ${isPhone ? `<div class="history__snapshot-diff-nav">
+        <button class="b3-button b3-button--text" data-type="snapshotBack">${window.siyuan.languages.back}</button>
+        <button class="b3-button b3-button--text" data-type="snapshotVersion" data-side="left" aria-pressed="true" aria-label="${dayjs(response.data.left.created).format("YYYY-MM-DD HH:mm")}">${dayjs(response.data.left.created).format("MM-DD HH:mm")}</button>
+        <button class="b3-button b3-button--text" data-type="snapshotVersion" data-side="right" aria-pressed="false" aria-label="${dayjs(response.data.right.created).format("YYYY-MM-DD HH:mm")}">${dayjs(response.data.right.created).format("MM-DD HH:mm")}</button>
+    </div>` : ""}
     <div class="fn__flex-1 fn__flex" data-type="editors">
         <div class="fn__none fn__flex-1 fn__flex-column">
             <div class="history__date">${dayjs(response.data.left.created).format("YYYY-MM-DD HH:mm")}</div>
-            <div class="protyle-title__input ft__center ft__breakword">${escapeHtml(response.data.left.title)}</div>
+            <div class="protyle-title__input ft__center ft__breakword"></div>
             <div class="ft__center"></div>
             <textarea class="history__text fn__none fn__flex-1" readonly></textarea>
             <div class="fn__flex-1"></div>
         </div>
         <div class="fn__none fn__flex-1 fn__flex-column" style="border-left: 1px solid var(--b3-border-color);">
-            <div class="history__date">${escapeHtml(response.data.right.title)} ${dayjs(response.data.right.created).format("YYYY-MM-DD HH:mm")}</div>
-            <div class="protyle-title__input ft__center ft__breakword">${escapeHtml(response.data.right.title)}</div>
+            <div class="history__date">${dayjs(response.data.right.created).format("YYYY-MM-DD HH:mm")}</div>
+            <div class="protyle-title__input ft__center ft__breakword"></div>
             <div class="ft__center"></div>
             <textarea class="history__text fn__none fn__flex-1" readonly></textarea>
             <div class="fn__flex-1"></div>
@@ -555,5 +589,19 @@ const genHTML = (left: string, right: string, dialog: Dialog, direct: string, fi
     </div>
 </div>`;
         resizeSide(dialog.element.querySelector(".history__resize"), dialog.element.querySelector(".history__side"), "sideDiffWidth");
+        if (selectedPath !== undefined) {
+            const selectedElement = Array.from(dialog.element.querySelectorAll<HTMLElement>(".history__side .history__diff-item"))
+                .find((item) => item.dataset.path === selectedPath);
+            if (selectedElement) {
+                const groupElement = selectedElement.parentElement;
+                const operationElement = groupElement.previousElementSibling as HTMLElement;
+                filterState.expanded.add(operationElement.dataset.operation as SnapshotOperation);
+                groupElement.classList.remove("fn__none");
+                operationElement.querySelector("svg").classList.add("b3-list-item__arrow--open");
+                selectedElement.classList.add("b3-list-item--focus");
+                selectedElement.scrollIntoView({block: "nearest"});
+                renderCompare(app, selectedElement);
+            }
+        }
     });
 };

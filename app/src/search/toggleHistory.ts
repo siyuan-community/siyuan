@@ -13,7 +13,7 @@ import {inputEvent} from "./util";
 
 export const toggleReplaceHistory = (replaceInputElement: HTMLInputElement) => {
     const list = window.siyuan.storage[Constants.LOCAL_SEARCHKEYS];
-    if (!list.replaceKeys || list.replaceKeys.length === 0 || (list.length === 1 && list[0] === replaceInputElement.value)) {
+    if (!list.replaceKeys || list.replaceKeys.length === 0 || (list.replaceKeys.length === 1 && list.replaceKeys[0] === replaceInputElement.value)) {
         return;
     }
     const menu = new Menu(Constants.MENU_SEARCH_REPLACE_HISTORY);
@@ -55,6 +55,7 @@ export const toggleReplaceHistory = (replaceInputElement: HTMLInputElement) => {
                             }
                         } else {
                             replaceInputElement.value = element.textContent;
+                            replaceInputElement.dispatchEvent(new Event("change"));
                             window.siyuan.menus.menu.remove();
                         }
                         itemEvent.preventDefault();
@@ -74,7 +75,8 @@ export const toggleReplaceHistory = (replaceInputElement: HTMLInputElement) => {
     const rect = replaceInputElement.previousElementSibling.getBoundingClientRect();
     menu.open({
         x: rect.left,
-        y: rect.bottom
+        y: rect.bottom,
+        h: rect.height
     });
 };
 
@@ -82,7 +84,7 @@ export const toggleSearchHistory = (searchElement: Element, config: Config.IUILa
                                     requestElement = searchElement) => {
     const searchInputElement = searchElement.querySelector("#searchInput, #toolbarSearch") as HTMLInputElement;
     const list = window.siyuan.storage[Constants.LOCAL_SEARCHKEYS];
-    if (!list.keys || list.keys.length === 0 || (list.length === 1 && list[0] === searchInputElement.value)) {
+    if (!list.keys || list.keys.length === 0) {
         return;
     }
     const menu = new Menu(Constants.MENU_SEARCH_HISTORY);
@@ -101,7 +103,7 @@ export const toggleSearchHistory = (searchElement: Element, config: Config.IUILa
     const separatorElement = menu.addSeparator(1);
     let current = true;
     list.keys.forEach((s: string) => {
-        if (s !== searchInputElement.value && s) {
+        if (s) {
             const menuItem = menu.addItem({
                 iconHTML: "",
                 label: escapeHtml(s),
@@ -123,7 +125,9 @@ export const toggleSearchHistory = (searchElement: Element, config: Config.IUILa
                                 element.remove();
                             }
                         } else {
-                            searchInputElement.value = element.textContent;
+                            searchInputElement.value = s;
+                            searchInputElement.dispatchEvent(new Event("change"));
+                            saveKeyList("keys", s, config);
                             config.page = 1;
                             /// #if MOBILE
                             updateSearchResult(config, requestElement, true);
@@ -149,7 +153,8 @@ export const toggleSearchHistory = (searchElement: Element, config: Config.IUILa
     const rect = searchInputElement.previousElementSibling.getBoundingClientRect();
     menu.open({
         x: rect.left,
-        y: rect.bottom
+        y: rect.bottom,
+        h: rect.height
     });
 };
 
@@ -198,6 +203,7 @@ export const toggleAssetHistory = (assetElement: Element) => {
                             }
                         } else {
                             assetInputElement.value = element.textContent;
+                            assetInputElement.dispatchEvent(new Event("change"));
                             assetInputEvent(assetElement);
                             window.siyuan.menus.menu.remove();
                         }
@@ -218,7 +224,8 @@ export const toggleAssetHistory = (assetElement: Element) => {
     const rect = assetInputElement.previousElementSibling.getBoundingClientRect();
     menu.open({
         x: rect.left,
-        y: rect.bottom
+        y: rect.bottom,
+        h: rect.height
     });
 };
 

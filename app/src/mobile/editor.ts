@@ -1,3 +1,4 @@
+import type {FileTreeGetDocRequestInput} from "../types/api";
 import {Protyle} from "../protyle";
 import {setEditor} from "./util/setEmpty";
 import {closePanel} from "./util/closePanel";
@@ -20,9 +21,12 @@ import {forEachPluginSubscriber} from "../plugin/EventBusCore";
 import {restoreMobileTopBarLayout, updateMobileTopBarLayout} from "./util/mobileTopBar";
 import {stickyRow} from "../protyle/render/av/row";
 import {invalidateTrackedRanges} from "../protyle/util/trackedRange";
+import {getActiveMobileSecondaryEditor} from "./util/secondaryEditors";
+import {closeMobileBacklinkSheets} from "./util/backlinkPanels";
+import {closeAVCellEditor} from "../protyle/render/av/cellEditor";
 
 export const getCurrentEditor = () => {
-    return window.siyuan.mobile.popEditor || window.siyuan.mobile.editor;
+    return getActiveMobileSecondaryEditor() || window.siyuan.mobile.popEditor || window.siyuan.mobile.editor;
 };
 
 // 串行更新时间，避免快速切换文档时较早的关闭请求覆盖较新的打开状态。
@@ -82,6 +86,14 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
             void window.siyuan.mobile.docks.file?.selectOpenedFile(protyle.notebookId, protyle.path);
         }
         afterOpen?.(protyle);
+        const titleElement = document.getElementById("toolbarName") as HTMLInputElement;
+        if (isValid() && action.includes(Constants.CB_GET_OPENNEW) && !protyle.disabled &&
+            titleElement && !titleElement.readOnly && !titleElement.disabled) {
+            // 新建文档加载完成后聚焦标题，通过移动端焦点桥接唤起键盘。
+            protyle.contentElement.scrollTop = 0;
+            titleElement.focus({preventScroll: true});
+            titleElement.setSelectionRange(titleElement.value.length, titleElement.value.length);
+        }
     };
     const fail = (invalid = false) => {
         if (completed) {
@@ -94,6 +106,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
         fail();
         return;
     }
+    closeAVCellEditor();
     const avPanelElement = document.querySelector(".av__panel");
     if (avPanelElement && !avPanelElement.classList.contains("fn__none")) {
         avPanelElement.dispatchEvent(new CustomEvent("click", {detail: "close"}));
@@ -138,7 +151,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
     }
 
     const targetNotebookId = notebookId || window.siyuan.mobile.editor?.protyle?.notebookId;
-    const blockInfoParam: IObject = {id};
+    const blockInfoParam: {id: string; notebook?: string} = {id};
     if (isEncryptedBox(targetNotebookId)) {
         blockInfoParam.notebook = targetNotebookId;
     }
@@ -200,15 +213,15 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
             window.siyuan.mobile.editor.protyle.notebookId = data.data.box;
             window.siyuan.mobile.editor.protyle.title.element.removeAttribute("data-render");
             addLoading(window.siyuan.mobile.editor.protyle);
-            if (previousRootID !== data.data.rootID) {
-                window.siyuan.mobile.editor.protyle.wysiwyg.element.innerHTML = "";
-            }
+            // 保留正文直到新文档返回，跨文档切换时显式更新只读状态
+            const updateReadonly = previousRootID !== data.data.rootID ? true : undefined;
             const targetScrollAttr = scrollAttr || window.siyuan.storage[Constants.LOCAL_FILEPOSITION][data.data.rootID];
             if (actionList.includes(Constants.CB_GET_SCROLL) && targetScrollAttr) {
                 getDocByScroll({
                     protyle: window.siyuan.mobile.editor.protyle,
                     scrollAttr: targetScrollAttr,
                     mergedOptions: protyleOptions,
+                    updateReadonly,
                     signal,
                     fail,
                     isValid,
@@ -227,7 +240,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
                     }
                 });
             } else {
-                const getDocParam: IObject = {
+                const getDocParam: FileTreeGetDocRequestInput = {
                     id,
                     includeDocInfo: true,
                     size: actionList.includes(Constants.CB_GET_ALL) ? Constants.SIZE_GET_MAX : window.siyuan.config.editor.dynamicLoadBlocks,
@@ -252,6 +265,7 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
                             data: getResponse,
                             protyle: window.siyuan.mobile.editor.protyle,
                             action: actionList,
+                            updateReadonly,
                             scrollPosition,
                             isValid,
                             afterCB() {
@@ -305,6 +319,12 @@ export const loadMobileFileById = (app: App, id: string, action: TProtyleAction[
 export const openMobileFileById = (app: App, id: string, action: TProtyleAction[] = [Constants.CB_GET_HL],
                                    scrollPosition?: ScrollLogicalPosition, notebookId?: string,
                                    afterOpen?: (protyle: IProtyle) => void, forceReload = false) => {
+    const closing = closeMobileBacklinkSheets();
+    if (closing) {
+        void closing.then(() => openMobileFileById(app, id, action, scrollPosition, notebookId, afterOpen, forceReload))
+            .catch(error => console.error(error));
+        return;
+    }
     if (window.siyuan.mobile.tabs) {
         const options = {action, scrollPosition, notebookId, afterOpen, forceReload};
         if (action.includes(Constants.CB_GET_OPENNEW)) {
@@ -331,6 +351,12 @@ export const openMobileFileByIdInNewTab = (app: App, id: string,
                                            action: TProtyleAction[] = [Constants.CB_GET_HL],
                                            scrollPosition?: ScrollLogicalPosition, notebookId?: string,
                                            afterOpen?: (protyle: IProtyle) => void) => {
+    const closing = closeMobileBacklinkSheets();
+    if (closing) {
+        void closing.then(() => openMobileFileByIdInNewTab(app, id, action, scrollPosition, notebookId, afterOpen))
+            .catch(error => console.error(error));
+        return;
+    }
     if (window.siyuan.mobile.tabs) {
         void window.siyuan.mobile.tabs.openInNewTab(id, {
             action,

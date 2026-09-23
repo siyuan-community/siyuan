@@ -1,3 +1,4 @@
+import {isTableLikeView} from "../render/av/viewType";
 import {updateAVSelectionStatus, updateHeader} from "../render/av/row";
 import {resetAVRowSelect} from "../render/av/virtualScroll";
 import {hasClosestByClassName} from "./hasClosest";
@@ -16,7 +17,9 @@ const getAVElements = (element: Element) => {
 
 const clearViewState = (element: Element) => {
     const attributes = ["data-view-fold-source", "data-view-fold-hidden-source", "data-view-fold",
-        "data-view-fold-default", "data-view-fold-hidden", "data-view-heading-owner", "data-view-heading-loaded"];
+        "data-view-fold-default", "data-view-fold-hidden", "data-view-heading-owner", "data-view-heading-loaded",
+        "data-backlink-reference", "data-backlink-reference-list", "data-backlink-hide-reference",
+        "data-backlink-task-focus"];
     const elements = [element, ...Array.from(element.querySelectorAll(attributes.map(attribute => {
         return `[${attribute}]`;
     }).join(", ")))];
@@ -122,7 +125,7 @@ const resetAVBodySelect = (element: Element, type: "table" | "gallery" | "all") 
     const avElements = element.classList.contains("av") ? [element] : Array.from(element.querySelectorAll(".av"));
     avElements.forEach((avElement: HTMLElement) => {
         const avType = avElement.dataset.avType;
-        if ((type === "table" && avType !== "table") || (type === "gallery" && avType === "table")) {
+        if ((type === "table" && !isTableLikeView(avType)) || (type === "gallery" && isTableLikeView(avType))) {
             return;
         }
         avElement.querySelectorAll(".av__body").forEach((bodyElement: HTMLElement) => {

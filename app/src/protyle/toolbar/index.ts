@@ -1,4 +1,9 @@
 import {Divider} from "./Divider";
+import {prepareInlineElementBoundaryMutation} from "../util/inlineElementBoundary";
+import {renderMultiSelectToolbar, updateMultiSelectToolbar} from "../../mobile/util/multiSelectToolbar";
+import {selectAllLoadedBlocks} from "../wysiwyg/blockSelection";
+import {showSelectAllIncompleteTip} from "../util/selectAllTip";
+import {ContractFormData} from "../../util/contractFormData";
 import {Font, hasSameTextStyle, setFontStyle} from "./Font";
 import {
     FONT_FAMILY_EXCLUDED_BLOCK_TYPES,
@@ -46,7 +51,6 @@ import {BlockRef} from "./BlockRef";
 import {hintRenderTemplate, hintRenderWidget} from "../hint/extend";
 import {blockRender} from "../render/blockRender";
 /// #if !BROWSER
-import {openBy} from "../../editor/util";
 /// #endif
 import {fetchPost} from "../../util/fetch";
 import {isMobile} from "../../util/functions";
@@ -63,13 +67,13 @@ import {InlineMemo} from "./InlineMemo";
 import {mathRender} from "../render/mathRender";
 import {linkMenu} from "../../menus/protyle";
 import {addScript} from "../util/addScript";
-import {confirmDialog} from "../../dialog/confirmDialog";
 import {paste, pasteAsPlainText, pasteEscaped} from "../util/paste";
 import {escapeAttr, escapeHtml} from "../../util/escape";
 import {resizeSide} from "../../history/resizeSide";
 import {activeBlur, updateMobilePluginToolbar} from "../../mobile/util/keyboardToolbar";
 import {FormatPainter} from "./FormatPainter";
 import {IFormatPainterSnapshot} from "./formatPainterCore";
+import {getRangeInlineFormats, getRangesInlineFormats, INLINE_FORMAT_TYPES} from "./inlineFormat";
 import {clearDisallowedTextInputHotkey} from "../../util/hotKeyPolicy";
 import {getHostCapabilities} from "../../util/hostCapabilities";
 import {closeSubElement, SELECTION_TOOLBAR_SUB_ELEMENT_SOURCE} from "./subElementLifecycle";
@@ -99,6 +103,7 @@ import {
     normalizeCalloutTitleRange
 } from "./inlineRangeBoundary";
 import {resolvePluginToolbar} from "../../plugin/toolbarItem";
+import {FontControl, updateFontControls} from "./fontControls";
 import {
     areProtylePluginExtensionsEnabled,
     getProtyleLockedToolbar,
@@ -109,7 +114,7 @@ const filterPluginToolbar = (toolbar: Array<string | IMenuItem>, lite: boolean) 
         return toolbar;
     }
     const filtered = toolbar.filter(item => typeof item === "string" ||
-        Constants.INLINE_TYPE.concat("|").includes(item.name) || item.showInLite);
+        Constants.INLINE_TYPE.concat("|", "font-family", "font-size").includes(item.name) || item.showInLite);
     return filtered.filter((item, index) => {
         const name = typeof item === "string" ? item : item.name;
         if (name !== "|") {
@@ -135,7 +140,7 @@ const applyPluginToolbar = (toolbar: Array<string | IMenuItem>, protyle: IProtyl
         });
         result = filterPluginToolbar(result, protyle.lite);
         result.forEach((toolbarItem) => {
-            if (typeof toolbarItem === "string" || Constants.INLINE_TYPE.concat("|").includes(toolbarItem.name)) {
+            if (typeof toolbarItem === "string" || Constants.INLINE_TYPE.concat("|", "font-family", "font-size").includes(toolbarItem.name)) {
                 return;
             }
             if (typeof toolbarItem.hotkey !== "string") {
@@ -182,7 +187,7 @@ export class Toolbar {
         /// #endif
         this.toolbarHeight = 29;
         options.toolbar = applyPluginToolbar(options.toolbar, protyle);
-        if (!isMobile() && !protyle.lite) {
+        if (!protyle.lite) {
             refreshToolbarCatalog(options.toolbar);
         }
         options.toolbar.forEach((menuItem: IMenuItem) => {
@@ -201,7 +206,7 @@ export class Toolbar {
         this.element.innerHTML = "";
         protyle.options.toolbar = toolbarKeyToMenu(getProtyleLockedToolbar(protyle) || getDefaultToolbar(isMobile()));
         protyle.options.toolbar = applyPluginToolbar(protyle.options.toolbar, protyle);
-        if (!isMobile() && !protyle.lite) {
+        if (!protyle.lite) {
             refreshToolbarCatalog(protyle.options.toolbar);
         }
         protyle.options.toolbar.forEach((menuItem: IMenuItem) => {
@@ -221,7 +226,11 @@ export class Toolbar {
         if (!this.rangePosition || !this.range) {
             return;
         }
-        const protyleRect = protyle.element.getBoundingClientRect();
+        // 内嵌编辑器的浮动工具栏使用外层容器边界，避免被短单元格或脑图节点挤到选区上。
+        const cellEditor = protyle.element.closest(".table__cell-editor");
+        const mindmap = protyle.element.closest(".list-mindmap");
+        const protyleRect = (mindmap || cellEditor?.parentElement.closest(".protyle") ||
+            protyle.element).getBoundingClientRect();
         const viewportBoundary = element.dataset.positionBoundary === "viewport";
         const topBoundary = viewportBoundary ? 8 : protyleRect.top + 30;
         const bottomBoundary = viewportBoundary ? window.innerHeight - 8 :
@@ -264,6 +273,12 @@ export class Toolbar {
     }
 
     public render(protyle: IProtyle, range: Range, position?: IPosition & {detail?: number}) {
+        const belongsToEditor = (node: Node) => node.isConnected &&
+            (node instanceof Element ? node : node.parentElement)?.closest(".protyle-wysiwyg") === protyle.wysiwyg.element;
+        if (!belongsToEditor(range.startContainer) || !belongsToEditor(range.endContainer)) {
+            this.element.classList.add("fn__none");
+            return;
+        }
         this.range = range;
         this.rangePosition = undefined;
         this.isMultipleClick = (position?.detail || 0) > 1;
@@ -304,6 +319,7 @@ export class Toolbar {
             return;
         }
         this.rangePosition = getSelectionPosition(nodeElement, range, true, position);
+        updateFontControls(protyle);
         this.element.classList.remove("fn__none");
         this.toolbarHeight = this.element.clientHeight;
         const y = this.setSelectionElementPosition(protyle, this.element);
@@ -318,7 +334,7 @@ export class Toolbar {
         });
         this.element.querySelector('[data-type="a"]')?.toggleAttribute("disabled", isCrossBlock || isCrossCell);
         this.element.querySelector('[data-type="block-ref"]')?.toggleAttribute("disabled", isCrossBlock || isCrossCell);
-        const types = this.getCurrentType();
+        const types = this.getCurrentToolbarType(protyle);
         types.forEach(item => {
             if (["search-mark", "a", "block-ref", "virtual-block-ref", "text", "file-annotation-ref", "inline-math",
                 "inline-memo", "", "backslash"].includes(item)) {
@@ -373,6 +389,26 @@ export class Toolbar {
             }
         });
         return types;
+    }
+
+    public getCurrentToolbarType(protyle: IProtyle, range = this.range) {
+        const types = this.getCurrentType(range);
+        if (range.collapsed) {
+            return types;
+        }
+        const nodeElement = hasClosestBlock(range.startContainer);
+        if (!nodeElement) {
+            return types;
+        }
+        const selectedRange = range.cloneRange();
+        const editableElement = normalizeCalloutTitleRange(selectedRange, nodeElement,
+            getContenteditableElement(nodeElement, selectedRange.startContainer));
+        const formats = editableElement?.contains(selectedRange.endContainer) &&
+            nodeElement.getAttribute("data-type") !== "NodeTable" ?
+            getRangeInlineFormats(editableElement, selectedRange) || [] :
+            getRangesInlineFormats(getBlockRanges(protyle.wysiwyg.element, selectedRange,
+                ["NodeCodeBlock", "NodeAttributeView"]));
+        return types.filter(type => !INLINE_FORMAT_TYPES.includes(type)).concat(formats);
     }
 
     private hasInlineMark(editableElement: Element, range: Range, type: string) {
@@ -551,11 +587,21 @@ export class Toolbar {
 
     public hasTableCellsInlineMark(cellElements: HTMLTableCellElement[], type: string) {
         const ranges = this.getTableCellRanges(cellElements);
+        if (INLINE_FORMAT_TYPES.includes(type)) {
+            return getRangesInlineFormats(ranges).includes(type);
+        }
         return ranges.length > 0 && ranges.every(item => this.hasInlineMark(item.editableElement, item.range, type));
     }
 
     public setTableCellsInlineMark(protyle: IProtyle, cellElements: HTMLTableCellElement[], type: string,
                                    textObj?: ITextOption) {
+        const richCells = cellElements.filter(cell => cell.hasAttribute("data-sy-table-cell-rich"));
+        if (richCells.length > 0) {
+            void import("../render/tableCellRichEditor").then(module => {
+                module.applyTableCellRichInlineMark(protyle, richCells, type, textObj);
+            });
+            cellElements = cellElements.filter(cell => !cell.hasAttribute("data-sy-table-cell-rich"));
+        }
         return this.setRangesInlineMark(protyle, this.getTableCellRanges(cellElements), type, "range", textObj);
     }
 
@@ -633,8 +679,9 @@ export class Toolbar {
             return includeEmpty ? [] : undefined;
         }
 
-        const currentRange = this.range.cloneRange();
-        const currentItem = ranges.find(item => item.editableElement.contains(currentRange.startContainer) &&
+        // 临时片段编辑器可在没有光标选区时批量设置样式，仅在存在选区时恢复位置。
+        const currentRange = this.range?.cloneRange();
+        const currentItem = currentRange && ranges.find(item => item.editableElement.contains(currentRange.startContainer) &&
             item.editableElement.contains(currentRange.endContainer));
         const currentPosition = currentItem ?
             getSelectionOffset(currentItem.editableElement, undefined, currentRange, true) : undefined;
@@ -649,7 +696,7 @@ export class Toolbar {
             if (restoredRange) {
                 this.range = restoredRange;
             }
-        } else if (currentRange.startContainer.isConnected && currentRange.endContainer.isConnected) {
+        } else if (currentRange?.startContainer.isConnected && currentRange.endContainer.isConnected) {
             this.range = currentRange;
         }
         return nodes;
@@ -677,8 +724,11 @@ export class Toolbar {
             return;
         }
 
-        const actionBtn = action === "toolbar" ? this.element.querySelector(`[data-type="${type}"]`) : undefined;
-        const remove = type === "clear" || actionBtn?.classList.contains("protyle-toolbar__item--current") ||
+        const toolbarElement = isMobile() ? document.querySelector("#keyboardToolbar .keyboard__dynamic").nextElementSibling : this.element;
+        const actionBtn = action === "toolbar" ? toolbarElement.querySelector(`[data-type="${type}"]`) : undefined;
+        const remove = INLINE_FORMAT_TYPES.includes(type) && !textObj ?
+            getRangesInlineFormats(ranges).includes(type) :
+            type === "clear" || actionBtn?.classList.contains("protyle-toolbar__item--current") ||
             (!textObj && ranges.every(item => this.hasInlineMark(item.editableElement, item.range, type)));
         const visibleOffsets = new Map(ranges.map(item =>
             [item, getSelectionOffset(item.editableElement, undefined, item.range, true)]));
@@ -778,6 +828,9 @@ export class Toolbar {
         const editableElement = normalizeCalloutTitleRange(this.range, nodeElement,
             getContenteditableElement(nodeElement, this.range.startContainer));
         const isBatch = remove !== undefined;
+        // 在提取选区内容之前确定格式操作，空选区继续使用光标处的输入格式。
+        const removeFormat = !isBatch && !this.range.collapsed && INLINE_FORMAT_TYPES.includes(type) && !textObj ?
+            getRangeInlineFormats(editableElement, this.range)?.includes(type) : undefined;
         let rangeTypes: string[] = [];
         this.range.cloneContents().childNodes.forEach((item: HTMLElement) => {
             if (item.nodeType !== 3) {
@@ -871,6 +924,7 @@ export class Toolbar {
                 for (let i = 0; i < attributes.length; i++) {
                     afterElement.setAttribute(attributes[i].name, attributes[i].value);
                 }
+                prepareInlineElementBoundaryMutation(this.range);
                 this.range.insertNode(document.createElement("wbr"));
                 html = nodeElement.outerHTML;
                 contents = this.range.extractContents();
@@ -895,6 +949,7 @@ export class Toolbar {
             this.range.setStartBefore(this.range.startContainer.parentElement);
         }
         if (!html) {
+            prepareInlineElementBoundaryMutation(this.range);
             this.range.insertNode(document.createElement("wbr"));
             html = nodeElement.outerHTML;
             contents = this.range.extractContents();
@@ -948,7 +1003,7 @@ export class Toolbar {
         let endContainer: Node;
         let startOffset: number;
         let endOffset: number;
-        const shouldRemove = remove ?? (type === "clear" ||
+        const shouldRemove = remove ?? removeFormat ?? (type === "clear" ||
             actionBtn?.classList.contains("protyle-toolbar__item--current") || (
             action === "range" && rangeTypes.length > 0 && rangeTypes.includes(type) && !textObj
         ));
@@ -1048,7 +1103,7 @@ export class Toolbar {
             });
         } else {
             // 添加
-            if (!this.element.classList.contains("fn__none") && type !== "text" && actionBtn) {
+            if (!toolbarElement.classList.contains("fn__none") && type !== "text" && actionBtn) {
                 actionBtn.classList.add("protyle-toolbar__item--current");
             }
             if (selectText === "" || (type === "text" && textObj?.type === "fontFamily" &&
@@ -1404,6 +1459,15 @@ export class Toolbar {
                 }
             }
         }
+        // 新建空标签后进入标签搜索状态，便于选择已有标签
+        if (type === "tag" && !isBatch) {
+            const tagElement = newNodes.find((item): item is HTMLElement =>
+                item.nodeType === Node.ELEMENT_NODE &&
+                ((item as HTMLElement).getAttribute("data-type") || "").split(" ").includes("tag"));
+            if (tagElement && getSemanticInlineVisibleText(tagElement) === "") {
+                protyle.hint.startHashTagSearch(protyle, tagElement);
+            }
+        }
         return newNodes;
     }
 
@@ -1437,8 +1501,8 @@ export class Toolbar {
                 }
             });
         }
-        let title = "HTML";
-        let placeholder = "";
+        let title = types.includes("NodeCodeBlock") ? window.siyuan.languages.code : "HTML";
+        const placeholder = "";
         const isInlineMemo = types.includes("inline-memo");
         switch (renderElement.getAttribute("data-subtype")) {
             case "abc":
@@ -1455,12 +1519,6 @@ export class Toolbar {
                 break;
             case "mermaid":
                 title = "Mermaid";
-                break;
-            case "mindmap":
-                placeholder = `- foo
-  - bar
-- baz`;
-                title = window.siyuan.languages.mindmap;
                 break;
             case "plantuml":
                 title = "UML";
@@ -1490,17 +1548,17 @@ export class Toolbar {
         ${title}
     </span>
     <span class="fn__space"></span>
-    <button data-type="refresh" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw block__icon--active${types.includes("NodeBlockQueryEmbed") ? " fn__none" : ""}" aria-label="${window.siyuan.languages.refresh}"><svg><use xlink:href="#iconRefresh"></use></svg></button>
+    <button data-type="refresh" class="block__icon block__icon--show b3-tooltips b3-tooltips__n block__icon--active${types.includes("NodeBlockQueryEmbed") ? " fn__none" : ""}" aria-label="${window.siyuan.languages.refresh}"><svg><use xlink:href="#iconRefresh"></use></svg></button>
     <span class="fn__space"></span>
-    <button data-type="before" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw${protyle.disabled ? " fn__none" : ""}" aria-label="${window.siyuan.languages.insertBefore}"><svg><use xlink:href="#iconBefore"></use></svg></button>
+    <button data-type="before" class="block__icon block__icon--show b3-tooltips b3-tooltips__n${protyle.disabled ? " fn__none" : ""}" aria-label="${window.siyuan.languages.insertBefore}"><svg><use xlink:href="#iconBefore"></use></svg></button>
     <span class="fn__space${protyle.disabled ? " fn__none" : ""}"></span>
-    <button data-type="after" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw${protyle.disabled ? " fn__none" : ""}" aria-label="${window.siyuan.languages.insertAfter}"><svg><use xlink:href="#iconAfter"></use></svg></button>
+    <button data-type="after" class="block__icon block__icon--show b3-tooltips b3-tooltips__n${protyle.disabled ? " fn__none" : ""}" aria-label="${window.siyuan.languages.insertAfter}"><svg><use xlink:href="#iconAfter"></use></svg></button>
     <span class="fn__space${protyle.disabled ? " fn__none" : ""}"></span>
-    <button data-type="export" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw${getHostCapabilities().importExport ? "" : " fn__none"}" aria-label="${window.siyuan.languages.export} ${window.siyuan.languages.image}"><svg><use xlink:href="#iconImage"></use></svg></button>
+    <button data-type="export" class="block__icon block__icon--show b3-tooltips b3-tooltips__n${getHostCapabilities().importExport ? "" : " fn__none"}" aria-label="${window.siyuan.languages.export} ${window.siyuan.languages.image}"><svg><use xlink:href="#iconImage"></use></svg></button>
     <span class="fn__space${getHostCapabilities().importExport ? "" : " fn__none"}"></span>
-    <button data-type="pin" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw" aria-label="${window.siyuan.languages.pin}"><svg><use xlink:href="#iconPin"></use></svg></button>
+    <button data-type="pin" class="block__icon block__icon--show b3-tooltips b3-tooltips__n" aria-label="${window.siyuan.languages.pin}"><svg><use xlink:href="#iconPin"></use></svg></button>
     <span class="fn__space"></span>
-    <button data-type="close" class="block__icon block__icon--show b3-tooltips b3-tooltips__nw" aria-label="${window.siyuan.languages.close}"><svg><use xlink:href="#iconClose"></use></svg></button>
+    <button data-type="close" class="block__icon block__icon--show b3-tooltips b3-tooltips__n" aria-label="${window.siyuan.languages.close}"><svg><use xlink:href="#iconClose"></use></svg></button>
 </div>
 <div class="protyle-util__scroll"><div class="fn__flex"><div class="protyle-linenumber__rows"></div><textarea ${protyle.disabled ? " readonly" : ""} spellcheck="false" class="b3-text-field b3-text-field--text fn__flex-1" placeholder="${placeholder}" style="overflow:hidden;resize:none;font-family: var(--b3-font-family-editor-code, var(--b3-font-family-code));font-weight: var(--b3-font-weight-editor-code, 400);"></textarea></div></div></div>
 <div class="resize__rd"></div><div class="resize__ld"></div><div class="resize__lt"></div><div class="resize__rt"></div><div class="resize__r"></div><div class="resize__d"></div><div class="resize__t"></div><div class="resize__l"></div>`;
@@ -1623,9 +1681,7 @@ export class Toolbar {
                 fetch(renderElement.querySelector("object").getAttribute("data")).then(function (response) {
                     return response.blob();
                 }).then(function (blob) {
-                    const formData = new FormData();
-                    formData.append("file", blob);
-                    formData.append("type", "image/svg+xml");
+                    const formData = new ContractFormData({file: blob, type: "image/svg+xml"});
                     fetchPost("/api/export/exportAsFile", formData, (response) => {
                         saveExportFile(response.data.file, msgId);
                     });
@@ -1637,9 +1693,7 @@ export class Toolbar {
                     (renderElement as HTMLHtmlElement).style.display = "inline-block";
                     window.htmlToImage.toBlob(renderElement).then(blob => {
                         (renderElement as HTMLHtmlElement).style.display = "";
-                        const formData = new FormData();
-                        formData.append("file", blob);
-                        formData.append("type", "image/png");
+                        const formData = new ContractFormData({file: blob, type: "image/png"});
                         fetchPost("/api/export/exportAsFile", formData, (response) => {
                             saveExportFile(response.data.file, msgId);
                         });
@@ -1691,7 +1745,7 @@ export class Toolbar {
         textElement.addEventListener("keydown", (event: KeyboardEvent) => {
             event.stopPropagation();
             // 阻止 ctrl+m 缩小窗口 https://github.com/siyuan-note/siyuan/issues/5541
-            if (matchHotKey(window.siyuan.config.keymap.editor.insert["inline-math"].custom, event)) {
+            if (matchHotKey(window.siyuan.config.keymap.editor.insert["inline-math"], event)) {
                 event.preventDefault();
                 return;
             }
@@ -1806,6 +1860,16 @@ export class Toolbar {
                     } else if (renderElement.parentElement) {
                         if (focusBeforeRender) {
                             this.range.setStartBefore(renderElement);
+                        } else if (types.includes("inline-math")) {
+                            // 在公式外的文本节点中恢复光标，为输入法提供可编辑的组合输入位置。
+                            let textNode = renderElement.nextSibling as Text;
+                            if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+                                textNode = document.createTextNode(Constants.ZWSP);
+                                renderElement.after(textNode);
+                            } else if (!textNode.data.startsWith(Constants.ZWSP)) {
+                                textNode.insertData(0, Constants.ZWSP);
+                            }
+                            this.range.setStart(textNode, 1);
                         } else {
                             this.range.setStartAfter(renderElement);
                         }
@@ -1886,7 +1950,7 @@ export class Toolbar {
         window.siyuan.menus.menu.remove();
         this.range = getEditorRange(nodeElement);
         this.subElement.innerHTML = `<div data-id="codeLanguage" class="fn__flex-column" style="max-height:50vh">
-    <input placeholder="${window.siyuan.languages.searchPlaceholder}" style="margin: 0 8px 4px 8px" class="b3-text-field"/>
+    <input spellcheck="false" placeholder="${window.siyuan.languages.searchPlaceholder}" style="margin: 0 8px 4px 8px" class="b3-text-field"/>
     <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"></div>
 </div>`;
         const listElement = this.subElement.lastElementChild.lastElementChild as HTMLElement;
@@ -2024,39 +2088,22 @@ export class Toolbar {
         blockElement.classList.add("protyle-wysiwyg--select");
         window.siyuan.menus.menu.remove();
         this.subElement.style.width = window.innerWidth - 16 + "px";
-        this.subElement.style.padding = "0";
-        this.subElement.innerHTML = `<div class="block__icons">
-    <div class="block__logo">
-        <svg class="block__logoicon"><use xlink:href="#iconCheck"></use></svg> 
-        <span class="multiSelectCount">${protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select").length}</span>
-    </div>
-    <span class="fn__flex-1"></span>
-    <button class="block__icon block__icon--show" data-type="menu" data-menu="true"><svg><use xlink:href="#iconMore"></use></svg></button>
-    <span class="fn__space"></span>
-    <button class="block__icon block__icon--show" data-type="exitMultiSelectMode"><svg><use xlink:href="#iconClose"></use></svg></button>
-</div>`;
+        renderMultiSelectToolbar(this.subElement, protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select").length, () => {
+            protyle.gutter.renderMenu(protyle, protyle.wysiwyg.element.querySelector(".protyle-wysiwyg--select"));
+            window.siyuan.menus.menu.fullscreen();
+        }, () => {
+            this.subElement.classList.add("fn__none");
+            this.subElement.innerHTML = "";
+            hideElements(["select"], protyle);
+        }, () => {
+            window.getSelection()?.removeAllRanges();
+            activeBlur();
+            const elements = selectAllLoadedBlocks(protyle.wysiwyg.element);
+            updateMultiSelectToolbar(this.subElement, elements.length);
+            showSelectAllIncompleteTip(protyle);
+        });
         this.subElement.style.zIndex = (++window.siyuan.zIndex).toString();
         this.subElement.classList.remove("fn__none");
-        this.subElement.firstElementChild.addEventListener("click", (event) => {
-            let target = event.target as HTMLElement;
-            while (target && target !== this.subElement) {
-                if (target.dataset.type === "exitMultiSelectMode") {
-                    this.subElement.classList.add("fn__none");
-                    this.subElement.innerHTML = "";
-                    hideElements(["select"], protyle);
-                    event.preventDefault();
-                    event.stopPropagation();
-                    break;
-                } else if (target.dataset.type === "menu") {
-                    protyle.gutter.renderMenu(protyle, protyle.wysiwyg.element.querySelector(".protyle-wysiwyg--select"));
-                    window.siyuan.menus.menu.fullscreen();
-                    event.preventDefault();
-                    event.stopPropagation();
-                    break;
-                }
-                target = target.parentElement;
-            }
-        });
         setPosition(this.subElement, 8, 8);
         this.element.classList.add("fn__none");
         activeBlur();
@@ -2083,7 +2130,6 @@ export class Toolbar {
         <span class="fn__space"></span>
         <span data-type="next" class="block__icon block__icon--show"><svg><use xlink:href="#iconRight"></use></svg></span>
     </div>
-    <button type="button" data-type="manage-templates" class="b3-button b3-button--outline" style="margin: 0 8px 4px">${window.siyuan.languages.templateManager}</button>
     <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><img style="margin: 0 auto;display: block;width: 64px;height: 64px" src="/stage/loading-pure.svg"></div>
 </div>
 <div class="toolbarResize" style="    cursor: col-resize;
@@ -2093,11 +2139,6 @@ export class Toolbar {
 <div style="width: 520px;${isMobile() || window.outerWidth < window.outerWidth / 2 + 520 ? "display:none;" : ""}overflow: auto;"></div>
 </div>`;
         const listElement = this.subElement.querySelector(".b3-list");
-        this.subElement.querySelector("[data-type=manage-templates]").addEventListener("click", event => {
-            event.stopPropagation();
-            this.subElement.classList.add("fn__none");
-            openTemplateManager(protyle.block.parentID);
-        });
         resizeSide(this.subElement.querySelector(".toolbarResize"), listElement.parentElement);
         const previewElement = this.subElement.firstElementChild.lastElementChild;
         const previewObserver = new MutationObserver(() => {
@@ -2161,18 +2202,11 @@ export class Toolbar {
                 k: inputElement.value,
             }, (response) => {
                 let searchHTML = "";
-                response.data.templates.forEach((item: { path: string, content: string }, index: number) => {
-                    searchHTML += `<div data-value="${item.path}" class="b3-list-item--hide-action b3-list-item${index === 0 ? " b3-list-item--focus" : ""}">
+                response.data.templates.forEach((item: { path: string, relativePath: string, content: string }, index: number) => {
+                    searchHTML += `<div data-value="${escapeAttr(escapeHtml(item.path))}" data-template-path="${escapeAttr(escapeHtml(item.relativePath))}" class="b3-list-item--hide-action b3-list-item${index === 0 ? " b3-list-item--focus" : ""}">
 <span class="b3-list-item__text">${item.content}</span>`;
-                    /// #if !BROWSER
-                    if (getHostCapabilities().localFileSystem) {
-                        searchHTML += `<span data-type="open" class="b3-list-item__action b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.showInFolder}">
-    <svg><use xlink:href="#iconFolder"></use></svg>
-</span>`;
-                    }
-                    /// #endif
-                    searchHTML += `<span data-type="remove" class="b3-list-item__action b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.remove}">
-    <svg><use xlink:href="#iconTrashcan"></use></svg>
+                    searchHTML += `<span data-type="manage" class="b3-list-item__action b3-tooltips b3-tooltips__w" aria-label="${window.siyuan.languages.templateManager}">
+    <svg><use xlink:href="#iconSettings"></use></svg>
 </span></div>`;
                 });
                 listElement.innerHTML = searchHTML || `<li class="b3-list--empty">${window.siyuan.languages.emptyContent}</li>`;
@@ -2213,34 +2247,10 @@ export class Toolbar {
                 return;
             }
             const iconElement = hasClosestByClassName(target, "b3-list-item__action");
-            /// #if !BROWSER
-            if (iconElement && iconElement.getAttribute("data-type") === "open") {
-                openBy(iconElement.parentElement.getAttribute("data-value"), "folder");
-                event.stopPropagation();
-                return;
-            }
-            /// #endif
-            if (iconElement && iconElement.getAttribute("data-type") === "remove") {
-                confirmDialog(window.siyuan.languages.remove, window.siyuan.languages.confirmDelete + "?", () => {
-                    fetchPost("/api/search/removeTemplate", {path: iconElement.parentElement.getAttribute("data-value")}, () => {
-                        if (iconElement.parentElement.parentElement.childElementCount === 1) {
-                            iconElement.parentElement.parentElement.innerHTML = `<li class="b3-list--empty">${window.siyuan.languages.emptyContent}</li>`;
-                            previewTemplate("", previewElement, protyle.block.parentID);
-                        } else {
-                            if (iconElement.parentElement.classList.contains("b3-list-item--focus")) {
-                                const sideElement = iconElement.parentElement.previousElementSibling || iconElement.parentElement.nextElementSibling;
-                                sideElement.classList.add("b3-list-item--focus");
-                                const currentPath = sideElement.getAttribute("data-value");
-                                if (previewPath === currentPath) {
-                                    return;
-                                }
-                                previewPath = currentPath;
-                                previewTemplate(previewPath, previewElement, protyle.block.parentID);
-                            }
-                            iconElement.parentElement.remove();
-                        }
-                    });
-                });
+            if (iconElement && iconElement.getAttribute("data-type") === "manage") {
+                const path = iconElement.parentElement.getAttribute("data-template-path");
+                this.subElement.classList.add("fn__none");
+                openTemplateManager(protyle.block.parentID, undefined, path);
                 event.stopPropagation();
                 return;
             }
@@ -2281,7 +2291,7 @@ export class Toolbar {
         hideElements(["hint"], protyle);
         window.siyuan.menus.menu.remove();
         this.subElement.innerHTML = `<div class="fn__flex-column" style="max-height:50vh">
-    <input style="margin: 0 8px 4px 8px" class="b3-text-field"/>
+    <input spellcheck="false" style="margin: 0 8px 4px 8px" class="b3-text-field"/>
     <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><img style="margin: 0 auto;display: block;width: 64px;height:64px" src="/stage/loading-pure.svg"></div>
 </div>`;
         const listElement = this.subElement.lastElementChild.lastElementChild as HTMLElement;
@@ -2368,21 +2378,21 @@ export class Toolbar {
         const hasCopy = stripSemanticMarkersFromRangeText(range).split(Constants.ZWSP).join("") !== "" ||
             (range.cloneContents().childNodes[0] as HTMLElement)?.classList?.contains("emoji");
         if (hasCopy) {
-            html += '<button class="keyboard__action" data-action="copy"><svg><use xlink:href="#iconCopy"></use></svg></button>';
+            html += `<button class="keyboard__action" data-action="copy" aria-label="${window.siyuan.languages.copy}"><svg><use xlink:href="#iconCopy"></use></svg></button>`;
             if (!protyle.disabled) {
-                html += `<button class="keyboard__action" data-action="cut"><svg><use xlink:href="#iconCut"></use></svg></button>
-<button class="keyboard__action" data-action="delete"><svg><use xlink:href="#iconTrashcan"></use></svg></button>`;
+                html += `<button class="keyboard__action" data-action="cut" aria-label="${window.siyuan.languages.cut}"><svg><use xlink:href="#iconCut"></use></svg></button>
+<button class="keyboard__action" data-action="delete" aria-label="${window.siyuan.languages.delete}"><svg><use xlink:href="#iconTrashcan"></use></svg></button>`;
             }
         }
         if (!protyle.disabled) {
-            html += `<button class="keyboard__action" data-action="paste"><svg><use xlink:href="#iconPaste"></use></svg></button>
-<button class="keyboard__action" data-action="select"><svg><use xlink:href="#iconSelect"></use></svg></button>`;
+            html += `<button class="keyboard__action" data-action="paste" aria-label="${window.siyuan.languages.paste}"><svg><use xlink:href="#iconPaste"></use></svg></button>
+<button class="keyboard__action" data-action="select" aria-label="${window.siyuan.languages.select}"><svg><use xlink:href="#iconSelect"></use></svg></button>`;
         }
         if (pluginMenus.length > 0) {
             html += `<button class="keyboard__action" data-action="plugin" data-menu="true" aria-label="${window.siyuan.languages.plugin}"><svg><use xlink:href="#iconPlugin"></use></svg></button>`;
         }
         if (hasCopy || !protyle.disabled) {
-            html += '<button class="keyboard__action" data-action="more"><svg><use xlink:href="#iconMore"></use></svg></button>';
+            html += `<button class="keyboard__action" data-action="more" aria-label="${window.siyuan.languages.more}"><svg><use xlink:href="#iconMore"></use></svg></button>`;
         }
         this.subElement.innerHTML = `<div class="fn__flex">${html}</div>`;
         const setContentPosition = () => {
@@ -2412,6 +2422,7 @@ export class Toolbar {
                 this.subElement.classList.add("fn__none");
             } else if (action === "delete") {
                 const currentRange = getEditorRange(nodeElement);
+                prepareInlineElementBoundaryMutation(currentRange);
                 currentRange.insertNode(document.createElement("wbr"));
                 const oldHTML = nodeElement.outerHTML;
                 currentRange.extractContents();
@@ -2433,11 +2444,19 @@ export class Toolbar {
                 }
                 this.subElement.classList.add("fn__none");
             } else if (action === "select") {
-                selectAll(protyle, nodeElement, range);
-                this.subElement.classList.add("fn__none");
+                if (selectAll(protyle, nodeElement, range, !!protyle.gutter)) {
+                    this.showContent(protyle, range, nodeElement, pluginMenus);
+                } else {
+                    const selectedElement = protyle.wysiwyg.element.querySelector<HTMLElement>(".protyle-wysiwyg--select");
+                    if (selectedElement && protyle.gutter) {
+                        this.showMultiSelectMode(protyle, selectedElement);
+                    } else {
+                        this.subElement.classList.add("fn__none");
+                    }
+                }
             } else if (action === "copyPlainText") {
                 focusByRange(getEditorRange(nodeElement));
-                copyPlainText(getSelection().getRangeAt(0).toString());
+                copyPlainText(stripSemanticMarkersFromRangeText(getSelection().getRangeAt(0)));
                 this.subElement.classList.add("fn__none");
             } else if (action === "pasteAsPlainText") {
                 focusByRange(getEditorRange(nodeElement));
@@ -2468,7 +2487,7 @@ export class Toolbar {
 <div class="keyboard__split${protyle.disabled ? " fn__none" : ""}"></div>
 <button class="keyboard__action${protyle.disabled ? " fn__none" : ""}" data-action="pasteEscaped"><span>${window.siyuan.languages.pasteEscaped}</span></button>
 <div class="keyboard__split${protyle.disabled ? " fn__none" : ""}"></div>
-<button class="keyboard__action" data-action="back"><svg><use xlink:href="#iconBack"></use></svg></button>`;
+<button class="keyboard__action" data-action="back" aria-label="${window.siyuan.languages.back}"><svg><use xlink:href="#iconBack"></use></svg></button>`;
                 setContentPosition();
             }
         });
@@ -2517,6 +2536,10 @@ export class Toolbar {
                 break;
             case "text":
                 menuItemObj = new Font(protyle, menuItem);
+                break;
+            case "font-family":
+            case "font-size":
+                menuItemObj = new FontControl(protyle, menuItem);
                 break;
             case "format-painter":
                 menuItemObj = menuItem.click ? new ToolbarItem(protyle, menuItem) :

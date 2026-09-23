@@ -1,3 +1,4 @@
+import {isTableLikeView} from "./viewType";
 import {Menu} from "../../../plugin/Menu";
 import {hasClosestByAttribute, hasClosestByClassName, hasTopClosestByClassName} from "../../util/hasClosest";
 import {UDLRHint, upDownHint} from "../../../util/upDownHint";
@@ -22,6 +23,7 @@ import {getSearchAVFocus} from "./searchAVFocus";
 import {getAVTemplateHTML} from "./attributeValue";
 import {hasAVRenderTemplateResult} from "./cellValue";
 import {renderAVRichTextElements} from "./richText";
+import {getFileTreeIconHTML} from "../../../emoji/fileTreeIcon";
 
 interface IAVItem {
     avID: string;
@@ -120,7 +122,7 @@ export const openSearchAV = (options: IOpenSearchAVOptions) => {
         iconHTML: "",
         type: "empty",
         label: `<div class="fn__flex-column b3-menu__filter"${isMobile() ? "" : ' style="width: 50vw"'} >
-    <input class="b3-text-field fn__flex-shrink"/>
+    <input spellcheck="false" class="b3-text-field fn__flex-shrink" placeholder="${window.siyuan.languages.searchPlaceholder}"/>
     <div class="fn__hr"></div>
     <div class="b3-list fn__flex-1 b3-list--background">
         ${SEARCH_AV_LOADING_HTML}
@@ -132,6 +134,12 @@ export const openSearchAV = (options: IOpenSearchAVOptions) => {
             let searchTimer = 0;
             let requestSequence = 0;
             let controller: AbortController;
+            // 列表内容变化后重新适配面板高度，避免下方留白
+            const updateSheetHeight = () => {
+                if (menu.element.classList.contains("b3-menu--fit")) {
+                    window.siyuan.menus.menu.resetPosition();
+                }
+            };
             const loadList = (keyword: string, cb?: () => void) => {
                 controller?.abort();
                 controller = new AbortController();
@@ -141,6 +149,7 @@ export const openSearchAV = (options: IOpenSearchAVOptions) => {
                         return;
                     }
                     cb?.();
+                    updateSheetHeight();
                 });
             };
             const search = () => {
@@ -200,6 +209,8 @@ export const openSearchAV = (options: IOpenSearchAVOptions) => {
                         }
                         event.preventDefault();
                         event.stopPropagation();
+                        // 展开或收起视图后重新适配面板高度
+                        updateSheetHeight();
                         break;
                     } else if (clickTarget.classList.contains("b3-list-item")) {
                         event.preventDefault();
@@ -222,6 +233,10 @@ export const openSearchAV = (options: IOpenSearchAVOptions) => {
         }
     });
     menu.element.querySelector(".b3-menu__items").setAttribute("style", "overflow: initial");
+    if (isMobile()) {
+        // 移动端底部面板按内容收缩，避免列表下方留白
+        menu.element.classList.add("b3-menu--fit");
+    }
     const popoverElement = hasTopClosestByClassName(options.target, "block__popover", true);
     menu.element.setAttribute("data-from", popoverElement ? popoverElement.dataset.level + "popover" : "app");
 };
@@ -432,8 +447,10 @@ style="grid-template-columns:${gridTemplate}">
 data-value-id="${escapeAttr(primaryCell.id || "")}"
 style="${primaryCell.bgColor ? `background-color:${primaryCell.bgColor};` : ""}${primaryCell.color ? `color:${primaryCell.color};` : ""}">
     ${selected ? '<svg class="b3-menu__icon fn__grab"><use xlink:href="#iconDrag"></use></svg>' : ""}
+    ${isDetached ? "" : `<span class="av__relation-row-icon">${getFileTreeIconHTML(primaryValue.block?.icon, "file")}</span>`}
     <span class="b3-menu__label fn__ellipsis${isDetached ? "" : " popover__block"}${useRenderedContent ? " av__celltext--template" : ""}"
         ${isDetached ? "" : 'style="color:var(--b3-protyle-inline-blockref-color)"'}
+        data-icon="${escapeAttr(primaryValue.block?.icon || "")}"
         data-id="${escapeAttr(primaryValue.block?.id || "")}" data-content="${escapeAttr(primaryValue.block?.content || "")}">${content}</span>
     ${primaryCell.id ? `<button type="button" class="av__relation-row-open ariaLabel" data-type="openRelationRow" draggable="false"
         data-position="north" aria-label="${window.siyuan.languages.openBy}"><svg><use xlink:href="#iconOpen"></use></svg></button>` : ""}
@@ -487,6 +504,8 @@ export const bindRelationEvent = (options: {
 }) => {
     const inputElement = options.menuElement.querySelector("input");
     const listElement = options.menuElement.querySelector(".b3-menu__items") as HTMLElement;
+    // 移动端菜单顶部会插入抓手标题，关联面板根节点按类名定位
+    const relationElement = options.menuElement.querySelector(".av__relation") as HTMLElement;
     const measureText = getAVColumnTextMeasurer(options.blockElement as HTMLElement);
     const state = {
         page: 0,
@@ -598,6 +617,7 @@ export const bindRelationEvent = (options: {
                 return {
                     id: item.dataset.rowId,
                     blockID: blockElement.dataset.id,
+                    icon: blockElement.dataset.icon || "",
                     content: blockElement.dataset.content ?? blockElement.textContent,
                     isDetached: !blockElement.classList.contains("popover__block"),
                 };
@@ -609,6 +629,7 @@ export const bindRelationEvent = (options: {
             return {
                 id,
                 blockID: value?.block?.id,
+                icon: value?.block?.icon || "",
                 content: value?.block?.content || "",
                 isDetached: value?.isDetached === true || !value?.block?.id,
             };
@@ -681,8 +702,8 @@ ${genRelationLoaderHTML(state.loading, state.loaderVisible)}`;
         setLoading(true, initialLoad && reset, controller);
         let succeeded = false;
         fetchPost("/api/av/getAttributeViewRelationCandidates", {
-            avID: options.menuElement.firstElementChild.getAttribute("data-source-av-id"),
-            keyID: options.menuElement.firstElementChild.getAttribute("data-key-id"),
+            avID: relationElement.getAttribute("data-source-av-id"),
+            keyID: relationElement.getAttribute("data-key-id"),
             keyword,
             page,
             pageSize: RELATION_PAGE_SIZE,
@@ -698,7 +719,6 @@ ${genRelationLoaderHTML(state.loading, state.loaderVisible)}`;
             const databaseName = inputElement.parentElement.parentElement.querySelector(".popover__block");
             databaseName.textContent = response.data.name;
             databaseName.setAttribute("data-id", response.data.blockIDs?.[0] || "");
-            const relationElement = options.menuElement.firstElementChild as HTMLElement;
             relationElement.dataset.databaseBlockId = response.data.blockIDs?.[0] || "";
             relationElement.dataset.notebookId = response.data.notebookID || "";
             const columns = response.data.columns as IAVColumn[] || [];
@@ -719,6 +739,7 @@ ${genRelationLoaderHTML(state.loading, state.loaderVisible)}`;
                             isDetached: item.isDetached,
                             block: {
                                 id: item.blockID,
+                                icon: item.icon,
                                 content: item.content,
                             }
                         }
@@ -794,7 +815,6 @@ ${genRelationLoaderHTML(state.loading, state.loaderVisible)}`;
         const rowElement = hasClosestByClassName(openElement, "av__relation-table-row") as HTMLElement;
         const primaryElement = rowElement?.querySelector(".av__relation-table-primary") as HTMLElement;
         const blockElement = primaryElement?.querySelector(".b3-menu__label") as HTMLElement;
-        const relationElement = options.menuElement.firstElementChild as HTMLElement;
         if (!rowElement || !primaryElement || !blockElement || !relationElement.dataset.databaseBlockId) {
             return;
         }
@@ -870,7 +890,7 @@ export const getRelationHTML = (data: IAV, cellElements?: HTMLElement[]) => {
         return `<div data-av-id="${colRelationData.avID}" data-source-av-id="${data.id}" data-key-id="${colId}" class="fn__flex-column av__relation">
 <div class="b3-menu__item" data-type="nobg">
     <div class="b3-form__icona fn__flex-1" style="overflow: visible">
-        <input class="b3-text-field fn__block" style="min-width: 190px"/>
+        <input spellcheck="false" class="b3-text-field fn__block" style="min-width: 190px"/>
         <svg class="b3-form__icona-icon ariaLabel fn__none" data-position="north" data-type="copyRelatedItems" aria-label="${window.siyuan.languages.copy} ${window.siyuan.languages.relatedItems}"><use xlink:href="#iconCopy"></use></svg>
     </div>
     <span class="fn__space"></span>
@@ -893,6 +913,7 @@ const getRelationValue = (menuElement: HTMLElement) => {
             type: "block",
             block: {
                 id: blockElement.dataset.id,
+                icon: blockElement.dataset.icon || "",
                 content: blockElement.dataset.content ?? blockElement.textContent
             },
             isDetached: !blockElement.classList.contains("popover__block")
@@ -925,11 +946,13 @@ export const setRelationCell = async (protyle: IProtyle, nodeElement: HTMLElemen
     if (menuElement.querySelector(".dragover__bottom, .dragover__top")) {
         return;
     }
+    // 移动端菜单顶部会插入抓手标题，关联面板根节点按类名定位
+    const relationElement = menuElement.querySelector(".av__relation") as HTMLElement;
 
     if (!nodeElement.contains(cellElements[0])) {
         const viewType = nodeElement.getAttribute("data-av-type") as TAVView;
         const rowID = getFieldIdByCellElement(cellElements[0], viewType);
-        if (viewType === "table") {
+        if (isTableLikeView(viewType)) {
             cellElements[0] = (nodeElement.querySelector(`.av__row[data-id="${rowID}"] .av__cell[data-col-id="${cellElements[0].dataset.colId}"]`) ||
                 nodeElement.querySelector(`.fn__flex-1[data-col-id="${cellElements[0].dataset.colId}"]`)) as HTMLElement;
         } else {
@@ -965,7 +988,7 @@ export const setRelationCell = async (protyle: IProtyle, nodeElement: HTMLElemen
             const doOperations: IOperation[] = [{
                 action: "insertAttrViewBlock",
                 ignoreDefaultFill: true,
-                avID: menuElement.firstElementChild.getAttribute("data-av-id"),
+                avID: relationElement.getAttribute("data-av-id"),
                 srcs: [{
                     itemID: rowId,
                     id: Lute.NewNodeID(),

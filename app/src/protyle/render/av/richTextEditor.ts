@@ -2,16 +2,22 @@ import {escapeHtml} from "../../../util/escape";
 import {isMobile} from "../../../util/functions";
 import {callMobileAppShowKeyboard} from "../../../mobile/util/mobileAppUtil";
 import {hintRef, hintSlash} from "../../hint/extend";
+import {registerBuiltinSlashHint} from "../../hint/builtinSlash";
 import {mountProtyleLiteFragment} from "../../lite/fragmentEditor";
 import {getDefaultToolbar} from "../../toolbar/defaults";
 import {highlightRender} from "../highlightRender";
 import {mathRender} from "../mathRender";
 import {positionAVRichTextEditor} from "./richTextEditorPosition";
+import {getAVData} from "./virtualScroll";
+import {resolveAVSelectedCell} from "./selectionState";
+import {beginAVEditorSession} from "./editorSession";
+import {updateOutlineCurrentBlock} from "../../util/outlineBlock";
 import {
     configureAVRichTextLute,
     createAVRichTextValue,
     getAVRichTextLute,
     getAVRichTextBlockDOM,
+    getAVRichTextUnsupportedPasteBlocks,
     getAVTextSource,
     sanitizeAVRichTextBlockDOM,
     serializeAVRichTextBlockDOM,
@@ -73,10 +79,10 @@ const hintAVRef = (key: string, protyle: IProtyle, source: THintSource) => {
     return hintRef(key, protyle, source);
 };
 
-const hintAVSlash = (key: string, protyle: IProtyle, source: THintSource) => {
+const hintAVSlash = registerBuiltinSlashHint((key: string, protyle: IProtyle, source: THintSource) => {
     prepareHint(protyle);
     return hintSlash(key, protyle, source).filter((item) => item.id && SAFE_SLASH_IDS.has(item.id));
-};
+});
 
 const setPanelPosition = (panelElement: HTMLElement, anchorElement: HTMLElement) => {
     if (isMobile()) {
@@ -106,6 +112,9 @@ export const openAVRichTextEditor = (options: AVRichTextEditorOptions) => {
     </div>` : ""}
 </div>`;
     document.body.appendChild(maskElement);
+    // 独立记录详情使用未挂载的编辑器上下文，浮层生命周期跟随实际可见的详情面板。
+    const ownerElement = options.nodeElement.closest<HTMLElement>(".protyle-db-row") || options.protyle.element;
+    const endEditorSession = beginAVEditorSession(ownerElement);
     const panelElement = maskElement.firstElementChild as HTMLElement;
     const hostElement = panelElement.querySelector<HTMLElement>(".av__richtext-host");
     hostElement.dataset.protyleLiteRender = "safe";
@@ -136,6 +145,7 @@ export const openAVRichTextEditor = (options: AVRichTextEditorOptions) => {
             pluginExtensions: false,
             customBlockRender: false,
             sanitizeBlockDOM: sanitizeAVRichTextBlockDOM,
+            getUnsupportedPasteBlocks: getAVRichTextUnsupportedPasteBlocks,
             restoreLuteMarkdownSyntax: configureAVRichTextLute,
         },
         afterSetContent: (protyle, element) => {
@@ -149,15 +159,42 @@ export const openAVRichTextEditor = (options: AVRichTextEditorOptions) => {
 
     let finished = false;
     let cancelled = false;
-    const isOwnerConnected = () => options.protyle.element.isConnected && options.nodeElement.isConnected &&
-        options.anchorElement.isConnected;
-    const resize = () => setPanelPosition(panelElement, options.anchorElement);
+    const isOwnerConnected = () => {
+        if (!ownerElement.isConnected || !options.nodeElement.isConnected) {
+            return false;
+        }
+        if (options.anchorElement.isConnected) {
+            return true;
+        }
+        // 行重渲染后按稳定标识确认编辑目标，避免其他单元格的事务丢弃尚未保存的输入。
+        const data = getAVData(options.nodeElement);
+        return data && options.stableCells.length > 0 && options.stableCells.every(cell =>
+            resolveAVSelectedCell(data, cell)?.column.type === "text");
+    };
+    const resize = () => {
+        if (!options.anchorElement.isConnected) {
+            const cell = options.stableCells[0];
+            if (cell) {
+                const group = cell.groupID ? `.av__body[data-group-id="${cell.groupID}"] ` : "";
+                const anchor = options.nodeElement.querySelector<HTMLElement>(
+                    `${group}.av__row[data-id="${cell.rowID}"] [data-col-id="${cell.colID}"]`);
+                if (anchor) {
+                    options.anchorElement = anchor;
+                }
+            }
+        }
+        if (options.anchorElement.isConnected) {
+            setPanelPosition(panelElement, options.anchorElement);
+        }
+    };
     window.addEventListener("resize", resize);
     const panelResizeObserver = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(resize);
     panelResizeObserver?.observe(panelElement);
     const ownerObserver = new MutationObserver(() => {
         if (!isOwnerConnected()) {
             void finish(false);
+        } else if (!options.anchorElement.isConnected) {
+            resize();
         }
     });
     ownerObserver.observe(document.body, {childList: true, subtree: true});
@@ -191,6 +228,7 @@ export const openAVRichTextEditor = (options: AVRichTextEditorOptions) => {
             if (activeEditor?.finish === finish) {
                 activeEditor = undefined;
             }
+            endEditorSession();
             options.onDestroy?.();
         }
     };
@@ -213,5 +251,7 @@ export const openAVRichTextEditor = (options: AVRichTextEditorOptions) => {
         }
     }, true);
     fragment.focus(true);
+    // 浮层编辑器自行接管焦点，编辑区收不到块级点击，需在此按所属数据库块同步大纲高亮
+    updateOutlineCurrentBlock(options.protyle, options.nodeElement);
     callMobileAppShowKeyboard();
 };

@@ -63,7 +63,7 @@ func CreateAttributeViewDatabase(parentID, previousID, nextID, name, primaryKeyN
 		layout = av.LayoutTypeTable
 	}
 	switch layout {
-	case av.LayoutTypeTable, av.LayoutTypeGallery, av.LayoutTypeKanban:
+	case av.LayoutTypeTable, av.LayoutTypeList, av.LayoutTypeCalendar, av.LayoutTypeGallery, av.LayoutTypeKanban:
 	default:
 		return nil, av.ErrWrongLayoutType
 	}
@@ -174,7 +174,7 @@ func configureCreatedAttributeView(attrView *av.AttributeView, name, primaryKeyN
 		previousKeyID = retainedKeyValues[len(retainedKeyValues)-1].Key.ID
 	}
 	for _, key := range preparedKeys {
-		addAttributeViewKey(attrView, currentView, key, previousKeyID)
+		addAttributeViewKey(attrView, nil, key, previousKeyID)
 		previousKeyID = key.ID
 	}
 
@@ -183,6 +183,9 @@ func configureCreatedAttributeView(attrView *av.AttributeView, name, primaryKeyN
 		if nil != keyValues && nil != keyValues.Key {
 			attrView.KeyIDs = append(attrView.KeyIDs, keyValues.Key.ID)
 		}
+	}
+	if av.LayoutTypeCalendar == currentView.LayoutType {
+		currentView.Calendar = newAttributeViewCalendarLayout(attrView, attributeViewFieldIDs(currentView))
 	}
 	if av.LayoutTypeKanban == currentView.LayoutType && nil != kanbanGroupKey {
 		currentView.Group = &av.ViewGroup{Field: kanbanGroupKey.ID}
@@ -196,14 +199,17 @@ func retainCreatedAttributeViewFields(attrView *av.AttributeView, retainedKeyIDs
 		if nil == view {
 			continue
 		}
-		if nil != view.Table {
-			columns := view.Table.Columns[:0]
-			for _, column := range view.Table.Columns {
+		for _, layout := range view.TableLayouts() {
+			if nil == layout {
+				continue
+			}
+			columns := layout.Columns[:0]
+			for _, column := range layout.Columns {
 				if nil != column && retainedKeyIDs[column.ID] {
 					columns = append(columns, column)
 				}
 			}
-			view.Table.Columns = columns
+			layout.Columns = columns
 		}
 		if nil != view.Gallery {
 			fields := view.Gallery.CardFields[:0]

@@ -470,7 +470,7 @@ export const prepareFilterColumns = async (data: IAV) => {
         let request = avRequests.get(targetAVID);
         if (!request) {
             request = fetchSyncPost("/api/av/getAttributeView", {id: targetAVID}).then((response) => {
-                return (response.data?.av?.keyValues || []).map((item: { key: IAVColumn }) => item.key);
+                return response.code === 0 ? (response.data?.av?.keyValues || []).map(item => item.key) : [];
             }).catch(() => []);
             avRequests.set(targetAVID, request);
         }
@@ -513,7 +513,7 @@ export const prepareFilterColumns = async (data: IAV) => {
                 id: targetAVID,
                 blockIDs: Array.from(blockIDs),
             });
-            cacheRelationFilterValues(targetAVID, response.data?.rows?.values || []);
+            cacheRelationFilterValues(targetAVID, response.code === 0 ? response.data?.rows?.values || [] : []);
         } catch (e) {
             // 候选显示名加载失败不应阻止筛选面板打开，控件会保留行 ID 并允许重新搜索。
         }
@@ -721,7 +721,7 @@ const genInlineSelectHTML = (filter: IAVFilter, colData: IAVColumn, path: string
 
     // 下拉面板
     const searchInput = options.length > 5
-        ? `<input class="b3-text-field" placeholder="${window.siyuan.languages.searchPlaceholder}" data-type="filterSearch" data-path="${path}">`
+        ? `<input spellcheck="false" class="b3-text-field" placeholder="${window.siyuan.languages.searchPlaceholder}" data-type="filterSearch" data-path="${path}">`
         : "";
     const chips = options.map(option => {
         const selected = selectedValues.some((s: IAVCellSelectValue) => s.content === option.name);
@@ -779,7 +779,7 @@ const genInlineRelationHTML = (filter: IAVFilter, colData: IAVColumn, path: stri
 ${genRelationFilterTriggerContent(avID, selectedBlockIDs, path)}<svg class="av__select-trigger-arrow"><use xlink:href="#iconDown"></use></svg></span>`;
     const dropdown = `<div class="av__select-dropdown av__relation-filter-dropdown" data-type="relationFilterDropdown" data-path="${path}" data-av-id="${escapeAttr(avID)}" data-selected="${selectedAttr}" style="display:none;">
 <div class="av__relation-filter-selected" data-type="relationFilterSelected" data-path="${path}">${genRelationFilterSelectedHTML(avID, selectedBlockIDs, path)}</div>
-<input class="b3-text-field" placeholder="${window.siyuan.languages.searchPlaceholder}" data-type="relationFilterSearch" data-path="${path}">
+<input spellcheck="false" class="b3-text-field" placeholder="${window.siyuan.languages.searchPlaceholder}" data-type="relationFilterSearch" data-path="${path}">
 <div class="av__relation-filter-options" data-type="relationFilterOptions" data-path="${path}"></div>
 </div>`;
     return {trigger, dropdown};

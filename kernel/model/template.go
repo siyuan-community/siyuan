@@ -33,6 +33,7 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
+	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/bazaar"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
@@ -58,8 +59,16 @@ const (
 	TemplateDatabaseModeCopy      TemplateDatabaseMode = "copy"
 	TemplateDatabaseModeReference TemplateDatabaseMode = "reference"
 
-	templateDatabaseModeAttr = "custom-sy-av-template-mode"
+	templateDatabaseModeAttr    = "custom-sy-av-template-mode"
+	templateExportNameAttr      = "custom-sy-template-export-name"
+	templateExportDirectoryAttr = "custom-sy-template-export-directory"
 )
+
+type DocSaveAsTemplateInfo struct {
+	Name        string `json:"name"`
+	Directory   string `json:"directory"`
+	HasDatabase bool   `json:"hasDatabase"`
+}
 
 func RenderGoTemplate(templateContent string) (ret string, err error) {
 	return RenderGoTemplateAtInBox(templateContent, time.Now(), "")
@@ -97,16 +106,15 @@ func RenderGoTemplateAtInBox(templateContent string, now time.Time, boxID string
 
 // RemoveTemplate 删除模板文件，路径必须限定在 <data>/templates/ 目录内，防止任意文件被删除
 func RemoveTemplate(p string) (err error) {
-	abs := p
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(util.DataDir, "templates", p)
+	root, rel, err := openTemplatePath(p)
+	if err != nil {
+		return err
 	}
-	abs = filepath.Clean(abs)
-	templatesRoot := filepath.Clean(filepath.Join(util.DataDir, "templates"))
-	if !gulu.File.IsSubPath(templatesRoot, abs) {
-		return errors.New("template path is outside templates directory")
-	}
-	err = filelock.Remove(abs)
+	defer root.Close()
+	abs := filepath.Join(root.Name(), rel)
+	filelock.Lock(abs)
+	defer filelock.Unlock(abs)
+	err = root.RemoveAll(rel)
 	if err != nil {
 		logging.LogErrorf("remove template failed: %s", err)
 	}
@@ -256,8 +264,83 @@ func DocSaveAsTemplate(id, name string, overwrite bool) (code int, err error) {
 	return DocSaveAsTemplateWithDatabaseMode(id, name, overwrite, TemplateDatabaseModeCopy)
 }
 
+func GetDocSaveAsTemplateInfo(id string) (ret *DocSaveAsTemplateInfo, err error) {
+	FlushTxQueue()
+	bt := treenode.GetBlockTree(id)
+	if nil == bt {
+		return nil, ErrBlockNotFound
+	}
+
+	tree, err := filesys.LoadTree(bt.BoxID, bt.Path, NewLute())
+	if nil != err {
+		return nil, err
+	}
+	node := tree.Root
+	if "d" != bt.Type {
+		node = treenode.GetNodeInTree(tree, id)
+		if nil == node {
+			return nil, ErrBlockNotFound
+		}
+	}
+
+	exportNodes := []*ast.Node{node}
+	if ast.NodeHeading == node.Type {
+		exportNodes = append(exportNodes, treenode.HeadingChildren(node)...)
+	}
+	hasDatabase := false
+	for _, exportNode := range exportNodes {
+		ast.Walk(exportNode, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if entering && ast.NodeAttributeView == n.Type {
+				hasDatabase = true
+				return ast.WalkStop
+			}
+			return ast.WalkContinue
+		})
+		if hasDatabase {
+			break
+		}
+	}
+
+	attrs := parse.IAL2Map(tree.Root.KramdownIAL)
+	name := strings.TrimSpace(attrs[templateExportNameAttr])
+	if "" == name {
+		name = getNodeRefText(node)
+		if "" == name {
+			name = id
+		}
+	}
+	ret = &DocSaveAsTemplateInfo{
+		Name:        name,
+		Directory:   attrs[templateExportDirectoryAttr],
+		HasDatabase: hasDatabase,
+	}
+	return
+}
+
 func DocSaveAsTemplateWithDatabaseMode(id, name string, overwrite bool, databaseMode TemplateDatabaseMode) (code int, err error) {
 	return DocSaveAsTemplateInDirectory(id, name, "", overwrite, databaseMode)
+}
+
+func DocSaveAsTemplateInDirectoryAndRemember(id, name, directory string, overwrite bool,
+	databaseMode TemplateDatabaseMode) (code int, err error) {
+	code, err = DocSaveAsTemplateInDirectory(id, name, directory, overwrite, databaseMode)
+	if nil != err || 0 != code {
+		return
+	}
+
+	bt := treenode.GetBlockTree(id)
+	if nil == bt {
+		return
+	}
+	err = SetBlockAttrs(bt.RootID, map[string]string{
+		templateExportNameAttr:      name,
+		templateExportDirectoryAttr: directory,
+	})
+	if nil != err {
+		logging.LogErrorf("remember template export settings failed: %s", err)
+		err = nil
+	}
+	return
 }
 
 func DocSaveAsTemplateInDirectory(id, name, directory string, overwrite bool, databaseMode TemplateDatabaseMode) (code int, err error) {
@@ -277,6 +360,8 @@ func DocSaveAsTemplateInDirectory(id, name, directory string, overwrite bool, da
 	}
 
 	tree := prepareExportTree(bt)
+	tree.Root.RemoveIALAttr(templateExportNameAttr)
+	tree.Root.RemoveIALAttr(templateExportDirectoryAttr)
 	markTemplateAttributeViewModes(tree.Root, databaseMode)
 	addBlockIALNodes(tree, true)
 
@@ -398,7 +483,9 @@ func markTemplateAttributeViewModes(root *ast.Node, databaseMode TemplateDatabas
 	})
 }
 
-func RenderDynamicIconContentTemplate(content, id string) (ret string) {
+// RenderDynamicIconContentTemplate 渲染动态图标中的模板内容。
+// 调用方必须自行完成授权：只读角色会失去按块 ID 读取工作区数据的模板函数，避免绕过发布访问控制。
+func RenderDynamicIconContentTemplate(c *gin.Context, content, id string) (ret string) {
 	tree, err := LoadTreeByBlockID(id)
 	if err != nil {
 		return
@@ -424,7 +511,7 @@ func RenderDynamicIconContentTemplate(content, id string) (ret string) {
 	dataModel["alias"] = block.Alias
 
 	goTpl := template.New("").Delims(".action{", "}")
-	tplFuncMap := dynamicIconTemplateFuncs()
+	tplFuncMap := dynamicIconTemplateFuncs(c)
 	goTpl = goTpl.Funcs(tplFuncMap)
 	tpl, err := goTpl.Funcs(tplFuncMap).Parse(content)
 	if err != nil {
@@ -442,8 +529,17 @@ func RenderDynamicIconContentTemplate(content, id string) (ret string) {
 	return
 }
 
-func dynamicIconTemplateFuncs() template.FuncMap {
-	return filesys.BuiltInTemplateFuncs()
+// dynamicIconTemplateFuncs 返回动态图标模板可用的函数表。
+// 通用模板函数会按块 ID 直接读取工作区数据，与动态图标模板自身的授权无关，
+// 因此只读角色（发布读者与匿名访问者）必须剔除这些函数，防止其绕过发布访问控制读取被禁用、
+// 受密码保护或加密笔记本中的文档元数据与块统计。
+func dynamicIconTemplateFuncs(c *gin.Context) (ret template.FuncMap) {
+	ret = filesys.BuiltInTemplateFuncs()
+	if IsReadOnlyRoleContext(c) {
+		delete(ret, "getHPathByID")
+		delete(ret, "statBlock")
+	}
+	return
 }
 
 func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, err error) {
@@ -689,6 +785,18 @@ func applyTemplateAttributeViewPlan(node *ast.Node, plan *templateAttributeViewP
 
 func templateAttributeViewPreviewTable(node *ast.Node, plan *templateAttributeViewPlan) *ast.Node {
 	view := *plan.selectedView
+	if nil != plan.selectedView.Calendar {
+		calendar := *plan.selectedView.Calendar
+		table := *calendar.LayoutTable
+		table.Columns = append([]*av.ViewTableColumn(nil), table.Columns...)
+		calendar.LayoutTable = &table
+		view.Calendar = &calendar
+	}
+	if nil != plan.selectedView.List {
+		list := *plan.selectedView.List
+		list.Columns = append([]*av.ViewTableColumn(nil), plan.selectedView.List.Columns...)
+		view.List = &list
+	}
 	if nil != plan.selectedView.Table {
 		table := *plan.selectedView.Table
 		table.Columns = append([]*av.ViewTableColumn(nil), plan.selectedView.Table.Columns...)
@@ -859,6 +967,7 @@ func renderTemplateSource(p, id string, mode TemplateRenderMode, content *string
 	var nodesNeedAppendChild, unlinks []*ast.Node
 	// 模板内部块旧 ID 到新 ID 的映射，用于成套改写模板内部的自引用
 	blockIDs := map[string]string{}
+	restoreTabsSelection := captureTemplateTabsSelection(tree.Root)
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
@@ -920,9 +1029,9 @@ func renderTemplateSource(p, id string, mode TemplateRenderMode, content *string
 		saveTemplateAttributeViewCopies(attributeViewCopies, templateAttributeViewBoxID(tree))
 	}
 
+	restoreTabsSelection()
 	// 用映射成套改写模板内部的自引用，并补全指向外部块的引用锚文本
 	// 仅命中 blockIDs 的引用（模板内部块）才会改写 ID；未命中的（外部块）保持不变
-	treenode.RemapTabsActiveIDs(tree.Root, blockIDs)
 	treenode.WalkWithTabTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
@@ -1174,5 +1283,8 @@ func CreateTemplate(name, content string, overwrite bool) (code int, err error) 
 	}
 
 	err = filelock.WriteFile(savePath, []byte(content))
+	if err == nil {
+		IncSyncIfNeeded(savePath)
+	}
 	return
 }

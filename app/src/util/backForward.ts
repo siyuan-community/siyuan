@@ -1,3 +1,4 @@
+import type {FileTreeGetDocRequestInput} from "../types/api";
 import {hasClosestBlock, isInEmbedBlock} from "../protyle/util/hasClosest";
 import {getContenteditableElement} from "../protyle/wysiwyg/getBlock";
 import {focusByOffset, focusByRange, getSelectionOffset} from "../protyle/util/selection";
@@ -11,7 +12,8 @@ import {Editor} from "../editor";
 import {scrollCenter} from "./highlightById";
 import {zoomOut} from "../menus/protyle";
 import {showMessage} from "../dialog/message";
-import {saveScroll} from "../protyle/scroll/saveScroll";
+import {getDocByScroll, saveScroll} from "../protyle/scroll/saveScroll";
+import {isPhablet} from "../protyle/util/compatibility";
 import {getAllModels} from "../layout/getAll";
 import type {App} from "../index";
 import {onGet} from "../protyle/util/onGet";
@@ -19,13 +21,30 @@ import {isEncryptedBox} from "./pathName";
 
 let forwardStack: IBackStack[] = [];
 let previousIsBack = false;
+const readingPositions = new WeakMap<IBackStack, IScrollAttr>();
+
+export const saveBackScroll = (protyle?: IProtyle) => {
+    if (!isPhablet()) {
+        return;
+    }
+    const stack = previousIsBack ? forwardStack[forwardStack.length - 1] :
+        window.siyuan.backStack[window.siyuan.backStack.length - 1];
+    if (!stack || (protyle && stack.protyle !== protyle) ||
+        stack.protyle.element.getBoundingClientRect().height === 0) {
+        return;
+    }
+    const position = saveScroll(stack.protyle, true) as IScrollAttr;
+    if (position) {
+        readingPositions.set(stack, position);
+    }
+};
 
 const focusStack = async (app: App, stack: IBackStack) => {
     hideElements(["gutter", "toolbar", "hint", "util", "dialog"], stack.protyle);
     let blockElement: HTMLElement;
     if (!document.contains(stack.protyle.element)) {
         const response = await fetchSyncPost("/api/block/checkBlockExist", {id: stack.protyle.block.rootID});
-        if (!response.data) {
+        if (response.code !== 0 || !response.data) {
             // 页签删除
             return false;
         }
@@ -40,13 +59,16 @@ const focusStack = async (app: App, stack: IBackStack) => {
             wnd = getWndByLayout(window.siyuan.layout.centerLayout);
         }
         if (wnd) {
-            const blockInfoParam: IObject = {id: stack.id};
+            const blockInfoParam: {id: string; notebook?: string} = {id: stack.id};
             if (isEncryptedBox(stack.protyle.notebookId)) {
                 blockInfoParam.notebook = stack.protyle.notebookId;
             }
             const info = await fetchSyncPost("/api/block/getBlockInfo", blockInfoParam);
             if (info.code === 3) {
                 showMessage(info.msg);
+                return;
+            }
+            if (info.code !== 0) {
                 return;
             }
             const tab = new Tab({
@@ -120,6 +142,26 @@ const focusStack = async (app: App, stack: IBackStack) => {
     }
 
     const currentZoomId = stack.protyle.block.showAll ? stack.protyle.block.id : undefined;
+    const readingPosition = readingPositions.get(stack);
+    if (isPhablet() && readingPosition && currentZoomId === stack.zoomId) {
+        // 阅读位置独立于旧光标，显示页签后按离开时的加载范围和滚动值恢复。
+        stack.protyle.model.parent.parent.switchTab(stack.protyle.model.parent.headElement);
+        const first = stack.protyle.wysiwyg.element.firstElementChild?.getAttribute("data-node-id");
+        const last = stack.protyle.wysiwyg.element.lastElementChild?.getAttribute("data-node-id");
+        if (first === readingPosition.startId && last === readingPosition.endId) {
+            stack.protyle.contentElement.scrollTop = readingPosition.scrollTop;
+            return true;
+        }
+        return new Promise<boolean>(resolve => {
+            getDocByScroll({
+                protyle: stack.protyle,
+                scrollAttr: readingPosition,
+                focus: false,
+                cb: () => resolve(true),
+                fail: () => resolve(false),
+            });
+        });
+    }
     const focusTitle = () => {
         if (stack.protyle.title.editElement.getBoundingClientRect().height === 0) {
             // 切换 tab
@@ -134,6 +176,7 @@ const focusStack = async (app: App, stack: IBackStack) => {
                 protyle: stack.protyle,
                 id: stack.zoomId || stack.protyle.block.rootID,
                 isPushBack: false,
+                suppressFocus: false,
                 callback: focusTitle,
             });
         } else {
@@ -166,7 +209,7 @@ const focusStack = async (app: App, stack: IBackStack) => {
     }
     if (stack.protyle.element.parentElement) {
         const response = await fetchSyncPost("/api/block/checkBlockExist", {id: stack.id});
-        if (!response.data) {
+        if (response.code !== 0 || !response.data) {
             // 块被删除
             if (getSelection().rangeCount > 0) {
                 focusByRange(getSelection().getRangeAt(0));
@@ -175,7 +218,7 @@ const focusStack = async (app: App, stack: IBackStack) => {
         }
         // 动态加载导致内容移除 https://github.com/siyuan-note/siyuan/issues/10692
         if (!blockElement && !stack.zoomId && !stack.protyle.scroll.element.classList.contains("fn__none")) {
-            const getDocParam: IObject = {
+            const getDocParam: FileTreeGetDocRequestInput = {
                 id: stack.id,
                 mode: 3,
                 size: window.siyuan.config.editor.dynamicLoadBlocks,
@@ -215,6 +258,7 @@ const focusStack = async (app: App, stack: IBackStack) => {
             protyle: stack.protyle,
             id: stack.zoomId || stack.protyle.block.rootID,
             isPushBack: false,
+            suppressFocus: false,
             callback: () => {
                 Array.from(stack.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${stack.id}"]`)).find((item: HTMLElement) => {
                     if (!isInEmbedBlock(item)) {
@@ -239,6 +283,12 @@ const focusStack = async (app: App, stack: IBackStack) => {
 };
 
 export const goBack = async (app: App) => {
+    const current = previousIsBack ? forwardStack[forwardStack.length - 1] :
+        window.siyuan.backStack[window.siyuan.backStack.length - 1];
+    const target = window.siyuan.backStack[window.siyuan.backStack.length - (previousIsBack ? 1 : 2)];
+    if (target && current?.protyle !== target.protyle) {
+        saveBackScroll();
+    }
     if (window.siyuan.backStack.length === 0) {
         if (forwardStack.length > 0) {
             await focusStack(app, forwardStack[forwardStack.length - 1]);
@@ -268,6 +318,12 @@ export const goBack = async (app: App) => {
 };
 
 export const goForward = async (app: App) => {
+    const current = previousIsBack ? forwardStack[forwardStack.length - 1] :
+        window.siyuan.backStack[window.siyuan.backStack.length - 1];
+    const target = forwardStack[forwardStack.length - (previousIsBack ? 2 : 1)];
+    if (target && current?.protyle !== target.protyle) {
+        saveBackScroll();
+    }
     if (forwardStack.length === 0) {
         if (window.siyuan.backStack.length > 0) {
             await focusStack(app, window.siyuan.backStack[window.siyuan.backStack.length - 1]);
@@ -295,6 +351,32 @@ export const goForward = async (app: App) => {
     }
 };
 
+export const pushBackByClick = (protyle: IProtyle, target: HTMLElement, point?: {x: number, y: number}) => {
+    const blockElement = hasClosestBlock(target);
+    if (!blockElement || !protyle.wysiwyg.element.contains(blockElement) || isInEmbedBlock(blockElement)) {
+        return;
+    }
+    const editElement = getContenteditableElement(blockElement);
+    if (!editElement) {
+        return;
+    }
+    const selection = editElement.ownerDocument.getSelection();
+    let range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+    // 触摸结束时选区可能仍在旧位置，按触摸坐标记录文字偏移，且不改变浏览器选区。
+    if (point) {
+        const pointRange = editElement.ownerDocument.caretRangeFromPoint?.(point.x, point.y);
+        if (pointRange && editElement.contains(pointRange.startContainer) && editElement.contains(pointRange.endContainer)) {
+            range = pointRange;
+        }
+    }
+    if (!range || !editElement.contains(range.startContainer) || !editElement.contains(range.endContainer)) {
+        range = editElement.ownerDocument.createRange();
+        range.selectNodeContents(editElement);
+        range.collapse(true);
+    }
+    pushBack(protyle, range, blockElement);
+};
+
 export const pushBack = (protyle: IProtyle, range?: Range, blockElement?: Element) => {
     if (!protyle.model) {
         return;
@@ -319,6 +401,7 @@ export const pushBack = (protyle: IProtyle, range?: Range, blockElement?: Elemen
             (protyle.block.showAll && lastStack.zoomId === protyle.block.id) || (!lastStack.zoomId && !protyle.block.showAll)
         )) {
             lastStack.position = position;
+            readingPositions.delete(lastStack);
         } else {
             if (forwardStack.length > 0) {
                 if (previousIsBack) {

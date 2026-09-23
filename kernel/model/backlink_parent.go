@@ -18,7 +18,6 @@ package model
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
@@ -36,6 +35,10 @@ type backlinkParentMapping struct {
 }
 
 func buildBacklinkParentMappings(refBlocks []*Block, boxID string) (ret []*backlinkParentMapping) {
+	return buildBacklinkParentMappingsWithDocumentGrouping(refBlocks, boxID, true)
+}
+
+func buildBacklinkParentMappingsWithDocumentGrouping(refBlocks []*Block, boxID string, groupDocuments bool) (ret []*backlinkParentMapping) {
 	parentRefParagraphs := map[string][]*Block{}
 	var paragraphParentIDs []string
 	for _, refBlock := range refBlocks {
@@ -54,7 +57,7 @@ func buildBacklinkParentMappings(refBlocks []*Block, boxID string) (ret []*backl
 	treeCache := map[string]*parse.Tree{}
 	var mappings []*backlinkParentMapping
 	for _, parent := range paragraphParents {
-		if nil == parent {
+		if nil == parent || !groupDocuments && "NodeDocument" == parent.Type {
 			continue
 		}
 
@@ -189,18 +192,7 @@ func isPureBlockRefParagraph(block *Block, luteEngine *lute.Lute) bool {
 		return false
 	}
 
-	hasBlockRef := false
-	for node := inlineTree.Root.FirstChild.FirstChild; nil != node; node = node.Next {
-		if treenode.IsBlockRef(node) {
-			hasBlockRef = true
-			continue
-		}
-		if ast.NodeText == node.Type && "" == strings.TrimSpace(node.Text()) {
-			continue
-		}
-		return false
-	}
-	return hasBlockRef
+	return isPureBacklinkReferenceNode(inlineTree.Root.FirstChild)
 }
 
 func isFirstBacklinkParentParagraph(refBlock, parent *Block, boxID string, treeCache map[string]*parse.Tree) bool {

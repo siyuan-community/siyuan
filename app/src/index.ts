@@ -1,7 +1,12 @@
 import {Constants} from "./constants";
+import {systemConfig} from "./config/systemConfig";
+import {openStandaloneDatabaseItemByURI} from "./protyle/render/av/openStandaloneDatabaseItem";
+/// #if BROWSER
+import "./util/iosWindowControls";
+/// #endif
 import {Menus} from "./menus";
 import {Model} from "./layout/Model";
-import {onGetConfig} from "./boot/onGetConfig";
+import {loadDesktopHostConnection, onGetConfig} from "./boot/onGetConfig";
 import {initBlockPopover} from "./block/popover";
 import {applyCloudUserState, onSetaccount} from "./config/tabs/accountUi";
 import {addScript, addScriptSync} from "./protyle/util/addScript";
@@ -49,7 +54,7 @@ import {ipcRenderer} from "electron";
 import {getDockByType} from "./layout/tabUtil";
 import {Files} from "./layout/dock/Files";
 import {Tag} from "./layout/dock/Tag";
-import {appearanceConfigApi} from "./config/tabs/appearanceRuntime";
+import {appearanceConfigApi, refreshAppearance} from "./config/tabs/appearanceRuntime";
 import {renderSnippet} from "./config/util/snippets";
 import {refreshThemeStyle, reloadInlineStyles, setBodyHighlight} from "./util/assets";
 import {reloadSync} from "./util/reloadSync";
@@ -58,6 +63,7 @@ import {ensureUILayout} from "./util/ensureUILayout";
 import {applyEntryVisibility} from "./config/entryVisibility/runtime";
 import {removeBlockPanelEditors} from "./block/panelRemoval";
 import {initializeEnglishCommandTranslations} from "./command/english";
+import {installPluginStorageFetchAppId} from "./util/fetchAppId";
 
 export class App {
     public plugins: import("./plugin").Plugin[] = [];
@@ -86,6 +92,9 @@ export class App {
                         case "setAppearance":
                             appearanceConfigApi.apply(data.data);
                             break;
+                        case "refreshAppearance":
+                            void refreshAppearance(data.data);
+                            break;
                         case "reloadInlineStyles":
                             void reloadInlineStyles();
                             break;
@@ -101,6 +110,9 @@ export class App {
                             break;
                         case "databaseIndexCommit":
                             processBacklinkIndexCommit(data.data);
+                            if (getDockByType("tag")?.data.tag instanceof Tag) {
+                                (getDockByType("tag").data.tag as Tag).update();
+                            }
                             break;
                         case "reloadTag":
                             if (getDockByType("tag")?.data.tag instanceof Tag) {
@@ -303,7 +315,8 @@ export class App {
         fetchPost("/api/system/getConf", {}, async (response) => {
             await addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
             addScript(`${Constants.PROTYLE_CDN}/js/protyle-html.js?v=${Constants.SIYUAN_VERSION}`, "protyleWcHtmlScript");
-            window.siyuan.config = response.data.conf;
+            window.siyuan.config = systemConfig(response.data.conf, () => structuredClone(Constants.SIYUAN_EMPTY_LAYOUT));
+            await loadDesktopHostConnection();
             ensureUILayout();
             window.siyuan.isPublish = response.data.isPublish;
             setBodyHighlight();
@@ -320,7 +333,7 @@ export class App {
                     window.siyuan.menus = new Menus(this);
                     bootSync();
                     fetchPost("/api/setting/getCloudUser", {}, async userResponse => {
-                        window.siyuan.user = userResponse.data;
+                        window.siyuan.user = userResponse.data && "userId" in userResponse.data ? userResponse.data : null;
                         await ensureOnboarding();
                         await setNoteBook();
                         await onGetConfig(response.data.start, this);
@@ -344,11 +357,15 @@ export class App {
     }
 }
 
+installPluginStorageFetchAppId(window, Constants.SIYUAN_APPID, window.location.href);
 const siyuanApp = new App();
 
 window.openFileByURL = (openURL) => {
     const blockInfo = parseSiYuanUriInfo(openURL);
     if (blockInfo != null) {
+        if (openStandaloneDatabaseItemByURI(siyuanApp, blockInfo)) {
+            return true;
+        }
         if (blockInfo.avItemID) {
             queueAVLocateRequest(blockInfo.id, {
                 itemID: blockInfo.avItemID,
@@ -377,6 +394,9 @@ window.openFileByURL = (openURL) => {
 /// #if BROWSER
 window.showKeyboardToolbar = () => {
     // 防止 Pad 端报错
+};
+window.hideKeyboardToolbar = () => {
+    // 桌面界面没有手机键盘工具栏，兼容原生容器的键盘隐藏回调。
 };
 window.processIOSPurchaseResponse = processIOSPurchaseResponse;
 // 移动端容器（Android/鸿蒙）启用桌面模式时，原生壳默认禁用 WebView 自身键盘行为、等待 JS 调用

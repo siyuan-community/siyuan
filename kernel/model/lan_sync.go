@@ -121,7 +121,15 @@ func refreshLANSyncManagerWithForce(force bool) {
 }
 
 func lanSyncScope() string {
-	base := fmt.Sprintf("v1:%d:%s", Conf.Sync.Provider, Conf.Sync.CloudName)
+	cloudName := Conf.Sync.CloudName
+	if conf.ProviderS3 == Conf.Sync.Provider {
+		// S3 只使用存储桶定位仓库，v1 作用域中的目录槽位固定为存储桶名。
+		cloudName = ""
+		if nil != Conf.Sync.S3 {
+			cloudName = Conf.Sync.S3.Bucket
+		}
+	}
+	base := fmt.Sprintf("v1:%d:%s", Conf.Sync.Provider, cloudName)
 	switch Conf.Sync.Provider {
 	case conf.ProviderSiYuan:
 		userID := ""
@@ -249,7 +257,7 @@ func newSyncRepository() (ret *dejavu.Repo, err error) {
 
 // newSyncRepositoryWithAssetSourceLocked 在来源锁保护下创建带局域网分块来源的仓库。
 func newSyncRepositoryWithAssetSourceLocked() (ret *dejavu.Repo, err error) {
-	ret, err = newRepositoryWithAssetSourceLocked()
+	ret, err = newCloudRepositoryWithAssetSourceLocked()
 	if nil != err {
 		return
 	}
@@ -303,18 +311,7 @@ func syncDataFromLAN(latestID string) {
 		return
 	}
 	scope := lanSyncScope()
-	_, _ = syncRemoteRequests.do(scope, latestID, func() error {
-		lockSync()
-		defer unlockSync()
-		if syncRemoteRequests.isCompleted(scope, latestID) {
-			return nil
-		}
-		err := syncDataLocked(false, false)
-		if nil == err {
-			completeCurrentSyncRemoteRequest(scope)
-		}
-		return err
-	})
+	syncDataFromRemote(scope, latestID)
 }
 
 func SetSyncLAN(enabled bool, maxConcurrentReqs int) {
@@ -342,7 +339,15 @@ func SetSyncLAN(enabled bool, maxConcurrentReqs int) {
 	refreshLANSyncManager()
 }
 
-func GetSyncLANStatus() map[string]interface{} {
+type SyncLANStatus struct {
+	Enabled           bool `json:"enabled"`
+	Active            bool `json:"active"`
+	DiscoveredPeers   int  `json:"discoveredPeers"`
+	ConnectedPeers    int  `json:"connectedPeers"`
+	MaxConcurrentReqs int  `json:"maxConcurrentReqs"`
+}
+
+func GetSyncLANStatus() SyncLANStatus {
 	lanSyncManagerMu.RLock()
 	manager := lanSyncManager
 	lanSyncManagerMu.RUnlock()
@@ -362,11 +367,11 @@ func GetSyncLANStatus() map[string]interface{} {
 		enabled = Conf.Sync.LAN.Enabled
 		maxConcurrentReqs = Conf.Sync.LAN.MaxConcurrentReqs
 	}
-	return map[string]interface{}{
-		"enabled":           enabled,
-		"active":            nil != manager,
-		"discoveredPeers":   discoveredCount,
-		"connectedPeers":    connectedCount,
-		"maxConcurrentReqs": maxConcurrentReqs,
+	return SyncLANStatus{
+		Enabled:           enabled,
+		Active:            nil != manager,
+		DiscoveredPeers:   discoveredCount,
+		ConnectedPeers:    connectedCount,
+		MaxConcurrentReqs: maxConcurrentReqs,
 	}
 }

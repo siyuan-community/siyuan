@@ -9,6 +9,41 @@ interface IVerticalRect {
     width: number;
 }
 
+export const getRectsIntersectingVerticalLine = <T extends IVerticalRect>(rects: T[], lineRects: IVerticalRect[]) =>
+    rects.filter(rect => lineRects.some(lineRect =>
+        Math.min(rect.bottom, lineRect.bottom) - Math.max(rect.top, lineRect.top) > 0.5
+    ));
+
+export const getHorizontalDistanceToRect = (x: number, rect: IVerticalRect) => {
+    if (x < rect.left) {
+        return rect.left - x;
+    }
+    if (x > rect.right) {
+        return x - rect.right;
+    }
+    return 0;
+};
+
+export const getRevealDelta = (targetStart: number, targetEnd: number, viewportStart: number,
+                               viewportEnd: number) => {
+    if (targetStart < viewportStart) {
+        return targetStart - viewportStart;
+    }
+    if (targetEnd > viewportEnd) {
+        return targetEnd - viewportEnd;
+    }
+    return 0;
+};
+
+export const getCodeTrailingZeroWidthLineLimit = (text: string) => {
+    const trailingNewlineCount = text.match(/\n+$/)?.[0].length || 0;
+    if (trailingNewlineCount === 0) {
+        return;
+    }
+    const hasVisiblePrefix = text.substring(0, text.length - trailingNewlineCount).length > 0;
+    return hasVisiblePrefix ? trailingNewlineCount - 1 : trailingNewlineCount;
+};
+
 export const getNavigableVerticalRects = <T extends IVerticalRect>(rects: T[],
                                                                    maxTrailingZeroWidthLines?: number) => {
     const navigableRects = rects.filter(rect => rect.height > 0.5);

@@ -1,3 +1,5 @@
+import {bindPanelSearch} from "../../layout/dock/panelSearch";
+import type {BlockBreadcrumbRequestInput} from "../../types/api";
 import {Tree} from "../../util/Tree";
 import {fetchPost} from "../../util/fetch";
 import {confirmBlockRef} from "../../util/checkBlockRef";
@@ -68,8 +70,8 @@ export class MobileOutline extends Model {
         ${window.siyuan.languages.outline}
     </div>
     <div class="fn__space"></div>
-    <input class="b3-text-field search__label fn__none fn__size200" placeholder="${window.siyuan.languages.filterKeywordEnter}" />
-    <svg data-type="search" class="toolbar__icon"><use xlink:href='#iconFilter'></use></svg>
+    <input spellcheck="false" class="b3-text-field search__label fn__none fn__size200" placeholder="${window.siyuan.languages.searchPlaceholder}" />
+    <svg data-type="search" class="toolbar__icon"><use xlink:href='#iconSearch'></use></svg>
     <svg data-type="keepCurrentExpand" class="toolbar__icon${window.siyuan.storage[Constants.LOCAL_OUTLINE].keepCurrentExpand ? " toolbar__icon--active" : ""}"><use xlink:href="#iconFocus"></use></svg>
     <svg data-type="expandLevel" class="toolbar__icon"><use xlink:href="#iconList"></use></svg>
     <svg data-type="expand" class="toolbar__icon"><use xlink:href="#iconExpand"></use></svg>
@@ -78,22 +80,10 @@ export class MobileOutline extends Model {
 <div class="b3-list-item fn__none" data-type="doc-title"></div>
 <div class="fn__flex-1" style="padding: 3px 0 calc(8px + env(safe-area-inset-bottom))"></div>`;
         const inputElement = this.element.querySelector("input.b3-text-field.search__label") as HTMLInputElement;
-        inputElement.addEventListener("blur", () => {
-            inputElement.classList.add("fn__none");
-            const filterIconElement = inputElement.nextElementSibling as HTMLElement; // search 图标
-            const value = inputElement.value;
-            if (value) {
-                filterIconElement.classList.add("toolbar__icon--active");
-            } else {
-                filterIconElement.classList.remove("toolbar__icon--active");
-            }
-        });
-        inputElement.addEventListener("input", (event: InputEvent) => {
-            if (!event.isComposing) {
-                this.setFilter();
-            }
-        });
-        inputElement.addEventListener("compositionend", () => this.setFilter());
+        const showSearch = bindPanelSearch(inputElement,
+            this.element.querySelector('[data-type="search"]'), () => this.setFilter(), {
+                trim: false, activeClass: "toolbar__icon--active", updateLabel: false,
+            });
         this.tree = new Tree({
             element: this.element.lastElementChild as HTMLElement,
             data: null,
@@ -192,8 +182,7 @@ export class MobileOutline extends Model {
                     const type = target.getAttribute("data-type");
                     switch (type) {
                         case "search":
-                            inputElement.classList.remove("fn__none");
-                            inputElement.select();
+                            showSearch();
                             break;
                         case "expandLevel":
                             this.showExpandLevelMenu();
@@ -326,7 +315,14 @@ export class MobileOutline extends Model {
                     if (selectItem.classList.contains("dragover")) {
                         parentID = selectItem.getAttribute("data-node-id");
                         if (selectItem.nextElementSibling && selectItem.nextElementSibling.tagName === "UL") {
-                            selectItem.nextElementSibling.insertAdjacentElement("afterbegin", item);
+                            const children = selectItem.nextElementSibling;
+                            const lastHeading = children.querySelector(":scope > li:last-of-type");
+                            previousID = lastHeading?.getAttribute("data-node-id");
+                            if (previousID === item.dataset.nodeId) {
+                                hasChange = false;
+                            } else {
+                                children.insertAdjacentElement("beforeend", item);
+                            }
                         } else {
                             selectItem.insertAdjacentHTML("afterend", `<ul>${item.outerHTML}</ul>`);
                             item.remove();
@@ -465,7 +461,7 @@ export class MobileOutline extends Model {
             if (previousElement) {
                 this.setCurrentById(previousElement.getAttribute("data-node-id"));
             } else {
-                const breadcrumbParam: Record<string, any> = {
+                const breadcrumbParam: BlockBreadcrumbRequestInput = {
                     id: nodeElement.getAttribute("data-node-id"),
                     excludeTypes: []
                 };
@@ -544,6 +540,18 @@ export class MobileOutline extends Model {
     }
 
     public reload(callback?: () => void) {
+        if (document.getElementById("editor").classList.contains("fn__none")) {
+            this.reloadId++;
+            this.currentRequestID++;
+            this.blockId = "";
+            this.isPreview = false;
+            this.preFilterExpandIds = null;
+            this.tree.updateData(null);
+            this.tree.element.scrollTop = 0;
+            this.updateDocTitle();
+            this.element.removeAttribute("data-loading");
+            return;
+        }
         const protyle = window.siyuan.mobile.editor?.protyle;
         const blockId = protyle?.block.rootID || this.blockId;
         if (!blockId) {
@@ -570,7 +578,7 @@ export class MobileOutline extends Model {
                 return;
             }
             this.update(response);
-            this.updateDocTitle(protyle?.background?.ial, response.data?.length || 0);
+            this.updateDocTitle(protyle?.background?.ial, Array.isArray(response.data) ? response.data.length : 0);
             callback?.();
         });
     }
@@ -1054,7 +1062,10 @@ export class MobileOutline extends Model {
                                 return;
                             }
                             let previousID = deleteResponse.data.doOperations[deleteResponse.data.doOperations.length - 1].id;
-                            deleteResponse.data.undoOperations.find((operationsItem: IOperation, index: number) => {
+                            deleteResponse.data.undoOperations.find((operationsItem, index: number) => {
+                                if (typeof operationsItem.data !== "string") {
+                                    return false;
+                                }
                                 const startIndex = operationsItem.data.indexOf(' data-subtype="h');
                                 if (index > 0 && startIndex > -1 && startIndex < 260 && parseInt(operationsItem.data.substring(startIndex + 16, startIndex + 17)) === currentLevel + 1) {
                                     previousID = deleteResponse.data.undoOperations[index - 1].id;
@@ -1117,7 +1128,8 @@ export class MobileOutline extends Model {
                         fetchPost("/api/block/getHeadingDeleteTransaction", {
                             id,
                         }, async (deleteResponse) => {
-                            const deletedIDs = deleteResponse.data.doOperations.map(
+                            const headingTransaction: {doOperations: IOperation[], undoOperations: IOperation[]} = deleteResponse.data;
+                            const deletedIDs = headingTransaction.doOperations.map(
                                 (operation: IOperation) => operation.id);
                             if (!await confirmBlockRef({
                                 scope: "blocks",
@@ -1136,7 +1148,7 @@ export class MobileOutline extends Model {
                             if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
                                 return;
                             }
-                            deleteResponse.data.doOperations.forEach((operation: IOperation) => {
+                            headingTransaction.doOperations.forEach((operation: IOperation) => {
                                 data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
                                     itemElement.remove();
                                 });
@@ -1145,19 +1157,19 @@ export class MobileOutline extends Model {
                                 const newID = Lute.NewNodeID();
                                 const emptyElement = genEmptyElement(false, false, newID);
                                 data.protyle.wysiwyg.element.insertAdjacentElement("afterbegin", emptyElement);
-                                deleteResponse.data.doOperations.push({
+                                headingTransaction.doOperations.push({
                                     action: "insert",
                                     data: emptyElement.outerHTML,
                                     id: newID,
                                     parentID: data.protyle.block.parentID
                                 });
-                                deleteResponse.data.undoOperations.push({
+                                headingTransaction.undoOperations.push({
                                     action: "delete",
                                     id: newID,
                                 });
                                 focusBlock(emptyElement);
                             }
-                            transaction(data.protyle, deleteResponse.data.doOperations, deleteResponse.data.undoOperations);
+                            transaction(data.protyle, headingTransaction.doOperations, headingTransaction.undoOperations);
                         });
                     });
                 }
@@ -1173,7 +1185,8 @@ export class MobileOutline extends Model {
                     fetchPost("/api/block/getHeadingDeleteTransaction", {
                         id,
                     }, async (response) => {
-                        const deletedIDs = response.data.doOperations.map((operation: IOperation) => operation.id);
+                        const headingTransaction: {doOperations: IOperation[], undoOperations: IOperation[]} = response.data;
+                        const deletedIDs = headingTransaction.doOperations.map((operation: IOperation) => operation.id);
                         if (!await confirmBlockRef({
                             scope: "blocks",
                             ids: deletedIDs,
@@ -1185,7 +1198,7 @@ export class MobileOutline extends Model {
                         if (!data.protyle.wysiwyg.element.querySelector(`[data-node-id="${id}"]`)) {
                             return;
                         }
-                        response.data.doOperations.forEach((operation: IOperation) => {
+                        headingTransaction.doOperations.forEach((operation: IOperation) => {
                             data.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${operation.id}"]`).forEach((itemElement: HTMLElement) => {
                                 itemElement.remove();
                             });
@@ -1194,19 +1207,19 @@ export class MobileOutline extends Model {
                             const newID = Lute.NewNodeID();
                             const emptyElement = genEmptyElement(false, false, newID);
                             data.protyle.wysiwyg.element.insertAdjacentElement("afterbegin", emptyElement);
-                            response.data.doOperations.push({
+                            headingTransaction.doOperations.push({
                                 action: "insert",
                                 data: emptyElement.outerHTML,
                                 id: newID,
                                 parentID: data.protyle.block.parentID
                             });
-                            response.data.undoOperations.push({
+                            headingTransaction.undoOperations.push({
                                 action: "delete",
                                 id: newID,
                             });
                             focusBlock(emptyElement);
                         }
-                        transaction(data.protyle, response.data.doOperations, response.data.undoOperations);
+                        transaction(data.protyle, headingTransaction.doOperations, headingTransaction.undoOperations);
                     });
                 }
             }).element);

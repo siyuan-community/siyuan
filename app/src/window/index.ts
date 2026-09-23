@@ -1,4 +1,5 @@
 import {Constants} from "../constants";
+import {systemConfig} from "../config/systemConfig";
 import {Menus} from "../menus";
 import {Model} from "../layout/Model";
 import "../assets/scss/base.scss";
@@ -22,11 +23,12 @@ import {initMessage} from "../dialog/message";
 import {getAllTabs} from "../layout/getAll";
 import {getLocalStorage} from "../protyle/util/compatibility";
 import {init} from "./init";
+import {loadDesktopHostConnection} from "../boot/onGetConfig";
 import {loadPlugins} from "../plugin/loader";
 import {applyPluginReload, syncGlobalPluginConfig} from "../plugin/globalState";
 import {hideAllElements} from "../protyle/ui/hideElements";
 import {reloadEmoji} from "../emoji";
-import {appearanceConfigApi} from "../config/tabs/appearanceRuntime";
+import {appearanceConfigApi, refreshAppearance} from "../config/tabs/appearanceRuntime";
 import {renderSnippet} from "../config/util/snippets";
 import {refreshThemeStyle, reloadInlineStyles, setBodyHighlight} from "../util/assets";
 import {reloadSync} from "../util/reloadSync";
@@ -38,6 +40,7 @@ import {updateServerAddresses} from "../config/tabs/accessRuntime";
 import {applyCloudUserState} from "../config/tabs/accountUi";
 import {emitToPlugins} from "../plugin/EventBusCore";
 import {initializeEnglishCommandTranslations} from "../command/english";
+import {installPluginStorageFetchAppId} from "../util/fetchAppId";
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -60,6 +63,9 @@ class App {
                                 break;
                             case "setAppearance":
                                 appearanceConfigApi.apply(data.data);
+                                break;
+                            case "refreshAppearance":
+                                void refreshAppearance(data.data);
                                 break;
                             case "reloadInlineStyles":
                                 void reloadInlineStyles();
@@ -210,7 +216,8 @@ class App {
         fetchPost("/api/system/getConf", {}, async (response) => {
             await addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
             addScript(`${Constants.PROTYLE_CDN}/js/protyle-html.js?v=${Constants.SIYUAN_VERSION}`, "protyleWcHtmlScript");
-            window.siyuan.config = response.data.conf;
+            window.siyuan.config = systemConfig(response.data.conf, () => structuredClone(Constants.SIYUAN_EMPTY_LAYOUT));
+            await loadDesktopHostConnection();
             ensureUILayout();
             setBodyHighlight();
             window.siyuan.isPublish = response.data.isPublish;
@@ -226,7 +233,7 @@ class App {
                     );
                     window.siyuan.menus = new Menus(this);
                     fetchPost("/api/setting/getCloudUser", {}, async userResponse => {
-                        window.siyuan.user = userResponse.data;
+                        window.siyuan.user = userResponse.data && "userId" in userResponse.data ? userResponse.data : null;
                         await init(this);
                         setTitle("", true);
                         initMessage();
@@ -240,4 +247,5 @@ class App {
     }
 }
 
+installPluginStorageFetchAppId(window, Constants.SIYUAN_APPID, window.location.href);
 new App();

@@ -271,6 +271,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				ret = tx.doDelete(op)
 			case "move":
 				ret = tx.doMove(op)
+			case "swapBlockRef":
+				ret = tx.doSwapBlockRef(op)
 			case "moveOutlineHeading":
 				ret = tx.doMoveOutlineHeading(op)
 			case "append":
@@ -421,6 +423,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				ret = tx.doSetAttrViewCardSize(op)
 			case "setAttrViewCardWidth":
 				ret = tx.doSetAttrViewCardWidth(op)
+			case "setAttrViewCalendar":
+				ret = tx.doSetAttrViewCalendar(op)
 			case "setAttrViewCardLayout":
 				ret = tx.doSetAttrViewCardLayout(op)
 			case "setAttrViewColFullRow":
@@ -484,6 +488,11 @@ func performTx(tx *Transaction) (ret *TxErr) {
 		tx.rollback()
 		return
 	}
+	if ret = tx.normalizeListMindmapMetadata(); nil != ret {
+		tx.rollback()
+		return
+	}
+	tx.UndoOperations = append(tx.UndoOperations, tx.attributeViewDeletionUndo...)
 
 	if cr := tx.commit(); nil != cr {
 		logging.LogErrorf("commit tx failed: %s", cr)
@@ -540,6 +549,9 @@ func (tx *Transaction) processLargeInsert() bool {
 	var firstDeleteOp, lastDeleteOp *Operation
 	for i, op := range tx.DoOperations {
 		if "insert" != op.Action {
+			if "delete" != op.Action {
+				return false
+			}
 			if 0 != i && i != opSize-1 {
 				return false
 			}
@@ -639,7 +651,7 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 		}
 		// 禁止跨加密边界移动块：加密笔记本是孤岛，跨 box 移动会破坏隔离（内容从 A 泄漏到 B）
 		if !isSameTree && !IsSameCryptoBoundary(srcTree.Box, targetTree.Box) {
-			util.PushMsg(Conf.Language(313), 5000)
+			util.PushMsg(Conf.Language(391), 5000)
 			return &TxErr{code: TxErrCodeSkipTx}
 		}
 
@@ -723,7 +735,7 @@ func (tx *Transaction) doMove(operation *Operation) (ret *TxErr) {
 	}
 	// 禁止跨加密边界移动块（同 doMove targetPreviousID 分支）
 	if !isSameTree && !IsSameCryptoBoundary(srcTree.Box, targetTree.Box) {
-		util.PushMsg(Conf.Language(313), 5000)
+		util.PushMsg(Conf.Language(391), 5000)
 		return &TxErr{code: TxErrCodeSkipTx}
 	}
 
@@ -1199,7 +1211,7 @@ func (tx *Transaction) doAppend(operation *Operation) (ret *TxErr) {
 	}
 	// 禁止跨加密边界插入块（同 doMove 守卫）
 	if !isSameTree && !IsSameCryptoBoundary(srcTree.Box, targetTree.Box) {
-		util.PushMsg(Conf.Language(313), 5000)
+		util.PushMsg(Conf.Language(391), 5000)
 		return &TxErr{code: TxErrCodeSkipTx}
 	}
 	if captureHeadingMoveGroup {
@@ -1368,7 +1380,7 @@ func syncDelete2AvBlock(node *ast.Node, nodeTree *parse.Tree, delChildrenWhenDel
 		collectDeletedAttributeViewBlocks(node, delChildrenWhenDelParent, deletedAttrViewBlockIDs)
 		flushDeletedAttributeViewBlocks(deletedAttrViewBlockIDs)
 	} else {
-		tx.collectDeletedAttributeViewBlocks(node, delChildrenWhenDelParent)
+		tx.collectDeletedAttributeViewBlocks(node, nodeTree, delChildrenWhenDelParent)
 	}
 
 	for _, avID := range tx.syncDelete2Block(node, nodeTree) {
@@ -1428,10 +1440,6 @@ func (tx *Transaction) syncDelete2Block(node *ast.Node, nodeTree *parse.Tree) (c
 	return
 }
 
-func (tx *Transaction) collectDeletedAttributeViewBlocks(node *ast.Node, delChildrenWhenDelParent bool) {
-	collectDeletedAttributeViewBlocks(node, delChildrenWhenDelParent, tx.deletedAttrViewBlockIDs)
-}
-
 func collectDeletedAttributeViewBlocks(node *ast.Node, delChildrenWhenDelParent bool, deletedAttrViewBlockIDs map[string]map[string]struct{}) {
 	collect := func(n *ast.Node) {
 		avs := n.IALAttr(av.NodeAttrNameAvs)
@@ -1483,7 +1491,9 @@ func groupDeletedAttributeViewBlocks(boundAVIDs map[string][]string) (ret map[st
 }
 
 func (tx *Transaction) flushDeletedAttributeViewBlocks() {
-	flushDeletedAttributeViewBlocks(tx.deletedAttrViewBlockIDs)
+	if tx.attributeViewDeletionErr == nil {
+		tx.attributeViewDeletionErr = tx.flushAttributeViewBlockDeletions()
+	}
 	tx.deletedAttrViewBlockIDs = map[string]map[string]struct{}{}
 }
 
@@ -1494,12 +1504,20 @@ func flushDeletedAttributeViewBlocks(deletedAttrViewBlockIDs map[string]map[stri
 			continue
 		}
 		regenAttrViewGroups(attrView)
-		av.SaveAttributeView(attrView)
+		if err = av.SaveAttributeView(attrView); err != nil {
+			logging.LogErrorf("remove deleted database bindings [%s] failed: %s", avID, err)
+			continue
+		}
+		GlobalUndoLog.ClearAttributeView(avID)
 		ReloadAttrView(avID)
 	}
 }
 
 func removeAttributeViewBoundBlocks(attrView *av.AttributeView, deletedBlockIDs map[string]struct{}) (changed bool) {
+	return removeAttributeViewBoundItems(attrView, deletedBlockIDs, false)
+}
+
+func removeAttributeViewBoundItems(attrView *av.AttributeView, deletedBlockIDs map[string]struct{}, removeValues bool) (changed bool) {
 	if nil == attrView {
 		return false
 	}
@@ -1509,10 +1527,14 @@ func removeAttributeViewBoundBlocks(attrView *av.AttributeView, deletedBlockIDs 
 		return false
 	}
 	values := make([]*av.Value, 0, len(blockValues.Values))
+	itemIDs := map[string]bool{}
 	for _, blockValue := range blockValues.Values {
 		if nil != blockValue && nil != blockValue.Block {
 			if _, deleted := deletedBlockIDs[blockValue.Block.ID]; deleted {
 				changed = true
+				if blockValue.BlockID != "" {
+					itemIDs[blockValue.BlockID] = true
+				}
 				continue
 			}
 		}
@@ -1520,6 +1542,23 @@ func removeAttributeViewBoundBlocks(attrView *av.AttributeView, deletedBlockIDs 
 	}
 	if changed {
 		blockValues.Values = values
+		if !removeValues {
+			return true
+		}
+		for _, kv := range attrView.KeyValues {
+			if kv != blockValues {
+				kv.Values = slices.DeleteFunc(kv.Values, func(value *av.Value) bool { return value != nil && itemIDs[value.BlockID] })
+			}
+		}
+		for _, view := range attrView.Views {
+			view.ItemIDs = slices.DeleteFunc(view.ItemIDs, func(id string) bool { return itemIDs[id] })
+			for _, group := range view.Groups {
+				group.GroupItemIDs = slices.DeleteFunc(group.GroupItemIDs, func(id string) bool { return itemIDs[id] })
+			}
+		}
+		for id := range itemIDs {
+			delete(attrView.CardCoverPositions, id)
+		}
 	}
 	return
 }
@@ -1835,6 +1874,14 @@ func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 		logging.LogErrorf("resolve updated block [%s] failed: %s", id, resolveErr)
 		return &TxErr{code: TxErrCodePushMsg, msg: resolveErr.Error(), id: id}
 	}
+	if ast.NodeTable == oldNode.Type && ast.NodeTable == updatedNode.Type &&
+		(treenode.HasTableCellRich(oldNode) || "1" == oldNode.IALAttr(treenode.TableCellRichTableAttribute)) &&
+		"1" != updatedNode.IALAttr(treenode.TableCellRichTableAttribute) {
+		return &TxErr{code: TxErrCodeReloadUI, msg: "table update omitted rich text format metadata", id: id}
+	}
+	if err = treenode.ValidateTableCellRich(updatedNode); nil != err {
+		return &TxErr{code: TxErrCodeReloadUI, msg: err.Error(), id: id}
+	}
 	if err = treenode.ValidateBlockReplacement(oldNode, updatedNode); err != nil {
 		logging.LogErrorf("validate updated block [%s] structure failed: %s", id, err)
 		return &TxErr{code: TxErrCodeReloadUI, msg: err.Error(), id: id}
@@ -2036,7 +2083,14 @@ func (tx *Transaction) degradeCrossBoundaryBlockRefs(root *ast.Node, srcBox stri
 }
 
 func degradeCrossBoundaryBlockRefs0(root *ast.Node, srcBox string, restoredCreatedDocBoxes map[string]string) int {
-	degraded := 0
+	return degradeCrossBoundaryBlockRefsWithAllowed(root, srcBox, restoredCreatedDocBoxes, nil)
+}
+
+// degradeCrossBoundaryBlockRefsWithAllowed 与 degradeCrossBoundaryBlockRefs 语义相同，
+// 额外把 allowedBlockIDs 视为本地块。导入 .sy.zip 时包内文档尚未入库，块树查不到，
+// 只有把本次导入的全部块 ID 一并放行，才能既拦住包外引用又不误伤包内跨文档引用。
+func degradeCrossBoundaryBlockRefsWithAllowed(root *ast.Node, srcBox string, restoredCreatedDocBoxes map[string]string,
+	allowedBlockIDs map[string]bool) (degraded int) {
 	localBlockIDs := map[string]struct{}{}
 	ast.Walk(root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if entering && n.IsBlock() && n.ID != "" {
@@ -2051,6 +2105,9 @@ func degradeCrossBoundaryBlockRefs0(root *ast.Node, srcBox string, restoredCreat
 
 		if ast.NodeTextMark == n.Type && n.IsTextMarkType("block-ref") {
 			if _, local := localBlockIDs[n.TextMarkBlockRefID]; local {
+				return ast.WalkContinue
+			}
+			if allowedBlockIDs[n.TextMarkBlockRefID] {
 				return ast.WalkContinue
 			}
 			if targetBox, restored := restoredCreatedDocBoxes[n.TextMarkBlockRefID]; restored && "" != targetBox && targetBox == srcBox {
@@ -2177,7 +2234,15 @@ func (tx *Transaction) doUpdateUpdated(operation *Operation) (ret *TxErr) {
 }
 
 func (tx *Transaction) doCreate(operation *Operation) (ret *TxErr) {
-	tree := operation.Data.(*parse.Tree)
+	tree := operation.Tree
+	if nil == tree && nil != operation.Data {
+		if t, ok := operation.Data.(*parse.Tree); ok {
+			tree = t
+		}
+	}
+	if nil == tree {
+		return &TxErr{code: TxErrCodePushMsg, msg: "invalid create operation: tree is nil", id: operation.ID}
+	}
 	// 兜底校验：禁止跨加密边界块引（创建文档可能携带跨边界引用）
 	// 必须在 getRefDefIDs 之前，避免跨边界引用被收集进引用缓存
 	tx.degradeCrossBoundaryBlockRefs(tree.Root, tree.Box)
@@ -2200,6 +2265,10 @@ func (tx *Transaction) doRestoreCreatedDoc(operation *Operation) (ret *TxErr) {
 		existing, loadErr = LoadTreeByBlockIDInExactBox(tree.Root.ID, tree.Box)
 	} else {
 		existing, loadErr = LoadTreeByBlockID(tree.Root.ID)
+		if errors.Is(loadErr, ErrIndexing) {
+			// 已知文档快照按原笔记本查找，后台索引任务不应阻止重做；下方仍检查目标文件是否存在。
+			existing, loadErr = LoadTreeByBlockIDInExactBox(tree.Root.ID, tree.Box)
+		}
 	}
 	if nil == loadErr && nil != existing {
 		if "" != operation.templateDocTreeRootID || tx.isReplay || existing.Box != tree.Box || existing.Path != tree.Path {
@@ -2218,7 +2287,7 @@ func (tx *Transaction) doRestoreCreatedDoc(operation *Operation) (ret *TxErr) {
 	if box.Exist(tree.Path) {
 		return &TxErr{code: TxErrCodePushMsg, msg: "created doc path already exists", id: operation.ID}
 	}
-	if ret = tx.doCreate(&Operation{Action: "create", Data: tree}); nil == ret {
+	if ret = tx.doCreate(&Operation{Action: "create", Tree: tree}); nil == ret {
 		if "" != operation.templateDocTreeRootID {
 			tx.restoredTemplateCreatedDocs = append(tx.restoredTemplateCreatedDocs, tree)
 		} else {
@@ -2361,9 +2430,16 @@ type Operation struct {
 	BlockIDs   []string `json:"blockIDs"` // move/append 时为随折叠标题移动的顶层块，闪卡操作时为目标块
 	BlockID    string   `json:"blockID"`
 
-	DeckID                string      `json:"deckID"` // 用于添加/删除闪卡
-	Tree                  *parse.Tree `json:"-"`      // 仅用于内核事务重放，不发送到前端
-	templateDocTreeRootID string
+	DeckID                   string      `json:"deckID"` // 用于添加/删除闪卡
+	Tree                     *parse.Tree `json:"-"`      // 仅用于内核事务重放，不发送到前端
+	templateDocTreeRootID    string
+	blockSwapState           *blockSwapState
+	blockSwapUndo            bool
+	attributeViewItems       *attributeViewItemsSnapshot
+	attributeViewFields      *attributeViewFieldsSnapshot
+	attributeViewFieldUndo   bool
+	attributeViewBinding     *attributeViewBindingSnapshot
+	attributeViewBindingUndo bool
 
 	LockType bool `json:"-"` // 外部块更新是否禁止改变主类型
 
@@ -2527,6 +2603,9 @@ type Transaction struct {
 	templateDocTreeRootSnapshot  *parse.Tree
 	removeCreatedDoc             func(*Box, string, *lute.Lute) (*parse.Tree, error)
 	writeTransactionTree         func(*parse.Tree) error
+	blockSwapOriginalTrees       []*parse.Tree
+	attributeViewRollback        *attributeViewRollback
+	invalidatedAvHistory         map[string]bool
 
 	fromAPI  bool // 是否来自 /api/transactions HTTP 入口（用于撤销日志捕获判别）
 	isReplay bool // 是否为 undo/redo 重放构造的事务（重放不再进入撤销日志）
@@ -2534,6 +2613,9 @@ type Transaction struct {
 	listItemFoldCandidates    []listItemFoldCandidate
 	listItemFoldCandidateIDs  map[string]struct{}
 	deletedAttrViewBlockIDs   map[string]map[string]struct{}
+	deletedAttrViewCarriers   map[string]string
+	attributeViewDeletionUndo []*Operation
+	attributeViewDeletionErr  error
 	structureCheckNodes       map[*ast.Node]struct{}
 	crossTreeMoveRefRefreshes []crossTreeMoveRefRefresh
 
@@ -2638,6 +2720,8 @@ func (tx *Transaction) begin() (err error) {
 	tx.listItemFoldCandidates = nil
 	tx.listItemFoldCandidateIDs = map[string]struct{}{}
 	tx.deletedAttrViewBlockIDs = map[string]map[string]struct{}{}
+	tx.deletedAttrViewCarriers = map[string]string{}
+	tx.attributeViewDeletionUndo, tx.attributeViewDeletionErr = nil, nil
 	tx.structureCheckNodes = map[*ast.Node]struct{}{}
 	tx.crossTreeMoveRefRefreshes = nil
 	tx.luteEngine = util.NewLute()
@@ -2647,11 +2731,21 @@ func (tx *Transaction) begin() (err error) {
 }
 
 func (tx *Transaction) commit() (err error) {
+	if tx.attributeViewDeletionErr != nil {
+		return tx.attributeViewDeletionErr
+	}
 	var attemptedRemovedDocs []*parse.Tree
 	compensationRequired := 0 < len(tx.restoredTemplateCreatedDocs) || 0 < len(tx.removedTemplateCreatedDocs) ||
 		nil != tx.templateDocTreeRootSnapshot
 	committed := false
 	defer func() {
+		if !committed {
+			for _, tree := range tx.blockSwapOriginalTrees {
+				if restoreErr := restoreCreatedDocTreeSnapshot(tree); restoreErr != nil {
+					err = errors.Join(err, restoreErr)
+				}
+			}
+		}
 		if compensationRequired && !committed {
 			if compensationErr := tx.compensateCreatedDocCommit(attemptedRemovedDocs); nil != compensationErr {
 				err = errors.Join(err, compensationErr)
@@ -2697,6 +2791,22 @@ func (tx *Transaction) commit() (err error) {
 	for id, tree := range tx.trees {
 		if _, restored := restoredIDs[id]; !restored {
 			orderedTrees = append(orderedTrees, tree)
+		}
+	}
+	for _, op := range tx.DoOperations {
+		if _, ok := op.Data.(*parse.Tree); ok {
+			if nil == op.Tree {
+				op.Tree = op.Data.(*parse.Tree)
+			}
+			op.Data = nil
+		}
+	}
+	for _, op := range tx.UndoOperations {
+		if _, ok := op.Data.(*parse.Tree); ok {
+			if nil == op.Tree {
+				op.Tree = op.Data.(*parse.Tree)
+			}
+			op.Data = nil
 		}
 	}
 	for _, tree := range orderedTrees {
@@ -2775,6 +2885,8 @@ func (tx *Transaction) commit() (err error) {
 	committed = true
 	// 已提交且 trees 稳定后记录到全局撤销日志（rollback 不记录）
 	GlobalUndoLog.Record(tx)
+	tx.finishAttributeViewMutation(false)
+	tx.blockSwapOriginalTrees = nil
 	tx.templateDocTreeRootSnapshot = nil
 	tx.attemptedTemplateCreatedDocs = nil
 	tx.writeTransactionTree = nil
@@ -2787,6 +2899,12 @@ func (tx *Transaction) commit() (err error) {
 }
 
 func (tx *Transaction) rollback() {
+	tx.finishAttributeViewMutation(true)
+	for _, tree := range tx.blockSwapOriginalTrees {
+		treenode.RemoveBlockTreesByRootID(tree.Box, tree.ID)
+		treenode.UpsertBlockTree(tree)
+	}
+	tx.blockSwapOriginalTrees = nil
 	for _, tree := range tx.restoredTemplateCreatedDocs {
 		if nil != tree {
 			treenode.RemoveBlockTreesByRootID(tree.Box, tree.ID)

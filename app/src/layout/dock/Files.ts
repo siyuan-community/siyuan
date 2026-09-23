@@ -16,6 +16,7 @@ import {
     openPublishAccessDialog
 } from "../../protyle/util/publishAccess";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
+import {restoreFileTreePaths} from "../../util/fileTreeRestore";
 import {openEmojiPanel} from "../../emoji";
 import {
     getFileTreeDefaultIconAttr,
@@ -24,7 +25,7 @@ import {
     updateFileTreeItemIcon,
 } from "../../emoji/fileTreeIcon";
 import {importNotebook, newEncryptedNotebook, newNotebook, openEncryptedNotebook} from "../../util/mount";
-import {isNotCtrl, isOnlyMeta, setStorageVal, updateHotkeyAfterTip} from "../../protyle/util/compatibility";
+import {isNotCtrl, isOnlyMeta, isPhablet, setStorageVal, updateHotkeyAfterTip} from "../../protyle/util/compatibility";
 import {openFileById} from "../../editor/util";
 import {
     hasClosestByClassName,
@@ -33,6 +34,7 @@ import {
 } from "../../protyle/util/hasClosest";
 import type {App} from "../../index";
 import {refreshFileTree} from "../../dialog/processSystem";
+import {confirmDialog} from "../../dialog/confirmDialog";
 import {emitToPlugins} from "../../plugin/EventBusCore";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
@@ -74,6 +76,8 @@ import {
 import {clearDocumentTabMovePreview} from "../tabDrag";
 import {reorderSortedFileTree} from "../../util/fileTreeReorder";
 import {getHostCapabilities} from "../../util/hostCapabilities";
+import {PinnedDocs} from "./PinnedDocs";
+import {selectFileTreeRange} from "./fileTreeSelection";
 
 export class Files extends Model {
     public element: HTMLElement;
@@ -81,6 +85,7 @@ export class Files extends Model {
     public closeElement: HTMLElement;
     public lastSelectedElement: Element = null;
     private actionsElement: HTMLElement;
+    private pinnedDocs: PinnedDocs;
     private reloadNotebookInfoTimeout: number;
     private docSortModeRefreshTimeout: number;
     private docSortModeChanges = new Map<string, IDocSortModeChanged>();
@@ -108,8 +113,8 @@ export class Files extends Model {
     <span class="fn__space"></span>
     <span data-type="min" class="block__icon ariaLabel" data-position="north" aria-label="${window.siyuan.languages.min}${updateHotkeyAfterTip(window.siyuan.config.keymap.general.closeTab.custom)}"><svg><use xlink:href='#iconMin'></use></svg></span>
 </div>
-<div class="fn__flex-1" style="padding-top: 2px;"></div>
-<ul class="b3-list fn__flex-column" style="min-height: auto;height:30px;transition: height  .2s cubic-bezier(0, 0, .2, 1) 0ms">
+<div class="file-tree__items fn__flex-1" style="padding-top: 2px;"></div>
+<ul class="b3-list fn__flex-column" style="min-height: auto;height:30px;border-top: 1px solid var(--b3-border-color);transition: height  .2s cubic-bezier(0, 0, .2, 1) 0ms">
     <li class="b3-list-item" data-type="toggle">
         <span class="b3-list-item__toggle">
             <svg class="b3-list-item__arrow"><use xlink:href="#iconRight"></use></svg>
@@ -122,6 +127,9 @@ export class Files extends Model {
         this.actionsElement = options.tab.panelElement.firstElementChild as HTMLElement;
         this.element = this.actionsElement.nextElementSibling as HTMLElement;
         this.closeElement = options.tab.panelElement.lastElementChild as HTMLElement;
+        this.pinnedDocs = new PinnedDocs(options.app, this.element, (id) => {
+            openFileById({app: options.app, id, action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]});
+        });
         this.closeElement.addEventListener("click", (event) => {
             setPanelFocus(this.element.parentElement);
             let target = event.target as HTMLElement;
@@ -179,6 +187,7 @@ export class Files extends Model {
         });
         // 为了快捷键的 dispatch
         this.actionsElement.querySelector('[data-type="collapse"]').addEventListener("click", () => {
+            this.pinnedDocs.collapse();
             Array.from(this.element.children).forEach(item => {
                 const liElement = item.firstElementChild;
                 const toggleElement = liElement.querySelector(".b3-list-item__arrow");
@@ -207,7 +216,8 @@ export class Files extends Model {
                     event.preventDefault();
                     break;
                 } else if (type === "more") {
-                    this.initMoreMenu().popup({x: event.clientX, y: event.clientY});
+                    const rect = target.getBoundingClientRect();
+                    this.initMoreMenu().popup({x: rect.left, y: rect.bottom, h: rect.height});
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -231,7 +241,7 @@ export class Files extends Model {
                         app: options.app,
                         removeCurrentTab: false,
                         id: target.getAttribute("data-node-id"),
-                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                        action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
                         afterOpen() {
                             target.removeAttribute("data-opening");
                         }
@@ -250,7 +260,7 @@ export class Files extends Model {
             if (ulElement) {
                 const notebookId = ulElement.getAttribute("data-url");
                 while (target && !target.isEqualNode(this.element)) {
-                    if (isNotCtrl(event) && target.classList.contains("b3-list-item__icon") && window.siyuan.config.system.container !== "ios") {
+                    if (isNotCtrl(event) && !event.shiftKey && target.classList.contains("b3-list-item__icon") && window.siyuan.config.system.container !== "ios") {
                         event.preventDefault();
                         event.stopPropagation();
                         const liElement = target.parentElement;
@@ -259,6 +269,8 @@ export class Files extends Model {
                         const isBoxDoc = isNotebook && liElement.getAttribute("data-node-id");
                         if ((isFile || isNotebook) && window.siyuan.config.fileTree.docIconClickExpand) {
                             if (Number(liElement.getAttribute("data-count")) > 0) {
+                                this.lastSelectedElement = liElement;
+                                this.setCurrent(liElement, false);
                                 this.toggleLeaf(liElement, notebookId);
                                 break;
                             } else if (isFile || isBoxDoc) {
@@ -270,7 +282,7 @@ export class Files extends Model {
                                     openFileById({
                                         app: options.app,
                                         id: liElement.getAttribute("data-node-id"),
-                                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                                        action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
                                         afterOpen() {
                                             liElement.removeAttribute("data-opening");
                                         }
@@ -333,16 +345,20 @@ export class Files extends Model {
                             if (type === "new") {
                                 newFileInTree(options.app, notebookId, pathString);
                             } else if (type === "more-root") {
+                                const rect = target.getBoundingClientRect();
                                 initNavigationMenu(options.app, target.parentElement).popup({
-                                    x: event.clientX,
-                                    y: event.clientY
+                                    x: rect.left,
+                                    y: rect.bottom,
+                                    h: rect.height,
                                 });
                             }
                         }
                         if (type === "more-file") {
+                            const rect = target.getBoundingClientRect();
                             initFileMenu(options.app, notebookId, pathString, target.parentElement).popup({
-                                x: event.clientX,
-                                y: event.clientY
+                                x: rect.left,
+                                y: rect.bottom,
+                                h: rect.height,
                             });
                         }
                         event.preventDefault();
@@ -354,6 +370,8 @@ export class Files extends Model {
                             (target.parentElement.getAttribute("data-type") === "navigation-root" && target.parentElement.getAttribute("data-node-id"))) &&
                         window.siyuan.config.fileTree.parentDocClickExpand &&
                         Number(target.parentElement.getAttribute("data-count")) > 0) {
+                        this.lastSelectedElement = target.parentElement;
+                        this.setCurrent(target.parentElement, false);
                         this.toggleLeaf(target.parentElement, notebookId);
                         event.preventDefault();
                         event.stopPropagation();
@@ -364,35 +382,7 @@ export class Files extends Model {
                             target.classList.toggle("b3-list-item--focus");
                             this.lastSelectedElement = target;
                         } else if (event.shiftKey && !event.altKey && isNotCtrl(event)) {
-                            // Shift+click 多选文档
-                            if (!document.contains(this.lastSelectedElement)) {
-                                this.lastSelectedElement = null;
-                            }
-                            if (!this.lastSelectedElement) {
-                                this.lastSelectedElement = this.element.querySelector(".b3-list-item--focus");
-                            }
-                            if (!this.lastSelectedElement) {
-                                this.lastSelectedElement = target.parentElement.firstElementChild;
-                            }
-                            this.element.querySelectorAll(".b3-list-item--focus").forEach(item => {
-                                item.classList.remove("b3-list-item--focus");
-                            });
-
-                            // 获取所有文档项
-                            const allFiles = Array.from(this.element.querySelectorAll("li.b3-list-item"));
-
-                            // 获取起始和结束索引
-                            const startIndex = allFiles.indexOf(this.lastSelectedElement);
-                            const endIndex = allFiles.indexOf(target);
-
-                            // 确定选择范围
-                            const start = Math.min(startIndex, endIndex);
-                            const end = Math.max(startIndex, endIndex);
-
-                            // 添加新选择
-                            for (let i = start; i <= end; i++) {
-                                (allFiles[i] as HTMLElement).classList.add("b3-list-item--focus");
-                            }
+                            this.lastSelectedElement = selectFileTreeRange(this.element, this.lastSelectedElement, target);
                         } else {
                             this.lastSelectedElement = target;
                             this.setCurrent(target, false);
@@ -409,7 +399,7 @@ export class Files extends Model {
                                         app: options.app,
                                         id: target.getAttribute("data-node-id"),
                                         position: "right",
-                                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                                        action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
                                         afterOpen() {
                                             target.removeAttribute("data-opening");
                                         }
@@ -419,7 +409,7 @@ export class Files extends Model {
                                         app: options.app,
                                         id: target.getAttribute("data-node-id"),
                                         position: "bottom",
-                                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                                        action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
                                         afterOpen() {
                                             target.removeAttribute("data-opening");
                                         }
@@ -430,7 +420,7 @@ export class Files extends Model {
                                         app: options.app,
                                         removeCurrentTab: false,
                                         id: target.getAttribute("data-node-id"),
-                                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                                        action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
                                         afterOpen() {
                                             target.removeAttribute("data-opening");
                                         }
@@ -439,7 +429,7 @@ export class Files extends Model {
                                     openFileById({
                                         app: options.app,
                                         id: target.getAttribute("data-node-id"),
-                                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                                        action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
                                         afterOpen() {
                                             target.removeAttribute("data-opening");
                                         }
@@ -823,22 +813,18 @@ export class Files extends Model {
                     const sourceNotebookId = window.siyuan.dragElement?.closest("[data-notebook-id]")?.getAttribute("data-notebook-id") ||
                         parseBlockDragData(event.dataTransfer.getData(gutterType)).notebookID;
                     if (!isMoveTargetAllowed([sourceNotebookId], toURL)) {
-                        showMessage(window.siyuan.languages._kernel[313]);
+                        showMessage(window.siyuan.languages._kernel[391]);
                         newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
                         window.siyuan.dragElement = undefined;
                         return;
                     }
                     const toDocOptions: {
                         targetNoteBook: string;
-                        pushMode: number;
                         toTop?: boolean;
-                        srcHeadingID?: string;
-                        srcListItemID?: string;
                         targetPath?: string;
                         previousPath?: string;
                     } = {
                         targetNoteBook: toURL,
-                        pushMode: 0,
                     };
                     if (newElement.classList.contains("dragover")) {
                         toDocOptions.targetPath = toPath;
@@ -855,11 +841,9 @@ export class Files extends Model {
                         }
                     }
                     if (gutterTypes[0] === "nodeheading") {
-                        toDocOptions.srcHeadingID = gutterTypes[2].split(",")[0];
-                        fetchPost("/api/filetree/heading2Doc", toDocOptions);
+                        fetchPost("/api/filetree/heading2Doc", {...toDocOptions, srcHeadingID: gutterTypes[2].split(",")[0]});
                     } else {
-                        toDocOptions.srcListItemID = gutterTypes[2].split(",")[0];
-                        fetchPost("/api/filetree/li2Doc", toDocOptions);
+                        fetchPost("/api/filetree/li2Doc", {...toDocOptions, srcListItemID: gutterTypes[2].split(",")[0]});
                     }
                 }
                 newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
@@ -874,6 +858,7 @@ export class Files extends Model {
             const selectRootElements: HTMLElement[] = [];
             const selectFileElements: HTMLElement[] = [];
             const fromPaths: string[] = [];
+            let invalidMoveTarget = false;
             this.element.querySelectorAll(".b3-list-item--focus").forEach((item: HTMLElement) => {
                 if (item.getAttribute("data-type") === "navigation-root") {
                     selectRootElements.push(item);
@@ -887,6 +872,7 @@ export class Files extends Model {
                     if (!isChild) {
                         // 禁止父节点移动到子节点 https://github.com/siyuan-note/siyuan/issues/12539
                         if (newElement.getAttribute("data-path").startsWith(item.dataset.path.replace(".sy", ""))) {
+                            invalidMoveTarget = true;
                             return;
                         }
                         selectFileElements.push(item);
@@ -894,11 +880,16 @@ export class Files extends Model {
                     }
                 }
             });
+            if (invalidMoveTarget) {
+                showMessage(window.siyuan.languages._kernel[87], 7000, "error");
+                newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
+                return;
+            }
             if (newElement.classList.contains("dragover")) {
                 const sourceNotebookIds = selectFileElements.map((item) =>
                     item.getAttribute("data-notebook-id") || item.closest("ul[data-url]")?.getAttribute("data-url") || "");
                 if (!isMoveTargetAllowed(sourceNotebookIds, toURL)) {
-                    showMessage(window.siyuan.languages._kernel[313]);
+                    showMessage(window.siyuan.languages._kernel[391]);
                     newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
                     return;
                 }
@@ -939,7 +930,7 @@ export class Files extends Model {
                     const sourceNotebookIds = selectFileElements.map(item =>
                         item.getAttribute("data-notebook-id") || item.closest("ul[data-url]")?.getAttribute("data-url") || "");
                     if (!isMoveTargetAllowed(sourceNotebookIds, toURL)) {
-                        showMessage(window.siyuan.languages._kernel[313]);
+                        showMessage(window.siyuan.languages._kernel[391]);
                         return;
                     }
                     await this.reorderSortedDocuments(selectFileElements.map(item => item.getAttribute("data-node-id")),
@@ -950,7 +941,7 @@ export class Files extends Model {
                     const sourceNotebookIds = selectFileElements.map((item) =>
                         item.getAttribute("data-notebook-id") || item.closest("ul[data-url]")?.getAttribute("data-url") || "");
                     if (!isMoveTargetAllowed(sourceNotebookIds, toURL)) {
-                        showMessage(window.siyuan.languages._kernel[313]);
+                        showMessage(window.siyuan.languages._kernel[391]);
                         newElement.classList.remove("dragover", "dragover__bottom", "dragover__top");
                         return;
                     }
@@ -1081,7 +1072,7 @@ export class Files extends Model {
         const sourcePath = pathResponse.data.path as string;
         const sourceNotebook = pathResponse.data.notebook as string;
         if (!isMoveTargetAllowed([sourceNotebook], targetNotebook)) {
-            showMessage(window.siyuan.languages._kernel[313]);
+            showMessage(window.siyuan.languages._kernel[391]);
             return;
         }
         if (sourceNotebook === targetNotebook) {
@@ -1159,6 +1150,7 @@ export class Files extends Model {
     }
 
     private handleMsgCallback(data: IWebSocketData) {
+        if (data) { this.pinnedDocs?.onFileTreeMessage(data); }
         if (data) {
             switch (data.cmd) {
                 case "reloadDocInfo":
@@ -1232,8 +1224,10 @@ export class Files extends Model {
                         this.updateItemArrow(data.data.box.id, data.data.path);
                     }
                     break;
-                case "createdailynote":
                 case "heading2doc":
+                    this.updateItemArrow(data.data.box.id, data.data.path);
+                    break;
+                case "createdailynote":
                 case "li2doc":
                     this.selectItem(data.data.box.id, data.data.path);
                     break;
@@ -1354,19 +1348,18 @@ export class Files extends Model {
         let currentPath = filePath;
         let liElement;
         while (!liElement) {
-            liElement = treeElement.querySelector(`[data-path="${currentPath}"]`);
-            if (!liElement) {
-                const dirname = pathPosix().dirname(currentPath);
-                if (dirname === "/") {
-                    const rootElement = treeElement.firstElementChild as HTMLElement;
-                    if (rootElement.querySelector(".b3-list-item__arrow--open")) {
-                        this.getLeaf(rootElement, notebookId, true);
-                    }
-                    break;
-                } else {
-                    currentPath = dirname + ".sy";
+            // 新文档只影响父级的子文档状态，从父路径开始查找。
+            const dirname = pathPosix().dirname(currentPath);
+            if (dirname === "/") {
+                const rootElement = treeElement.firstElementChild as HTMLElement;
+                if (rootElement.querySelector(".b3-list-item__arrow--open")) {
+                    this.getLeaf(rootElement, notebookId, true);
                 }
-            } else {
+                break;
+            }
+            currentPath = dirname + ".sy";
+            liElement = treeElement.querySelector(`[data-path="${currentPath}"]`);
+            if (liElement) {
                 const hiddenElement = liElement.querySelector(".fn__hidden");
                 if (hiddenElement) {
                     // 原先无子文档：显示展开箭头
@@ -1456,6 +1449,7 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
     }
 
     public init(init = true) {
+        this.pinnedDocs?.scheduleRefresh();
         let html = "";
         let closeHtml = "";
         let closeCounter = 0;
@@ -1477,11 +1471,30 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
         } else {
             this.closeElement.classList.add("fn__none");
         }
-        window.siyuan.storage[Constants.LOCAL_FILESPATHS].forEach(async (item: IFilesPath) => {
-            for (const openPath of item.openPaths) {
-                await this.selectItem(item.notebookId, openPath, undefined, false, false);
+        const firstNotebook = this.element.firstElementChild;
+        void restoreFileTreePaths(window.siyuan.storage[Constants.LOCAL_FILESPATHS], async (notebookId, path) => {
+            if (this.element.firstElementChild !== firstNotebook) {
+                return;
             }
-            this.element.scrollTop = scrollTop;
+            const liElement = this.element.querySelector(`ul[data-url="${notebookId}"] li[data-path="${path}"]`);
+            if (!liElement || liElement.querySelector(".b3-list-item__arrow--open")) {
+                return;
+            }
+            const response = await fetchSyncPost("/api/filetree/listDocsByPath", {
+                notebook: notebookId,
+                path,
+                app: Constants.SIYUAN_APPID,
+            });
+            if (response.code !== 0 || !response.data || !this.element.contains(liElement) ||
+                liElement.querySelector(".b3-list-item__arrow--open")) {
+                return;
+            }
+            await this.onLsSelect(response.data, path, false, false);
+        }).then(() => {
+            if (this.element.firstElementChild === firstNotebook) {
+                this.refreshPublishAccessSwitch();
+                this.element.scrollTop = scrollTop;
+            }
         });
         this.refreshPublishAccessSwitch();
         if (!init) {
@@ -1605,11 +1618,17 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
 
     public onRename(data: { path: string, title: string, box: string }) {
         const fileItemElement = this.element.querySelector(`ul[data-url="${data.box}"] li[data-path="${data.path}"]`);
-        if (!fileItemElement) {
-            return;
+        if (fileItemElement) {
+            fileItemElement.setAttribute("data-name", data.title);
+            fileItemElement.querySelector(".b3-list-item__text").innerHTML = escapeHtml(data.title);
         }
-        fileItemElement.setAttribute("data-name", data.title);
-        fileItemElement.querySelector(".b3-list-item__text").innerHTML = escapeHtml(data.title);
+        const parentPath = pathPosix().dirname(data.path);
+        const listPath = parentPath === "/" ? "/" : `${parentPath}.sy`;
+        const parentElement = this.element.querySelector(`ul[data-url="${data.box}"] li[data-path="${listPath}"]`);
+        const listElement = parentElement?.nextElementSibling;
+        if (listElement?.tagName === "UL" && !isCustomFileTreeList(listElement)) {
+            this.onFiletreeSortChanged({notebook: data.box, parentPath});
+        }
     }
 
     public onFiletreeSortChanged(data: { notebook: string, parentPath: string }) {
@@ -1637,11 +1656,13 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
         if (!rootID) {
             return;
         }
+        this.pinnedDocs?.scheduleRefresh();
         const importedPath = data.parentPath === "/" ? `/${rootID}.sy` : `${data.parentPath}/${rootID}.sy`;
         this.updateItemArrow(data.notebook, importedPath);
     }
 
     public onDocSortModeChanged(data: IDocSortModeChanged) {
+        this.pinnedDocs?.scheduleRefresh();
         updateFileTreeSortMode(data, this.element);
         this.docSortModeChanges.set(`${data.scope}:${data.box}:${data.id}:${data.path}`, data);
         window.clearTimeout(this.docSortModeRefreshTimeout);
@@ -1903,7 +1924,9 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
                     path: item.path,
                     app: Constants.SIYUAN_APPID,
                 });
-                newLiElement = await this.selectItem(response.data.box, filePath, response.data, setStorage, isSetCurrent);
+                if (response.code === 0) {
+                    newLiElement = await this.selectItem(response.data.box, filePath, response.data, setStorage, isSetCurrent);
+                }
             }
         }
         if (isSetCurrent) {
@@ -1924,6 +1947,7 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
         if (!target) {
             return;
         }
+        this.pinnedDocs.clearSelection();
         this.element.querySelectorAll("li.b3-list-item--focus").forEach((liItem) => {
             liItem.classList.remove("b3-list-item--focus");
         });
@@ -2022,7 +2046,9 @@ data-type="navigation-root" data-path="/" data-count="${item.subFileCount || 0}"
                 path: currentPath,
                 app: Constants.SIYUAN_APPID,
             });
-            liElement = await this.onLsSelect(response.data, filePath, setStorage, isSetCurrent);
+            if (response.code === 0) {
+                liElement = await this.onLsSelect(response.data, filePath, setStorage, isSetCurrent);
+            }
         }
         this.refreshPublishAccessSwitch();
         return liElement;
@@ -2104,6 +2130,10 @@ aria-label="${ariaLabel}">${getDocDisplayName(item.name, item.titleEmpty, true)}
 </li>`;
     }
 
+    public destroy() {
+        this.pinnedDocs.destroy();
+    }
+
     private initMoreMenu() {
         window.siyuan.menus.menu.remove();
         window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_DOC_TREE_PANEL_MORE);
@@ -2150,9 +2180,13 @@ aria-label="${ariaLabel}">${getDocDisplayName(item.name, item.titleEmpty, true)}
             click: () => {
                 if (!this.element.getAttribute("disabled")) {
                     this.element.setAttribute("disabled", "disabled");
-                    refreshFileTree(() => {
+                    confirmDialog(window.siyuan.languages.rebuildDataIndex, window.siyuan.languages.rebuildDataIndexTip, () => {
+                        refreshFileTree(() => {
+                            this.element.removeAttribute("disabled");
+                            this.init(false);
+                        });
+                    }, () => {
                         this.element.removeAttribute("disabled");
-                        this.init(false);
                     });
                 }
             }
@@ -2169,7 +2203,10 @@ aria-label="${ariaLabel}">${getDocDisplayName(item.name, item.titleEmpty, true)}
                     if (response.code !== 0) {
                         return;
                     }
-                    window.siyuan.config.fileTree = response.data;
+                    window.siyuan.config.fileTree = {
+                        ...response.data,
+                        tabStartupMode: response.data.tabStartupMode === 1 ? 1 : response.data.tabStartupMode === 2 ? 2 : 0,
+                    };
                     this.onDocSortModeChanged({
                         scope: "global",
                         box: "",

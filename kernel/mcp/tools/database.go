@@ -28,7 +28,7 @@ import (
 )
 
 var databaseActions = []string{
-	"create", "search", "get", "render", "keys", "key_add", "key_remove", "item_add", "item_remove", "item_update", "unused", "clean",
+	"create", "search", "get", "render", "keys", "key_add", "key_update", "key_set_template", "key_remove", "item_add", "item_remove", "item_update", "unused", "clean",
 }
 
 var databaseKeyTypes = []string{
@@ -43,21 +43,23 @@ type databaseToolOutput struct {
 
 var DatabaseTool = &Tool{
 	Name:        "database",
-	Description: "Attribute view (database) operations. Every successful call returns {action, data}. Actions: create(parentID, name?, primaryKeyName?, layout=table, keys?, previousID?, nextID?), search(keyword), get(id), render(id, viewID?, query?, page=1, pageSize=50), keys(id), key_add(id, name, type, icon?, prev?), key_remove(id, keyID, removeRelationDest?), item_add(id, blockID?, content?, viewID?, groupID?, previousID?, detached?, ignoreDefaultFill?), item_remove(id, itemIDs), item_update(id, keyID, itemID, value), unused(), clean(id?). key_add appends to the current view when prev is omitted.",
+	Description: "Attribute view (database) operations. Every successful call returns {action, data}. Actions: create(parentID, name?, primaryKeyName?, layout=table, keys?, previousID?, nextID?), search(keyword), get(id), render(id, viewID?, query?, page=1, pageSize=50), keys(id), key_add(id, name, type, icon?, prev?), key_update(id, keyID, config), key_set_template(id, keyID, template), key_remove(id, keyID, removeRelationDest?), item_add(id, blockID?, content?, viewID?, groupID?, previousID?, detached?, ignoreDefaultFill?), item_remove(id, itemIDs), item_update(id, keyID, itemID, value), unused(), clean(id?). clean only removes unused databases returned by unused(); referenced databases are rejected. key_add appends to the current view when prev is omitted.",
 	EffectScope: EffectScopeLocal,
 	ActionEffects: map[string]ToolEffects{
-		"create":      {LocalWrite: true},
-		"search":      {LocalRead: true},
-		"get":         {LocalRead: true},
-		"render":      {LocalRead: true},
-		"keys":        {LocalRead: true},
-		"key_add":     {LocalWrite: true},
-		"key_remove":  {LocalWrite: true},
-		"item_add":    {LocalWrite: true},
-		"item_remove": {LocalWrite: true},
-		"item_update": {LocalWrite: true},
-		"unused":      {LocalRead: true},
-		"clean":       {LocalWrite: true},
+		"create":           {LocalWrite: true},
+		"search":           {LocalRead: true},
+		"get":              {LocalRead: true},
+		"render":           {LocalRead: true},
+		"keys":             {LocalRead: true},
+		"key_add":          {LocalWrite: true},
+		"key_update":       {LocalWrite: true},
+		"key_set_template": {LocalWrite: true},
+		"key_remove":       {LocalWrite: true},
+		"item_add":         {LocalWrite: true},
+		"item_remove":      {LocalWrite: true},
+		"item_update":      {LocalWrite: true},
+		"unused":           {LocalRead: true},
+		"clean":            {LocalWrite: true},
 	},
 	InputSchema: ToolSchema{
 		Type: "object",
@@ -65,7 +67,7 @@ var DatabaseTool = &Tool{
 			"action":         {Type: "string", Description: "Operation", Enum: databaseActions},
 			"notebook":       {Type: "string", Description: "Notebook ID that owns the new database; required for encrypted notebooks"},
 			"keyword":        {Type: "string", Description: "Search keyword (for search)"},
-			"id":             {Type: "string", Description: "Attribute view ID (for get, render, keys, key_add, key_remove, item_add, item_remove, item_update, clean)"},
+			"id":             {Type: "string", Description: "Attribute view ID (for get, render, keys, key_add, key_update, key_set_template, key_remove, item_add, item_remove, item_update, clean)"},
 			"parentID":       {Type: "string", Description: "Parent block ID for the new database (for create)"},
 			"nextID":         {Type: "string", Description: "Next sibling block ID for positioning the new database (for create, optional)"},
 			"viewID":         {Type: "string", Description: "View ID (for render, item_add)"},
@@ -74,7 +76,7 @@ var DatabaseTool = &Tool{
 			"pageSize":       {Type: "integer", Description: "Results per page (default 50)"},
 			"name":           {Type: "string", Description: "Database name (for create) or key name (for key_add)"},
 			"primaryKeyName": {Type: "string", Description: "Primary key field name (for create, optional)"},
-			"layout":         {Type: "string", Description: "Initial database layout (for create, default table)", Enum: []string{"table", "gallery", "kanban"}},
+			"layout":         {Type: "string", Description: "Initial database layout (for create, default table)", Enum: []string{"table", "list", "calendar", "gallery", "kanban"}},
 			"keys": {
 				Type: "array", Description: "Ordered fields to create after the primary key (for create, optional)",
 				Items: &Property{
@@ -90,7 +92,9 @@ var DatabaseTool = &Tool{
 			"type":               {Type: "string", Description: "Key type (for key_add)", Enum: databaseKeyTypes},
 			"icon":               {Type: "string", Description: "Key icon (for key_add, optional)"},
 			"prev":               {Type: "string", Description: "Previous key ID for ordering (for key_add; omit to append)"},
-			"keyID":              {Type: "string", Description: "Key ID (for key_remove, item_update)"},
+			"keyID":              {Type: "string", Description: "Key ID (for key_update, key_set_template, key_remove, item_update)"},
+			"template":           {Type: "string", Description: "Formula for key_set_template on an existing template field, e.g. .action{add .Number 1}; empty string clears it. Use keys to inspect field names and IDs, then render to verify results. Do not write calculated template cells with item_update"},
+			"config":             databaseKeyConfigProperty,
 			"removeRelationDest": {Type: "boolean", Description: "Also remove related data in linked databases (for key_remove, optional)"},
 			"blockID":            {Type: "string", Description: "Block ID to bind (for item_add, optional)"},
 			"content":            {Type: "string", Description: "Block column text content (for item_add, optional)"},
@@ -134,6 +138,10 @@ func databaseHandler(args map[string]any) (CallToolResult, error) {
 		return databaseKeys(args)
 	case "key_add":
 		return databaseKeyAdd(args)
+	case "key_set_template":
+		return databaseKeySetTemplate(args)
+	case "key_update":
+		return databaseKeyUpdate(args)
 	case "key_remove":
 		return databaseKeyRemove(args)
 	case "item_add":
@@ -353,14 +361,28 @@ func databasePreviousKeyID(attrView *av.AttributeView, args map[string]any) (ret
 	return "", nil
 }
 
+func databaseKeySetTemplate(args map[string]any) (CallToolResult, error) {
+	id, _ := args["id"].(string)
+	keyID, _ := args["keyID"].(string)
+	templateContent, ok := args["template"].(string)
+	if "" == id || "" == keyID || !ok {
+		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "id, keyID and template (string, may be empty) are required"}}, IsError: true}, nil
+	}
+	if err := model.SetAttributeViewKeyTemplate(id, keyID, templateContent); nil != err {
+		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "set key template failed: " + err.Error()}}, IsError: true}, nil
+	}
+	model.ReloadAttrView(id)
+	return databaseSuccess("key_set_template", map[string]any{"id": id, "keyID": keyID, "template": templateContent})
+}
+
 func databaseViewFieldIDs(view *av.View) (ret []string) {
 	if nil == view {
 		return
 	}
 	switch view.LayoutType {
-	case av.LayoutTypeTable:
-		if nil != view.Table {
-			for _, column := range view.Table.Columns {
+	case av.LayoutTypeTable, av.LayoutTypeList, av.LayoutTypeCalendar:
+		if layout := view.GetTableLayout(); nil != layout {
+			for _, column := range layout.Columns {
 				if nil != column && "" != column.ID {
 					ret = append(ret, column.ID)
 				}
@@ -489,7 +511,9 @@ func databaseUnused(args map[string]any) (CallToolResult, error) {
 func databaseClean(args map[string]any) (CallToolResult, error) {
 	id, _ := args["id"].(string)
 	if id != "" {
-		model.RemoveUnusedAttributeView(id)
+		if err := model.RemoveUnusedAttributeView(id); err != nil {
+			return CallToolResult{Content: []ContentItem{{Type: "text", Text: err.Error()}}, IsError: true}, nil
+		}
 		return databaseSuccess("clean", map[string]any{"count": 1, "ids": []string{id}})
 	}
 	removed := model.RemoveUnusedAttributeViews()

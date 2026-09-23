@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,28 +45,11 @@ import (
 	"github.com/siyuan-note/logging"
 )
 
-func SyncDataDownload() {
+func SyncDataDownload() (err error) {
+	err = errors.New("sync download did not complete")
 	defer logging.Recover()
 
 	if !checkSync(false, false, true) {
-		return
-	}
-
-	scope := lanSyncScope()
-	latestID := getSyncCloudLatestID()
-	if "" != latestID {
-		_, _ = syncRemoteRequests.do(scope, latestID, func() error {
-			lockSync()
-			defer unlockSync()
-			if syncRemoteRequests.isCompleted(scope, latestID) {
-				return nil
-			}
-			err := syncDataDownloadLocked()
-			if nil == err {
-				completeCurrentSyncRemoteRequest(scope)
-			}
-			return err
-		})
 		return
 	}
 
@@ -74,12 +58,12 @@ func SyncDataDownload() {
 		return
 	}
 	defer unlock()
-	if err := syncDataDownloadLocked(); nil == err {
-		completeCurrentSyncRemoteRequest(scope)
-	}
+	err = syncDataDownloadLocked()
+	return
 }
 
 func syncDataDownloadLocked() (err error) {
+	revision := pendingSync.begin()
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 
 	now := util.CurrentTimeMillis()
@@ -91,6 +75,7 @@ func syncDataDownloadLocked() (err error) {
 		code = 2
 	}
 	util.BroadcastByType("main", "syncing", code, Conf.Sync.Stat, nil)
+	pendingSync.finish(revision, err == nil, notifySyncPending)
 	if 1 == code {
 		consumeShorthands()
 	}
@@ -135,7 +120,8 @@ func completeCurrentSyncRemoteRequest(scope string) {
 	syncRemoteRequests.complete(scope, latest.ID)
 }
 
-func SyncDataUpload() {
+func SyncDataUpload() (err error) {
+	err = errors.New("sync upload did not complete")
 	defer logging.Recover()
 
 	if !checkSync(false, false, true) {
@@ -147,21 +133,24 @@ func SyncDataUpload() {
 		return
 	}
 	defer unlock()
+	revision := pendingSync.begin()
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 
 	now := util.CurrentTimeMillis()
 	Conf.Sync.Synced = now
 
-	err := syncRepoUploadWithDNSRetry()
+	err = syncRepoUploadWithDNSRetry()
 	code := 1
 	if err != nil {
 		code = 2
 	}
 	util.BroadcastByType("main", "syncing", code, Conf.Sync.Stat, nil)
+	pendingSync.finish(revision, err == nil, notifySyncPending)
 	return
 }
 
 var (
+	pendingSync      syncPendingState
 	syncSameCount    = atomic.Int32{}
 	autoSyncErrCount = 0
 	fixSyncInterval  = 5 * time.Minute
@@ -205,6 +194,7 @@ func BootSyncData() {
 
 	now := util.CurrentTimeMillis()
 	Conf.Sync.Synced = now
+	revision := pendingSync.begin()
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 	err := bootSyncRepoWithDNSRetry()
 	code := 1
@@ -212,6 +202,7 @@ func BootSyncData() {
 		code = 2
 	}
 	util.BroadcastByType("main", "syncing", code, Conf.Sync.Stat, nil)
+	pendingSync.finish(revision, err == nil, notifySyncPending)
 	if 1 == code {
 		// 启动同步成功后消费本地速记临时文件，避免移动端开启云同步时需手动触发同步才能刷新闪念速记
 		consumeShorthands()
@@ -229,7 +220,7 @@ func SyncDataBeforeEnableEncryptedNotebook() error {
 	if !Conf.Sync.Enabled {
 		return nil
 	}
-	if !cloud.IsValidCloudDirName(Conf.Sync.CloudName) {
+	if conf.ProviderS3 != Conf.Sync.Provider && !cloud.IsValidCloudDirName(Conf.Sync.CloudName) {
 		return errors.New(Conf.Language(123))
 	}
 	if !checkSync(false, false, true) {
@@ -301,6 +292,7 @@ func syncData(exit, byHand bool) {
 }
 
 func syncDataLocked(exit, byHand bool) error {
+	revision := pendingSync.begin()
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 	if exit {
 		ExitSyncSucc = 0
@@ -314,12 +306,13 @@ func syncDataLocked(exit, byHand bool) error {
 	now := util.CurrentTimeMillis()
 	Conf.Sync.Synced = now
 
-	dataChanged, err := syncRepoWithDNSRetry(exit, byHand)
+	cloudPublished, err := syncRepoWithDNSRetry(exit, byHand)
 	code := 1
 	if err != nil {
 		code = 2
 	}
 	util.BroadcastByType("main", "syncing", code, Conf.Sync.Stat, nil)
+	pendingSync.finish(revision, err == nil, notifySyncPending)
 
 	if !exit && 1 == code {
 		consumeShorthands()
@@ -330,8 +323,8 @@ func syncDataLocked(exit, byHand bool) error {
 		connectSyncWebSocket()
 	}
 
-	if 1 == Conf.Sync.Mode && nil != webSocketConn && Conf.Sync.Perception && dataChanged {
-		// 如果处于自动同步模式且不是由 WS 触发的同步，则通知其他设备上的内核进行同步
+	if nil == err && cloudPublished && 1 == Conf.Sync.Mode && nil != webSocketConn && Conf.Sync.Perception {
+		// 自动同步成功发布新云端版本后通知其他设备，纯下载不发送同步信号。
 		request := map[string]any{
 			"cmd":    "synced",
 			"synced": Conf.Sync.Synced,
@@ -359,7 +352,7 @@ func checkSync(boot, exit, byHand bool) bool {
 		return false
 	}
 
-	if !cloud.IsValidCloudDirName(Conf.Sync.CloudName) {
+	if conf.ProviderS3 != Conf.Sync.Provider && !cloud.IsValidCloudDirName(Conf.Sync.CloudName) {
 		if byHand {
 			util.PushMsg(Conf.Language(123), 5000)
 		}
@@ -474,6 +467,8 @@ func upsertIndexes(upsertFilePaths []string) (upsertRootIDs []string) {
 			}
 
 			p := strings.TrimPrefix(upsertFile, box)
+			hpathRefresh.Lock()
+			defer hpathRefresh.Unlock()
 			msg := fmt.Sprintf(Conf.Language(40), util.GetTreeID(p))
 			util.IncBootProgress(bootProgressPart, msg)
 			pushSyncStatusBar(msg)
@@ -484,7 +479,23 @@ func upsertIndexes(upsertFilePaths []string) (upsertRootIDs []string) {
 			if nil != err0 {
 				return "", false
 			}
+			oldDoc := treenode.GetBlockTreeInBox(rootID, box)
+			refreshPath := oldDoc != nil && oldDoc.BoxID == box && oldDoc.HPath != tree.HPath
+			var refreshKey string
+			if refreshPath {
+				if refreshKey, err0 = queueHPathRefreshLocked(tree); err0 != nil {
+					logging.LogErrorf("queue synced document hpaths [%s] failed: %s", rootID, err0)
+					return "", false
+				}
+			}
 			treenode.UpsertBlockTree(tree)
+			if refreshPath {
+				if err0 = treenode.RefreshDocHPaths(tree); err0 != nil {
+					logging.LogErrorf("refresh synced document paths [%s] failed: %s", rootID, err0)
+					return "", false
+				}
+				hpathRefresh.tasks[refreshKey].recover = false
+			}
 			sql.UpsertTreeQueue(tree)
 
 			bts := treenode.GetBlockTreesByRootIDInBox(rootID, tree.Box)
@@ -508,6 +519,9 @@ func upsertIndexes(upsertFilePaths []string) (upsertRootIDs []string) {
 func SetCloudSyncDir(name string) error {
 	release := lockAssetSourceChange()
 	defer release()
+	if conf.ProviderS3 == Conf.Sync.Provider {
+		return errors.New(Conf.Language(131))
+	}
 	if !cloud.IsValidCloudDirName(name) {
 		return errors.New(Conf.Language(37))
 	}
@@ -570,11 +584,22 @@ func SetSyncMode(mode int) {
 	Conf.Save()
 }
 
-func SetSyncProvider(provider int) (err error) {
+func SetSyncProvider(provider int, completeAssets bool) (err error) {
 	release := lockAssetSourceChange()
 	defer release()
 	if provider != Conf.Sync.Provider {
-		if err = requireCompleteAssetDownloads(); err != nil {
+		if completeAssets {
+			util.PushEndlessProgress(Conf.Language(398))
+			defer util.ClearPushProgress(100)
+			err = ensureCompleteSyncAssets(func() { util.PushEndlessProgress(Conf.Language(399)) })
+			if err != nil {
+				logging.LogWarnf("complete data before switching sync provider [%d -> %d] failed: %s", Conf.Sync.Provider, provider, err)
+				err = fmt.Errorf(Conf.Language(400), err)
+			}
+		} else {
+			err = requireCompleteAssetDownloads()
+		}
+		if err != nil {
 			return
 		}
 	}
@@ -587,6 +612,9 @@ func SetSyncProvider(provider int) (err error) {
 func SetSyncProviderS3(s3 *conf.S3) (err error) {
 	release := lockAssetSourceChange()
 	defer release()
+	if err = validateSyncS3(s3); err != nil {
+		return
+	}
 	s3.Endpoint = strings.TrimSpace(s3.Endpoint)
 	s3.Endpoint = util.NormalizeEndpoint(s3.Endpoint)
 	s3.AccessKey = strings.TrimSpace(s3.AccessKey)
@@ -606,6 +634,28 @@ func SetSyncProviderS3(s3 *conf.S3) (err error) {
 	Conf.Save()
 	refreshLANSyncManager()
 	return
+}
+
+func validateSyncS3(s3 *conf.S3) error {
+	if s3 == nil {
+		return errors.New(Conf.Language(249))
+	}
+	for _, value := range []string{s3.Endpoint, s3.AccessKey, s3.SecretKey, s3.Bucket, s3.Region} {
+		if strings.TrimSpace(value) == "" {
+			return errors.New(Conf.Language(249))
+		}
+	}
+	rawEndpoint := strings.TrimSpace(s3.Endpoint)
+	rawEndpoint = strings.Replace(rawEndpoint, "http://http(s)://", "https://", 1)
+	rawEndpoint = strings.Replace(rawEndpoint, "http(s)://", "https://", 1)
+	if strings.Contains(rawEndpoint, "://") && !strings.HasPrefix(rawEndpoint, "http://") && !strings.HasPrefix(rawEndpoint, "https://") {
+		return errors.New(Conf.Language(249))
+	}
+	endpoint, err := url.Parse(util.NormalizeEndpoint(rawEndpoint))
+	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+		return errors.New(Conf.Language(249))
+	}
+	return nil
 }
 
 func SetSyncProviderWebDAV(webdav *conf.WebDAV) (err error) {
@@ -713,7 +763,7 @@ func CreateCloudSyncDir(name string) (err error) {
 
 	handleCloudError := cloudRepoErrorHandler()
 	defer func() { handleCloudError(err) }()
-	repo, err := newRepositoryWithAssetSourceLocked()
+	repo, err := newCloudRepositoryWithAssetSourceLocked()
 	if err != nil {
 		return
 	}
@@ -747,7 +797,7 @@ func RemoveCloudSyncDir(name string) (err error) {
 
 	handleCloudError := cloudRepoErrorHandler()
 	defer func() { handleCloudError(err) }()
-	repo, err := newRepositoryWithAssetSourceLocked()
+	repo, err := newCloudRepositoryWithAssetSourceLocked()
 	if err != nil {
 		return
 	}
@@ -778,7 +828,7 @@ func ListCloudSyncDir() (syncDirs []*Sync, hSize string, err error) {
 
 	handleCloudError := cloudRepoErrorHandler()
 	defer func() { handleCloudError(err) }()
-	repo, err := newRepositoryWithAssetSourceLocked()
+	repo, err := newCloudRepositoryWithAssetSourceLocked()
 	if err != nil {
 		return
 	}
@@ -789,7 +839,7 @@ func ListCloudSyncDir() (syncDirs []*Sync, hSize string, err error) {
 		err = errors.New(formatRepoErrorMsg(err))
 		return
 	}
-	if 1 > len(dirs) {
+	if 1 > len(dirs) && conf.ProviderS3 != Conf.Sync.Provider {
 		dirs = append(dirs, &cloud.Repo{
 			Name:    "main",
 			Size:    0,
@@ -814,10 +864,6 @@ func ListCloudSyncDir() (syncDirs []*Sync, hSize string, err error) {
 	if conf.ProviderSiYuan == Conf.Sync.Provider {
 		hSize = humanize.BytesCustomCeil(uint64(size), 2)
 	}
-	if conf.ProviderS3 == Conf.Sync.Provider {
-		Conf.Sync.CloudName = syncDirs[0].CloudName
-		Conf.Save()
-	}
 	return
 }
 
@@ -833,6 +879,9 @@ func formatRepoErrorMsg(err error) string {
 		msg = Conf.Language(189)
 	} else if errors.Is(err, dejavu.ErrRepoFatal) {
 		msg = Conf.Language(23)
+	} else if errors.Is(err, dejavu.ErrIndexFileChanged) {
+		// 同步索引期间工作空间文件被修改，明确提示用户稍后重试 https://ld246.com/article/1789052153692
+		msg = Conf.Language(384)
 	} else if errors.Is(err, cloud.ErrSystemTimeIncorrect) {
 		msg = Conf.Language(195)
 	} else if errors.Is(err, cloud.ErrDeprecatedVersion) {
@@ -850,7 +899,9 @@ func formatRepoErrorMsg(err error) string {
 	} else {
 		logging.LogErrorf("unclassified repository error: %s", msg)
 		msgLowerCase := strings.ToLower(msg)
-		if strings.Contains(msgLowerCase, "permission denied") || strings.Contains(msg, "access is denied") {
+		if strings.Contains(msgLowerCase, "illegal byte sequence") {
+			msg = fmt.Sprintf(Conf.Language(397), msg)
+		} else if strings.Contains(msgLowerCase, "permission denied") || strings.Contains(msg, "access is denied") {
 			msg = Conf.Language(33)
 		} else if strings.Contains(msgLowerCase, "region was not a valid") {
 			msg = Conf.language(254)
@@ -908,10 +959,10 @@ func flushAndRetryOnDNSError(err error) bool {
 
 // syncRepoWithDNSRetry 执行一次同步，若失败且判定为 DNS 类错误，则刷新系统 DNS 缓存后重试一次。
 // 统一封装 DNS 重试逻辑，供主同步流程（syncData）与启动后台同步复用。
-func syncRepoWithDNSRetry(exit, byHand bool) (dataChanged bool, err error) {
-	dataChanged, err = syncRepo(exit, byHand)
+func syncRepoWithDNSRetry(exit, byHand bool) (cloudPublished bool, err error) {
+	cloudPublished, err = syncRepo(exit, byHand)
 	if nil != err && flushAndRetryOnDNSError(err) {
-		dataChanged, err = syncRepo(exit, byHand)
+		cloudPublished, err = syncRepo(exit, byHand)
 	}
 	return
 }
@@ -942,19 +993,30 @@ func bootSyncRepoWithDNSRetry() (err error) {
 	return
 }
 
-func getSyncIgnoreLines() (ret []string) {
+func loadSyncIgnoreLines() (ret []string, err error) {
+	// 忽略旧版同步配置，读取用户规则失败时仍需保留此规则。
+	defer func() {
+		ret = append(ret, "/.siyuan/conf.json")
+	}()
+	// 同步或快照可能重新带回隔离块，加载规则前完成清理。
+	if err = util.MigrateAppearanceSyncIgnore(); err != nil {
+		return
+	}
 	ignore := filepath.Join(util.DataDir, ".siyuan", "syncignore")
-	err := os.MkdirAll(filepath.Dir(ignore), 0755)
+	err = os.MkdirAll(filepath.Dir(ignore), 0755)
 	if err != nil {
 		return
 	}
-	if !gulu.File.IsExist(ignore) {
-		if err = gulu.File.WriteFileSafer(ignore, nil, 0644); err != nil {
-			logging.LogErrorf("create syncignore [%s] failed: %s", ignore, err)
-			return
+	data, err := os.ReadFile(ignore)
+	if os.IsNotExist(err) {
+		var file *os.File
+		file, err = os.OpenFile(ignore, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			err = file.Close()
+		} else if os.IsExist(err) {
+			data, err = os.ReadFile(ignore)
 		}
 	}
-	data, err := os.ReadFile(ignore)
 	if err != nil {
 		logging.LogErrorf("read syncignore [%s] failed: %s", ignore, err)
 		return
@@ -964,15 +1026,18 @@ func getSyncIgnoreLines() (ret []string) {
 	ret = strings.Split(dataStr, "\n")
 
 	// 忽略用户指南
-	ret = append(ret, "20210808180117-6v0mkxr/**/*")
-	ret = append(ret, "20210808180117-czj9bvb/**/*")
-	ret = append(ret, "20211226090932-5lcq56f/**/*")
-	ret = append(ret, "20240530133126-axarxgx/**/*")
+	for _, id := range userGuideIDs {
+		ret = append(ret, id+"/**/*")
+	}
 	// 视图状态仅在当前设备使用，不参与数据同步。
 	ret = append(ret, "/storage/view-state.json")
 	ret = append(ret, "/storage/view-state-corrupted-*.json")
 	// 忽略用户指南的数据库 JSON 文件
-	for _, avName := range getAllUserGuideAVJSONFiles() {
+	avNames, err := getAllUserGuideAVJSONFiles()
+	if err != nil {
+		return nil, err
+	}
+	for _, avName := range avNames {
 		ret = append(ret, "/storage/av/"+avName)
 	}
 
@@ -983,6 +1048,11 @@ func getSyncIgnoreLines() (ret []string) {
 func IncSync() {
 	syncSameCount.Store(0)
 	planSyncAfter(time.Duration(Conf.Sync.Interval) * time.Second)
+	pendingSync.change(notifySyncPending)
+}
+
+func notifySyncPending(pending bool) {
+	util.BroadcastByType("main", "syncPending", 0, "", pending)
 }
 
 func planSyncAfter(d time.Duration) {
@@ -1114,8 +1184,7 @@ func connectSyncWebSocket() {
 			data := result.Data.(map[string]any)
 			switch data["cmd"].(string) {
 			case "synced":
-				// Improve data synchronization perception https://github.com/siyuan-note/siyuan/issues/13000
-				SyncDataDownload()
+				syncDataFromCloud()
 			case "kernels":
 				onlineKernelsLock.Lock()
 

@@ -1,4 +1,5 @@
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
+import {markToolbarHotkey} from "./hotkey";
 import {Constants} from "../../constants";
 import {focusByRange, focusByWbr} from "../util/selection";
 import {isDisabledFeature, writeText} from "../util/compatibility";
@@ -289,10 +290,20 @@ export const toolbarKeyToMenu = (toolbar: Array<string | IMenuItem>) => {
         icon: "iconFont",
         tipPosition: "n",
     }, {
+        name: "font-family",
+        lang: "fontFamily",
+        icon: "iconFont",
+        tipPosition: "n",
+    }, {
+        name: "font-size",
+        lang: "fontSize",
+        icon: "iconFont",
+        tipPosition: "n",
+    }, {
         name: "clear",
         lang: "clearInline",
         hotkey: window.siyuan.config.keymap.editor.insert.clearInline.custom,
-        icon: "iconClear",
+        icon: "iconEraser",
         tipPosition: "n",
     }, {
         name: "format-painter",
@@ -308,10 +319,12 @@ export const toolbarKeyToMenu = (toolbar: Array<string | IMenuItem>) => {
         toolbarItem.find((defaultMenuItem: IMenuItem) => {
             if (typeof menuItem === "string" && defaultMenuItem.name === menuItem) {
                 currentMenuItem = defaultMenuItem;
+                markToolbarHotkey(currentMenuItem, menuItem);
                 return true;
             }
             if (typeof menuItem === "object" && defaultMenuItem.name === menuItem.name) {
                 currentMenuItem = Object.assign({}, defaultMenuItem, menuItem);
+                markToolbarHotkey(currentMenuItem, menuItem);
                 return true;
             }
         });
@@ -366,6 +379,9 @@ export const copyTextByType = async (ids: string[],
         }
         if (type === "ref") {
             const response = await fetchSyncPost("/api/block/getRefText", {id});
+            if (response.code !== 0) {
+                return;
+            }
             text += `((${id} '${response.data}'))`;
         } else if (type === "blockEmbed") {
             text += `{{select * from blocks where id='${id}'}}`;
@@ -373,6 +389,9 @@ export const copyTextByType = async (ids: string[],
             text += `siyuan://blocks/${id}`;
         } else if (type === "protocolMd") {
             const response = await fetchSyncPost("/api/block/getRefText", {id});
+            if (response.code !== 0) {
+                return;
+            }
             text += `[${response.data.replace("[", "\\[").replace("]", "\\]")}](siyuan://blocks/${id})`;
         } else if (type === "hPath") {
             const response = await fetchSyncPost("/api/filetree/getHPathByID", {id});

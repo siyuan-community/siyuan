@@ -90,6 +90,8 @@ func init() {
 }
 
 func InitDatabase(forceRebuild bool) {
+	HPathRefreshLock.Lock()
+	defer HPathRefreshLock.Unlock()
 	initDatabaseLock.Lock()
 	defer initDatabaseLock.Unlock()
 
@@ -104,7 +106,6 @@ func initDatabase(forceRebuild bool) {
 	util.IncBootProgress(2, util.BootL10n(301, "Initializing database..."))
 
 	if forceRebuild {
-		ClearQueue()
 		closeDatabase()
 		util.RemoveDatabaseFile(util.DBPath)
 	}
@@ -131,7 +132,6 @@ func initDatabase(forceRebuild bool) {
 			return
 		}
 		logging.LogInfof("the database structure is changed, rebuilding database...")
-		clearIndexQueueEntries()
 	}
 
 	// 不存在库或者版本不一致都会走到这里
@@ -143,6 +143,8 @@ func initDatabase(forceRebuild bool) {
 	initDBTables()
 	util.RemoveDatabaseFile(util.BlockTreeDBPath)
 	treenode.InitBlockTree(true)
+	// 两库失效后再清理恢复记录，避免中断时旧索引仍在但路径任务已经丢失。
+	clearQueue()
 
 	logging.LogInfof("reinitialized database [%s]", util.DBPath)
 }
@@ -546,14 +548,10 @@ func refsFromTree(tree *parse.Tree) (refs []*Ref, fileAnnotationRefs []*FileAnno
 				refs = append(refs, ref)
 			}
 		} else if treenode.IsFileAnnotationRef(n) {
-			pathID := n.TextMarkFileAnnotationRefID
-			idx := strings.LastIndex(pathID, "/")
-			if -1 == idx {
+			filePath, annotationID := util.SplitFileAnnotationRef(n.TextMarkFileAnnotationRefID)
+			if "" == annotationID {
 				return ast.WalkContinue
 			}
-
-			filePath := pathID[:idx]
-			annotationID := pathID[idx+1:]
 
 			anchor := n.TextMarkTextContent
 			text := filePath
@@ -957,9 +955,10 @@ func buildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block, attributes
 	boxID := tree.Box
 	p := tree.Path
 	rootID := tree.Root.ID
-	name := html.UnescapeString(n.IALAttr("name"))
-	alias := html.UnescapeString(n.IALAttr("alias"))
-	memo := html.UnescapeString(n.IALAttr("memo"))
+	// IALAttr 已解码过一次属性值转义，此处不再解码，否则落盘时正确转义的值会被还原成原始 HTML 进入索引
+	name := n.IALAttr("name")
+	alias := n.IALAttr("alias")
+	memo := n.IALAttr("memo")
 	tag := tagFromNode(n)
 
 	var content, fcontent, markdown, parentID string
@@ -1061,7 +1060,8 @@ func tagFromNode(node *ast.Node) (ret string) {
 	tagBuilder := bytes.Buffer{}
 
 	if ast.NodeDocument == node.Type {
-		tagIAL := html.UnescapeString(node.IALAttr("tags"))
+		// 与 buildBlockFromNode 一致，IALAttr 已解码过一次属性值转义
+		tagIAL := node.IALAttr("tags")
 		tags := strings.SplitSeq(tagIAL, ",")
 		for t := range tags {
 			t = strings.TrimSpace(t)

@@ -7,9 +7,8 @@ import {openEmojiPanel, unicode2Emoji} from "../../../emoji";
 import {getFileTreeIconHTML} from "../../../emoji/fileTreeIcon";
 import {transaction} from "../../wysiwyg/transaction";
 import {openMenuPanel} from "./openMenuPanel";
-import {uploadFiles} from "../../upload";
 import {openLink} from "../../../editor/openLink";
-import {dragUpload, dragUploadFiles, editAssetItem} from "./asset";
+import {dragUpload, dragUploadFiles, editAssetItem, uploadFilesToAssetCell} from "./asset";
 import {previewImages} from "../../preview/image";
 /// #if !BROWSER
 import {webUtils} from "electron";
@@ -53,7 +52,7 @@ interface IAVAttributeTableData {
             id: string;
             type: TAVCol;
         };
-        values: IAVCellValue[];
+        values?: IAVCellValue[];
     }[];
 }
 
@@ -126,7 +125,7 @@ const handleRichTextInteraction = (protyle: IProtyle, event: MouseEvent) => {
 };
 
 export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IProtyle, cb?: (element: HTMLElement) => void,
-                                  row?: { avID: string, itemID: string, valueID: string }) => {
+                                  row?: { avID: string, itemID: string, valueID: string, databaseBlockID: string }) => {
     const renderID = (++attributeViewRenderID).toString();
     element.dataset.avAttributeRenderId = renderID;
     fetchPost("/api/av/getAttributeViewKeys", row ? {id, avID: row.avID, itemID: row.itemID, valueID: row.valueID} : {id}, (response) => {
@@ -135,34 +134,10 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
         }
         let html = "";
         const tables = Array.isArray(response.data) ? response.data : [];
-        tables.forEach((table: {
-            keyValues: {
-                key: {
-                    type: TAVCol,
-                    name: string,
-                    desc: string,
-                    icon: string,
-                    id: string,
-                    dateFormat?: TAVDateFormat,
-                    renderTemplate?: string,
-                    options?: {
-                        name: string,
-                        color: string
-                    }[]
-                },
-                values: {
-                    keyID: string,
-                    id: string,
-                    blockID: string,
-                    isDetached?: boolean,
-                    type: TAVCol & IAVCellValue
-                }[]
-            }[],
-            blockIDs: string[],
-            avID: string
-            avName: string
-        }) => {
-            const primaryValue = table.keyValues.find(item => item.key.type === "block")?.values[0] || table.keyValues[0]?.values[0];
+        tables.forEach((table) => {
+            // 条目 ID 仅用于读取行数据，编辑菜单和更新时间使用真实数据库载体块。
+            const blockID = row ? row.databaseBlockID : id;
+            const primaryValue = table.keyValues.find(item => item.key.type === "block")?.values?.[0] || table.keyValues[0]?.values?.[0];
             let innerHTML = `<div class="custom-attr__avheader">
     <div class="block__logo block__logo--icon popover__block" style="max-width:calc(100% - 40px)" data-id='${JSON.stringify(table.blockIDs)}'>
         <svg class="block__logoicon"><use xlink:href="#iconDatabase"></use></svg>
@@ -174,7 +149,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             table.keyValues?.forEach(item => {
                 const value = Object.assign(
                     createEmptyAVValue(item.key.id, item.key.type, primaryValue?.blockID),
-                    item.values[0] || {}
+                    item.values?.[0] || {}
                 );
                 innerHTML += genAVAttributeRowHTML({
                     nodeID: id,
@@ -195,15 +170,17 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             innerHTML += `<div class="fn__hr"></div>
 <button data-type="addColumn" class="b3-button b3-button--cancel"><svg><use xlink:href="#iconAdd"></use></svg>${window.siyuan.languages.newCol}</button>
 <div class="fn__hr--b"></div><div class="fn__hr--b"></div>`;
-            html += `<div data-av-id="${table.avID}" data-av-type="table" data-node-id="${id}" data-type="NodeAttributeView">${innerHTML}</div>`;
+            const tableHTML = `<div data-av-id="${table.avID}" data-av-type="table" data-node-id="${blockID}" data-attribute-id="${id}" data-type="NodeAttributeView">${innerHTML}</div>`;
+            html += tableHTML;
 
             if (element.innerHTML) {
                 // 防止 blockElement 找不到
-                const blockElement = element.querySelector(`[data-node-id="${id}"][data-av-id="${table.avID}"]`);
+                const blockElement = element.querySelector<HTMLElement>(`[data-attribute-id="${id}"][data-av-id="${table.avID}"]`);
                 if (blockElement) {
+                    blockElement.dataset.nodeId = blockID;
                     blockElement.innerHTML = innerHTML;
                 } else {
-                    element.insertAdjacentHTML("beforeend", `<div data-av-id="${table.avID}" data-av-type="table" data-node-id="${id}" data-type="NodeAttributeView">${innerHTML}</div>`);
+                    element.insertAdjacentHTML("beforeend", tableHTML);
                 }
             }
         });
@@ -211,6 +188,10 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             let dragBlockElement: HTMLElement;
             let removeEditorRange: Range | undefined;
             element.addEventListener("dragstart", (event: DragEvent) => {
+                if (protyle.disabled) {
+                    event.preventDefault();
+                    return;
+                }
                 const target = event.target as HTMLElement;
                 window.siyuan.dragElement = target.parentElement;
                 window.siyuan.dragElement.style.opacity = ".38";
@@ -282,6 +263,9 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                 }
             });
             element.addEventListener("dragover", (event: DragEvent) => {
+                if (protyle.disabled) {
+                    return;
+                }
                 const target = event.target as HTMLElement;
                 let targetElement: HTMLElement | false;
                 if (event.dataTransfer.types.includes("Files")) {
@@ -337,16 +321,16 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                 }
             });
             element.addEventListener("paste", (event) => {
+                if (protyle.disabled) {
+                    return;
+                }
                 const files = event.clipboardData.files;
                 const assetCellElement = element.querySelector<HTMLElement>('.custom-attr__avvalue[data-type="mAsset"][data-active="true"]');
                 if (assetCellElement && document.querySelector(".av__panel .b3-form__upload")) {
                     event.preventDefault();
                     event.stopPropagation();
                     if (files && files.length > 0) {
-                        uploadFiles(protyle, files, undefined, undefined, undefined, {
-                            source: "paste",
-                            target: "av-cell",
-                        });
+                        uploadFilesToAssetCell(files, protyle, assetCellElement, {source: "paste"});
                     } else {
                         const textPlain = event.clipboardData.getData("text/plain");
                         const blockElement = hasClosestBlock(assetCellElement);
@@ -418,6 +402,9 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                 }
                 const removeElement = hasClosestByAttribute(event.target as HTMLElement, "data-type", "remove");
                 if (removeElement) {
+                    if (protyle.disabled) {
+                        return;
+                    }
                     const selection = document.getSelection();
                     const currentRange = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
                     const editorRange = removeEditorRange || getEditorFocusRange(protyle.wysiwyg.element,
@@ -491,6 +478,9 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                         const restoreEditorRange = () => restoreEditorFocusRange(protyle.wysiwyg.element,
                             editorRange);
                         confirmDialog(window.siyuan.languages.removeAV, window.siyuan.languages.confirmDelete + "?", () => {
+                            if (protyle.disabled) {
+                                return;
+                            }
                             removeElement.setAttribute("disabled", "true");
                             transaction(protyle, doOperations, undoOperations.length > 0 ? undoOperations : undefined, {
                                 callback: () => {
@@ -520,8 +510,12 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             element.innerHTML = html;
         }
         renderAVRichTextElements(element);
+        element.dataset.readonly = String(Boolean(protyle.disabled));
+        element.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea").forEach(item => {
+            item.readOnly = Boolean(protyle.disabled);
+        });
         tables.forEach((table: IAVAttributeTableData) => {
-            const blockElement = element.querySelector<HTMLElement>(`[data-node-id="${id}"][data-av-id="${table.avID}"]`);
+            const blockElement = element.querySelector<HTMLElement>(`[data-attribute-id="${id}"][data-av-id="${table.avID}"]`);
             if (blockElement) {
                 attributeTableData.set(blockElement, table);
             }
@@ -529,6 +523,9 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
         if (element.dataset.avInputBound !== "true") {
             element.dataset.avInputBound = "true";
             element.addEventListener("change", (event) => {
+                if (protyle.disabled) {
+                    return;
+                }
                 const item = event.target as HTMLInputElement | HTMLTextAreaElement;
                 if (!item.classList.contains("b3-text-field--text") || !item.parentElement.dataset.avId) {
                     return;
@@ -608,6 +605,19 @@ const renderAttributeViewBacklinks = (element: HTMLElement, id: string, renderID
 
 const openEdit = (protyle: IProtyle, element: HTMLElement, event: MouseEvent) => {
     let target = event.target as HTMLElement;
+    if (protyle.disabled) {
+        const assetElement = target.closest<HTMLElement>(".av__celltext--url, .av__cellassetimg");
+        if (event.type === "click" && assetElement) {
+            if (assetElement.tagName === "IMG") {
+                previewImages([removeCompressURL(assetElement.getAttribute("src"))]);
+            } else if (assetElement.dataset.url) {
+                openLink(protyle.app, assetElement.dataset.url, event, event.ctrlKey || event.metaKey);
+            }
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        return;
+    }
     const valueElement = hasClosestByClassName(target, "custom-attr__avvalue");
     const blockElement = hasClosestBlock(valueElement || target);
     if (!blockElement) {

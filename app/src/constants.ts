@@ -71,6 +71,7 @@ export abstract class Constants {
     public static readonly SIYUAN_SAVE_CLOSE: string = "siyuan-save-close";
     public static readonly SIYUAN_OPEN_SETTING: string = "siyuan-open-setting";
     public static readonly SIYUAN_OPEN_HELP: string = "siyuan-open-help";
+    public static readonly SIYUAN_TOPBAR_CONTEXT_MENU: string = "siyuan-topbar-context-menu"; // 顶栏拖拽区域右键转交渲染进程
 
     // custom
     public static readonly CUSTOM_REMINDER_WECHAT: string = "custom-reminder-wechat";
@@ -80,6 +81,8 @@ export abstract class Constants {
     public static readonly CUSTOM_SY_HEADING_NUMBER: string = "custom-sy-heading-number";
     public static readonly CUSTOM_SY_AV_VIEW: string = "custom-sy-av-view";
     public static readonly CUSTOM_SY_AV_VISIBLE_VIEWS: string = "custom-sy-av-visible-views";
+    public static readonly CUSTOM_SY_LIST_MINDMAP: string = "custom-sy-list-mindmap";
+    public static readonly CUSTOM_SY_LIST_MINDMAP_DATA: string = "custom-sy-list-mindmap-data";
     public static readonly CUSTOM_SY_TITLE_EMPTY: string = "custom-sy-title-empty";
     public static readonly CUSTOM_SY_CODE_TAB_SPACES: string = "custom-sy-code-tab-spaces";
 
@@ -182,6 +185,7 @@ export abstract class Constants {
     public static readonly LOCAL_EXPORTPDF = "local-exportpdf";
     public static readonly LOCAL_EXPORTWORD = "local-exportword";
     public static readonly LOCAL_EXPORTIMG = "local-exportimg";
+    public static readonly LOCAL_EXPORTPATH = "local-exportpath";
     public static readonly LOCAL_BAZAAR = "local-bazaar";
     public static readonly LOCAL_PDFTHEME = "local-pdftheme";
     public static readonly LOCAL_LAYOUTS = "local-layouts";
@@ -267,6 +271,7 @@ export abstract class Constants {
     public static readonly MENU_BAR_ZOOM = "barZoom"; // 顶栏缩放菜单
     public static readonly MENU_BAR_MODE = "barmode"; // 顶栏外观菜单
     public static readonly MENU_BAR_MORE = "barmore"; // 顶栏更多菜单
+    public static readonly MENU_BAR_ENTRY = "barEntry"; // 顶栏入口显隐菜单
     public static readonly MENU_STATUS_HELP = "statusHelp"; // 状态栏帮助菜单
     public static readonly MENU_STATUS_BACKGROUND_TASK = "statusBackgroundTask"; // 状态栏后台任务菜单
     public static readonly MENU_DOCK = "menu-dock"; // 桌面端 dock 图标菜单
@@ -323,6 +328,8 @@ export abstract class Constants {
     public static readonly MENU_AI = "ai"; // 块 AI 菜单
     public static readonly MENU_TAB = "tab"; // 页签右键菜单
     public static readonly MENU_TAB_LIST = "tabList"; // 页签切换菜单
+    public static readonly MENU_MOBILE_TABS = "mobileTabs"; // 移动端页签长按菜单
+    public static readonly MENU_MOBILE_TABS_OVERVIEW = "mobileTabsOverview"; // 移动端页签概览面板
 
     public static readonly MENU_INLINE_CONTEXT = "inline-context"; // 文本右键菜单
     public static readonly MENU_INLINE_IMG = "inline-img"; // 图片元素菜单
@@ -368,6 +375,7 @@ export abstract class Constants {
         th: "20210808180117-6v0mkxr",
         nl: "20210808180117-6v0mkxr",
         sk: "20210808180117-6v0mkxr",
+        sr: "20210808180117-6v0mkxr",
         tr: "20210808180117-6v0mkxr",
         uk: "20210808180117-6v0mkxr",
         "zh-TW": "20211226090932-5lcq56f",
@@ -937,6 +945,6 @@ export abstract class Constants {
         "js", "ts", "html", "toml", "c#", "bat"
     ];
     public static readonly SIYUAN_RENDER_CODE_LANGUAGES: string[] = [
-        "abc", "plantuml", "mermaid", "flowchart", "echarts", "mindmap", "graphviz", "math"
+        "abc", "plantuml", "mermaid", "flowchart", "echarts", "graphviz", "math"
     ];
 }

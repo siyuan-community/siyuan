@@ -1,10 +1,12 @@
+import {isTableLikeView} from "./viewType";
 import {addDragFill, cellScrollIntoView} from "./cell";
 import {clearSelect} from "../../util/clear";
 import {focusBlock, focusByRange} from "../../util/selection";
 import {getFirstBlock, getLastBlock, getNextBlock, getPreviousBlock} from "../../wysiwyg/getBlock";
 import {scrollCenter} from "../../../util/highlightById";
 import {focusEditableAtGoalX, TVerticalDirection} from "../../wysiwyg/verticalCaret";
-import {selectAVItemRange, setAVItemAnchor} from "./rangeSelect";
+import {selectAVItemRange, setAVItemAnchor, setAVCellAnchor} from "./rangeSelect";
+import {ensureAVTableBoundaryRow, getAVData} from "./virtualScroll";
 
 const isForwardArrow = (key: string) => key === "ArrowDown" || key === "ArrowRight";
 
@@ -44,33 +46,37 @@ export const getAVVerticalGoalX = (blockElement: HTMLElement) => {
 };
 
 export const focusAVTitleByVerticalArrow = (blockElement: HTMLElement, direction: TVerticalDirection,
-                                            goalX: number) => {
+                                            goalX: number, scrollBoundary?: Element) => {
     const titleElement = getVisibleAVTitle(blockElement);
     if (!titleElement) {
         return false;
     }
+    if (!focusEditableAtGoalX(titleElement, direction, goalX, scrollBoundary)) {
+        return false;
+    }
     clearSelect(["av"], blockElement);
-    return focusEditableAtGoalX(titleElement, direction, goalX);
+    return true;
 };
 
 export const focusAVVerticalRegion = (blockElement: HTMLElement, direction: TVerticalDirection, goalX: number,
-                                      includeTitle = true) => {
+                                      includeTitle = true, scrollBoundary?: Element) => {
     const titleElement = includeTitle && getVisibleAVTitle(blockElement);
     if (direction === "down" && titleElement) {
-        clearSelect(["av"], blockElement);
-        return focusEditableAtGoalX(titleElement, direction, goalX);
+        return focusAVTitleByVerticalArrow(blockElement, direction, goalX, scrollBoundary);
     }
 
-    if (blockElement.dataset.avType === "table") {
+    if (isTableLikeView(blockElement.dataset.avType)) {
         const rows = getOwnVisibleElements(blockElement, ".av__row[data-id]:not(.av__row--header)");
-        const rowElement = rows[direction === "down" ? 0 : rows.length - 1];
+        const rowElement = getAVData(blockElement) ? ensureAVTableBoundaryRow(blockElement, direction) :
+            rows[direction === "down" ? 0 : rows.length - 1];
         const cellElement = rowElement && getClosestCell(rowElement, goalX);
         if (cellElement) {
             if (!focusBlock(blockElement)) {
                 return false;
             }
-            clearSelect(["av"], blockElement);
-            cellElement.classList.add("av__cell--select");
+            if (!setAVCellAnchor(blockElement, cellElement)) {
+                return false;
+            }
             addDragFill(cellElement);
             cellScrollIntoView(blockElement, cellElement);
             return true;
@@ -91,8 +97,7 @@ export const focusAVVerticalRegion = (blockElement: HTMLElement, direction: TVer
     }
 
     if (direction === "up" && titleElement) {
-        clearSelect(["av"], blockElement);
-        return focusEditableAtGoalX(titleElement, direction, goalX);
+        return focusAVTitleByVerticalArrow(blockElement, direction, goalX, scrollBoundary);
     }
     return false;
 };
@@ -115,7 +120,7 @@ export const focusAVByArrow = (protyle: IProtyle, blockElement: HTMLElement, key
         return true;
     }
 
-    if (blockElement.dataset.avType !== "table") {
+    if (!isTableLikeView(blockElement.dataset.avType)) {
         return false;
     }
 
@@ -126,8 +131,9 @@ export const focusAVByArrow = (protyle: IProtyle, blockElement: HTMLElement, key
         if (!focusBlock(blockElement)) {
             return false;
         }
-        clearSelect(["av"], blockElement);
-        cellElement.classList.add("av__cell--select");
+        if (!setAVCellAnchor(blockElement, cellElement)) {
+            return false;
+        }
         addDragFill(cellElement);
         cellScrollIntoView(blockElement, cellElement);
         return true;

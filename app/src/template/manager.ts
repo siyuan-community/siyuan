@@ -1,28 +1,43 @@
 import {Dialog} from "../dialog";
+import {openInputDialog} from "../dialog/inputDialog";
 import {confirmDialog} from "../dialog/confirmDialog";
 import {fetchSyncPost} from "../util/fetch";
 import {escapeHtml} from "../util/escape";
 import {showMessage} from "../dialog/message";
 import {clearTemplatePreview, previewTemplate} from "../protyle/toolbar/util";
-import {getTemplateTree, TemplateEntry} from "./fileTree";
-import {getTemplateActionState} from "./actionState";
+import type {TemplateEntry} from "./fileTree";
+import {getFileRenameTarget, getFileTree} from "../util/fileTree";
+import {getTemplateActionEntry, getTemplateActionState} from "./actionState";
+/// #if !MOBILE
+import {openBy} from "../editor/util";
+/// #endif
+import {replaceFileName} from "../editor/rename";
+import {getHostCapabilities} from "../util/hostCapabilities";
+import {isBrowser, isMobile} from "../util/functions";
+import type {TemplateFileRequestInput} from "../types/api";
+import {openModel} from "../mobile/menu/model";
+import {closeModel} from "../mobile/util/closePanel";
 
-export const loadTemplateDirectories = async (select: HTMLSelectElement) => {
+export const loadTemplateDirectories = async (select: HTMLSelectElement, initialDirectory?: string) => {
     const response = await fetchSyncPost("/api/template/manage", {action: "list"});
-    if (response.code !== 0 || !select.isConnected) {
-        return;
+    if (response.code !== 0 || !Array.isArray(response.data) || !select.isConnected) {
+        return false;
     }
-    const value = select.value;
+    const value = initialDirectory ?? select.value;
     select.replaceChildren(new Option("/", ""));
-    (response.data as TemplateEntry[]).filter(entry => entry.isDir).forEach(entry => {
+    response.data.filter(entry => entry.isDir).forEach(entry => {
         select.add(new Option(entry.path, entry.path));
     });
     select.value = Array.from(select.options).some(option => option.value === value) ? value : "";
+    return true;
 };
 
-export const openTemplateManager = (contextID: string, onClose?: () => void) => {
+export const openTemplateManager = (contextID = "", onClose?: () => void, initialPath = "") => {
     const lang = window.siyuan.languages;
+    const mobile = isMobile();
     let selected: TemplateEntry;
+    let editing: TemplateEntry;
+    let editingRevision = "";
     let entries: TemplateEntry[] = [];
     let saved = "";
     let useCRLF = false;
@@ -32,18 +47,15 @@ export const openTemplateManager = (contextID: string, onClose?: () => void) => 
     let closed = false;
     const expandedPaths = new Set<string>();
     const button = (action: string, label: string) => `<button type="button" class="b3-button b3-button--outline" data-action="${action}">${label}</button>`;
-    const dialog = new Dialog({
-        title: lang.templateManager,
-        width: "min(1100px, 96vw)",
-        height: "min(800px, 90vh)",
-        content: `<div class="template-manager">
+    const content = `<div class="template-manager${mobile ? " template-manager--mobile" : ""}">
 <div class="template-manager__actions">
-${button("new", lang.new + " " + lang.template)}${button("mkdir", lang.templateNewFolder)}
+${button("new", lang.newTemplate)}${button("mkdir", lang.templateNewFolder)}
 ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", lang.remove)}${button("refresh", lang.refresh)}
+${!isBrowser() && !isMobile() && getHostCapabilities().localFileSystem ? button("open", lang.showInFolder) : ""}
 </div>
 <div class="template-manager__panels">
 <div class="template-manager__sidebar">
-<input class="b3-text-field template-manager__search" type="search" placeholder="${lang.templateSearch}" aria-label="${lang.templateSearch}">
+<input spellcheck="false" class="b3-text-field template-manager__search" type="search" placeholder="${lang.templateSearch}" aria-label="${lang.templateSearch}">
 <ul class="template-manager__files b3-list b3-list--background" aria-label="${lang.template}"></ul>
 </div>
 <div class="template-manager__editor">
@@ -54,29 +66,58 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
 <div>${lang.templateContext}<span class="template-manager__context-name"></span></div>
 <div class="ft__on-surface">${lang.templateContextTip}</div>
 <div class="template-manager__context-fields">
-<input class="b3-text-field" type="search" placeholder="${lang.templateContextSearch}" aria-label="${lang.templateContextSearch}">
+<input spellcheck="false" class="b3-text-field" type="search" placeholder="${lang.templateContextSearch}" aria-label="${lang.templateContextSearch}">
 <select class="b3-select" aria-label="${lang.templateContext}"></select></div></div>
 <div class="template-manager__preview"></div>
 </div></div>
-</div>`,
-        destroyCallback: () => {
-            clearTemplatePreview(preview);
-            window.removeEventListener("beforeunload", beforeUnload);
-            onClose?.();
-        }
+</div>`;
+    const onDestroy = () => {
+        closed = true;
+        clearTemplatePreview(preview);
+        window.removeEventListener("beforeunload", beforeUnload);
+        onClose?.();
+    };
+    let element: HTMLElement;
+    const dialog = mobile ? undefined : new Dialog({
+        title: lang.templateManager,
+        width: "min(1100px, 96vw)",
+        height: "min(800px, 90vh)",
+        content,
+        destroyCallback: onDestroy,
     });
-    const source = dialog.element.querySelector<HTMLTextAreaElement>("textarea");
-    const list = dialog.element.querySelector<HTMLElement>(".template-manager__files");
-    const pathLabel = dialog.element.querySelector<HTMLElement>(".template-manager__path");
-    const preview = dialog.element.querySelector<HTMLElement>(".template-manager__preview");
-    const fileSearch = dialog.element.querySelector<HTMLInputElement>(".template-manager__search");
-    const search = dialog.element.querySelector<HTMLInputElement>(".template-manager__context input");
-    const context = dialog.element.querySelector<HTMLSelectElement>("select");
-    const contextName = dialog.element.querySelector<HTMLElement>(".template-manager__context-name");
-    context.add(new Option(contextID, contextID));
+    if (mobile) {
+        openModel({
+            title: lang.templateManager,
+            icon: "iconLeft",
+            hideCloseIcon: true,
+            html: content,
+            bindEvent: root => { element = root; },
+            destroyCallback: onDestroy,
+            backCallback: () => {
+                back();
+                return false;
+            },
+            transition: "forward",
+        });
+    } else {
+        element = dialog.element;
+    }
+    const root = element.querySelector<HTMLElement>(".template-manager");
+    const source = element.querySelector<HTMLTextAreaElement>("textarea");
+    const list = element.querySelector<HTMLElement>(".template-manager__files");
+    const pathLabel = element.querySelector<HTMLElement>(".template-manager__path");
+    const preview = element.querySelector<HTMLElement>(".template-manager__preview");
+    const fileSearch = element.querySelector<HTMLInputElement>(".template-manager__search");
+    const search = element.querySelector<HTMLInputElement>(".template-manager__context input");
+    const context = element.querySelector<HTMLSelectElement>("select");
+    const contextName = element.querySelector<HTMLElement>(".template-manager__context-name");
+    if (contextID) {
+        context.add(new Option(contextID, contextID));
+    }
     const updateContextName = () => {
-        contextName.textContent = context.selectedOptions[0].text;
-        contextName.title = context.selectedOptions[0].text;
+        const selectedOption = context.selectedOptions[0];
+        contextName.textContent = selectedOption?.text || "";
+        contextName.title = selectedOption?.text || "";
     };
     updateContextName();
     const dirty = () => source.value !== saved;
@@ -97,21 +138,31 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
             action();
         }
     };
-    const destroy = dialog.destroy.bind(dialog);
-    dialog.destroy = () => guard(() => {
-        closed = true;
-        clearTemplatePreview(preview);
-        destroy();
+    const destroy = mobile ? closeModel : dialog.destroy.bind(dialog);
+    const back = () => guard(() => {
+        if (mobile && root.classList.contains("template-manager--editing")) {
+            void run(async () => {
+                await select();
+                renderList();
+                element.closest("#model")?.querySelector<HTMLElement>(".toolbar__icon").focus({preventScroll: true});
+            });
+        } else {
+            destroy();
+        }
     });
+    if (dialog) {
+        dialog.destroy = back;
+    }
     const update = () => {
-        pathLabel.textContent = (selected?.path || "") + (dirty() ? " *" : "");
-        pathLabel.classList.toggle("fn__none", !selected);
-        source.disabled = !selected || selected.isDir;
+        pathLabel.textContent = (editing?.path || "") + (dirty() ? " *" : "");
+        pathLabel.classList.toggle("fn__none", !editing);
+        source.disabled = !editing;
         source.readOnly = busy;
         list.setAttribute("aria-busy", String(busy));
-        dialog.element.querySelectorAll<HTMLButtonElement>(".template-manager__actions > [data-action]").forEach(element => {
+        element.querySelectorAll<HTMLButtonElement>(".template-manager__actions > [data-action]").forEach(element => {
             const action = element.dataset.action;
-            const state = getTemplateActionState(action, selected, dirty(), busy);
+            const state = getTemplateActionState(action, getTemplateActionEntry(action, selected, editing),
+                dirty(), busy, Boolean(context.value));
             element.title = state.packageMove ? lang.templatePackageMoveTip : "";
             element.disabled = state.disabled;
             // 请求期间保留按钮外观，由事件入口拦截重复操作。
@@ -133,14 +184,14 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
             update();
         }
     };
-    const api = async (data: Record<string, unknown>) => {
+    const api = async (data: TemplateFileRequestInput) => {
         const response = await fetchSyncPost("/api/template/manage", data);
         return response.code === 0 ? response : undefined;
     };
     const renderList = () => {
         const scrollTop = list.scrollTop;
         list.replaceChildren();
-        const rows = getTemplateTree(entries, fileSearch.value, expandedPaths);
+        const rows = getFileTree(entries, fileSearch.value, expandedPaths);
         if (rows.length === 0) {
             const empty = document.createElement("li");
             empty.className = "ft__on-surface template-manager__empty";
@@ -187,7 +238,27 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
             element.append(name);
             element.title = entry.path;
             element.addEventListener("click", () => {
-                if (entry.path !== selected?.path) {
+                if (busy || closed) {
+                    return;
+                }
+                if (entry.isDir) {
+                    void run(async () => {
+                        await select(entry, true);
+                        if (!fileSearch.value.trim()) {
+                            if (expandedPaths.has(entry.path)) {
+                                expandedPaths.delete(entry.path);
+                            } else {
+                                expandedPaths.add(entry.path);
+                            }
+                        }
+                        renderList();
+                    });
+                } else if (entry.path === editing?.path) {
+                    selected = entry;
+                    revision = editingRevision;
+                    renderList();
+                    update();
+                } else if (entry.path !== selected?.path) {
                     guard(() => run(() => select(entry)));
                 }
             });
@@ -196,25 +267,31 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
         });
         list.scrollTop = scrollTop;
     };
-    const select = async (entry?: TemplateEntry) => {
+    const select = async (entry?: TemplateEntry, preserveEditor = false) => {
+        let content = "";
+        let absolutePath = "";
         if (entry) {
             const response = await api({action: "read", path: entry.path});
-            if (!response) {
+            if (!response?.data || Array.isArray(response.data) || !("content" in response.data)) {
                 return;
             }
             revision = response.data.revision;
-            saved = response.data.content;
-            useCRLF = saved.includes("\r\n") && !saved.replace(/\r\n/g, "").includes("\n");
-            previewPath = response.data.path || "";
+            content = response.data.content;
+            absolutePath = response.data.path || "";
         } else {
-            saved = "";
             revision = "";
-            previewPath = "";
         }
         selected = entry;
-        source.value = saved;
-        saved = source.value;
-        clearTemplatePreview(preview);
+        if (!preserveEditor) {
+            editing = entry && !entry.isDir ? entry : undefined;
+            root.classList.toggle("template-manager--editing", !!editing);
+            editingRevision = editing ? revision : "";
+            useCRLF = content.includes("\r\n") && !content.replace(/\r\n/g, "").includes("\n");
+            previewPath = absolutePath;
+            source.value = content;
+            saved = source.value;
+            clearTemplatePreview(preview);
+        }
         list.querySelectorAll<HTMLElement>("li[data-path]").forEach(row => {
             const active = row.dataset.path === selected?.path;
             row.classList.toggle("b3-list-item--focus", active);
@@ -224,7 +301,7 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
     };
     const reload = async (path = selected?.path, reveal = false) => {
         const response = await api({action: "list"});
-        if (!response) {
+        if (!response || !Array.isArray(response.data)) {
             return;
         }
         entries = response.data;
@@ -242,34 +319,41 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
             list.querySelector(".b3-list-item--focus")?.scrollIntoView({block: "nearest", inline: "nearest"});
         }
     };
-    const inputPath = (title: string, value: string, callback: (value: string) => Promise<void>) => {
-        const prompt = new Dialog({
+    const inputPath = (title: string, value: string, callback: (value: string) => Promise<void>, nameOnly = false) => {
+        const prompt = openInputDialog({
             title,
-            width: "min(520px, 92vw)",
-            content: `<div class="b3-dialog__content"><label>${lang.savePath}<input class="b3-text-field fn__block" spellcheck="false"></label></div>
-<div class="b3-dialog__action">${button("cancel", lang.cancel)}<div class="fn__space"></div>${button("confirm", lang.confirm)}</div>`
+            value,
+            label: nameOnly ? lang.name : lang.savePath,
+            onConfirm: (value, prompt) => {
+                const input = prompt.element.querySelector<HTMLInputElement>("input");
+                if (nameOnly) {
+                    input.value = replaceFileName(value);
+                }
+                if (!input.value.trim()) {
+                    input.focus();
+                    return;
+                }
+                if (nameOnly && getFileRenameTarget(selected.path, input.value.trim()) === undefined) {
+                    input.setCustomValidity(lang.templateNameTip);
+                    input.reportValidity();
+                    return;
+                }
+                prompt.destroy();
+                void run(() => callback(input.value.trim()));
+            },
         });
         const input = prompt.element.querySelector<HTMLInputElement>("input");
-        input.value = value;
-        prompt.bindInput(input, () => prompt.element.querySelector<HTMLButtonElement>("[data-action=confirm]").click());
-        input.select();
-        prompt.element.querySelector("[data-action=cancel]").addEventListener("click", () => prompt.destroy());
-        prompt.element.querySelector("[data-action=confirm]").addEventListener("click", () => {
-            if (!input.value.trim()) {
-                input.focus();
-                return;
-            }
-            prompt.destroy();
-            void run(() => callback(input.value.trim()));
-        });
+        input.addEventListener("input", () => input.setCustomValidity(""));
     };
     const move = () => {
         const entry = selected;
         const prompt = new Dialog({
             title: lang.move,
             width: "min(520px, 92vw)",
-            content: `<div class="b3-dialog__content"><label>${lang.savePath}<select class="b3-select fn__block"></select></label></div>
-<div class="b3-dialog__action">${button("cancel", lang.cancel)}<div class="fn__space"></div>${button("confirm", lang.confirm)}</div>`
+            content: `<div class="b3-dialog__content"><label>${lang.savePath}<div class="fn__hr"></div><select class="b3-select fn__block"></select></label></div>
+<div class="b3-dialog__action">
+<button type="button" class="b3-button b3-button--cancel" data-action="cancel">${lang.cancel}</button><div class="fn__space"></div>
+<button type="button" class="b3-button b3-button--text" data-action="confirm">${lang.confirm}</button></div>`
         });
         const destination = prompt.element.querySelector<HTMLSelectElement>("select");
         destination.add(new Option("/", ""));
@@ -294,17 +378,18 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
         clearTemplatePreview(preview);
         update();
     });
-    dialog.element.addEventListener("keydown", event => {
+    element.addEventListener("keydown", event => {
         event.stopPropagation();
         if (event.key === "Escape" && !event.isComposing) {
             event.preventDefault();
-            dialog.destroy();
+            back();
         }
     });
     fileSearch.addEventListener("input", renderList);
     context.addEventListener("change", () => {
         updateContextName();
         clearTemplatePreview(preview);
+        update();
     });
     let searchRequest = 0;
     search.addEventListener("input", async () => {
@@ -315,24 +400,32 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
                 return;
             }
             const selectedOption = context.selectedOptions[0];
-            context.replaceChildren(new Option(selectedOption.text, selectedOption.value));
+            context.replaceChildren();
+            if (selectedOption?.value) {
+                context.add(new Option(selectedOption.text, selectedOption.value));
+            }
             response.data.forEach((doc: {path: string, hPath: string}) => {
                 const id = doc.path.split("/").pop().replace(/\.sy$/, "");
                 if (id !== context.value) {
                     context.add(new Option(doc.hPath, id));
                 }
             });
+            updateContextName();
+            clearTemplatePreview(preview);
+            update();
         } catch (error) {
             showMessage(escapeHtml(String(error)), 5000, "error");
         }
     });
-    void fetchSyncPost("/api/block/getRefText", {id: contextID}).then(response => {
-        if (!closed && response.code === 0 && context.options[0]?.value === contextID) {
-            context.options[0].text = response.data || contextID;
-            updateContextName();
-        }
-    }).catch(() => {});
-    dialog.element.addEventListener("click", event => {
+    if (contextID) {
+        void fetchSyncPost("/api/block/getRefText", {id: contextID}).then(response => {
+            if (!closed && response.code === 0 && context.options[0]?.value === contextID) {
+                context.options[0].text = response.data || contextID;
+                updateContextName();
+            }
+        }).catch(() => {});
+    }
+    element.addEventListener("click", event => {
         const target = (event.target as Element).closest<HTMLElement>(".template-manager__actions > [data-action]");
         const action = preview.contains(target) ? undefined : target?.dataset.action;
         if (!action || busy || closed || (target as HTMLButtonElement).disabled) {
@@ -341,12 +434,25 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
         if (action === "save") {
             void run(async () => {
                 const content = useCRLF ? source.value.replace(/\n/g, "\r\n") : source.value;
-                const response = await api({action: "write", path: selected.path, content, revision});
-                if (response) {
+                const response = await api({action: "write", path: editing.path, content, revision: editingRevision});
+                if (response?.data && !Array.isArray(response.data)) {
                     saved = source.value;
-                    revision = response.data.revision;
+                    editingRevision = response.data.revision;
+                    if (selected?.path === editing.path) {
+                        revision = editingRevision;
+                    } else if (selected?.isDir && editing.path.startsWith(selected.path + "/")) {
+                        const directory = await api({action: "read", path: selected.path});
+                        if (directory?.data && !Array.isArray(directory.data)) {
+                            revision = directory.data.revision;
+                        }
+                    }
                 }
             });
+        } else if (action === "open") {
+            /// #if !MOBILE
+            const root = window.siyuan.config.system.dataDir.replace(/\\/g, "/").replace(/\/$/, "") + "/templates";
+            openBy(selected ? root + "/" + selected.path : root, selected ? "folder" : "app");
+            /// #endif
         } else if (action === "preview") {
             previewTemplate(previewPath, preview, context.value, source.value);
         } else {
@@ -365,8 +471,8 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
                     }, undefined, true);
                 } else {
                     const directory = selected?.isDir ? selected.path + "/" : (selected?.path.substring(0, selected.path.lastIndexOf("/") + 1) || "");
-                    const initial = ["rename", "move"].includes(action) ? selected.path : directory + (action === "new" ? lang.untitled + ".md" : lang.untitled);
-                    inputPath(action === "mkdir" ? lang.templateNewFolder : (action === "rename" ? lang.rename : lang.template), initial, async value => {
+                    const initial = action === "rename" ? selected.path.split("/").pop() : directory + (action === "new" ? lang.untitled + ".md" : lang.untitled);
+                    inputPath(action === "mkdir" ? lang.templateNewFolder : (action === "rename" ? lang.rename : lang.newTemplate), initial, async value => {
                         let response;
                         if (action === "new") {
                             value = /\.md$/i.test(value) ? value : value + ".md";
@@ -374,16 +480,20 @@ ${button("rename", lang.rename)}${button("move", lang.move)}${button("remove", l
                         } else if (action === "mkdir") {
                             response = await api({action: "mkdir", path: value});
                         } else {
+                            value = getFileRenameTarget(selected.path, value);
+                            if (value === selected.path) {
+                                return;
+                            }
                             response = await api({action: "move", path: selected.path, target: value, revision});
                         }
                         if (response) {
                             await reload(value, true);
                         }
-                    });
+                    }, action === "rename");
                 }
             });
         }
     });
     update();
-    void run(() => reload());
+    void run(() => reload(initialPath, Boolean(initialPath)));
 };

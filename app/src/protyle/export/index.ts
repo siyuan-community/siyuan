@@ -15,12 +15,27 @@ import {getScreenWidth, isInMobileApp, saveExportFile, setStorageVal} from "../u
 import {getFrontend} from "../../util/functions";
 import {isEncryptedBox} from "../../util/pathName";
 import {getHostCapabilities} from "../../util/hostCapabilities";
+import {getLastExportPath, setLastExportPath} from "./path";
+import type {APICallbackResponse, APIPOSTRoutes} from "../../types/api";
+
+const getExportLanguages = () => {
+    const keys = new Set([
+        "copy", "mindmap", "fontSize", "bold", "italic", "colorFont", "color", "undo", "redo", "fold", "collapse", "expand",
+        "fullscreen", "exitFullscreen", "zoomIn", "zoomOut", "delete", "close", "connect", "text",
+        "task", "taskStatusTodo", "taskStatusInProgress", "taskStatusDone", "taskStatusCanceled", "customTaskStatus",
+    ]);
+    const languages = Object.fromEntries(Object.entries(window.siyuan.languages)
+        .filter(([key]) => keys.has(key) || key.startsWith("listMindmap")));
+    // 转义脚本边界和行分隔符，保留各语言文案中的引号与换行。
+    return JSON.stringify(languages).replace(/</g, "\\u003c")
+        .replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+};
 
 const getPluginStyle = async () => {
     const response = await fetchSyncPost("/api/petal/loadPetals", {frontend: getFrontend()});
     let css = "";
     // 为加快启动速度，不进行 await
-    response.data.forEach((item: IPluginData) => {
+    (response.code === 0 && Array.isArray(response.data) ? response.data : []).forEach(item => {
         css += item.css || "";
     });
     return css;
@@ -41,29 +56,22 @@ export const saveExport = (option: IExportOptions) => {
         const startExport = () => {
         const msgId = showMessage(window.siyuan.languages.exporting, -1);
         // 浏览器环境：先调用 API 生成资源文件，再在前端生成完整的 HTML
-        const url = option.type === "htmlmd" ? "/api/export/exportMdHTML" : "/api/export/exportHTML";
-        fetchPost(url, {
-            id: option.id,
-            pdf: false,
-            removeAssets: false,
-            merge: true,
-            savePath: ""
-        }, async exportResponse => {
+        const onExportHTML = async (exportResponse: APICallbackResponse<APIPOSTRoutes["/api/export/exportHTML"]["response"]>) => {
             const html = await onExport(exportResponse, undefined, "", option);
             fetchPost("/api/export/exportBrowserHTML", {
                 folder: exportResponse.data.folder,
                 html: html,
                 name: exportResponse.data.name
             }, zipResponse => {
-                if (zipResponse.code === -1) {
-                    hideMessage(msgId);
-                    showMessage(window.siyuan.languages._kernel[14].replace("%s", zipResponse.msg), 0, "error");
-                    return;
-                }
                 // 与导出 .sy.zip/markdown.zip/图片一致，统一走 saveExportFile，以便移动端原生 App 调用 JSAndroid.saveExportFile 等接口保存到本地
                 saveExportFile(zipResponse.data.zip, msgId);
             });
-        });
+        };
+        if (option.type === "htmlmd") {
+            fetchPost("/api/export/exportMdHTML", {id: option.id, savePath: ""}, onExportHTML);
+        } else {
+            fetchPost("/api/export/exportHTML", {id: option.id, pdf: false, merge: true, savePath: ""}, onExportHTML);
+        }
         };
         fetchPost("/api/block/getBlockInfo", {id: option.id}, (response) => {
             if (response.code === 0 && isEncryptedBox(response.data.box)) {
@@ -182,13 +190,26 @@ const getSnippetJS = () => {
 };
 
 /// #if !BROWSER
+const getAvailableExportPath = async () => {
+    const exportPath = getLastExportPath();
+    if (!exportPath) {
+        return "";
+    }
+    try {
+        return (await fs.promises.stat(exportPath)).isDirectory() ? exportPath : "";
+    } catch (e) {
+        return "";
+    }
+};
+
 const renderPDF = async (id: string) => {
     const localData = window.siyuan.storage[Constants.LOCAL_EXPORTPDF];
     if (typeof localData.paged === "undefined") {
         localData.paged = true;
     }
-    const servePathWithoutTrailingSlash = window.location.protocol + "//" + window.location.host;
-    const servePath = servePathWithoutTrailingSlash + "/";
+    // 导出预览临时页可能由不同于主窗口的内核端口提供，使用相对路径可确保资源和接口保持同源。
+    const servePathWithoutTrailingSlash = "";
+    const servePath = "/";
     const isDefault = (window.siyuan.config.appearance.mode === 1 && window.siyuan.config.appearance.themeDark === "midnight") || (window.siyuan.config.appearance.mode === 0 && window.siyuan.config.appearance.themeLight === "daylight");
     let themeStyle = "";
     if (!isDefault) {
@@ -197,6 +218,7 @@ const renderPDF = async (id: string) => {
     const currentWindowId = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
         cmd: "getContentsId",
     });
+    const defaultExportPath = await getAvailableExportPath();
     // data-theme-mode="light" https://github.com/siyuan-note/siyuan/issues/7379
     const html = `<!DOCTYPE html>
 <html lang="${window.siyuan.config.appearance.lang}" data-theme-mode="light" data-light-theme="${window.siyuan.config.appearance.themeLight}" data-dark-theme="${window.siyuan.config.appearance.themeDark}">
@@ -304,6 +326,15 @@ const renderPDF = async (id: string) => {
             max-width: 100%;
         }
 
+        #preview .list-mindmap__toolbar {
+            display: none !important;
+        }
+
+        #preview .list-mindmap {
+            height: var(--list-mindmap-print-height, 420px);
+            min-height: 0;
+        }
+
         #preview a.pdf-embedded-asset {
             position: relative;
             padding-right: 1em !important;
@@ -327,7 +358,7 @@ const renderPDF = async (id: string) => {
     </style>
     ${getSnippetCSS()}
 </head>
-<body style="-webkit-print-color-adjust: exact;">
+<body data-export-pdf="true" style="-webkit-print-color-adjust: exact;">
 <div id="action">
     <div style="flex: 1;overflow-y:auto;overflow-x:hidden">
         <div class="b3-label">
@@ -494,7 +525,7 @@ ${getIconScript(servePath)}
 <script src="${servePath}stage/protyle/js/lute/lute.min.js?${Constants.SIYUAN_VERSION}"></script>    
 <script>
     const previewElement = document.getElementById('preview');
-    const fixBlockWidth = async () => {
+    const fixBlockWidth = async (printableWidth = false) => {
         const isLandscape = document.querySelector("#landscape").checked;
         let width = 800
         let height = 1131
@@ -525,6 +556,10 @@ ${getIconScript(servePath)}
               break;
         }
         const scale = parseFloat(document.querySelector("#scale").value);
+        if (printableWidth) {
+            width -= ((parseFloat(document.querySelector("#marginsLeft").value) || 0) +
+                (parseFloat(document.querySelector("#marginsRight").value) || 0)) * 96;
+        }
         width = width / scale;
         height = (height -
             (parseFloat(document.querySelector("#marginsTop").value) +
@@ -670,7 +705,7 @@ ${getIconScript(servePath)}
               katexMacros: decodeURI(\`${encodeURI(window.siyuan.config.editor.katexMacros)}\`),
             }
           },
-          languages: {copy:"${window.siyuan.languages.copy}"}
+          languages: ${getExportLanguages()}
         };
         previewElement.addEventListener("click", (event) => {
             let target = event.target;
@@ -868,17 +903,33 @@ ${getIconScript(servePath)}
         }));
         actionElement.querySelector('.b3-button--text').addEventListener('click', async () => {
             const {ipcRenderer}  = require("electron");
-            const result = await ipcRenderer.invoke("${Constants.SIYUAN_GET}", {
+            const defaultPath = decodeURIComponent(${JSON.stringify(encodeURIComponent(defaultExportPath))});
+            const dialogOptions = {
                 cmd: "showOpenDialog",
                 title: "${window.siyuan.languages.export} PDF",
                 properties: ["createDirectory", "openDirectory"],
-            });
+            };
+            if (defaultPath) {
+                dialogOptions.defaultPath = defaultPath;
+            }
+            const result = await ipcRenderer.invoke("${Constants.SIYUAN_GET}", dialogOptions);
             if (result.canceled || result.filePaths.length === 0) {
                 return;
             }
             reserveEmbeddedAssetSpace(removeAssetsElement.checked);
             await waitForImages();
             const isPaged = actionElement.querySelector("#paged").checked;
+            document.body.classList.add("exporting");
+            previewElement.style.zoom = "";
+            previewElement.style.padding = "6px 0 0 0";
+            if (!isPaged) {
+                // 按打印可用宽度完成排版后测量，避免预览边距、缩放和列表布局影响长页高度。
+                previewElement.style.margin = "0";
+                previewElement.style.minHeight = "0";
+            }
+            await fixBlockWidth(!isPaged);
+            await document.fonts.ready;
+            await waitForImages();
             let exportConfig;
             if (!isPaged) {
                 const getPageSizeDimensions = () => {
@@ -893,22 +944,25 @@ ${getIconScript(servePath)}
                     };
                     return pageSizes[actionElement.querySelector("#pageSize").value];
                 };
-                const previewHeight = Math.max(previewElement.scrollHeight / 96 - (parseFloat(document.querySelector("#marginsTop").value) || 0) - (parseFloat(document.querySelector("#marginsBottom").value) || 0), getPageSizeDimensions().height);
-                exportConfig = buildExportConfig(actionElement.querySelector("#landscape").checked ? {
-                    height: getPageSizeDimensions().height,
+                const dimensions = getPageSizeDimensions();
+                const landscape = actionElement.querySelector("#landscape").checked;
+                const scale = parseFloat(actionElement.querySelector("#scale").value);
+                const margins = (parseFloat(document.querySelector("#marginsTop").value) || 0) +
+                    (parseFloat(document.querySelector("#marginsBottom").value) || 0);
+                // 纸张高度包含缩放后的正文和打印边距，并预留一个像素以容纳单位换算误差。
+                const previewHeight = Math.max((previewElement.scrollHeight * scale + 1) / 96 + margins,
+                    landscape ? dimensions.width : dimensions.height);
+                exportConfig = buildExportConfig(landscape ? {
+                    height: dimensions.height,
                     width: previewHeight,
                 } : {
-                    width: getPageSizeDimensions().width,
+                    width: dimensions.width,
                     height: previewHeight,
                 });
             } else {
                 exportConfig = buildExportConfig();
             }
             exportConfig.filePaths = result.filePaths;
-            document.body.classList.add("exporting");
-            previewElement.style.zoom = "";
-            previewElement.style.padding = "6px 0 0 0";
-            await fixBlockWidth();
             actionElement.remove();
             ipcRenderer.send("${Constants.SIYUAN_EXPORT_PDF}", exportConfig);
         });
@@ -926,8 +980,10 @@ ${getIconScript(servePath)}
 </script>
 ${getSnippetJS()}
 </body></html>`;
-	    fetchPost("/api/export/exportTempContent", {content: html, id}, (response) => {
-        ipcRenderer.send(Constants.SIYUAN_EXPORT_NEWWINDOW, response.data.url);
+    fetchPost("/api/export/exportTempContent", {content: html, id}, (response) => {
+        if (response.code === 0) {
+            ipcRenderer.send(Constants.SIYUAN_EXPORT_NEWWINDOW, response.data.url);
+        }
     });
 };
 
@@ -965,12 +1021,15 @@ const getExportPath = (
                 break;
         }
 
+        const defaultPath = await getAvailableExportPath();
         const result = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
             cmd: "showOpenDialog",
             title: window.siyuan.languages.export + " " + exportType,
             properties: ["createDirectory", "openDirectory"],
+            ...(defaultPath ? {defaultPath} : {}),
         });
         if (!result.canceled) {
+            setLastExportPath(result.filePaths[0]);
             const msgId = showMessage(window.siyuan.languages.exporting, -1);
             let url = "/api/export/exportHTML";
             if (option.type === "htmlmd") {
@@ -1070,7 +1129,7 @@ ${getIconScript(servePath)}
           katexMacros: decodeURI(\`${encodeURI(window.siyuan.config.editor.katexMacros)}\`),
         }
       },
-      languages: {copy:"${window.siyuan.languages.copy}"}
+      languages: ${getExportLanguages()}
     };
     const previewElement = document.getElementById('preview');
     Protyle.highlightRender(previewElement, "stage/protyle");

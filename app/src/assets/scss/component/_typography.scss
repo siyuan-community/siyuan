@@ -1,4 +1,5 @@
 @use "../util/function";
+@use "../protyle/task";
 
 :root {
   --b3-font-family-emoji-reset: "Emojis Additional", "Emojis Reset";
@@ -11,12 +12,20 @@
 }
 
 .b3-typography,
-.protyle-wysiwyg {
+.protyle-wysiwyg,
+.table__cell-rich,
+.list-mindmap__content {
   font-variant-ligatures: no-common-ligatures;
   display: flex;
   flex-direction: column;
   font-size: var(--b3-font-size-editor);
   font-family: var(--b3-font-family-protyle);
+
+  &.table__cell-rich,
+  &.list-mindmap__content {
+    // 富文本预览沿用所在单元格或脑图节点的字号。
+    font-size: inherit;
+  }
 
   img {
     max-width: 100%;
@@ -27,7 +36,9 @@
   li > p,
   & > p,
   blockquote > p,
-  [data-node-id] {
+  [data-node-id],
+  .list-mindmap__preview-block,
+  [data-table-cell-node] {
     line-height: 1.625;
     padding: 4px;
     margin: 2px 0;
@@ -315,6 +326,11 @@
     font-size: 1em;
   }
 
+  .protyle-embed-heading--paragraph {
+    font-size: 1em;
+    font-weight: bold;
+  }
+
   audio {
     max-width: 100%;
     vertical-align: bottom;
@@ -376,6 +392,7 @@
       box-sizing: border-box;
       max-width: 620px;
       word-wrap: break-word;
+      vertical-align: top;
 
       &:empty::after {
         content: "";
@@ -526,8 +543,7 @@
     position: relative;
   }
 
-  [data-subtype="echarts"],
-  [data-subtype="mindmap"] {
+  [data-subtype="echarts"] {
     z-index: 1;
     height: 420px;
 
@@ -888,9 +904,8 @@
     word-break: break-word;
     position: relative;
 
-    &--done > div[data-node-id].p {
-      color: var(--b3-theme-on-surface-light);
-      text-decoration: line-through;
+    &--done:not([data-task="/"]) > div[data-node-id].p {
+      @include task.completed-text;
     }
 
     input {

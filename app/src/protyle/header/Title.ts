@@ -1,5 +1,5 @@
+import type {BlockQueryRequestInput} from "../../types/api";
 import {
-    focusBlock,
     focusByOffset,
     focusByRange,
     getEditorRange,
@@ -17,7 +17,6 @@ import * as dayjs from "dayjs";
 import {openFileById} from "../../editor/util";
 /// #endif
 import {getDocDisplayName, isEncryptedBox} from "../../util/pathName";
-import {getNoContainerElement} from "../wysiwyg/getBlock";
 import {commonHotkey} from "../wysiwyg/commonHotkey";
 import {nbsp2space} from "../util/normalizeText";
 import {hideTooltip} from "../../dialog/tooltip";
@@ -26,7 +25,9 @@ import {openTitleMenu} from "./openTitleMenu";
 import {electronUndo} from "../undo";
 import {enableLuteMarkdownSyntax, restoreLuteMarkdownSyntax} from "../util/paste";
 import {addSpellcheckMenuItems, requestSpellcheckContext} from "../../menus/spellcheck";
-import {focusAVByArrow} from "../render/av/focus";
+import {isCaretAtVerticalBoundary} from "../wysiwyg/verticalCaret";
+import {focusFirstVerticalRegion, prepareVerticalNavigation} from "../wysiwyg/verticalNavigation";
+import {scheduleCaretScroll} from "../wysiwyg/caretScroll";
 import {getParentDocumentID} from "../util/parentDocument";
 import {getTextSiyuanFromClipboardData} from "../util/clipboardData";
 import {enterDocumentFromTitle} from "./titleEnter";
@@ -122,7 +123,7 @@ export class Title {
                     }
                     return;
                 }
-                if (matchHotKey(window.siyuan.config.keymap.general.enterBack.custom, event)) {
+                if (matchHotKey(window.siyuan.config.keymap.general.enterBack, event)) {
                     const parentDocumentID = getParentDocumentID({
                         path: protyle.path,
                         notebookID: protyle.notebookId,
@@ -146,17 +147,16 @@ export class Title {
                     return;
                 }
                 if (event.key === "ArrowDown") {
-                    const rects = getSelection().getRangeAt(0).getClientRects();
-                    // https://github.com/siyuan-note/siyuan/issues/11729
-                    if (rects.length === 0 // 标题为空时时
-                        || this.editElement.getBoundingClientRect().bottom - rects[rects.length - 1].bottom < 25) {
-                        const noContainerElement = getNoContainerElement(protyle.wysiwyg.element.firstElementChild);
-                        // https://github.com/siyuan-note/siyuan/issues/4923
-                        if (noContainerElement) {
-                            if (!noContainerElement.classList.contains("av") ||
-                                !focusAVByArrow(protyle, noContainerElement as HTMLElement, event.key)) {
-                                focusBlock(noContainerElement, protyle.wysiwyg.element);
-                            }
+                    if (protyle.disabled || event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) {
+                        return;
+                    }
+                    const selection = getSelection();
+                    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : undefined;
+                    if (range?.collapsed && isCaretAtVerticalBoundary(this.editElement, range, "down")) {
+                        const goalX = prepareVerticalNavigation(protyle.wysiwyg.element, event, range, this.editElement);
+                        if (focusFirstVerticalRegion(protyle, goalX) === "moved") {
+                            protyle.wysiwyg.preventKeyup = true;
+                            scheduleCaretScroll(protyle, "down");
                         }
                         event.preventDefault();
                         event.stopPropagation();
@@ -165,8 +165,8 @@ export class Title {
                     enterDocumentFromTitle(protyle);
                     event.preventDefault();
                     event.stopPropagation();
-                } else if (matchHotKey(window.siyuan.config.keymap.editor.general.attr.custom, event)) {
-                    const docInfoParam: IObject = {
+                } else if (matchHotKey(window.siyuan.config.keymap.editor.general.attr, event)) {
+                    const docInfoParam: BlockQueryRequestInput = {
                         id: protyle.block.rootID
                     };
                     if (isEncryptedBox(protyle.notebookId)) {
@@ -187,7 +187,7 @@ export class Title {
             iconElement.addEventListener("click", (event) => {
                 // 不使用 window.siyuan.shiftIsPressed ，否则窗口未激活时按 Shift 点击块标无法打开属性面板 https://github.com/siyuan-note/siyuan/issues/15075
                 if (event.shiftKey) {
-                    const docInfoParam: IObject = {
+                    const docInfoParam: BlockQueryRequestInput = {
                         id: protyle.block.rootID
                     };
                     if (isEncryptedBox(protyle.notebookId)) {
@@ -198,14 +198,21 @@ export class Title {
                     });
                 } else {
                     const iconRect = iconElement.getBoundingClientRect();
-                    openTitleMenu(protyle, {x: iconRect.left, y: iconRect.bottom}, Constants.MENU_FROM_TITLE_PROTYLE);
+                    openTitleMenu(protyle, {x: iconRect.left, y: iconRect.bottom, h: iconRect.height}, Constants.MENU_FROM_TITLE_PROTYLE);
                 }
             });
             this.element.addEventListener("contextmenu", async (event) => {
                 if (event.shiftKey) {
                     return;
                 }
-                if (getSelection().rangeCount === 0 || iconElement.contains((event.target as HTMLElement))) {
+                if (iconElement.contains(event.target as Node)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const iconRect = iconElement.getBoundingClientRect();
+                    openTitleMenu(protyle, {x: iconRect.left, y: iconRect.bottom, h: iconRect.height}, Constants.MENU_FROM_TITLE_PROTYLE);
+                    return;
+                }
+                if (getSelection().rangeCount === 0) {
                     openTitleMenu(protyle, {x: event.clientX, y: event.clientY}, Constants.MENU_FROM_TITLE_PROTYLE);
                     return;
                 }
@@ -314,7 +321,12 @@ export class Title {
         this.element.querySelector(".protyle-attr").addEventListener("click", (event: MouseEvent & {
             target: HTMLElement
         }) => {
-            const docInfoParam: IObject = {
+            /// #if MOBILE
+            if (event.target.closest(".protyle-attr--refcount") && commonClick(event, protyle)) {
+                return;
+            }
+            /// #endif
+            const docInfoParam: BlockQueryRequestInput = {
                 id: protyle.block.rootID
             };
             if (isEncryptedBox(protyle.notebookId)) {

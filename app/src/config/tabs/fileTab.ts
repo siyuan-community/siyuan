@@ -32,12 +32,12 @@ const genNotebookSavePathHtml = (
     <div class="fn__flex">
         <select class="b3-select fn__size200" id="${selectId}">${optionsHtml}</select>
         <div class="fn__space"></div>
-        <input class="b3-text-field fn__flex-1" id="${pathId}" value="">
+        <input spellcheck="false" class="b3-text-field fn__flex-1" id="${pathId}" value="">
     </div>
     ${template ? `<div class="fn__hr"></div>
     <div class="b3-label__text">${template.desc}</div>
     <div class="fn__hr--small"></div>
-    <input class="b3-text-field fn__flex-center fn__block" id="${template.id}" value="">` : ""}
+    <input spellcheck="false" class="b3-text-field fn__flex-center fn__block" id="${template.id}" value="">` : ""}
 </div>`;
 
 const registerFileTreeBehaviorGroup = (tab: SettingTabBuilder) => {
@@ -95,7 +95,6 @@ const registerTabStartupGroup = (tab: SettingTabBuilder) => {
             {value: 1, label: window.siyuan.languages.tabStartupNew},
             {value: 2, label: window.siyuan.languages.tabStartupClose},
         ],
-        save: (value) => fileConfigApi.patch("tabStartupMode", value),
     });
 };
 
@@ -145,15 +144,12 @@ const registerFileNewDocumentGroup = (tab: SettingTabBuilder) => {
         controls: [
             {
                 control: controlSelect("fileTree.docCreateSaveBox", {options: []}),
-                save: (v) => fileConfigApi.patch("docCreateSaveBox", v),
             },
             {
                 control: controlString("fileTree.docCreateSavePath"),
-                save: (v) => fileConfigApi.patch("docCreateSavePath", v),
             },
             {
                 control: controlString("fileTree.docCreateTemplatePath"),
-                save: (v) => fileConfigApi.patch("docCreateTemplatePath", v),
             },
         ],
     });
@@ -179,11 +175,9 @@ const registerFileNewDocumentGroup = (tab: SettingTabBuilder) => {
         controls: [
             {
                 control: controlSelect("fileTree.refCreateSaveBox", {options: []}),
-                save: (v) => fileConfigApi.patch("refCreateSaveBox", v),
             },
             {
                 control: controlString("fileTree.refCreateSavePath"),
-                save: (v) => fileConfigApi.patch("refCreateSavePath", v),
             },
         ],
     });
@@ -212,11 +206,9 @@ const registerFileNewDocumentGroup = (tab: SettingTabBuilder) => {
             controls: [
                 {
                     control: controlSelect("fileTree.shorthandSaveBox", {options: []}),
-                    save: (v) => fileConfigApi.patch("shorthandSaveBox", v),
                 },
                 {
                     control: controlString("fileTree.shorthandSavePath"),
-                    save: (v) => fileConfigApi.patch("shorthandSavePath", v),
                 },
             ],
         });

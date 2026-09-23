@@ -1,3 +1,4 @@
+import {isTableLikeView} from "./viewType";
 import {transaction} from "../../wysiwyg/transaction";
 import {fetchPost} from "../../../util/fetch";
 import {
@@ -42,6 +43,7 @@ import {getAssetExtension} from "../../../util/pathName";
 import {isBrowserRenderableImagePath} from "../../../util/imageURL";
 import {openEmojiPanel, unicode2Emoji} from "../../../emoji";
 import {isMobile} from "../../../util/functions";
+import {bindMobileAVPanel} from "./mobilePanel";
 import {openLink} from "../../../editor/openLink";
 import {previewAttrViewImages} from "../../preview/image";
 import {assetMenu} from "../../../menus/protyle";
@@ -82,6 +84,7 @@ import {openFieldVisibilityPanel} from "./fieldVisibility";
 import {clearSelect} from "../../util/clear";
 import {applyAVColorPalette, getAVCustomColors} from "./color";
 import {bindContextFilterEvent, getContextFilterHTML} from "./contextFilter";
+import {setAVCellPanelTarget} from "./panelTarget";
 
 export const openMenuPanel = (options: {
     protyle: IProtyle,
@@ -228,6 +231,9 @@ export const openMenuPanel = (options: {
     <div class="b3-menu${options.type === "filters" ? " av__filter-panel" : ""}${options.type === "relation" ? " av__relation-panel" : ""}" ${options.keepMenuOpen ? "data-menu=\"true\"" : ""} ${["select", "date", "asset", "relation", "rollup"].includes(options.type) ? `style="${["select", "asset", "relation"].includes(options.type) ? "max-height: calc(100vh - 32px);display: flex;flex-direction: column;" : ""}min-width: 200px;${options.type === "relation" ? `width: 760px;max-width: ${isMobile() ? "90vw" : "calc(100vw - 32px)"};` : isMobile() ? "max-width: 90vw;" : "max-width: 50vw;"}"` : ""}>${html}</div>
 </div>`);
         avPanelElement = document.querySelector(".av__panel");
+        if (options.cellElements?.length) {
+            setAVCellPanelTarget(avPanelElement, options.blockElement);
+        }
         applyAVColorPalette(avPanelElement as HTMLElement, getAVCustomColors());
         if (options.destroyCallback) {
             const renderedPanelElement = avPanelElement;
@@ -242,6 +248,9 @@ export const openMenuPanel = (options: {
         }
         let closeCB: () => void;
         const menuElement = avPanelElement.lastElementChild as HTMLElement;
+        if (isMobile()) {
+            bindMobileAVPanel(avPanelElement as HTMLElement, menuElement);
+        }
         const rerenderSwitcher = () => {
             const keyword = (menuElement.querySelector(".b3-text-field") as HTMLInputElement)?.value || "";
             menuElement.innerHTML = getSwitcherHTML(data.views, data.viewID, options.blockElement);
@@ -262,7 +271,7 @@ export const openMenuPanel = (options: {
             if (!options.blockElement.contains(lastElement)) {
                 // https://github.com/siyuan-note/siyuan/issues/15839
                 const rowID = getFieldIdByCellElement(lastElement, data.viewType);
-                if (data.viewType === "table") {
+                if (isTableLikeView(data.viewType)) {
                     lastElement = options.blockElement.querySelector(`.av__row[data-id="${rowID}"] .av__cell[data-col-id="${lastElement.dataset.colId}"]`);
                 } else {
                     lastElement = options.blockElement.querySelector(`.av__gallery-item[data-id="${rowID}"] .av__cell[data-field-id="${lastElement.dataset.fieldId}"]`);
@@ -303,7 +312,7 @@ export const openMenuPanel = (options: {
             }
             if (["select", "date", "relation", "rollup"].includes(options.type)) {
                 const inputElement = menuElement.querySelector("input");
-                if (inputElement) {
+                if (inputElement && (options.type !== "select" || !isMobile())) {
                     inputElement.select();
                     inputElement.focus();
                 }
@@ -331,7 +340,8 @@ export const openMenuPanel = (options: {
         }
         let counter = 0;
         avPanelElement.addEventListener("dragstart", (event: DragEvent) => {
-            window.siyuan.dragElement = event.target as HTMLElement;
+            const sourceElement = event.target as HTMLElement;
+            window.siyuan.dragElement = sourceElement.closest<HTMLElement>('[data-option-row="true"]') || sourceElement;
             if (window.siyuan.dragElement.dataset.relationType === "selected") {
                 const primaryElement = window.siyuan.dragElement.querySelector(".av__relation-table-primary");
                 if (primaryElement) {
@@ -644,9 +654,12 @@ export const openMenuPanel = (options: {
                 return;
             }
             const target = event.target as HTMLElement;
-            let targetElement = hasClosestByAttribute(target, "draggable", "true");
+            let targetElement = target.closest<HTMLElement>('[data-option-row="true"]') ||
+                hasClosestByAttribute(target, "draggable", "true");
             if (!targetElement) {
-                targetElement = hasClosestByAttribute(document.elementFromPoint(event.clientX, event.clientY - 1), "draggable", "true");
+                const nearbyElement = document.elementFromPoint(event.clientX, event.clientY - 1);
+                targetElement = nearbyElement?.closest<HTMLElement>('[data-option-row="true"]') ||
+                    hasClosestByAttribute(nearbyElement, "draggable", "true");
             }
             if (!targetElement || targetElement === window.siyuan.dragElement) {
                 return;
@@ -842,6 +855,12 @@ export const openMenuPanel = (options: {
                 } else if (type === "go-config") {
                     if (options.filterOperation) {
                         avPanelElement.remove();
+                        openMenuPanel({
+                            protyle: options.protyle,
+                            blockElement: options.blockElement,
+                            type: "edit",
+                            colId: options.filterOperation.keyID,
+                        });
                         event.preventDefault();
                         event.stopPropagation();
                         break;
@@ -1043,7 +1062,8 @@ export const openMenuPanel = (options: {
                             }
                         });
                     }
-                    menu.open({x: event.clientX, y: event.clientY, h: 28});
+                    const rect = target.getBoundingClientRect();
+                    menu.open({x: rect.left, y: rect.bottom, h: rect.height});
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -1100,7 +1120,8 @@ export const openMenuPanel = (options: {
                             setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                         }
                     });
-                    menu.open({x: event.clientX, y: event.clientY, h: 28});
+                    const rect = target.getBoundingClientRect();
+                    menu.open({x: rect.left, y: rect.bottom, h: rect.height});
                     event.preventDefault();
                     event.stopPropagation();
                     break;
@@ -1413,8 +1434,10 @@ export const openMenuPanel = (options: {
                     window.siyuan.menus.menu.remove();
                     const editMenuElement = hasClosestByClassName(target, "b3-menu");
                     if (editMenuElement) {
-                        editMenuElement.firstElementChild.classList.add("fn__none");
-                        editMenuElement.lastElementChild.classList.remove("fn__none");
+                        // 移动端菜单顶部会插入抓手标题，属性列表和类型列表按 items 容器定位
+                        const itemsElements = editMenuElement.querySelectorAll(":scope > .b3-menu__items");
+                        itemsElements[0]?.classList.add("fn__none");
+                        itemsElements[1]?.classList.remove("fn__none");
                     }
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                     event.preventDefault();
@@ -1555,8 +1578,10 @@ export const openMenuPanel = (options: {
                 } else if (type === "goEditCol") {
                     const editMenuElement = hasClosestByClassName(target, "b3-menu");
                     if (editMenuElement) {
-                        editMenuElement.firstElementChild.classList.remove("fn__none");
-                        editMenuElement.lastElementChild.classList.add("fn__none");
+                        // 移动端菜单顶部会插入抓手标题，属性列表和类型列表按 items 容器定位
+                        const itemsElements = editMenuElement.querySelectorAll(":scope > .b3-menu__items");
+                        itemsElements[0]?.classList.remove("fn__none");
+                        itemsElements[1]?.classList.add("fn__none");
                     }
                     setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
                     event.preventDefault();
@@ -1975,12 +2000,16 @@ export const openMenuPanel = (options: {
                     event.stopPropagation();
                     break;
                 } else if (type === "set-layout") {
-                    data = await updateLayout({
+                    const updatedData = await updateLayout({
                         target,
                         protyle: options.protyle,
                         nodeElement: options.blockElement,
                         data
                     });
+                    if (!updatedData) {
+                        break;
+                    }
+                    data = updatedData;
                     fields = getFieldsByData(data);
                     event.preventDefault();
                     event.stopPropagation();
@@ -2165,20 +2194,14 @@ export const getPropertiesHTML = (fields: IAVColumn[], viewType: TAVView) => {
         if (item.hidden) {
             hideHTML += `<button class="b3-menu__item" data-type="editCol" draggable="true" data-id="${item.id}">
     <svg class="b3-menu__icon fn__grab"><use xlink:href="#iconDrag"></use></svg>
-    <div class="b3-menu__label fn__flex">
-        ${item.icon ? unicode2Emoji(item.icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(item.type)}"></use></svg>`}
-        ${escapeHtml(item.name) || "&nbsp;"}
-    </div>
+    <div class="b3-menu__label fn__flex">${item.icon ? unicode2Emoji(item.icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(item.type)}"></use></svg>`}<span class="fn__flex-1">${escapeHtml(item.name) || "&nbsp;"}</span></div>
     <svg class="b3-menu__action" data-type="showCol"><use xlink:href="#iconEye"></use></svg>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>`;
         } else {
             showHTML += `<button class="b3-menu__item" data-type="editCol" draggable="true" data-id="${item.id}">
     <svg class="b3-menu__icon fn__grab"><use xlink:href="#iconDrag"></use></svg>
-    <div class="b3-menu__label fn__flex">
-        ${item.icon ? unicode2Emoji(item.icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(item.type)}"></use></svg>`}
-        ${escapeHtml(item.name) || "&nbsp;"}
-    </div>
+    <div class="b3-menu__label fn__flex">${item.icon ? unicode2Emoji(item.icon, "b3-menu__icon", true) : `<svg class="b3-menu__icon"><use xlink:href="#${getColIconByType(item.type)}"></use></svg>`}<span class="fn__flex-1">${escapeHtml(item.name) || "&nbsp;"}</span></div>
     <svg class="b3-menu__action${item.type === "block" && viewType !== "gallery" ? " fn__none" : ""}" data-type="hideCol"><use xlink:href="#iconEyeoff"></use></svg>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>`;
@@ -2187,9 +2210,7 @@ export const getPropertiesHTML = (fields: IAVColumn[], viewType: TAVView) => {
     if (hideHTML) {
         hideHTML = `<button class="b3-menu__separator"></button>
 <button class="b3-menu__item" data-type="nobg">
-    <span class="b3-menu__label">
-        ${window.siyuan.languages.hideCol} 
-    </span>
+    <span class="b3-menu__label">${window.siyuan.languages.hideCol}</span>
     <span class="block__icon" data-type="showAllCol">
         ${window.siyuan.languages.showAll}
         <span class="fn__space"></span>
@@ -2207,9 +2228,7 @@ ${hideHTML}`;
 </button>
 <button class="b3-menu__separator"></button>
 <button class="b3-menu__item" data-type="nobg">
-    <span class="b3-menu__label">
-        ${window.siyuan.languages.showCol} 
-    </span>
+    <span class="b3-menu__label">${window.siyuan.languages.showCol}</span>
     <span class="block__icon" data-type="hideAllCol">
         ${window.siyuan.languages.hideAll}
         <span class="fn__space"></span>

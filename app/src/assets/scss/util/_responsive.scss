@@ -1,4 +1,8 @@
 @media (max-width: 750px) {
+  #saveSyncConfig {
+    order: -1;
+  }
+
   #encryptedNotebookEnabledActions {
     flex: 1 1 100%;
     flex-wrap: wrap;
@@ -72,7 +76,7 @@
       & > .b3-button,
       & > .b3-tooltips,
       & > .b3-form__icona,
-      & > .fn__size200,
+      & > .fn__size200:not(.b3-switch),
       .searchByKeyLabel {
         flex: 1 1 100%;
         width: 100%;
@@ -91,6 +95,19 @@
         width: 100%;
         max-width: 100%;
         margin-top: 8px;
+      }
+    }
+
+    // 输入框和单位保持同行，单位前的间距不被隐藏
+    &-item > .config-item__number {
+      flex-wrap: nowrap;
+
+      & > .b3-text-field.fn__flex-1 {
+        margin-top: 0;
+      }
+
+      & > .fn__space {
+        display: inline-block;
       }
     }
 
@@ -124,19 +141,8 @@
     }
 
     &-keymap {
-      label.b3-list-item {
-        flex-wrap: wrap;
-      }
-
-      .b3-list-item__action {
-        display: flex;
-      }
-
-      .config-keymap__key,
-      .b3-text-field {
-        width: 100%;
-        margin-left: 0 !important;
-        text-align: center;
+      .config-keymap__controls {
+        max-width: 100%;
       }
     }
   }
@@ -144,6 +150,19 @@
   .history {
     &__panel {
       flex-direction: column;
+
+      &.history__panel--empty {
+        & > .history__side {
+          flex: 1;
+          height: auto;
+          border-bottom: 0;
+        }
+
+        & > .history__resize,
+        & > .fn__flex-column {
+          display: none;
+        }
+      }
 
       & > .fn__flex-column {
         min-height: auto;

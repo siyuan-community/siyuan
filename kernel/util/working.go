@@ -44,7 +44,10 @@ import (
 // var Mode = "dev"
 var Mode = "prod"
 
-const Ver = "3.8.3"
+// SystemTempDir 保存工作空间初始化重定向之前的系统临时目录。
+var SystemTempDir = os.TempDir()
+
+const Ver = "3.8.5"
 
 // IsReleaseVer 判断是否为正式版（不含 alpha、beta、rc 等预发布标识）。
 func IsReleaseVer(ver string) bool {
@@ -106,13 +109,8 @@ func InitWorkspace(workspacePath, wdPath string) {
 	initPathDir()
 
 	AppearancePath = filepath.Join(ConfDir, "appearance")
-	if "dev" == Mode {
-		ThemesPath = filepath.Join(WorkingDir, "appearance", "themes")
-		IconsPath = filepath.Join(WorkingDir, "appearance", "icons")
-	} else {
-		ThemesPath = filepath.Join(AppearancePath, "themes")
-		IconsPath = filepath.Join(AppearancePath, "icons")
-	}
+	ThemesPath = filepath.Join(DataDir, "themes")
+	IconsPath = filepath.Join(DataDir, "icons")
 
 	LogPath = filepath.Join(TempDir, "siyuan.log")
 }
@@ -128,7 +126,7 @@ func Boot() {
 	accessAuthCode := flag.String("accessAuthCode", "", "access auth code")
 	ssl := flag.Bool("ssl", false, "for https and wss")
 	attachUI := flag.Bool("attach-ui", false, "attach kernel lifecycle to desktop UI process (used by Electron)")
-	lang := flag.String("lang", "", "ar/de/en/es/fr/he/hi/id/it/ja/ko/nl/pl/pt-BR/ru/sk/th/tr/uk/zh-CN/zh-TW")
+	lang := flag.String("lang", "", "ar/de/en/es/fr/he/hi/id/it/ja/ko/nl/pl/pt-BR/ru/sk/sr/th/tr/uk/zh-CN/zh-TW")
 	mode := flag.String("mode", "prod", "dev/prod")
 	enablePprof := flag.Bool("enable-pprof", false, "enable unauthenticated /debug/pprof/ endpoints (dev only, never on a network-exposed instance)")
 	safeMode := flag.Bool("safe-mode", false, "boot in safe mode")
@@ -268,8 +266,8 @@ var (
 	AssetContentDBPath string        // SQLite 资源文件内容数据库文件路径
 	BlockTreeDBPath    string        // 区块树数据库文件路径
 	AppearancePath     string        // 配置目录下的外观目录 appearance/ 路径
-	ThemesPath         string        // 配置目录下的外观目录下的 themes/ 路径
-	IconsPath          string        // 配置目录下的外观目录下的 icons/ 路径
+	ThemesPath         string        // 数据目录下的第三方主题 themes/ 路径
+	IconsPath          string        // 数据目录下的第三方图标 icons/ 路径
 	SnippetsPath       string        // 数据目录下的 snippets/ 路径
 	ShortcutsPath      string        // 用户家目录下的快捷方式目录路径 home/.config/siyuan/shortcuts/
 

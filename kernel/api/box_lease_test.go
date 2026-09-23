@@ -57,11 +57,91 @@ func TestImplicitNotebookResponseLease(t *testing.T) {
 	runNotebookResponseLease(t, false, false)
 }
 
+func TestContractBlockSwapReplayNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, true)
+}
+
+func TestContractRefIDsNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractCheckBlockRefNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, true)
+}
+
+func TestContractCheckBlockRefExplicitNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractCheckClosedNotebookRefNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractDocInfoNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractGetDocNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractTreeStatNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, false)
+}
+
+func TestContractBreadcrumbNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractBreadcrumbChildrenNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, false)
+}
+
+func TestContractTreeInfosNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, true)
+}
+
+func TestContractChildNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, false)
+}
+
+func TestContractTailChildNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractDOMNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, false)
+}
+
+func TestContractDOMsNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, true)
+}
+
+func TestContractEmbedDOMNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, true, false)
+}
+
+func TestContractEmbedDOMsNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, true)
+}
+
 func TestExplicitNotebookResponseLease(t *testing.T) {
 	runNotebookResponseLease(t, true, false)
 }
 
 func TestBatchNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, true)
+}
+
+func TestGetBlockInfoNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, false)
+}
+
+func TestContractSiblingNotebookResponseLease(t *testing.T) {
+	runNotebookResponseLease(t, false, false)
+}
+
+func TestContractBatchIndexesNotebookResponseLease(t *testing.T) {
 	runNotebookResponseLease(t, false, true)
 }
 
@@ -128,6 +208,9 @@ func testNotebookResponseLease(t *testing.T, explicitNotebook, batch bool) {
 		paragraph := &ast.Node{Type: ast.NodeParagraph, ID: ast.NewNodeID()}
 		paragraph.AppendChild(&ast.Node{Type: ast.NodeText, Tokens: []byte("REVIEW-SECRET-CONTENT")})
 		tree.Root.AppendChild(paragraph)
+		if t.Name() == "TestGetBlockInfoNotebookResponseLease" {
+			tree.Root.SetIALAttr("title", "REVIEW-SECRET-CONTENT")
+		}
 		if _, err = filesys.WriteTree(tree); err != nil {
 			t.Fatal(err)
 		}
@@ -138,7 +221,32 @@ func testNotebookResponseLease(t *testing.T, explicitNotebook, batch bool) {
 	engine.Use(boxLeaseMiddleware)
 	engine.Use(func(c *gin.Context) { c.Set(model.RoleContextKey, model.RoleAdministrator); c.Next() })
 	engine.POST("/api/block/getBlockKramdown", getBlockKramdown)
+	engine.POST("/api/block/getRefIDs", getRefIDs)
+	engine.POST("/api/block/checkBlockRef", checkBlockRef)
+	engine.POST("/api/block/getDocInfo", getDocInfo)
+	engine.POST("/api/filetree/getDoc", getDoc)
+	engine.POST("/api/block/getTreeStat", getTreeStat)
+	engine.POST("/api/block/getBlockBreadcrumb", getBlockBreadcrumb)
+	engine.POST("/api/block/getBlockBreadcrumbChildren", getBlockBreadcrumbChildren)
+	engine.POST("/api/block/getBlockTreeInfos", getBlockTreeInfos)
+	engine.POST("/api/block/getChildBlocks", getChildBlocks)
+	engine.POST("/api/block/getTailChildBlocks", getTailChildBlocks)
+	engine.POST("/api/block/getBlockDOM", getBlockDOM)
+	engine.POST("/api/block/getBlockDOMs", getBlockDOMs)
+	engine.POST("/api/block/getBlockDOMWithEmbed", getBlockDOMWithEmbed)
+	engine.POST("/api/block/getBlockDOMsWithEmbed", getBlockDOMsWithEmbed)
 	engine.POST("/api/block/getBlockKramdowns", getBlockKramdowns)
+	engine.POST("/api/block/getBlockInfo", getBlockInfo)
+	engine.POST("/api/block/getBlockSiblingID", getBlockSiblingID)
+	engine.POST("/api/block/getBlocksIndexes", getBlocksIndexes)
+	engine.POST("/review/blockSwapLease", func(c *gin.Context) {
+		tx := &model.Transaction{DoOperations: []*model.Operation{{Action: "swapBlockRef"}}}
+		if err := holdBlockSwapReplayRequests(c, tx, boxIDs); err != nil {
+			c.JSON(http.StatusOK, map[string]string{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, map[string]int{"code": 0})
+	})
 	writer := &blockedBlockResponseWriter{ResponseRecorder: httptest.NewRecorder(), ready: make(chan []byte, 1), proceed: make(chan struct{})}
 	var releaseWriter sync.Once
 	defer releaseWriter.Do(func() { close(writer.proceed) })
@@ -147,10 +255,57 @@ func testNotebookResponseLease(t *testing.T, explicitNotebook, batch bool) {
 		args["notebook"] = boxIDs[0]
 	}
 	endpoint := "/api/block/getBlockKramdown"
+	if t.Name() == "TestGetBlockInfoNotebookResponseLease" {
+		endpoint = "/api/block/getBlockInfo"
+	}
 	if batch {
 		delete(args, "id")
 		args["ids"] = boxIDs
 		endpoint += "s"
+	}
+	typedQuery := false
+	switch t.Name() {
+	case "TestContractBlockSwapReplayNotebookResponseLease":
+		endpoint, typedQuery = "/review/blockSwapLease", true
+	case "TestContractCheckBlockRefNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/checkBlockRef", true
+	case "TestContractCheckBlockRefExplicitNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/checkBlockRef", true
+		args["ids"] = []string{boxIDs[0]}
+	case "TestContractCheckClosedNotebookRefNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/checkBlockRef", true
+		args["scope"] = "notebook"
+	case "TestContractDocInfoNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getDocInfo", true
+	case "TestContractGetDocNotebookResponseLease":
+		endpoint, typedQuery = "/api/filetree/getDoc", true
+	case "TestContractTreeStatNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getTreeStat", true
+		args["includeEmbed"] = true
+	case "TestContractBreadcrumbNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getBlockBreadcrumb", true
+	case "TestContractBreadcrumbChildrenNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getBlockBreadcrumbChildren", true
+	case "TestContractTreeInfosNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getBlockTreeInfos", true
+	case "TestContractRefIDsNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getRefIDs", true
+	case "TestContractChildNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getChildBlocks", true
+	case "TestContractTailChildNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getTailChildBlocks", true
+	case "TestContractDOMNotebookResponseLease":
+		endpoint = "/api/block/getBlockDOM"
+	case "TestContractDOMsNotebookResponseLease":
+		endpoint = "/api/block/getBlockDOMs"
+	case "TestContractEmbedDOMNotebookResponseLease":
+		endpoint = "/api/block/getBlockDOMWithEmbed"
+	case "TestContractEmbedDOMsNotebookResponseLease":
+		endpoint = "/api/block/getBlockDOMsWithEmbed"
+	case "TestContractSiblingNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getBlockSiblingID", true
+	case "TestContractBatchIndexesNotebookResponseLease":
+		endpoint, typedQuery = "/api/block/getBlocksIndexes", true
 	}
 	requestBody, err := json.Marshal(args)
 	if err != nil {
@@ -166,7 +321,7 @@ func testNotebookResponseLease(t *testing.T, explicitNotebook, batch bool) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("response never reached writer")
 	}
-	if strings.Count(string(body), "REVIEW-SECRET-CONTENT") != count {
+	if (!typedQuery || t.Name() == "TestContractGetDocNotebookResponseLease") && strings.Count(string(body), "REVIEW-SECRET-CONTENT") != count {
 		releaseWriter.Do(func() { close(writer.proceed) })
 		<-responseDone
 		t.Fatalf("fixture did not produce plaintext: %s", body)
@@ -183,6 +338,26 @@ func testNotebookResponseLease(t *testing.T, explicitNotebook, batch bool) {
 	}
 	releaseWriter.Do(func() { close(writer.proceed) })
 	<-responseDone
+	if typedQuery {
+		if t.Name() != "TestContractBlockSwapReplayNotebookResponseLease" {
+			requireAPIContract(t, http.MethodPost, endpoint, writer.ResponseRecorder)
+		}
+		var response struct {
+			Code int             `json:"code"`
+			Data json.RawMessage `json:"data"`
+		}
+		wantCode := 0
+		if t.Name() == "TestContractCheckClosedNotebookRefNotebookResponseLease" {
+			// 此夹具仅解锁密钥，未挂载笔记本；业务失败也必须保持布尔载荷和响应租约。
+			wantCode = -1
+		}
+		if err := json.Unmarshal(body, &response); err != nil || response.Code != wantCode {
+			t.Fatalf("typed query failed: %s, %v", body, err)
+		}
+		if wantCode == -1 && string(response.Data) != "false" {
+			t.Fatalf("reference error lost boolean data: %s", body)
+		}
+	}
 	remaining := len(boxIDs)
 	if lockedBeforeResponse {
 		remaining--
@@ -196,5 +371,30 @@ func testNotebookResponseLease(t *testing.T, explicitNotebook, batch bool) {
 	}
 	if lockedBeforeResponse {
 		t.Fatalf("lock completed before plaintext response was sent: %s", writer.Body.String())
+	}
+	if t.Name() == "TestGetBlockInfoNotebookResponseLease" {
+		for _, explicit := range []bool{false, true} {
+			args := map[string]any{"id": boxIDs[0]}
+			if explicit {
+				args["notebook"] = boxIDs[0]
+			}
+			body, err := json.Marshal(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(string(body)))
+			request.Header.Set("Content-Type", "application/json")
+			engine.ServeHTTP(recorder, request)
+			var response struct {
+				Code int `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code == 0 || strings.Contains(recorder.Body.String(), "REVIEW-SECRET-CONTENT") {
+				t.Fatalf("locked notebook metadata escaped: %s", recorder.Body.String())
+			}
+		}
 	}
 }

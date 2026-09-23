@@ -143,7 +143,7 @@ const genAccountAuthHTML = (mode: "login" | "deactivate") => {
         <div class="fn__hr--b"></div>
         <div class="b3-form__img fn__flex">
             <img id="captchaImg" class="b3-form__img-captcha fn__pointer" alt="">
-            <input id="captcha" class="b3-text-field fn__flex-1" placeholder="${window.siyuan.languages.captcha}">
+            <input spellcheck="false" id="captcha" class="b3-text-field fn__flex-1" placeholder="${window.siyuan.languages.captcha}">
         </div>
     </div>
     ${mode === "login" ? `<div class="fn__hr--b"></div>
@@ -164,7 +164,7 @@ const genAccountAuthHTML = (mode: "login" | "deactivate") => {
 <div class="b3-form__space--small fn__none" id="form2">
     <div class="b3-form__icon">
         <svg class="b3-form__icon-icon"><use xlink:href="#iconLock"></use></svg>
-        <input id="twofactorAuthCode" class="b3-text-field fn__block b3-form__icon-input" placeholder="${window.siyuan.languages.twoFactorCaptcha}">
+        <input spellcheck="false" id="twofactorAuthCode" class="b3-text-field fn__block b3-form__icon-input" placeholder="${window.siyuan.languages.twoFactorCaptcha}">
     </div>
     <div class="fn__hr--b"></div>
     <button id="login2" class="b3-button fn__block">${mode === "login" ? window.siyuan.languages.login : window.siyuan.languages.deactivateUser}</button>
@@ -370,7 +370,7 @@ ${iconVIP}${isOnetimePaid ? window.siyuan.languages.account4 : window.siyuan.lan
     // 激活码包含首年订阅和终生订阅两种，在非终生订阅状态时显示输入框
     const activationHTML = !isIOS && expireTime !== -1 ? `<div class="fn__hr"></div>
 <div class="b3-form__icon fn__block">
-    <input class="b3-text-field fn__block" style="padding-right: 52px;" placeholder="${window.siyuan.languages.activationCodePlaceholder}">
+    <input spellcheck="false" class="b3-text-field fn__block" style="padding-right: 52px;" placeholder="${window.siyuan.languages.activationCodePlaceholder}">
     <button type="button" id="activationCode" class="b3-button b3-button--text" style="position: absolute; right: 0; top: 0;">${window.siyuan.languages.confirm}</button>
 </div>` : "";
     const showDeactivate = isMobile();
@@ -441,10 +441,10 @@ const bindAccountAuthForm = (
         login2Btn.disabled = false;
     };
 
-    const completeLogin = (response: IWebSocketData) => {
+    const completeLogin = (loginToken?: string) => {
         if (mode === "login") {
             return fetchPost("/api/setting/getCloudUser", {
-                token: response.data.token,
+                token: loginToken,
             }, (userResponse) => {
                 const action = resolveCloudUserRefresh(userResponse.code, userResponse.data, userNameInput.value.trim());
                 if (action.apply) {
@@ -477,7 +477,7 @@ const bindAccountAuthForm = (
         }, (loginResponse) => {
             if (loginResponse.code === 1) {
                 showMessage(loginResponse.msg);
-                needCaptcha = loginResponse.data.needCaptcha;
+                needCaptcha = loginResponse.data && "needCaptcha" in loginResponse.data ? loginResponse.data.needCaptcha || "" : "";
                 if (needCaptcha) {
                     // 验证码
                     captchaInput.value = "";
@@ -487,6 +487,9 @@ const bindAccountAuthForm = (
                 return;
             }
             if (loginResponse.code === 10) {
+                if (!loginResponse.data || !("token" in loginResponse.data) || !loginResponse.data.token) {
+                    return;
+                }
                 // 两步验证
                 authFormRoot.querySelector("#form1")?.classList.add("fn__none");
                 authFormRoot.querySelector("#form2")?.classList.remove("fn__none");
@@ -495,7 +498,7 @@ const bindAccountAuthForm = (
                 return;
             }
             completing = true;
-            completeLogin(loginResponse).finally(finishSubmitting);
+            completeLogin(loginResponse.data && "token" in loginResponse.data ? loginResponse.data.token : undefined).finally(finishSubmitting);
         }).finally(() => {
             if (!completing) {
                 finishSubmitting();
@@ -519,7 +522,9 @@ const bindAccountAuthForm = (
                 return;
             }
             completing = true;
-            completeLogin(faResponse).finally(finishSubmitting);
+            const loginToken = faResponse.data && "token" in faResponse.data && typeof faResponse.data.token === "string" ?
+                faResponse.data.token : undefined;
+            completeLogin(loginToken).finally(finishSubmitting);
         }).finally(() => {
             if (!completing) {
                 finishSubmitting();

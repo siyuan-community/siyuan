@@ -1,3 +1,4 @@
+import type {BlockQueryRequestInput} from "../types/api";
 import {confirmDialog} from "../dialog/confirmDialog";
 import {getSearch, isMobile, isValidCustomAttrName} from "../util/functions";
 import {getAssetExtension, isEncryptedBox, isLocalPath, movePathTo, moveToPath, pathPosix} from "../util/pathName";
@@ -18,6 +19,7 @@ import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {hideMessage, showMessage} from "../dialog/message";
 import {loadTemplateDirectories, openTemplateManager} from "../template/manager";
 import {Dialog} from "../dialog";
+import {openInputDialog} from "../dialog/inputDialog";
 import {focusBlock, focusByRange, getEditorRange} from "../protyle/util/selection";
 /// #if !MOBILE
 import {openAsset, openAssetInBackground, openBy} from "../editor/util";
@@ -42,6 +44,10 @@ import {
 } from "../editor/assetOpen";
 import {resolvePdfAssetLink} from "../editor/pdfAssetLink";
 import {getHostCapabilities} from "../util/hostCapabilities";
+/// #if MOBILE
+import {bindBottomSheetDialog} from "../mobile/util/bindBottomSheetDialog";
+import {activeBlur} from "../mobile/util/keyboardToolbar";
+/// #endif
 
 const bindAttrInput = (inputElement: HTMLInputElement, id: string) => {
     inputElement.addEventListener("change", () => {
@@ -65,7 +71,7 @@ export const openWechatNotify = (nodeElement: Element) => {
         title: window.siyuan.languages.wechatReminder,
         content: `<div class="b3-dialog__content custom-attr">
     <div class="fn__flex">
-        <span class="ft__on-surface fn__flex-center" style="text-align: right;white-space: nowrap;width: 100px">${window.siyuan.languages.notifyTime}</span>
+        <span class="ft__on-surface fn__flex-center" style="text-align: right;flex: 0 0 100px;overflow-wrap: anywhere">${window.siyuan.languages.notifyTime}</span>
         <div class="fn__space"></div>
         <input class="b3-text-field fn__flex-1" type="datetime-local" max="9999-12-31 23:59" value="${reminderFormat}">
     </div>
@@ -118,7 +124,7 @@ export const openWechatNotify = (nodeElement: Element) => {
 };
 
 export const openFileWechatNotify = (protyle: IProtyle) => {
-    const docInfoParam: IObject = {
+    const docInfoParam: BlockQueryRequestInput = {
         id: protyle.block.rootID
     };
     if (isEncryptedBox(protyle.notebookId)) {
@@ -135,7 +141,7 @@ export const openFileWechatNotify = (protyle: IProtyle) => {
             title: window.siyuan.languages.wechatReminder,
             content: `<div class="b3-dialog__content custom-attr">
     <div class="fn__flex">
-        <span class="ft__on-surface fn__flex-center" style="text-align: right;white-space: nowrap;width: 100px">${window.siyuan.languages.notifyTime}</span>
+        <span class="ft__on-surface fn__flex-center" style="text-align: right;flex: 0 0 100px;overflow-wrap: anywhere">${window.siyuan.languages.notifyTime}</span>
         <div class="fn__space"></div>
         <input class="b3-text-field fn__flex-1" type="datetime-local" max="9999-12-31 23:59" value="${reminderFormat}">
     </div>
@@ -221,10 +227,11 @@ export const openFileAttr = (attrs: Record<string, string>, focusName = "bookmar
     });
     const dialog = new Dialog({
         width: isMobile() ? "100vw" : "50vw",
-        containerClassName: "b3-dialog__container--theme",
-        height: isMobile() ? "100vh" : "80vh",
+        containerClassName: "b3-dialog__container--theme" + (isMobile() ? " mobile-attributes-sheet" : ""),
+        hideCloseIcon: isMobile(),
+        height: isMobile() ? "60vh" : "80vh",
         content: `<div class="fn__flex-column">
-    <div class="layout-tab-bar fn__flex" style="${isMobile() ? "padding-right: 38px;" : ""}flex-shrink:0;border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
+    <div class="layout-tab-bar fn__flex" style="flex-shrink:0;border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0">
         <div class="item item--full item--focus" data-type="attr">
             <span class="fn__flex-1"></span>
             <span class="item__text">${window.siyuan.languages.builtIn}</span>
@@ -280,7 +287,11 @@ export const openFileAttr = (attrs: Record<string, string>, focusName = "bookmar
     </div>
 </div>`,
         destroyCallback() {
+            /// #if MOBILE
+            disposeSheet();
+            /// #else
             focusByRange(range);
+            /// #endif
             if (protyle) {
                 hideElements(["select"], protyle);
             } else {
@@ -288,6 +299,16 @@ export const openFileAttr = (attrs: Record<string, string>, focusName = "bookmar
             }
         }
     });
+    /// #if MOBILE
+    const destroyDialog = dialog.destroy.bind(dialog);
+    dialog.destroy = (options?: IObject) => {
+        if (dialog.element.contains(document.activeElement)) {
+            activeBlur(true);
+        }
+        destroyDialog(options);
+    };
+    const disposeSheet = bindBottomSheetDialog(dialog, async () => dialog.destroy());
+    /// #endif
     dialog.element.setAttribute("data-key", Constants.DIALOG_ATTR);
     (dialog.element.querySelector('.b3-text-field[data-name="bookmark"]') as HTMLInputElement).value = attrs.bookmark || "";
     (dialog.element.querySelector('.b3-text-field[data-name="name"]') as HTMLInputElement).value = attrs.name || "";
@@ -348,49 +369,33 @@ export const openFileAttr = (attrs: Record<string, string>, focusName = "bookmar
                         });
                     }
                     window.siyuan.menus.menu.element.classList.add("b3-menu--list");
-                    window.siyuan.menus.menu.popup({x: event.clientX, y: event.clientY + 16, w: 16});
+                    const rect = target.getBoundingClientRect();
+                    window.siyuan.menus.menu.popup({x: rect.left, y: rect.bottom, h: rect.height, w: rect.width});
                 });
                 event.stopPropagation();
                 event.preventDefault();
                 break;
             } else if (type === "addCustom") {
-                const addDialog = new Dialog({
+                const addDialog = openInputDialog({
                     title: window.siyuan.languages.attrName,
-                    content: `<div class="b3-dialog__content"><input spellcheck="false" class="b3-text-field fn__block" value=""></div>
-<div class="b3-dialog__action">
-    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
-</div>`,
-                    width: isMobile() ? "92vw" : "520px",
-                });
-                addDialog.element.setAttribute("data-key", Constants.DIALOG_SETCUSTOMATTR);
-                const inputElement = addDialog.element.querySelector("input") as HTMLInputElement;
-                const btnsElement = addDialog.element.querySelectorAll(".b3-button");
-                addDialog.bindInput(inputElement, () => {
-                    (btnsElement[1] as HTMLButtonElement).click();
-                });
-                inputElement.focus();
-                inputElement.select();
-                btnsElement[0].addEventListener("click", () => {
-                    addDialog.destroy();
-                });
-                btnsElement[1].addEventListener("click", () => {
-                    const value = inputElement.value.toLowerCase();
-                    if (!isValidCustomAttrName(value)) {
-                        showMessage(window.siyuan.languages._kernel[25]);
-                        return false;
-                    }
-                    let existElement: HTMLElement | false;
-                    Array.from(dialog.element.querySelectorAll('.custom-attr[data-type="custom"] .b3-label .fn__flex-1')).find((labelItem: HTMLElement) => {
-                        if (labelItem.textContent === value) {
-                            existElement = hasClosestByClassName(labelItem, "b3-label");
-                            return true;
+                    value: "",
+                    onConfirm: (inputValue, addDialog) => {
+                        const value = inputValue.toLowerCase();
+                        if (!isValidCustomAttrName(value)) {
+                            showMessage(window.siyuan.languages._kernel[25]);
+                            return;
                         }
-                    });
-                    if (existElement) {
-                        showMessage(window.siyuan.languages.hasAttrName.replace("${x}", value));
-                    } else {
-                        target.parentElement.insertAdjacentHTML("beforebegin", `<div class="b3-label b3-label--noborder">
+                        let existElement: HTMLElement | false;
+                        Array.from(dialog.element.querySelectorAll('.custom-attr[data-type="custom"] .b3-label .fn__flex-1')).find((labelItem: HTMLElement) => {
+                            if (labelItem.textContent === value) {
+                                existElement = hasClosestByClassName(labelItem, "b3-label");
+                                return true;
+                            }
+                        });
+                        if (existElement) {
+                            showMessage(window.siyuan.languages.hasAttrName.replace("${x}", value));
+                        } else {
+                            target.parentElement.insertAdjacentHTML("beforebegin", `<div class="b3-label b3-label--noborder">
     <div class="fn__flex">
         <span class="fn__flex-1">${value}</span>
         <span data-action="remove" class="block__icon block__icon--show"><svg><use xlink:href="#iconMin"></use></svg></span>
@@ -398,12 +403,14 @@ export const openFileAttr = (attrs: Record<string, string>, focusName = "bookmar
     <div class="fn__hr"></div>
     <textarea style="resize: vertical" spellcheck="false" data-name="custom-${value}" class="b3-text-field fn__block" rows="1" placeholder="${window.siyuan.languages.attrValue1}"></textarea>
 </div>`);
-                        const newInputElement = target.parentElement.previousElementSibling.querySelector(".b3-text-field") as HTMLInputElement;
-                        newInputElement.focus();
-                        bindAttrInput(newInputElement, attrs.id);
-                        addDialog.destroy();
-                    }
+                            const newInputElement = target.parentElement.previousElementSibling.querySelector(".b3-text-field") as HTMLInputElement;
+                            newInputElement.focus();
+                            bindAttrInput(newInputElement, attrs.id);
+                            addDialog.destroy();
+                        }
+                    },
                 });
+                addDialog.element.setAttribute("data-key", Constants.DIALOG_SETCUSTOMATTR);
                 event.stopPropagation();
                 event.preventDefault();
                 break;
@@ -533,6 +540,9 @@ export const copySubMenu = (ids: string[], accelerator = true, focusElement?: El
                     fillCSSVar: false,
                     adjustHeadingLevel: false
                 });
+                if (response.code !== 0) {
+                    return;
+                }
                 const text = response.data.content;
                 writeText(text);
                 if (focusElement) {
@@ -560,16 +570,12 @@ export const exportMd = (id: string) => {
             iconClass: "ft__error",
             icon: "iconMarkdown",
             click: async () => {
-                const result = await fetchSyncPost("/api/block/getRefText", {id: id});
-
-                const dialog = new Dialog({
-                    title: window.siyuan.languages.fileName,
-                    content: `<div class="b3-dialog__content"><input class="b3-text-field fn__block" value="">
-<div class="fn__hr"></div>
-<label>${window.siyuan.languages.savePath}<select class="b3-select fn__block" data-template-directory><option value="">/</option></select></label>
-<div class="fn__hr"></div>
-<button type="button" class="b3-button b3-button--outline" data-template-manager>${window.siyuan.languages.templateManager}</button>
-<div class="fn__hr"></div>
+                const response = await fetchSyncPost("/api/template/getDocSaveAsTemplateInfo", {id});
+                if (response.code !== 0) {
+                    return;
+                }
+                const info = response.data;
+                const databaseOptions = info.hasDatabase ? `<div class="fn__hr"></div>
 <div class="b3-label__text">${window.siyuan.languages.templateDatabaseMode}</div>
 <label class="fn__flex b3-label">
     <input type="radio" name="templateDatabaseMode" value="copy" checked>
@@ -580,78 +586,87 @@ export const exportMd = (id: string) => {
     <input type="radio" name="templateDatabaseMode" value="reference">
     <span class="fn__space"></span>
     <div>${window.siyuan.languages.duplicateMirror}<div class="b3-label__text">${window.siyuan.languages.templateDatabaseReferenceTip}</div></div>
-</label></div>
-<div class="b3-dialog__action">
-    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
-</div>`,
-                    width: isMobile() ? "92vw" : "520px",
+</label>` : "";
+
+                const maxNameLen = 32;
+                const name = replaceFileName(info.name).substring(0, maxNameLen);
+                let directoriesReady = false;
+                const dialog = openInputDialog({
+                    title: window.siyuan.languages.fileName,
+                    value: name,
+                    extraContent: `
+<div class="fn__hr"></div>
+<label>${window.siyuan.languages.savePath}<div class="fn__hr"></div><select class="b3-select fn__block" data-template-directory><option value="">/</option></select></label>
+<div class="fn__hr"></div>
+<button type="button" class="b3-button b3-button--outline" data-template-manager>${window.siyuan.languages.templateManager}</button>
+${databaseOptions}`,
+                    onConfirm: (value, dialog) => {
+                        if (!directoriesReady) {
+                            return;
+                        }
+                        const inputElement = dialog.element.querySelector<HTMLInputElement>("[data-dialog-input]");
+                        let templateName = value.trim() === "" ? window.siyuan.languages.untitled :
+                            replaceFileName(value);
+                        if (templateName.length > maxNameLen) {
+                            templateName = templateName.substring(0, maxNameLen);
+                        }
+                        inputElement.value = templateName;
+                        const selectedDatabaseMode = (dialog.element.querySelector(
+                            "input[name=\"templateDatabaseMode\"]:checked") as HTMLInputElement)?.value;
+                        const databaseMode: "copy" | "reference" = selectedDatabaseMode === "reference" ?
+                            "reference" : "copy";
+                        const requestData = {
+                            id,
+                            name: templateName,
+                            directory: directoryElement.value,
+                            overwrite: false,
+                            databaseMode,
+                        };
+                        fetchPost("/api/template/docSaveAsTemplate", requestData, response => {
+                            if (response.code === 1) {
+                                // 重名
+                                confirmDialog(window.siyuan.languages.export, window.siyuan.languages.exportTplTip, () => {
+                                    fetchPost("/api/template/docSaveAsTemplate", {
+                                        ...requestData,
+                                        overwrite: true
+                                    }, resp => {
+                                        if (resp.code === 0) {
+                                            showMessage(window.siyuan.languages.exportTplSucc);
+                                        }
+                                    });
+                                });
+                                return;
+                            }
+                            showMessage(window.siyuan.languages.exportTplSucc);
+                        });
+                        dialog.destroy();
+                    },
                 });
                 dialog.element.setAttribute("data-key", Constants.DIALOG_EXPORTTEMPLATE);
                 const directoryElement = dialog.element.querySelector<HTMLSelectElement>("[data-template-directory]");
-                void loadTemplateDirectories(directoryElement).catch(console.error);
-                dialog.element.querySelector("[data-template-manager]").addEventListener("click", () => {
+                const confirmElement = dialog.element.querySelector<HTMLButtonElement>("[data-input-confirm]");
+                const managerElement = dialog.element.querySelector<HTMLButtonElement>("[data-template-manager]");
+                let initialized = false;
+                const refreshDirectories = async () => {
+                    directoriesReady = false;
+                    confirmElement.disabled = true;
+                    directoryElement.disabled = true;
+                    managerElement.disabled = true;
+                    try {
+                        directoriesReady = await loadTemplateDirectories(directoryElement,
+                            initialized ? undefined : info.directory || "");
+                        initialized = initialized || directoriesReady;
+                    } finally {
+                        confirmElement.disabled = !directoriesReady;
+                        directoryElement.disabled = !directoriesReady;
+                        managerElement.disabled = false;
+                    }
+                };
+                void refreshDirectories().catch(console.error);
+                managerElement.addEventListener("click", () => {
                     openTemplateManager(id, () => {
-                        void loadTemplateDirectories(directoryElement).catch(console.error);
+                        void refreshDirectories().catch(console.error);
                     });
-                });
-                const inputElement = dialog.element.querySelector("input") as HTMLInputElement;
-                const btnsElement = dialog.element.querySelectorAll(".b3-dialog__action .b3-button");
-                dialog.bindInput(inputElement, () => {
-                    (btnsElement[1] as HTMLButtonElement).click();
-                });
-                let name = replaceFileName(result.data);
-                const maxNameLen = 32;
-                if (name.length > maxNameLen) {
-                    name = name.substring(0, maxNameLen);
-                }
-                inputElement.value = name;
-                inputElement.focus();
-                inputElement.select();
-                btnsElement[0].addEventListener("click", () => {
-                    dialog.destroy();
-                });
-                btnsElement[1].addEventListener("click", () => {
-                    if (inputElement.value.trim() === "") {
-                        inputElement.value = window.siyuan.languages.untitled;
-                    } else {
-                        inputElement.value = replaceFileName(inputElement.value);
-                    }
-
-                    if (name.length > maxNameLen) {
-                        name = name.substring(0, maxNameLen);
-                    }
-
-                    const templateName = inputElement.value;
-                    const selectedDatabaseMode = (dialog.element.querySelector(
-                        "input[name=\"templateDatabaseMode\"]:checked") as HTMLInputElement)?.value;
-                    const databaseMode: "copy" | "reference" = selectedDatabaseMode === "reference" ?
-                        "reference" : "copy";
-                    const requestData = {
-                        id,
-                        name: templateName,
-                        directory: directoryElement.value,
-                        overwrite: false,
-                        databaseMode,
-                    };
-                    fetchPost("/api/template/docSaveAsTemplate", requestData, response => {
-                        if (response.code === 1) {
-                            // 重名
-                            confirmDialog(window.siyuan.languages.export, window.siyuan.languages.exportTplTip, () => {
-                                fetchPost("/api/template/docSaveAsTemplate", {
-                                    ...requestData,
-                                    overwrite: true
-                                }, resp => {
-                                    if (resp.code === 0) {
-                                        showMessage(window.siyuan.languages.exportTplSucc);
-                                    }
-                                });
-                            });
-                            return;
-                        }
-                        showMessage(window.siyuan.languages.exportTplSucc);
-                    });
-                    dialog.destroy();
                 });
             }
         }, {
@@ -1066,7 +1081,7 @@ export const renameMenu = (options: {
         label: window.siyuan.languages.rename,
         click: () => {
             if (options.type === "file" && options.docId) {
-                const docInfoParam: IObject = {
+                const docInfoParam: BlockQueryRequestInput = {
                     id: options.docId
                 };
                 if (isEncryptedBox(options.notebookId)) {

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"os"
 	"path"
 	"path/filepath"
@@ -66,18 +67,17 @@ func InsertAssetBytes(id, fileName string, data []byte) (assetPath string, creat
 		return "", false, err
 	}
 	if existAssetPath := GetAssetPathByHash(hash, bt.BoxID); existAssetPath != "" {
-		originalName := util.RemoveID(filepath.Base(existAssetPath))
-		if strings.EqualFold(fName, originalName) {
+		originalName := assetNameWithoutID(filepath.Base(existAssetPath))
+		if strings.EqualFold(assetNameWithoutID(fName), originalName) {
 			return strings.TrimPrefix(existAssetPath, "/"), false, nil
 		}
 		hash = "random_2_" + gulu.Rand.String(12)
 	}
 
-	blockID := ast.NewNodeID()
 	if IsEncryptedBox(bt.BoxID) {
-		fName = encryptedAssetName(util.Ext(fName), blockID)
+		fName = encryptedAssetName(util.Ext(fName), ast.NewNodeID())
 	} else {
-		fName = util.AssetName(fName, blockID)
+		fName = newAssetFileName(fName)
 	}
 	writePath := filepath.Join(assetsDirPath, fName)
 	if err = writeAssetFile(writePath, bytes.NewReader(data), bt.BoxID, baseName); err != nil {
@@ -108,13 +108,42 @@ type AssetUploadFailure struct {
 	Error string `json:"error"`
 }
 
-func recordAssetUploadSuccess(succMap map[string]any, succFiles *[]AssetUploadSuccess, index int, name, assetPath string) {
+func recordAssetUploadSuccess(succMap map[string]string, succFiles *[]AssetUploadSuccess, index int, name, assetPath string) {
 	succMap[name] = assetPath
 	*succFiles = append(*succFiles, AssetUploadSuccess{Index: index, Name: name, Path: assetPath})
 }
 
 func recordAssetUploadFailure(failedFiles *[]AssetUploadFailure, index int, name string, err error) {
 	*failedFiles = append(*failedFiles, AssetUploadFailure{Index: index, Name: name, Error: err.Error()})
+}
+
+// assetNameWithoutID 移除外部文件名携带的资源 ID，并为仅由 ID 组成的名称补充可读前缀。
+func assetNameWithoutID(name string) string {
+	ext := util.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	_, id := util.LastID(name)
+	if ast.IsNodeIDPattern(id) {
+		base = strings.TrimSuffix(base[:len(base)-len(id)], "-")
+	}
+	if base == "" || ast.IsNodeIDPattern(base) {
+		base = "asset"
+	}
+	return base + ext
+}
+
+// newAssetFileName 为新增资源生成新的资源 ID，避免外部文件名指定已有资源的写入路径。
+func newAssetFileName(name string) string {
+	name = assetNameWithoutID(name)
+	ext := util.Ext(name)
+	return strings.TrimSuffix(name, ext) + "-" + ast.NewNodeID() + ext
+}
+
+func readRTFDDir(dir string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		logging.LogErrorf("read dir [%s] failed: %s", dir, err)
+	}
+	return entries, err
 }
 
 func copyRTFDEntries(entries []os.DirEntry, srcDir, destDir string, copyFile func(string, string) error) error {
@@ -131,19 +160,19 @@ func copyRTFDEntries(entries []os.DirEntry, srcDir, destDir string, copyFile fun
 	return nil
 }
 
-func InsertLocalAssets(id string, assetAbsPaths []string, isUpload bool) (succMap map[string]any,
+func InsertLocalAssets(id string, assetAbsPaths []string, isUpload bool) (succMap map[string]string,
 	succFiles []AssetUploadSuccess, failedFiles []AssetUploadFailure, err error) {
 	return insertLocalAssets(id, assetAbsPaths, isUpload, false)
 }
 
-func InsertHTMLLocalAssets(id string, assetAbsPaths []string) (succMap map[string]any,
+func InsertHTMLLocalAssets(id string, assetAbsPaths []string) (succMap map[string]string,
 	succFiles []AssetUploadSuccess, failedFiles []AssetUploadFailure, err error) {
 	return insertLocalAssets(id, assetAbsPaths, true, true)
 }
 
-func insertLocalAssets(id string, assetAbsPaths []string, isUpload, validateHTMLPath bool) (succMap map[string]any,
+func insertLocalAssets(id string, assetAbsPaths []string, isUpload, validateHTMLPath bool) (succMap map[string]string,
 	succFiles []AssetUploadSuccess, failedFiles []AssetUploadFailure, err error) {
-	succMap = map[string]any{}
+	succMap = map[string]string{}
 	succFiles = make([]AssetUploadSuccess, 0, len(assetAbsPaths))
 	failedFiles = make([]AssetUploadFailure, 0)
 
@@ -188,18 +217,27 @@ func insertLocalAssets(id string, assetAbsPaths []string, isUpload, validateHTML
 			continue
 		}
 
-		if gulu.File.IsSubPath(assetsDirPath, assetAbsPath) {
-			// 已经位于 assets 目录下的资源文件不处理
-			// Dragging a file from the assets folder into the editor causes the kernel to exit https://github.com/siyuan-note/siyuan/issues/15355
-			recordAssetUploadSuccess(succMap, &succFiles, index, baseName, "assets/"+baseName)
-			continue
-		}
-
 		fi, statErr := os.Stat(assetAbsPath)
 		if nil != statErr {
 			recordAssetUploadFailure(&failedFiles, index, baseName, statErr)
 			continue
 		}
+		if gulu.File.IsSubPath(assetsDirPath, assetAbsPath) {
+			// 已经位于 assets 目录下的资源文件不处理
+			// Dragging a file from the assets folder into the editor causes the kernel to exit https://github.com/siyuan-note/siyuan/issues/15355
+			rel, relErr := filepath.Rel(assetsDirPath, assetAbsPath)
+			if relErr != nil {
+				recordAssetUploadFailure(&failedFiles, index, baseName, relErr)
+				continue
+			}
+			p := path.Join("assets", filepath.ToSlash(rel))
+			if IsEncryptedBox(boxID) {
+				p += "?box=" + boxID
+			}
+			recordAssetUploadSuccess(succMap, &succFiles, index, baseName, p)
+			continue
+		}
+
 		f, openErr := os.Open(assetAbsPath)
 		if nil != openErr {
 			recordAssetUploadFailure(&failedFiles, index, baseName, openErr)
@@ -219,8 +257,8 @@ func insertLocalAssets(id string, assetAbsPaths []string, isUpload, validateHTML
 
 		existAssetPath := GetAssetPathByHash(hash, boxID)
 		if "" != existAssetPath {
-			originalName := util.RemoveID(filepath.Base(existAssetPath))
-			if strings.ToLower(fName) != strings.ToLower(originalName) {
+			originalName := assetNameWithoutID(filepath.Base(existAssetPath))
+			if !strings.EqualFold(assetNameWithoutID(fName), originalName) {
 				hash = "random_2_" + gulu.Rand.String(12)
 			}
 		}
@@ -229,12 +267,11 @@ func insertLocalAssets(id string, assetAbsPaths []string, isUpload, validateHTML
 			recordAssetUploadSuccess(succMap, &succFiles, index, baseName, strings.TrimPrefix(existAssetPath, "/"))
 			f.Close()
 		} else {
-			blockID := ast.NewNodeID()
 			if IsEncryptedBox(boxID) {
 				// 加密 box：磁盘文件名脱敏为 uuid-blockID.ext，原始名存加密映射
-				fName = encryptedAssetName(util.Ext(fName), blockID)
+				fName = encryptedAssetName(util.Ext(fName), ast.NewNodeID())
 			} else {
-				fName = util.AssetName(fName, blockID)
+				fName = newAssetFileName(fName)
 			}
 			writePath := filepath.Join(assetsDirPath, fName)
 			if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
@@ -266,7 +303,6 @@ func insertLocalAssets(id string, assetAbsPaths []string, isUpload, validateHTML
 func Upload(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(200, ret)
-
 	form, err := c.MultipartForm()
 	if err != nil {
 		logging.LogErrorf("insert asset failed: %s", err)
@@ -274,10 +310,43 @@ func Upload(c *gin.Context) {
 		ret.Msg = err.Error()
 		return
 	}
+	request := AssetUploadRequest{Files: form.File["file[]"]}
+	if values := form.Value["id"]; values != nil {
+		request.ID = &values[0]
+	}
+	if values := form.Value["assetsDirPath"]; values != nil {
+		request.AssetsDirPath = &values[0]
+	}
+	result, message, err := UploadAssets(request)
+	ret.Msg = message
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = result
+}
+
+// AssetUploadRequest 保留目标字段的缺省状态，并按输入顺序接收全部文件。
+type AssetUploadRequest struct {
+	ID            *string
+	AssetsDirPath *string
+	Files         []*multipart.FileHeader
+}
+type AssetUploadResult struct {
+	ErrFiles    []string             `json:"errFiles"`
+	FailedFiles []AssetUploadFailure `json:"failedFiles"`
+	SuccFiles   []AssetUploadSuccess `json:"succFiles"`
+	SuccMap     map[string]string    `json:"succMap"`
+}
+
+// UploadAssets 将附件写入目标资源目录，保留逐文件结果、加密写入和首条失败提示。
+func UploadAssets(request AssetUploadRequest) (result *AssetUploadResult, message string, err error) {
+
 	assetsDirPath := filepath.Join(util.DataDir, "assets")
 	var uploadBoxID string // 记录上传目标 boxID，供 writeAssetFile 判断是否需加密
-	if nil != form.Value["id"] {
-		id := form.Value["id"][0]
+	if request.ID != nil {
+		id := *request.ID
 		bt := treenode.GetBlockTree(id)
 		if nil == bt {
 			// 全局 blocktree 找不到时，遍历已打开的加密笔记本查找
@@ -289,8 +358,7 @@ func Upload(c *gin.Context) {
 			}
 		}
 		if nil == bt {
-			ret.Code = -1
-			ret.Msg = Conf.Language(71)
+			err = errors.New(Conf.Language(71))
 			return
 		}
 		uploadBoxID = bt.BoxID
@@ -299,42 +367,41 @@ func Upload(c *gin.Context) {
 	}
 
 	relAssetsDirPath := "assets"
-	if nil != form.Value["assetsDirPath"] {
-		relAssetsDirPath = form.Value["assetsDirPath"][0]
+	if request.AssetsDirPath != nil {
+		relAssetsDirPath = *request.AssetsDirPath
 		assetsDirPath = filepath.Join(util.DataDir, relAssetsDirPath)
 		if !util.IsAbsPathInWorkspace(assetsDirPath) {
-			ret.Code = -1
-			ret.Msg = "Path [" + assetsDirPath + "] is not in workspace"
+			err = errors.New("Path [" + assetsDirPath + "] is not in workspace")
 			return
 		}
 		// assetsDirPath 可能指向加密 box（调用方未传 id），反查 boxID 让文件名脱敏和内容加密生效
 		if pathBox := ExtractBoxIDFromAssetsPath(assetsDirPath); pathBox != "" && IsEncryptedBox(pathBox) {
 			uploadBoxID = pathBox
+			boxAssetsDir := filepath.Join(util.DataDir, pathBox, "assets")
+			if rel, relErr := filepath.Rel(boxAssetsDir, assetsDirPath); relErr == nil && rel != ".." &&
+				!strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+				// 加密资源通过 box 查询参数定位，响应转换为 box 内的标准 assets 相对路径。
+				relAssetsDirPath = path.Join("assets", filepath.ToSlash(rel))
+			}
 		}
 	}
 	if !gulu.File.IsExist(assetsDirPath) {
 		if err = os.MkdirAll(assetsDirPath, 0755); err != nil {
-			ret.Code = -1
-			ret.Msg = err.Error()
 			return
 		}
 	}
 
 	var errFiles []string
-	succMap := map[string]any{}
-	files := form.File["file[]"]
+	succMap := map[string]string{}
+	files := request.Files
 	succFiles := make([]AssetUploadSuccess, 0, len(files))
 	failedFiles := make([]AssetUploadFailure, 0)
 	recordFailure := func(index int, inputName, errorName string, uploadErr error) {
 		errFiles = append(errFiles, errorName)
 		recordAssetUploadFailure(&failedFiles, index, inputName, uploadErr)
-		if ret.Msg == "" {
-			ret.Msg = uploadErr.Error()
+		if message == "" {
+			message = uploadErr.Error()
 		}
-	}
-	skipIfDuplicated := false // 默认不跳过重复文件，但是有的场景需要跳过，比如上传 PDF 标注图片 https://github.com/siyuan-note/siyuan/issues/10666
-	if nil != form.Value["skipIfDuplicated"] {
-		skipIfDuplicated = "true" == form.Value["skipIfDuplicated"][0]
 	}
 
 	for index, file := range files {
@@ -382,8 +449,8 @@ func Upload(c *gin.Context) {
 
 		existAssetPath := GetAssetPathByHash(hash, uploadBoxID)
 		if "" != existAssetPath {
-			originalName := util.RemoveID(filepath.Base(existAssetPath))
-			if strings.ToLower(fName) != strings.ToLower(originalName) {
+			originalName := assetNameWithoutID(filepath.Base(existAssetPath))
+			if !strings.EqualFold(assetNameWithoutID(fName), originalName) {
 				hash = "random_2_" + gulu.Rand.String(12)
 			}
 		}
@@ -392,39 +459,14 @@ func Upload(c *gin.Context) {
 			recordAssetUploadSuccess(succMap, &succFiles, index, baseName, strings.TrimPrefix(existAssetPath, "/"))
 			f.Close()
 		} else {
-			if skipIfDuplicated {
-				// 复制 PDF 矩形注解时不再重复插入图片 No longer upload image repeatedly when copying PDF rectangle annotation https://github.com/siyuan-note/siyuan/issues/10666
-				pattern := assetsDirPath + string(os.PathSeparator) + strings.TrimSuffix(fName, ext)
-				_, patternLastID := util.LastID(fName)
-				if lastID != "" && lastID != patternLastID {
-					// 文件名太长被截断了，通过之前的 lastID 来匹配 PDF files with too long file names cannot generate annotated images https://github.com/siyuan-note/siyuan/issues/15739
-					pattern = assetsDirPath + string(os.PathSeparator) + "*" + lastID + ext
-				} else {
-					pattern += "*" + ext
-				}
-
-				matches, globErr := filepath.Glob(pattern)
-				if nil != globErr {
-					logging.LogErrorf("glob failed: %s", globErr)
-				} else {
-					if 0 < len(matches) {
-						fName = filepath.Base(matches[0])
-						recordAssetUploadSuccess(succMap, &succFiles, index, baseName,
-							strings.TrimPrefix(path.Join(relAssetsDirPath, fName), "/"))
-						f.Close()
-						continue
-					}
-				}
-			}
-
-			if "" == lastID {
-				lastID = ast.NewNodeID()
-			}
 			if IsEncryptedBox(uploadBoxID) {
+				if "" == lastID {
+					lastID = ast.NewNodeID()
+				}
 				// 加密 box：磁盘文件名脱敏为 uuid-blockID.ext，原始名存加密映射
 				fName = encryptedAssetName(util.Ext(fName), lastID)
 			} else {
-				fName = util.AssetName(fName, lastID)
+				fName = newAssetFileName(fName)
 			}
 			writePath := filepath.Join(assetsDirPath, fName)
 			tmpDir := filepath.Join(util.TempDir, "convert", "zip", gulu.Rand.String(7))
@@ -466,7 +508,7 @@ func Upload(c *gin.Context) {
 				fName = strings.TrimSuffix(fName, ext)
 				ext = strings.ToLower(ext)
 				fName += ext
-				fName = util.AssetName(fName, ast.NewNodeID())
+				fName = newAssetFileName(fName)
 				tmpDir2 := filepath.Join(util.TempDir, "convert", "zip", gulu.Rand.String(7))
 				if err = gulu.Zip.Unzip(writePath, tmpDir2); err != nil {
 					recordFailure(index, file.Filename, fName, err)
@@ -475,9 +517,8 @@ func Upload(c *gin.Context) {
 					continue
 				}
 
-				entries, readErr := os.ReadDir(tmpDir2)
+				entries, readErr := readRTFDDir(tmpDir2)
 				if nil != readErr {
-					logging.LogErrorf("read dir [%s] failed: %s", tmpDir2, readErr)
 					recordFailure(index, file.Filename, fName, readErr)
 					_ = os.RemoveAll(tmpDir)
 					_ = os.RemoveAll(tmpDir2)
@@ -493,9 +534,8 @@ func Upload(c *gin.Context) {
 				}
 				dirName := entries[0].Name()
 				srcDir := filepath.Join(tmpDir2, dirName)
-				entries, readErr = os.ReadDir(srcDir)
+				entries, readErr = readRTFDDir(srcDir)
 				if nil != readErr {
-					logging.LogErrorf("read dir [%s] failed: %s", filepath.Join(tmpDir2, entries[0].Name()), readErr)
 					recordFailure(index, file.Filename, fName, readErr)
 					_ = os.RemoveAll(tmpDir)
 					_ = os.RemoveAll(tmpDir2)
@@ -524,14 +564,11 @@ func Upload(c *gin.Context) {
 		}
 	}
 
-	ret.Data = map[string]any{
-		"errFiles":    errFiles,
-		"failedFiles": failedFiles,
-		"succFiles":   succFiles,
-		"succMap":     succMap,
-	}
+	result = &AssetUploadResult{ErrFiles: errFiles, FailedFiles: failedFiles, SuccFiles: succFiles, SuccMap: succMap}
 
 	IncSync()
+
+	return result, message, nil
 }
 
 func getAssetsDir(boxLocalPath, docDirLocalPath string) (assets string) {
@@ -644,7 +681,7 @@ func storeAssetForBox(boxID, assetDirPath, originalName string, data []byte) (di
 			name = "asset"
 		}
 		for {
-			diskName = util.AssetName(name+ext, ast.NewNodeID())
+			diskName = newAssetFileName(name + ext)
 			writePath = filepath.Join(assetDirPath, diskName)
 			if !filelock.IsExist(writePath) {
 				break

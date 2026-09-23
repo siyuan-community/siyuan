@@ -1,5 +1,6 @@
 import {setEditMode} from "../util/setEditMode";
 import {isTabGutterBridge} from "../gutter/tabs";
+import {isContainerGutterBridge} from "../gutter/container";
 import {scrollEvent} from "../scroll/event";
 import {isMobile} from "../../util/functions";
 import {Constants} from "../../constants";
@@ -19,7 +20,7 @@ import {
 } from "../util/hasClosest";
 import {hideElements} from "./hideElements";
 import {AVAttributePanel} from "../render/av/attributePanel";
-import {getEditorHorizontalPadding} from "./padding";
+import {BACKLINK_EDITOR_PADDING, getEditorHorizontalPadding} from "./padding";
 import {callMobileAppShowKeyboard} from "../../mobile/util/mobileAppUtil";
 import {sanitizeKernelHTML} from "../../util/hostCapabilities";
 
@@ -33,7 +34,11 @@ const focusMobileAppEditor = (element: HTMLElement) => {
 export const initUI = (protyle: IProtyle) => {
     protyle.contentElement = document.createElement("div");
     protyle.contentElement.className = "protyle-content";
-    if (!isMobile() && !protyle.lite && CSS.supports("container-type", "inline-size") &&
+    if (window.siyuan.config.editor.fullWidth) {
+        protyle.contentElement.dataset.fullwidth = "true";
+        protyle.preview.element.dataset.fullwidth = "true";
+    }
+    if (!isMobile() && CSS.supports("container-type", "inline-size") &&
         CSS.supports("width", "1cqi") && !protyle.options.action.includes(Constants.CB_GET_HISTORY) &&
         !protyle.options.backlinkData) {
         protyle.contentElement.dataset.paddingMode = "responsive";
@@ -248,6 +253,10 @@ export const initUI = (protyle: IProtyle) => {
                 hideElements(["gutter"], protyle);
                 return;
             }
+            if (isContainerGutterBridge(protyle.gutter.element, nodeElement, event.target,
+                event.clientX, event.clientY, button => protyle.gutter.getNodeElement(protyle, button))) {
+                return;
+            }
             if (nodeElement && (nodeElement.classList.contains("list") || nodeElement.classList.contains("li"))) {
                 // 光标在列表下部应显示右侧的元素，而不是列表本身。放在 windowEvent 中的 mousemove 下处理
                 return;
@@ -378,7 +387,7 @@ export const setPadding = (protyle: IProtyle) => {
         paddingLeft = parseFloat(wysiwygStyle.paddingLeft);
         paddingRight = parseFloat(wysiwygStyle.paddingRight);
     } else if (protyle.options.backlinkData) {
-        protyle.wysiwyg.element.style.padding = `4px ${paddingRight}px 4px ${paddingLeft}px`;
+        protyle.wysiwyg.element.style.padding = BACKLINK_EDITOR_PADDING;
     } else {
         const paddingBottom = backlinkBottomVisible && protyle.options.typewriterMode ? backlinkBottomGap : padding.bottom;
         protyle.wysiwyg.element.style.padding = `${padding.top}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`;

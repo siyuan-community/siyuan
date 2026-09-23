@@ -1,3 +1,5 @@
+import type {FileTreeGetDocRequestInput} from "../../types/api";
+import type {BlockBreadcrumbRequestInput, BlockQueryRequestInput, TreeStatRequestInput} from "../../types/api";
 import {getIconByType} from "../../editor/getIcon";
 import {fetchPost, fetchSyncPost} from "../../util/fetch";
 import {Constants} from "../../constants";
@@ -29,7 +31,7 @@ import {Menu} from "../../plugin/Menu";
 import {getNoContainerElement} from "../wysiwyg/getBlock";
 import {openTitleMenu} from "../header/openTitleMenu";
 import {emitOpenMenu} from "../../plugin/EventBus";
-import {isInAndroid, isInHarmony, isIPad, isMac, updateHotkeyTip} from "../util/compatibility";
+import {isInAndroid, isInHarmony, isIPad, isMac, isPhablet, updateHotkeyTip} from "../util/compatibility";
 import {isEncryptedBox} from "../../util/pathName";
 import {listIndent, listOutdent} from "../wysiwyg/list";
 import {improveBreadcrumbAppearance} from "../wysiwyg/renderBacklink";
@@ -41,6 +43,7 @@ import {genEmbedStatTip, type IBlockStat, type IEmbedStat} from "../../layout/st
 import {mountBreadcrumbButtons} from "../../plugin/breadcrumbButton";
 import {getHostCapabilities} from "../../util/hostCapabilities";
 import {waitForPendingTransactions} from "../util/transactionQueue";
+import {bindMobileMenuKeyboard} from "../../mobile/util/keyboardToolbar";
 
 const genDocumentStatLabel = (stat: IBlockStat, statWithEmbed?: IBlockStat, embedStat?: IEmbedStat) => {
     const runeEmbedAttrs = statWithEmbed ? ` class="ariaLabel" data-position="north" aria-label="${escapeAriaLabel(genEmbedStatTip(window.siyuan.languages.runeCountWithEmbed, statWithEmbed.runeCount, embedStat))}"` : "";
@@ -89,7 +92,10 @@ ${padHTML}
 <button class="block__icon fn__flex-center fn__none ariaLabel" data-type="context" aria-label="${window.siyuan.languages.context}"><svg><use xlink:href="#iconAlignCenter"></use></svg></button>`;
         this.element = element.firstElementChild as HTMLElement;
         mountBreadcrumbButtons(protyle, element.querySelector(".protyle-breadcrumb__plugin"));
+        const takeMenuKeyboard = bindMobileMenuKeyboard(element,
+            'button[data-type="mobile-menu"], button[data-type="doc"], button[data-type="more"]', () => protyle);
         element.addEventListener("click", async (event) => {
+            const restoreMenuKeyboard = takeMenuKeyboard();
             let target = event.target as HTMLElement;
             if (event.composedPath().some(item => item instanceof HTMLElement && item.hasAttribute("data-plugin-name"))) {
                 return;
@@ -102,6 +108,7 @@ ${padHTML}
                     this.openChildrenMenu(protyle, itemElement.getAttribute("data-node-id"), {
                         x: targetRect.left,
                         y: targetRect.bottom,
+                        h: targetRect.height,
                         isLeft: false,
                     });
                     event.preventDefault();
@@ -118,7 +125,7 @@ ${padHTML}
                         openFileById({
                             app: protyle.app,
                             id,
-                            action: id === protyle.block.rootID ? [Constants.CB_GET_FOCUS] : [Constants.CB_GET_FOCUS, Constants.CB_GET_ALL]
+                            action: id === protyle.block.rootID ? [isPhablet() ? Constants.CB_GET_HL : Constants.CB_GET_FOCUS] : [isPhablet() ? Constants.CB_GET_HL : Constants.CB_GET_FOCUS, Constants.CB_GET_ALL]
                         });
                     } else {
                         zoomOut({protyle, id});
@@ -127,14 +134,14 @@ ${padHTML}
                     event.preventDefault();
                     break;
                 } else if (type === "mobile-menu") {
-                    this.genMobileMenu(protyle);
+                    this.genMobileMenu(protyle, restoreMenuKeyboard);
                     event.preventDefault();
                     event.stopPropagation();
                     break;
                 } else if (type === "doc") {
                     // 不使用 window.siyuan.shiftIsPressed ，否则窗口未激活时按 Shift 点击块标无法打开属性面板 https://github.com/siyuan-note/siyuan/issues/15075
                     if (event.shiftKey) {
-                        const docInfoParam: IObject = {
+                        const docInfoParam: BlockQueryRequestInput = {
                             id: protyle.block.rootID
                         };
                         if (isEncryptedBox(protyle.notebookId)) {
@@ -145,7 +152,8 @@ ${padHTML}
                         });
                     } else {
                         const targetRect = target.getBoundingClientRect();
-                        openTitleMenu(protyle, {x: targetRect.right, y: targetRect.bottom, isLeft: true}, Constants.MENU_FROM_TITLE_BREADCRUMB);
+                        openTitleMenu(protyle, {x: targetRect.right, y: targetRect.bottom, h: targetRect.height, isLeft: true},
+                            Constants.MENU_FROM_TITLE_BREADCRUMB, restoreMenuKeyboard);
                     }
                     event.stopPropagation();
                     event.preventDefault();
@@ -155,8 +163,9 @@ ${padHTML}
                     this.showMenu(protyle, {
                         x: targetRect.right,
                         y: targetRect.bottom,
+                        h: targetRect.height,
                         isLeft: true,
-                    });
+                    }, restoreMenuKeyboard);
                     event.stopPropagation();
                     event.preventDefault();
                     break;
@@ -170,6 +179,7 @@ ${padHTML}
                         protyle,
                         id: protyle.block.rootID,
                         focusId: protyle.block.id,
+                        suppressFocus: isPhablet(),
                         dataDocType: "NodeDocument",
                         callback: () => {
                             element.querySelector('[data-type="context"]').classList.add("block__icon--active");
@@ -184,7 +194,7 @@ ${padHTML}
                     if (target.classList.contains("block__icon--active")) {
                         zoomOut({protyle, id: protyle.options.blockId});
                     } else {
-                        const getDocParam: IObject = {
+                        const getDocParam: FileTreeGetDocRequestInput = {
                             id: protyle.options.blockId,
                             mode: 3,
                             size: window.siyuan.config.editor.dynamicLoadBlocks,
@@ -240,6 +250,15 @@ ${padHTML}
             }
         });
         /// #if !MOBILE
+        element.querySelector("[data-type='doc']").addEventListener("contextmenu", (event: MouseEvent) => {
+            if (event.shiftKey) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+            openTitleMenu(protyle, {x: rect.right, y: rect.bottom, h: rect.height, isLeft: true}, Constants.MENU_FROM_TITLE_BREADCRUMB);
+        });
         this.element.addEventListener("contextmenu", (event) => {
             const itemElement = (event.target as HTMLElement).closest(".protyle-breadcrumb__item");
             if (!itemElement || !this.element.contains(itemElement)) {
@@ -247,9 +266,11 @@ ${padHTML}
             }
             event.preventDefault();
             event.stopPropagation();
+            const itemRect = itemElement.getBoundingClientRect();
             this.openChildrenMenu(protyle, itemElement.getAttribute("data-node-id"), {
-                x: event.clientX,
-                y: event.clientY,
+                x: itemRect.left,
+                y: itemRect.bottom,
+                h: itemRect.height,
                 isLeft: false,
             });
         });
@@ -276,6 +297,7 @@ ${padHTML}
                 this.openChildrenMenu(protyle, itemElement.getAttribute("data-node-id"), {
                     x: itemRect.left,
                     y: itemRect.bottom,
+                    h: itemRect.height,
                     isLeft: false,
                 }, true);
                 event.preventDefault();
@@ -414,7 +436,7 @@ ${padHTML}
 
     private async genChildrenMenuItems(protyle: IProtyle, id: string, currentPathIDs: Set<string>,
                                        excludeTypes: string[], offset = 0): Promise<IMenu[]> {
-        const request: Record<string, any> = {
+        const request = {
             id,
             offset,
             limit: 64,
@@ -430,10 +452,10 @@ ${padHTML}
         if (rootID !== protyle.block.rootID) {
             return [];
         }
-        const data = response.data as {
-            items: IBreadcrumb[],
-            hasMore: boolean,
-        };
+        if (response.code !== 0) {
+            return [];
+        }
+        const data = response.data;
         if (!data?.items) {
             return [];
         }
@@ -601,8 +623,12 @@ ${padHTML}
         });
     }
 
-    private async genMobileMenu(protyle: IProtyle) {
+    private async genMobileMenu(protyle: IProtyle, restoreKeyboard?: () => void) {
         if (protyle.lite || protyle.toolbar.isMultiSelectMode() || this.mobileMenuLoading) {
+            return;
+        }
+        if (window.siyuan.menus.menu.element.getAttribute("data-name") === Constants.MENU_BREADCRUMB_MOBILE_PATH) {
+            window.siyuan.menus.menu.closeSheet();
             return;
         }
         const menu = new Menu(Constants.MENU_BREADCRUMB_MOBILE_PATH);
@@ -625,7 +651,7 @@ ${padHTML}
             return;
         }
         const id = blockElement.getAttribute("data-node-id");
-        const breadcrumbParam: Record<string, any> = {id, excludeTypes: [], notebook: protyle.notebookId};
+        const breadcrumbParam: BlockBreadcrumbRequestInput = {id, excludeTypes: [], notebook: protyle.notebookId};
         this.mobileMenuLoading = true;
         const rootID = protyle.block.rootID;
         await waitForPendingTransactions(protyle);
@@ -653,7 +679,7 @@ ${padHTML}
                     }
                 });
             });
-            menu.fullscreen();
+            window.siyuan.menus.menu.fullscreen("all", restoreKeyboard);
         }).finally(() => {
             this.mobileMenuLoading = false;
         });
@@ -668,11 +694,15 @@ ${padHTML}
         }
     }
 
-    public async showMenu(protyle: IProtyle, position: IPosition) {
+    public async showMenu(protyle: IProtyle, position: IPosition, restoreKeyboard?: () => void) {
         const requestID = ++this.menuRequestID;
         if (!window.siyuan.menus.menu.element.classList.contains("fn__none") &&
             window.siyuan.menus.menu.element.getAttribute("data-name") === Constants.MENU_BREADCRUMB_MORE) {
-            window.siyuan.menus.menu.remove();
+            if (isMobile()) {
+                window.siyuan.menus.menu.closeSheet();
+            } else {
+                window.siyuan.menus.menu.remove();
+            }
             return;
         }
         let id;
@@ -680,7 +710,7 @@ ${padHTML}
         if (cursorNodeElement) {
             id = cursorNodeElement.getAttribute("data-node-id");
         }
-        const statRequest: IObject = {
+        const statRequest: TreeStatRequestInput = {
             id: id || (protyle.block.showAll ? protyle.block.id : protyle.block.rootID)
         };
         if (isEncryptedBox(protyle.notebookId)) {
@@ -1095,7 +1125,7 @@ ${padHTML}
                 });
             }
             /// #if MOBILE
-            window.siyuan.menus.menu.fullscreen();
+            window.siyuan.menus.menu.fullscreen("all", restoreKeyboard);
             /// #else
             window.siyuan.menus.menu.popup(position);
             /// #endif
@@ -1155,7 +1185,7 @@ ${padHTML}
             // 闪卡面包屑不能显示答案
             excludeTypes.push("NodeTextMark-mark");
         }
-        const breadcrumbParam: Record<string, any> = {id, excludeTypes, notebook: protyle.notebookId};
+        const breadcrumbParam = {id, excludeTypes, notebook: protyle.notebookId};
         // 等待当前块的创建事务完成，并丢弃切换文档或选择位置后过期的读取。
         const isCurrent = () => requestID === this.renderRequestID && rootID === protyle.block.rootID &&
             blockElement.isConnected;

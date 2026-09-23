@@ -24,9 +24,8 @@ declare namespace Config {
         /**
          * Access authorization code
          */
-        accessAuthCode: TAccessAuthCode;
+        accessAuthCode: string;
         oidc: IOIDC;
-        account: IAccount;
         ai: IAI;
         api: IAPI;
         appearance: IAppearance;
@@ -47,7 +46,7 @@ declare namespace Config {
          * User interface language
          * Same as {@link IAppearance.lang}
          */
-        lang: TLang;
+        lang: string;
         /**
          * List of supported languages
          */
@@ -59,9 +58,9 @@ declare namespace Config {
         /**
          * Log level
          */
-        logLevel: TLogLevel;
+        logLevel: string;
         onboarding: {
-            state: "pending" | "notebook-created" | "completed";
+            state: string;
             newUser: boolean;
             dismissed: boolean;
             notebookID: string;
@@ -117,13 +116,13 @@ declare namespace Config {
 
     export interface IOIDCClaimRule {
         claim: string;
-        operator: "equals" | "contains";
+        operator: string;
         values: string[];
     }
 
     export interface IOIDC {
         enabled: boolean;
-        provider: "custom" | "google" | "microsoft" | "github";
+        provider: string;
         issuerURL: string;
         clientID: string;
         clientSecret: string;
@@ -131,20 +130,6 @@ declare namespace Config {
         redirectURL: string;
         allowAll: boolean;
         claimRules: IOIDCClaimRule[];
-    }
-
-    /**
-     * Account configuration
-     */
-    export interface IAccount {
-        /**
-         * Display the title icon
-         */
-        displayTitle: boolean;
-        /**
-         * Display the VIP icon
-         */
-        displayVIP: boolean;
     }
 
     /**
@@ -158,6 +143,7 @@ declare namespace Config {
         mcp: IMCP;
         embedding: IEmbedding;
         rerank: IRerank;
+        decision: IDecision;
     }
 
     /**
@@ -177,17 +163,17 @@ declare namespace Config {
             userEnabled: string[];
         };
         approvalPolicy: {
-            default: "risk" | "allow";
+            default: string;
             overrides: Record<string, {
-                default: "" | "risk" | "confirm" | "allow";
-                actions: Record<string, "risk" | "confirm" | "allow">;
+                default: string;
+                actions: Record<string, string>;
             }>;
         };
     }
 
     export interface ICapabilityPolicy {
-        default: "allow" | "deny";
-        overrides: Record<string, "allow" | "deny">;
+        default: string;
+        overrides: Record<string, string>;
     }
 
     /**
@@ -205,7 +191,18 @@ declare namespace Config {
         requestTimeout: number;
         size: string;
         quality: string;
-        outputFormat: "png" | "jpeg" | "webp";
+        outputFormat: string;
+    }
+
+    /**
+     * 智能体决策模型配置，使用 TypeSafe System One 协议。
+     */
+    export interface IDecision {
+        enabled: boolean;
+        endpoint: string;
+        apiKey: string;
+        name: string;
+        timeout: number;
     }
 
     /**
@@ -230,7 +227,7 @@ declare namespace Config {
         endpoint: string;
         apiKey: string;
         name: string;
-        requestFormat: "cohere" | "dashscope";
+        requestFormat: string;
         timeout: number;
         candidateCount: number;
     }
@@ -239,10 +236,12 @@ declare namespace Config {
      * AI provider configuration
      */
     export interface IProvider {
+        headers?: Record<string, string>;
         id: string;
         enabled: boolean;
         displayName?: string;
         baseURL: string;
+        /** 生成协议：openai、openai-responses 或 anthropic-messages；省略时使用 openai */
         protocol?: string;
         apiKey: string;
         requestTimeout: number;
@@ -299,6 +298,12 @@ declare namespace Config {
      * SiYuan appearance related configuration
      */
     export interface IAppearance {
+        /** 背景渐变，未配置时根据工作空间名称自动配色 */
+        bodyGradient?: {
+            mode: string;
+            light: {color: string; opacity: number};
+            dark: {color: string; opacity: number};
+        };
         /** 全局默认字体，按优先级从高到低排列 */
         globalFontFamilies: IEditor["fontFamilies"];
         /**
@@ -338,7 +343,7 @@ declare namespace Config {
         /**
          * The language used by the current user
          */
-        lang: TLang;
+        lang: string;
         /**
          * List of installed light themes
          */
@@ -440,6 +445,7 @@ declare namespace Config {
         | "pt-BR"
         | "ru"
         | "sk"
+        | "sr"
         | "tr"
         | "uk"
         | "th"
@@ -529,7 +535,7 @@ declare namespace Config {
         /**
          * Asset opening behavior
          */
-        assetOpen: IAssetOpen;
+        assetOpen: {[K in keyof IAssetOpen]: string};
 
         /**
          * Whether to allow to execute javascript in the SVG
@@ -562,6 +568,8 @@ declare namespace Config {
          * Whether the backlink contains children
          */
         backlinkContainChildren: boolean;
+        /** 反链面板是否隐藏传递型纯引用块 */
+        backlinkHideReference: boolean;
         /**
          * Whether to show backlinks at the bottom of the document
          */
@@ -570,6 +578,8 @@ declare namespace Config {
          * Backlink sort mode
          */
         backlinkSort: number;
+        backlinkGlobalSort: number;
+        backlinkBlockSort: number;
         /**
          * Backmention sort mode
          */
@@ -760,6 +770,10 @@ declare namespace Config {
          */
         spellcheckLanguages: string[];
         /**
+         * Whether to search tags when typing `#`
+         */
+        hashTagSearch: boolean;
+        /**
          * Whether to enable virtual references
          */
         virtualBlockRef: boolean;
@@ -911,7 +925,7 @@ declare namespace Config {
          * Whether to close all tabs when starting
          */
         closeTabsOnStart: boolean;
-        tabStartupMode: 0 | 1 | 2;
+        tabStartupMode: number;
         /**
          * The storage path of the new document
          */
@@ -1187,88 +1201,88 @@ declare namespace Config {
      * SiYuan keymap related configuration
      */
     export interface IKeymap {
-        editor: IKeymapEditor;
-        general: IKeymapGeneral;
-        plugin: IKeymapPlugin;
+        editor?: IKeymapEditor;
+        general?: IKeymapGeneral;
+        plugin?: IKeymapPlugin;
     }
 
     /**
      * SiYuan editor shortcut keys
      */
     export interface IKeymapEditor {
-        general: IKeymapEditorGeneral;
-        heading: IKeymapEditorHeading;
-        insert: IKeymapEditorInsert;
-        list: IKeymapEditorList;
-        table: IKeymapEditorTable;
+        general?: IKeymapEditorGeneral;
+        heading?: IKeymapEditorHeading;
+        insert?: IKeymapEditorInsert;
+        list?: IKeymapEditorList;
+        table?: IKeymapEditorTable;
     }
 
     /**
      * SiYuan editor general shortcut keys
      */
     export interface IKeymapEditorGeneral extends IKeys {
-        ai: IKey;
-        alignCenter: IKey;
-        alignLeft: IKey;
-        alignRight: IKey;
-        attr: IKey;
-        backlinks: IKey;
-        collapse: IKey;
-        foldChildHeadings: IKey;
-        foldSiblingHeadings: IKey;
-        foldRecursive: IKey;
-        copyBlockEmbed: IKey;
-        copyBlockRef: IKey;
-        copyHPath: IKey;
-        copyID: IKey;
-        copyPlainText: IKey;
-        copyRichText: IKey;
-        copyProtocol: IKey;
-        copyProtocolInMd: IKey;
-        copyText: IKey;
-        duplicate: IKey;
-        exitFocus: IKey;
-        focusBreadcrumb: IKey;
-        expand: IKey;
-        expandDown: IKey;
-        expandUp: IKey;
-        fullscreen: IKey;
-        graphView: IKey;
-        hLayout: IKey;
-        insertAfter: IKey;
-        insertBefore: IKey;
-        insertBottom: IKey;
-        insertRight: IKey;
-        insertSuperBlockLeft: IKey;
-        insertSuperBlockRight: IKey;
-        jumpToParentNext: IKey;
-        moveToDown: IKey;
-        moveToUp: IKey;
-        netAssets2LocalAssets: IKey;
-        netImg2LocalAsset: IKey;
-        newContentFile: IKey;
-        newNameFile: IKey;
-        newNameSettingFile: IKey;
-        openBy: IKey;
-        optimizeTypography: IKey;
-        outline: IKey;
-        editMode: IKey;
-        quickMakeCard: IKey;
-        redo: IKey;
-        refPopover: IKey;
-        refresh: IKey;
-        refTab: IKey;
-        rename: IKey;
-        scrollPageDownWithoutMovingCaret: IKey;
-        scrollPageUpWithoutMovingCaret: IKey;
-        selectToPageEnd: IKey;
-        selectToPageStart: IKey;
-        showInFolder: IKey;
-        spaceRepetition: IKey;
-        switchReadonly: IKey;
-        switchAdjust: IKey;
-        undo: IKey;
-        vLayout: IKey;
+        ai?: IKey;
+        alignCenter?: IKey;
+        alignLeft?: IKey;
+        alignRight?: IKey;
+        attr?: IKey;
+        backlinks?: IKey;
+        collapse?: IKey;
+        foldChildHeadings?: IKey;
+        foldSiblingHeadings?: IKey;
+        foldRecursive?: IKey;
+        copyBlockEmbed?: IKey;
+        copyBlockRef?: IKey;
+        copyHPath?: IKey;
+        copyID?: IKey;
+        copyPlainText?: IKey;
+        copyRichText?: IKey;
+        copyProtocol?: IKey;
+        copyProtocolInMd?: IKey;
+        copyText?: IKey;
+        duplicate?: IKey;
+        exitFocus?: IKey;
+        focusBreadcrumb?: IKey;
+        expand?: IKey;
+        expandDown?: IKey;
+        expandUp?: IKey;
+        fullscreen?: IKey;
+        graphView?: IKey;
+        hLayout?: IKey;
+        insertAfter?: IKey;
+        insertBefore?: IKey;
+        insertBottom?: IKey;
+        insertRight?: IKey;
+        insertSuperBlockLeft?: IKey;
+        insertSuperBlockRight?: IKey;
+        jumpToParentNext?: IKey;
+        moveToDown?: IKey;
+        moveToUp?: IKey;
+        netAssets2LocalAssets?: IKey;
+        netImg2LocalAsset?: IKey;
+        newContentFile?: IKey;
+        newNameFile?: IKey;
+        newNameSettingFile?: IKey;
+        openBy?: IKey;
+        optimizeTypography?: IKey;
+        outline?: IKey;
+        editMode?: IKey;
+        quickMakeCard?: IKey;
+        redo?: IKey;
+        refPopover?: IKey;
+        refresh?: IKey;
+        refTab?: IKey;
+        rename?: IKey;
+        scrollPageDownWithoutMovingCaret?: IKey;
+        scrollPageUpWithoutMovingCaret?: IKey;
+        selectToPageEnd?: IKey;
+        selectToPageStart?: IKey;
+        showInFolder?: IKey;
+        spaceRepetition?: IKey;
+        switchReadonly?: IKey;
+        switchAdjust?: IKey;
+        undo?: IKey;
+        vLayout?: IKey;
     }
 
     /**
@@ -1282,64 +1296,71 @@ declare namespace Config {
      * SiYuan shortcut key
      */
     export interface IKey {
+        /** 多快捷键配置，custom 保留第一项以兼容单快捷键调用方。 */
+        bindings?: {
+            version?: import("./api").JSONValue;
+            keys?: import("./api").JSONValue;
+            defaults?: import("./api").JSONValue;
+            priority?: Record<string, number>;
+        };
         /**
          * Custom shortcut key
          */
-        custom: string;
+        custom?: string;
         /**
          * Default shortcut key
          */
-        default: string;
+        default?: string;
     }
 
     /**
      * SiYuan editor heading shortcut keys
      */
     export interface IKeymapEditorHeading extends IKeys {
-        heading1: IKey;
-        heading2: IKey;
-        heading3: IKey;
-        heading4: IKey;
-        heading5: IKey;
-        heading6: IKey;
-        paragraph: IKey;
+        heading1?: IKey;
+        heading2?: IKey;
+        heading3?: IKey;
+        heading4?: IKey;
+        heading5?: IKey;
+        heading6?: IKey;
+        paragraph?: IKey;
     }
 
     /**
      * SiYuan editor insert shortcut keys
      */
     export interface IKeymapEditorInsert extends IKeys {
-        appearance: IKey;
-        bold: IKey;
-        check: IKey;
-        clearInline: IKey;
-        code: IKey;
+        appearance?: IKey;
+        bold?: IKey;
+        check?: IKey;
+        clearInline?: IKey;
+        code?: IKey;
         "inline-code": IKey;
         "inline-math": IKey;
-        italic: IKey;
-        kbd: IKey;
-        lastUsed: IKey;
-        link: IKey;
-        mark: IKey;
-        memo: IKey;
-        ref: IKey;
-        strike: IKey;
-        sub: IKey;
-        sup: IKey;
-        table: IKey;
-        tag: IKey;
-        underline: IKey;
+        italic?: IKey;
+        kbd?: IKey;
+        lastUsed?: IKey;
+        link?: IKey;
+        mark?: IKey;
+        memo?: IKey;
+        ref?: IKey;
+        strike?: IKey;
+        sub?: IKey;
+        sup?: IKey;
+        table?: IKey;
+        tag?: IKey;
+        underline?: IKey;
     }
 
     /**
      * SiYuan editor list shortcut keys
      */
     export interface IKeymapEditorList extends IKeys {
-        prependListItem: IKey;
-        appendListItem: IKey;
-        checkToggle: IKey;
-        indent: IKey;
-        outdent: IKey;
+        prependListItem?: IKey;
+        appendListItem?: IKey;
+        checkToggle?: IKey;
+        indent?: IKey;
+        outdent?: IKey;
     }
 
     /**
@@ -1348,90 +1369,90 @@ declare namespace Config {
     export interface IKeymapEditorTable extends IKeys {
         "delete-column": IKey;
         "delete-row": IKey;
-        insertColumnLeft: IKey;
-        insertColumnRight: IKey;
-        insertRowAbove: IKey;
-        insertRowBelow: IKey;
-        moveToDown: IKey;
-        moveToLeft: IKey;
-        moveToRight: IKey;
-        moveToUp: IKey;
+        insertColumnLeft?: IKey;
+        insertColumnRight?: IKey;
+        insertRowAbove?: IKey;
+        insertRowBelow?: IKey;
+        moveToDown?: IKey;
+        moveToLeft?: IKey;
+        moveToRight?: IKey;
+        moveToUp?: IKey;
     }
 
     /**
      * SiYuan general shortcut keys
      */
     export interface IKeymapGeneral extends IKeys {
-        mainMenu: IKey;
-        commandPanel: IKey;
-        increaseEditorFontSize: IKey;
-        decreaseEditorFontSize: IKey;
-        resetEditorFontSize: IKey;
-        editReadonly: IKey;
-        syncNow: IKey;
-        enterBack: IKey;
-        enter: IKey;
-        goForward: IKey;
-        goBack: IKey;
-        newFile: IKey;
-        search: IKey;
-        globalSearch: IKey;
-        stickSearch: IKey;
-        replace: IKey;
-        closeTab: IKey;
-        agentChat: IKey;
-        agentSend: IKey;
-        fileTree: IKey;
-        outline: IKey;
-        bookmark: IKey;
-        tag: IKey;
-        dailyNote: IKey;
-        inbox: IKey;
-        backlinks: IKey;
-        graphView: IKey;
-        globalGraph: IKey;
-        riffCard: IKey;
-        config: IKey;
-        dataHistory: IKey;
-        toggleWin: IKey;
-        lockScreen: IKey;
-        recentDocs: IKey;
-        goToTab1: IKey;
-        goToTab2: IKey;
-        goToTab3: IKey;
-        goToTab4: IKey;
-        goToTab5: IKey;
-        goToTab6: IKey;
-        goToTab7: IKey;
-        goToTab8: IKey;
-        goToTab9: IKey;
-        goToTabNext: IKey;
-        goToTabPrev: IKey;
-        goToEditTabNext: IKey;
-        goToEditTabPrev: IKey;
-        recentClosed: IKey;
-        move: IKey;
-        selectOpen1: IKey;
-        switchLeftDock: IKey;
-        switchRightDock: IKey;
-        switchBottomDock: IKey;
-        toggleLeftDockPanel: IKey;
-        toggleRightDockPanel: IKey;
-        toggleBottomDockPanel: IKey;
-        toggleDock: IKey;
-        splitLR: IKey;
-        splitMoveR: IKey;
-        splitTB: IKey;
-        splitMoveB: IKey;
-        closeOthers: IKey;
-        closeAll: IKey;
-        closeUnmodified: IKey;
-        closeLeft: IKey;
-        closeRight: IKey;
-        tabToWindow: IKey;
-        addToDatabase: IKey;
-        unsplit: IKey;
-        unsplitAll: IKey;
+        mainMenu?: IKey;
+        commandPanel?: IKey;
+        increaseEditorFontSize?: IKey;
+        decreaseEditorFontSize?: IKey;
+        resetEditorFontSize?: IKey;
+        editReadonly?: IKey;
+        syncNow?: IKey;
+        enterBack?: IKey;
+        enter?: IKey;
+        goForward?: IKey;
+        goBack?: IKey;
+        newFile?: IKey;
+        search?: IKey;
+        globalSearch?: IKey;
+        stickSearch?: IKey;
+        replace?: IKey;
+        closeTab?: IKey;
+        agentChat?: IKey;
+        agentSend?: IKey;
+        fileTree?: IKey;
+        outline?: IKey;
+        bookmark?: IKey;
+        tag?: IKey;
+        dailyNote?: IKey;
+        inbox?: IKey;
+        backlinks?: IKey;
+        graphView?: IKey;
+        globalGraph?: IKey;
+        riffCard?: IKey;
+        config?: IKey;
+        dataHistory?: IKey;
+        toggleWin?: IKey;
+        lockScreen?: IKey;
+        recentDocs?: IKey;
+        goToTab1?: IKey;
+        goToTab2?: IKey;
+        goToTab3?: IKey;
+        goToTab4?: IKey;
+        goToTab5?: IKey;
+        goToTab6?: IKey;
+        goToTab7?: IKey;
+        goToTab8?: IKey;
+        goToTab9?: IKey;
+        goToTabNext?: IKey;
+        goToTabPrev?: IKey;
+        goToEditTabNext?: IKey;
+        goToEditTabPrev?: IKey;
+        recentClosed?: IKey;
+        move?: IKey;
+        selectOpen1?: IKey;
+        switchLeftDock?: IKey;
+        switchRightDock?: IKey;
+        switchBottomDock?: IKey;
+        toggleLeftDockPanel?: IKey;
+        toggleRightDockPanel?: IKey;
+        toggleBottomDockPanel?: IKey;
+        toggleDock?: IKey;
+        splitLR?: IKey;
+        splitMoveR?: IKey;
+        splitTB?: IKey;
+        splitMoveB?: IKey;
+        closeOthers?: IKey;
+        closeAll?: IKey;
+        closeUnmodified?: IKey;
+        closeLeft?: IKey;
+        closeRight?: IKey;
+        tabToWindow?: IKey;
+        addToDatabase?: IKey;
+        unsplit?: IKey;
+        unsplitAll?: IKey;
     }
 
     /**
@@ -1575,6 +1596,7 @@ declare namespace Config {
         callout: boolean;
         tabs?: boolean;
         tabItem?: boolean;
+        customBlock?: boolean;
         /**
          * Whether to distinguish between uppercase and lowercase letters when searching
          */
@@ -1806,7 +1828,7 @@ declare namespace Config {
         /**
          * 当前设备的资源下载模式，0：全部下载，1：按需下载。
          */
-        assetDownloadMode: 0 | 1;
+        assetDownloadMode: number;
         /**
          * Synchronization mode
          * - `0`: Not set
@@ -1830,7 +1852,7 @@ declare namespace Config {
          * - `3`: Network storage service using WebDAV protocol
          * - `4`: Local file system
          */
-        provider: 0 | 2 | 3 | 4;
+        provider: number;
         s3: ISyncS3;
         /**
          * The prompt information of the last synchronization
@@ -1977,7 +1999,7 @@ declare namespace Config {
          * - `harmony`: HarmonyOS device
          * - `std`: Desktop Electron environment
          */
-        container: TSystemContainer;
+        container: string;
         /**
          * The absolute path of the `data` directory of the current workspace
          */
@@ -1989,7 +2011,7 @@ declare namespace Config {
         /**
          * 更新通道
          */
-        updateChannel: TUpdateChannel;
+        updateChannel?: string;
         /**
          * The absolute path of the user's home directory for the current operating system user
          */
@@ -2012,6 +2034,7 @@ declare namespace Config {
          * - `1`: Manual + Follow the operating system
          */
         lockScreenMode: number;
+        encryptedNotebookFollowSystemLock: boolean;
         /**
          * The name of the current device
          */
@@ -2034,7 +2057,7 @@ declare namespace Config {
          * - `linux`: Linux
          * - `windows`: Windows
          */
-        os: TSystemOS;
+        os: string;
         /**
          * Operating system platform name
          */
@@ -2085,7 +2108,7 @@ declare namespace Config {
          * - `https`: HTTPS
          * - `socks5`: SOCKS5
          */
-        scheme: TSystemNetworkProxyScheme;
+        scheme: string;
     }
 
     /**
@@ -2129,14 +2152,14 @@ declare namespace Config {
      * SiYuan UI layout related configuration
      */
     export interface IUiLayout {
-        bottom: IUILayoutDock;
+        bottom?: IUILayoutDock;
         /**
          * Whether to hide the sidebar
          */
-        hideDock: boolean;
-        layout: IUILayoutLayout;
-        left: IUILayoutDock;
-        right: IUILayoutDock;
+        hideDock?: boolean;
+        layout?: TPersistedUILayoutItem;
+        left?: IUILayoutDock;
+        right?: IUILayoutDock;
     }
 
     /**
@@ -2146,11 +2169,11 @@ declare namespace Config {
         /**
          * Dock area list
          */
-        data: Array<IUILayoutDockTab[]>;
+        data?: Array<IUILayoutDockTab[]>;
         /**
          * Whether to pin the dock
          */
-        pin: boolean;
+        pin?: boolean;
     }
 
     /**
@@ -2164,12 +2187,12 @@ declare namespace Config {
         /**
          * Tab icon ID
          */
-        icon: string;
+        icon?: string;
         /**
          * Whether to display the tab
          */
-        show: boolean;
-        size: IUILayoutDockPanelSize;
+        show?: boolean;
+        size?: IUILayoutDockPanelSize;
         /**
          * Tab title
          */
@@ -2177,7 +2200,7 @@ declare namespace Config {
         /**
          * Tab type
          */
-        type: TDock | string;
+        type?: TDock | string;
     }
 
     /**
@@ -2187,16 +2210,30 @@ declare namespace Config {
         /**
          * Tab height (unit: px)
          */
-        height: number | null;
+        height?: number | null;
         /**
          * Tab width (unit: px)
          */
-        width: number | null;
+        width?: number | null;
     }
 
     /**
      * SiYuan layout item
      */
+    export type TPersistedUILayoutItem = (
+        ({instance?: "Layout"} & Partial<Pick<IUILayoutLayout, "direction" | "size" | "type" | "resize">>) |
+        ({instance: "Wnd"} & Partial<Pick<IUILayoutWnd, "resize" | "width" | "height">>) |
+        ({instance: "Tab"} & Partial<Pick<IUILayoutTab, "title" | "lang" | "icon" | "docIcon" | "pin" | "active" | "activeTime">>) |
+        ({instance: "Editor"} & Partial<Pick<IUILayoutTabEditor, "blockId" | "rootId" | "notebookId">>) |
+        ({instance: "Asset"} & Partial<Pick<IUILayoutTabAsset, "path" | "page">>) |
+        ({instance: "Backlink"} & Partial<Pick<IUILayoutTabBacklink, "blockId" | "rootId" | "notebookId" | "type">>) |
+        ({instance: "Graph"} & Partial<Pick<IUILayoutTabGraph, "blockId" | "rootId" | "notebookId" | "type">>) |
+        ({instance: "Outline"} & Partial<Pick<IUILayoutTabOutline, "blockId" | "notebookId" | "type" | "isPreview">>) |
+        ({instance: "Search"} & Partial<Pick<IUILayoutTabSearch, "config">>) |
+        ({instance: "Custom"} & Partial<Pick<IUILayoutTabCustom, "customModelType" | "customModelData">>) |
+        {instance: "Bookmark" | "Files" | "Tag"}
+    ) & {children?: TPersistedUILayoutItem[] | TPersistedUILayoutItem};
+
     export type TUILayoutItem = IUILayoutLayout
         | IUILayoutWnd
         | IUILayoutTab
@@ -2622,22 +2659,12 @@ declare namespace Config {
     }
 
     /**
-     * Search subtype filtering. When all flags within a category (heading or
-     * list) are false, that category is not subtype-filtered (parent type
-     * filter applies as before). When at least one flag is true, only blocks
-     * matching the selected subtypes are returned for that category.
+     * 子类型按父类型独立筛选，组内全否表示不限制子类型。
      */
     export interface IUILayoutTabSearchConfigSubTypes {
-        h1: boolean;
-        h2: boolean;
-        h3: boolean;
-        h4: boolean;
-        h5: boolean;
-        h6: boolean;
-        // List subtypes — apply to both list and listItem
-        o: boolean;
-        u: boolean;
-        t: boolean;
+        heading: {h1: boolean, h2: boolean, h3: boolean, h4: boolean, h5: boolean, h6: boolean};
+        list: {o: boolean, u: boolean, t: boolean};
+        listItem: {o: boolean, u: boolean, t: boolean};
     }
 
     /**
@@ -2791,6 +2818,7 @@ declare namespace Config {
         callout: boolean;
         tabs?: boolean;
         tabItem?: boolean;
+        customBlock?: boolean;
         /**
          * Search results contain code blocks
          * @default false

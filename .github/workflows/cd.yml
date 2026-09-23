@@ -13,7 +13,7 @@ env:
 jobs:
   prepare:
     name: Prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       release_title: ${{ steps.release_info.outputs.release_title }}
       version: ${{ steps.version.outputs.value }}
@@ -106,10 +106,103 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  languages:
+    name: Language validation
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Test language validation
+        # 测试失败只记录结果，不阻塞后续发布构建。
+        continue-on-error: true
+        run: python -m unittest discover -s scripts -p "test_check_lang_keys.py"
+      - name: Check language keys and kernel placeholders
+        run: python scripts/check-lang-keys.py
+
+  contracts:
+    name: API contracts and kernel tests
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: kernel/go.mod
+          cache-dependency-path: kernel/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install repository pnpm version
+        run: npm install --global ${{ needs.prepare.outputs.packageManager }}
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: app
+      - name: Check generated contracts and route coverage
+        run: pnpm run api:check
+        working-directory: app
+      - name: Check legacy coverage does not grow
+        # 排除当前提交上的标签，与上一个版本比较旧接口列表。
+        run: |
+          API_CONTRACT_BASE=$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD^)
+          pnpm run api:check --base "$API_CONTRACT_BASE"
+        working-directory: app
+      - name: Check application and strict contract types
+        run: pnpm run typecheck
+        working-directory: app
+      - name: Install filesystem fault injection dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y strace
+      - name: Test all kernel packages
+        # 测试失败只记录结果，不阻塞后续发布构建。
+        continue-on-error: true
+        run: go test -tags "fts5 sqlcipher" ./... -count=1
+        working-directory: kernel
+      - name: Test path fixtures with custom temporary directories
+        # 测试失败只记录结果，不阻塞后续发布构建。
+        continue-on-error: true
+        run: go test -tags "fts5 sqlcipher" ./internal/testutil ./util ./model ./server -run 'Test(PublicDataDir|IsSensitivePath|.*Obsidian|RegisterStaticFileHandlers|StaticFile|WidgetResponseCacheControl|TemplatesAndExportRequireAdministrator|SnippetPublishAccess|PluginPublish|PublishFile)' -count=1
+        working-directory: kernel
+        env:
+          TMPDIR: /tmp
+          GOTMPDIR: ${{ runner.temp }}
+
+  frontend-tests:
+    name: Frontend, Electron and packaging tests
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install repository pnpm version
+        run: npm install --global ${{ needs.prepare.outputs.packageManager }}
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: app
+      - name: Test frontend, Electron and packaging scripts
+        # 测试失败只记录结果，不阻塞后续发布构建。
+        continue-on-error: true
+        run: pnpm test
+        working-directory: app
+
   build:
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.name }}
-    needs: [prepare]
+    needs: [prepare, languages, contracts, frontend-tests]
     env:
       SIYUAN_E2E_SHARDS: ${{ matrix.config.e2e_shards }}
     strategy:
@@ -331,12 +424,15 @@ jobs:
             shard="${shard_config%:*}"
             port="${shard_config#*:}"
             (
+              # UI 测试共享同一内核及全局界面状态，必须串行运行
+              # 串行执行保留 25 分钟总时限，外层步骤仍由 30 分钟超时保护
               SIYUAN_BASE_URL="http://127.0.0.1:${port}" \
               SIYUAN_E2E_SHARD="${shard}" \
               SIYUAN_TEST_RESULTS_DIR="test-results-${shard}" \
               PLAYWRIGHT_HTML_OUTPUT_DIR="playwright-report-${shard}" \
-              pnpm exec playwright test --config=playwright.focused.config.ts \
-                --global-timeout=900000 --reporter=line,html --output="test-results-${shard}"
+              pnpm exec playwright test --config=config/playwright.focused.config.ts \
+                --global-timeout=1500000 --workers=1 \
+                --reporter=line,html --output="test-results-${shard}"
             ) &
             TEST_PID=$!
             TEST_PIDS+=("${TEST_PID}")
@@ -451,11 +547,10 @@ jobs:
 
   build_android:
     if: ${{ github.repository_owner == 'siyuan-note' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: ubuntu build android.apk
-    # Android and desktop builds run in parallel, both depend on prepare.
-    # create_release aggregates all artifacts once both jobs succeed.
-    needs: prepare
+    # 测试通过后并行执行 Android 和桌面构建，全部成功后汇总产物并创建发布。
+    needs: [prepare, languages, contracts, frontend-tests]
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -611,7 +706,7 @@ jobs:
 
   create_release:
     name: Create Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [prepare, build]
     steps:
       - name: Download all artifacts

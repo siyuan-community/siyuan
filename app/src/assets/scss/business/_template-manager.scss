@@ -65,11 +65,6 @@
     color: inherit;
     font: inherit;
     cursor: pointer;
-
-    &:focus-visible {
-      outline: 1px solid var(--b3-theme-primary);
-      outline-offset: -1px;
-    }
   }
 
   &__file {
@@ -145,6 +140,7 @@
   }
 
   &__preview {
+    background-color: var(--b3-theme-background);
     overflow: auto;
     flex: 1 0 auto;
     max-height: 45vh;
@@ -169,6 +165,29 @@
       input, select {
         flex-basis: 100%;
       }
+    }
+  }
+}
+
+.template-manager--mobile {
+  .template-manager__sidebar {
+    width: 100%;
+    flex: 1;
+    padding-inline-end: 0;
+    border: 0;
+  }
+
+  .template-manager__editor {
+    display: none;
+  }
+
+  &.template-manager--editing {
+    .template-manager__sidebar {
+      display: none;
+    }
+
+    .template-manager__editor {
+      display: flex;
     }
   }
 }

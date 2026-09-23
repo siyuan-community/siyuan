@@ -1,5 +1,7 @@
 import {fetchPost} from "../../util/fetch";
+import {registerBuiltinSlashHint} from "./builtinSlash";
 import {insertHTML} from "../util/insertHTML";
+import {TABLE_CELL_SLASH_IDS} from "../util/tableCellRichMenu";
 import {getIconByType} from "../../editor/getIcon";
 import {isDisabledFeature, updateHotkeyTip} from "../util/compatibility";
 import {blockRender} from "../render/blockRender";
@@ -25,7 +27,6 @@ import {zoomOut} from "../../menus/protyle";
 import {hideElements} from "../ui/hideElements";
 import {genAssetHTML} from "../../asset/renderAssets";
 import {unicode2Emoji} from "../../emoji";
-import {avRender} from "../render/av/render";
 import {addWidgetCacheVersion} from "../util/widgetCache";
 import {
     getEntryCatalogNode,
@@ -38,6 +39,7 @@ import {getEntryOrder, isEntryVisible} from "../../config/entryVisibility/runtim
 import {resolveSlashMenuItems, TSlashMenuItem} from "./slashMenu";
 import {
     getBuiltinInlineStylePropertyValue,
+    getBuiltinInlineStylePreview,
     isBuiltinInlineStyleVisible,
     TBuiltinInlineStyleID,
 } from "../toolbar/inlineStyle";
@@ -52,7 +54,7 @@ import {
     setBlockSelectionModeElement
 } from "../wysiwyg/blockSelection";
 import {countBlockWord} from "../../layout/status";
-import {genTemplateDocTreePlanHTML, ITemplateDocTreePlan} from "../../template/docTree";
+import {genTemplateDocTreePlanHTML} from "../../template/docTree";
 
 const slashBuiltinStyleIDs: Partial<Record<string, TBuiltinInlineStyleID>> = {
     infoStyle: "info",
@@ -61,9 +63,13 @@ const slashBuiltinStyleIDs: Partial<Record<string, TBuiltinInlineStyleID>> = {
     errorStyle: "error",
 };
 
-const getBuiltinStyleCSS = (id: TBuiltinInlineStyleID) =>
-    `color: ${getBuiltinInlineStylePropertyValue(id, "color")};` +
-    `background-color: ${getBuiltinInlineStylePropertyValue(id, "backgroundColor")};`;
+const getBuiltinStyleCSS = (id: TBuiltinInlineStyleID, preview = false) => {
+    const colors = preview ? getBuiltinInlineStylePreview(id) : {
+        color: getBuiltinInlineStylePropertyValue(id, "color"),
+        backgroundColor: getBuiltinInlineStylePropertyValue(id, "backgroundColor"),
+    };
+    return `color: ${colors.color};background-color: ${colors.backgroundColor};`;
+};
 
 const getHotkeyOrMarker = (hotkey: string, marker: string) => {
     if (hotkey) {
@@ -170,12 +176,17 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         value: "- [ ] " + Lute.Caret,
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconCheck"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.check}</span>${getHotkeyOrMarker(window.siyuan.config.keymap.editor.insert.check.custom, "[]")}</div>`,
     }, {
+        filter: [window.siyuan.languages.mindmap, "mindmap", "思维导图", "siweidaotu", "swdt", "脑图", "naotu", "nt"],
+        id: "mindmap",
+        value: `- ${Lute.Caret}\n{: ${Constants.CUSTOM_SY_LIST_MINDMAP}="1"}`,
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconMindmap"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.mindmap}</span></div>`,
+    }, {
         filter: [window.siyuan.languages.quote, "blockquote", "bq", "引述", "yinshu", "ys"],
         id: "quote",
         value: "> " + Lute.Caret,
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconQuote"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.quote}</span>${getHotkeyOrMarker(window.siyuan.config.keymap.editor.insert.quote.custom, ">")}</div>`,
     }, {
-        filter: [window.siyuan.languages.tabs, "tabs", "页签", "yeqian"],
+        filter: [window.siyuan.languages.tabs, "tabs", "页签", "yeqian", "yq"],
         id: "tabs",
         value: `::: tabs\n@tab\n\n${Lute.Caret}\n\n@tab\n\n:::\n`,
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconTabs"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.tabs}</span></div>`,
@@ -234,6 +245,16 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         id: "databaseTableView",
         value: '<div data-type="NodeAttributeView" data-av-type="table"></div>',
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconTable"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseTableView}</span></div>`,
+    }, {
+        filter: [window.siyuan.languages.databaseListView, "database list view", "数据库列表视图", "shujukuliebiaoshitu", "sjklbs"],
+        id: "databaseListView",
+        value: '<div data-type="NodeAttributeView" data-av-type="list"></div>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconList"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseListView}</span></div>`,
+    }, {
+        filter: [window.siyuan.languages.databaseCalendarView, "database calendar view", "日历", "rili"],
+        id: "databaseCalendarView",
+        value: '<div data-type="NodeAttributeView" data-av-type="calendar"></div>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconCalendar"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseCalendarView}</span></div>`,
     }, {
         filter: [window.siyuan.languages.databaseKanbanView, "database kanban view", "数据库看板视图", "shujukukanbanshitu", "sjkkbs"],
         id: "databaseKanbanView",
@@ -379,11 +400,6 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         value: "```mermaid\n```",
         html: '<div class="b3-list-item__first"><span class="b3-list-item__text">Mermaid</span><span class="b3-list-item__meta">Mermaid</span></div>',
     }, {
-        filter: [window.siyuan.languages.mindmap, "mindmap", "脑图", "naotu", "nt"],
-        id: "mindmap",
-        value: "```mindmap\n```",
-        html: `<div class="b3-list-item__first"><span class="b3-list-item__text">Mind map</span><span class="b3-list-item__meta">${window.siyuan.languages.mindmap}</span></div>`,
-    }, {
         filter: ["plantuml", "建模语言", "jianmoyuyan", "jmyy"],
         id: "UML",
         value: "```plantuml\n```",
@@ -396,22 +412,22 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         filter: [window.siyuan.languages.infoStyle, "info style", "信息样式", "xinxiyangshi", "xxys"],
         id: "infoStyle",
         value: `style${Constants.ZWSP}${getBuiltinStyleCSS("info")}`,
-        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("info")}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.infoStyle}</span></div>`,
+        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("info", true)}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.infoStyle}</span></div>`,
     }, {
         filter: [window.siyuan.languages.successStyle, "success style", "成功样式", "chenggongyangshi", "cgys"],
         id: "successStyle",
         value: `style${Constants.ZWSP}${getBuiltinStyleCSS("success")}`,
-        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("success")}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.successStyle}</span></div>`,
+        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("success", true)}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.successStyle}</span></div>`,
     }, {
         filter: [window.siyuan.languages.warningStyle, "warning style", "警告样式", "jinggaoyangshi", "jgys"],
         id: "warningStyle",
         value: `style${Constants.ZWSP}${getBuiltinStyleCSS("warning")}`,
-        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("warning")}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.warningStyle}</span></div>`,
+        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("warning", true)}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.warningStyle}</span></div>`,
     }, {
         filter: [window.siyuan.languages.errorStyle, "error style", "错误样式", "cuowuyangshi", "cwys"],
         id: "errorStyle",
         value: `style${Constants.ZWSP}${getBuiltinStyleCSS("error")}`,
-        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("error")}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.errorStyle}</span></div>`,
+        html: `<div class="b3-list-item__first"><div style="${getBuiltinStyleCSS("error", true)}" class="color__square color__square--list">A</div><span class="b3-list-item__text">${window.siyuan.languages.errorStyle}</span></div>`,
     }, {
         filter: [window.siyuan.languages.clearFontStyle, "clear style", "清除样式", "qingchuyangshi", "qcys"],
         id: "clearFontStyle",
@@ -424,7 +440,7 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
     }];
 };
 
-export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfiguredCreate: THintSource | boolean = false) => {
+export const hintSlash = registerBuiltinSlashHint((key: string, protyle: IProtyle, sourceOrHideConfiguredCreate: THintSource | boolean = false) => {
     const enabled = isEntryVisible(SLASH_MENU_ROOT_PATH);
     if (!enabled) {
         return [];
@@ -441,6 +457,7 @@ export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfigured
             plugin.protyleSlash.forEach(slash => {
                 allList.push({
                     filter: slash.filter,
+                    showInLite: slash.showInLite,
                     id: slash.id,
                     entryKey: getPluginSlashEntryKey(plugin.name, slash.id,
                         slash.html === "separator" ? "separator" : "entry"),
@@ -455,18 +472,26 @@ export const hintSlash = (key: string, protyle: IProtyle, sourceOrHideConfigured
         allList.pop();
     }
     refreshSlashMenuCatalog(areProtylePluginExtensionsEnabled(protyle) ? protyle.app.plugins : []);
+    const selection = getSelection();
+    const focus = selection?.focusNode;
+    const focusElement = focus instanceof Element ? focus : focus?.parentElement;
+    const cell = focusElement?.closest("td, th");
+    const inTableCell = cell && cell.closest(".protyle-wysiwyg") === protyle.wysiwyg.element;
     return resolveSlashMenuItems(allList.filter((item) => {
         const builtinStyleID = slashBuiltinStyleIDs[item.entryKey];
-        return getEntryCatalogNode(getSlashMenuEntryPath(item.entryKey)) &&
+        return (!inTableCell || TABLE_CELL_SLASH_IDS.has(item.id)) &&
+            getEntryCatalogNode(getSlashMenuEntryPath(item.entryKey)) &&
             (!builtinStyleID || isBuiltinInlineStyleVisible("style1", builtinStyleID));
     }), {
         enabled,
         hideConfiguredCreate,
+        lite: protyle.lite,
+        canUpload: !!(protyle.options.upload.handler || (protyle.options.upload.url && protyle.upload)),
         key,
         order: getEntryOrder(SLASH_MENU_ROOT_PATH),
         visible: (entryKey) => isEntryVisible(getSlashMenuEntryPath(entryKey)),
     });
-};
+});
 
 export const hintTag = (key: string, protyle: IProtyle): IHintData[] => {
     protyle.hint.genLoading(protyle);
@@ -540,9 +565,15 @@ export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IH
     const nodeElement = hasClosestBlock(getEditorRange(protyle.wysiwyg.element).startContainer);
     const createTarget = protyle.hint.prepareCreateTarget(protyle, "ref");
     protyle.hint.genLoading(protyle);
-    let refParam: IObject;
+    let refParam: import("../../types/api").SearchRefBlockRequestInput;
     if (protyle.lite) {
         refParam = {k: key, id: "", rootID: "", beforeLen: 48, isDatabase: false, isSquareBrackets: true};
+        // 单元格内的临时块不在块树中，使用所属表格提供搜索和新建文档的上下文
+        if (protyle.path && protyle.block.parentID) {
+            refParam.id = protyle.block.parentID;
+            refParam.rootID = protyle.block.rootID;
+            refParam.isSquareBrackets = ["[[", "【【"].includes(protyle.hint.splitChar);
+        }
     } else {
         refParam = {
             k: key,
@@ -624,7 +655,7 @@ export const hintEmbed = (key: string, protyle: IProtyle): IHintData[] => {
     }
     protyle.hint.genLoading(protyle);
     const nodeElement = hasClosestBlock(getEditorRange(protyle.wysiwyg.element).startContainer);
-    const embedParam: IObject = {
+    const embedParam: import("../../types/api").SearchRefBlockRequestInput = {
         k: key,
         isDatabase: false,
         beforeLen: Math.floor((Math.max(protyle.element.clientWidth / 2, 320) - 58) / 28.8),
@@ -675,10 +706,9 @@ export const hintRenderTemplate = (value: string, protyle: IProtyle, nodeElement
             blockRender(protyle, protyle.wysiwyg.element);
             processRender(protyle.wysiwyg.element);
             highlightRender(protyle.wysiwyg.element);
-            avRender(protyle.wysiwyg.element, protyle);
             hideElements(["util"], protyle);
         };
-        const docTreePlan = response.data.docTreePlan as ITemplateDocTreePlan | undefined;
+        const docTreePlan = response.data.docTreePlan;
         if (docTreePlan?.id) {
             hideElements(["util"], protyle);
             confirmDialog(window.siyuan.languages.template, genTemplateDocTreePlanHTML(docTreePlan, window.siyuan.languages.newSubDoc), () => {

@@ -21,7 +21,7 @@ import (
 
 func TestGenerateTypeEightSVGEscapesContent(t *testing.T) {
 	content := `</text><desc><style><script>alert(1)</script></style></desc><text>`
-	output := generateTypeEightSVG("red", content, "")
+	output := generateTypeEightSVG("red", content)
 	if strings.Contains(output, `<script>`) || strings.Contains(output, `</text><desc>`) {
 		t.Fatalf("dynamic icon contains injected SVG markup: %s", output)
 	}
@@ -31,9 +31,19 @@ func TestGenerateTypeEightSVGEscapesContent(t *testing.T) {
 }
 
 func TestGenerateTypeEightSVGCalculatesFontSizeBeforeEscaping(t *testing.T) {
-	output := generateTypeEightSVG("red", "<", "")
+	output := generateTypeEightSVG("red", "<")
 	if !strings.Contains(output, `font-size: 480.00px`) || !strings.Contains(output, `&lt;`) {
 		t.Fatalf("escaped content changed the dynamic icon font size: %s", output)
+	}
+}
+
+func TestGenerateTypeEightSVGHandlesEmptyContent(t *testing.T) {
+	output := generateTypeEightSVG("red", "")
+	if strings.Contains(output, "font-size") || strings.Contains(output, "Inf") || strings.Contains(output, "NaN") {
+		t.Fatalf("empty dynamic icon content produced an invalid font size: %s", output)
+	}
+	if !strings.Contains(output, `id="dynamic_icon_type8"`) {
+		t.Fatalf("empty dynamic icon content lost the icon frame: %s", output)
 	}
 }
 
@@ -50,6 +60,7 @@ func TestGetDynamicIconSetsSecurityHeaders(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/icon/getDynamicIcon?type=8&content=%3Cscript%3Ealert(1)%3C%2Fscript%3E", nil)
 	context.Request = request
 	getDynamicIcon(context)
+	requireAPIContract(t, http.MethodGet, "/api/icon/getDynamicIcon", recorder)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status code %d", recorder.Code)

@@ -2,6 +2,7 @@ import {fetchPost} from "../../util/fetch";
 import {Constants} from "../../constants";
 import {
     getEntryCatalogDefaultVisibility,
+    getEntryCatalogCustomDefaultVisibility,
     getEntryCatalogChildren,
     getEntryCatalogNode,
     getDockEntryKey,
@@ -12,6 +13,7 @@ import {
     refreshDockCatalog,
     refreshTopBarCatalog,
     TOP_BAR_ROOT_PATH,
+    STATUS_BAR_ROOT_PATH,
 } from "./catalog";
 import {
     mergeEntryOrderPreservingUnknown,
@@ -35,7 +37,7 @@ import {
     mergeDockEntryOrderSnapshot,
 } from "./dockOrder";
 
-export const ENTRY_VISIBILITY_VERSION = 4;
+export const ENTRY_VISIBILITY_VERSION = 6;
 export const ENTRY_PROFILE_SIMPLE = "simple";
 export const ENTRY_PROFILE_FULL = "full";
 export type TEntryVisibilityTemplate = typeof ENTRY_PROFILE_SIMPLE | typeof ENTRY_PROFILE_FULL;
@@ -47,17 +49,26 @@ export const getActiveEntryProfile = () => {
     return config.profiles.find((item) => item.id === config.active);
 };
 
-const getTemplateVisibility = (path: string, template: TEntryVisibilityTemplate) =>
-    getBuiltinProfileEntryVisibility(
+const getTemplateVisibility = (path: string, template: TEntryVisibilityTemplate) => {
+    const entry = getEntryCatalogNode(path);
+    return getBuiltinProfileEntryVisibility(
         template,
-        getEntryCatalogNode(path)?.simple !== false,
+        entry?.simple !== false,
         getEntryCatalogDefaultVisibility(path),
+        entry?.simpleDefaultVisible,
     );
+};
 
 export const isEntryVisible = (path: string): boolean => {
     /// #if MOBILE
-    return true;
-    /// #else
+    if (!path.startsWith(`${TOOLBAR_ENTRY_ROOT_PATH}.`)) {
+        return true;
+    }
+    /// #endif
+    return getConfiguredEntryVisibility(path);
+};
+
+export const getConfiguredEntryVisibility = (path: string): boolean => {
     const config = getConfig();
     const active = config.active;
     let visible: boolean;
@@ -66,17 +77,16 @@ export const isEntryVisible = (path: string): boolean => {
     } else if (active === ENTRY_PROFILE_SIMPLE) {
         visible = getTemplateVisibility(path, ENTRY_PROFILE_SIMPLE);
     } else {
-        visible = getProfileEntryVisibility(getActiveEntryProfile(), path, getEntryCatalogDefaultVisibility(path));
+        visible = getProfileEntryVisibility(getActiveEntryProfile(), path, getEntryCatalogCustomDefaultVisibility(path));
     }
     if (!visible) {
         return false;
     }
     const parentPath = getEntryParentPath(path);
     if (parentPath && getEntryCatalogNode(parentPath)) {
-        return isEntryVisible(parentPath);
+        return getConfiguredEntryVisibility(parentPath);
     }
     return true;
-    /// #endif
 };
 
 export const createEntryProfileSnapshot = (template: TEntryVisibilityTemplate) => {
@@ -95,6 +105,9 @@ export const getEntryOrder = (parentPath: string, profile = getActiveEntryProfil
     const separatorKeys = new Set(nodes.filter((item) => item.type === "separator").map((item) => item.key));
     if (parentPath === TOP_BAR_ROOT_PATH) {
         return resolveEntryOrderWithBoundaryDefaults(defaultOrder, profile?.orders?.[parentPath], "drag", separatorKeys);
+    }
+    if (parentPath === STATUS_BAR_ROOT_PATH) {
+        return resolveEntryOrderWithBoundaryDefaults(defaultOrder, profile?.orders?.[parentPath], "spacer", separatorKeys);
     }
     return resolveEntryOrder(defaultOrder, profile?.orders?.[parentPath], separatorKeys);
 };
@@ -435,15 +448,41 @@ export const applyTopBarEntryVisibility = () => {
     /// #endif
 };
 
+export const applyStatusBarEntryVisibility = () => {
+    /// #if !MOBILE
+    const status = document.getElementById("status");
+    if (!status) {
+        return;
+    }
+    const children = Array.from(status.children) as HTMLElement[];
+    reorderEntrySlots(children, getEntryOrder(STATUS_BAR_ROOT_PATH), item => item.dataset.statusbarEntry)
+        .forEach(item => status.append(item));
+    children.forEach((item) => {
+        const key = item.dataset.statusbarEntry;
+        if (!key) {
+            return;
+        }
+        const path = `${STATUS_BAR_ROOT_PATH}.${key}`;
+        const node = getEntryCatalogNode(path);
+        if (node && isEntryCatalogNodeConfigurable(node) && !isEntryVisible(path)) {
+            item.setAttribute("data-entry-hidden", "true");
+        } else {
+            item.removeAttribute("data-entry-hidden");
+        }
+    });
+    /// #endif
+};
+
 const applyEntryVisibilityLocal = (config: Config.IEntryVisibility) => {
     window.siyuan.config.appearance.entryVisibility = config;
     /// #if !MOBILE
     window.siyuan.menus?.menu?.remove();
     applyTopBarEntryVisibility();
+    applyStatusBarEntryVisibility();
     applyDockEntryVisibility();
     document.querySelectorAll<HTMLElement>(".protyle-toolbar").forEach(applyToolbarEntryVisibility);
-    window.dispatchEvent(new CustomEvent("siyuan-entry-visibility"));
     /// #endif
+    window.dispatchEvent(new CustomEvent("siyuan-entry-visibility"));
 };
 
 export const applyEntryVisibility = (config: Config.IEntryVisibility) => {

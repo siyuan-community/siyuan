@@ -20,7 +20,7 @@ import {isMobile} from "../../../util/functions";
 import {getAVVerticalNavigationAction} from "./verticalNavigation";
 
 export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyle: IProtyle,
-                          leaveVerticalRegion: (direction: "up" | "down") => void) => {
+                          leaveVerticalRegion: (direction: "up" | "down") => boolean) => {
     if (!nodeElement.classList.contains("av") || !window.siyuan.menus.menu.element.classList.contains("fn__none")) {
         return false;
     }
@@ -32,8 +32,8 @@ export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyl
         event.preventDefault();
         return true;
     }
-    const isNewNameFile = matchHotKey(window.siyuan.config.keymap.editor.general.newNameFile.custom, event);
-    const isNewNameSettingFile = matchHotKey(window.siyuan.config.keymap.editor.general.newNameSettingFile.custom, event);
+    const isNewNameFile = matchHotKey(window.siyuan.config.keymap.editor.general.newNameFile, event);
+    const isNewNameSettingFile = matchHotKey(window.siyuan.config.keymap.editor.general.newNameSettingFile, event);
     if (isNewNameFile || isNewNameSettingFile) {
         if (event.repeat) {
             event.preventDefault();
@@ -163,8 +163,10 @@ export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyl
                 newCellElement = previousCellElements[previousCellElements.length - 1];
             }
             if (newCellElement) {
-                clearSelect(["cell"], nodeElement);
-                newCellElement.classList.add("av__cell--select");
+                if (!setAVCellAnchor(nodeElement, newCellElement as HTMLElement)) {
+                    event.preventDefault();
+                    return true;
+                }
                 addDragFill(newCellElement);
                 cellScrollIntoView(nodeElement, newCellElement, false);
             }
@@ -182,8 +184,10 @@ export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyl
                 newCellElement = nextRowElement.querySelector(".av__cell");
             }
             if (newCellElement) {
-                clearSelect(["cell"], nodeElement);
-                newCellElement.classList.add("av__cell--select");
+                if (!setAVCellAnchor(nodeElement, newCellElement as HTMLElement)) {
+                    event.preventDefault();
+                    return true;
+                }
                 addDragFill(newCellElement);
                 cellScrollIntoView(nodeElement, newCellElement, false);
             } else if (event.key !== "ArrowRight") {
@@ -206,13 +210,14 @@ export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyl
                 newCellElement = previousRowElement.querySelector(`.av__cell[data-col-id="${selectCellElement.dataset.colId}"]`);
             }
             if (getAVVerticalNavigationAction(!!newCellElement) === "move") {
-                clearSelect(["cell"], nodeElement);
-                newCellElement.classList.add("av__cell--select");
+                if (!setAVCellAnchor(nodeElement, newCellElement as HTMLElement)) {
+                    event.preventDefault();
+                    return true;
+                }
                 addDragFill(newCellElement);
                 cellScrollIntoView(nodeElement, newCellElement);
-            } else {
+            } else if (leaveVerticalRegion("up")) {
                 clearSelect(["cell"], nodeElement);
-                leaveVerticalRegion("up");
             }
             event.preventDefault();
             return true;
@@ -223,13 +228,14 @@ export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyl
                 newCellElement = nextRowElement.querySelector(`.av__cell[data-col-id="${selectCellElement.dataset.colId}"]`);
             }
             if (getAVVerticalNavigationAction(!!newCellElement) === "move") {
-                clearSelect(["cell"], nodeElement);
-                newCellElement.classList.add("av__cell--select");
+                if (!setAVCellAnchor(nodeElement, newCellElement as HTMLElement)) {
+                    event.preventDefault();
+                    return true;
+                }
                 addDragFill(newCellElement);
                 cellScrollIntoView(nodeElement, newCellElement);
-            } else {
+            } else if (leaveVerticalRegion("down")) {
                 clearSelect(["cell"], nodeElement);
-                leaveVerticalRegion("down");
             }
             event.preventDefault();
             return true;
@@ -328,14 +334,14 @@ export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyl
             const currentRowElement = selectRowElements[0] as HTMLElement;
             const previousRowElement = ensureAVTableAdjacentRow(currentRowElement, "previous") ||
                 currentRowElement.previousElementSibling as HTMLElement;
-            clearSelect(["row", "galleryItem"], nodeElement);
             const hasPreviousItem = previousRowElement?.matches(".av__row[data-id], .av__gallery-item[data-id]");
             if (getAVVerticalNavigationAction(!!hasPreviousItem) === "move") {
+                clearSelect(["row", "galleryItem"], nodeElement);
                 setAVItemAnchor(nodeElement, previousRowElement as HTMLElement);
                 selectAVItemRange(nodeElement, previousRowElement);
                 cellScrollIntoView(nodeElement, previousRowElement);
-            } else {
-                leaveVerticalRegion("up");
+            } else if (leaveVerticalRegion("up")) {
+                clearSelect(["row", "galleryItem"], nodeElement);
             }
             event.preventDefault();
             return true;
@@ -344,14 +350,14 @@ export const avKeydown = (event: KeyboardEvent, nodeElement: HTMLElement, protyl
             const currentRowElement = selectRowElements[selectRowElements.length - 1] as HTMLElement;
             const nextRowElement = ensureAVTableAdjacentRow(currentRowElement, "next") ||
                 currentRowElement.nextElementSibling as HTMLElement;
-            clearSelect(["row", "galleryItem"], nodeElement);
             const hasNextItem = nextRowElement?.matches(".av__row[data-id], .av__gallery-item[data-id]");
             if (getAVVerticalNavigationAction(!!hasNextItem) === "move") {
+                clearSelect(["row", "galleryItem"], nodeElement);
                 setAVItemAnchor(nodeElement, nextRowElement as HTMLElement);
                 selectAVItemRange(nodeElement, nextRowElement);
                 cellScrollIntoView(nodeElement, nextRowElement);
-            } else {
-                leaveVerticalRegion("down");
+            } else if (leaveVerticalRegion("down")) {
+                clearSelect(["row", "galleryItem"], nodeElement);
             }
             event.preventDefault();
             return true;

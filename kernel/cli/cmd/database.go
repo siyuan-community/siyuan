@@ -210,10 +210,15 @@ var databaseCleanCmd = &cobra.Command{
 		avID, _ := cmd.Flags().GetString("av")
 		if avID != "" {
 			if dryRun {
+				if err := model.ValidateUnusedAttributeView(avID); err != nil {
+					return err
+				}
 				fmt.Printf("[dry-run] Would clean unused database %s\n", avID)
 				return nil
 			}
-			model.RemoveUnusedAttributeView(avID)
+			if err := model.RemoveUnusedAttributeView(avID); err != nil {
+				return err
+			}
 			fmt.Println(avID)
 			return nil
 		}
@@ -475,6 +480,10 @@ func writeRenderedView(writer io.Writer, attrView *av.AttributeView, viewable av
 func databaseViewBase(viewable av.Viewable) (ret *av.BaseInstance) {
 	switch view := viewable.(type) {
 	case *av.Table:
+		ret = view.BaseInstance
+	case *av.Calendar:
+		ret = view.BaseInstance
+	case *av.List:
 		ret = view.BaseInstance
 	case *av.Gallery:
 		ret = view.BaseInstance

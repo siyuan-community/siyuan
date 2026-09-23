@@ -172,7 +172,7 @@ export const renderMobileBottomBar = () => {
     });
 };
 
-const bindBottomBarAction = (id: string, callback: () => void) => {
+const bindBottomBarAction = (id: string, callback: (event: MouseEvent) => void) => {
     const element = document.getElementById(id);
     if (!element) {
         return;
@@ -295,19 +295,19 @@ export const initMobileBottomBar = (app: App) => {
         newDailyNoteFromLastNotebook(app);
         closePanel();
     });
-    bindBottomBarAction("mobileBottomBarCommand", () => {
+    bindBottomBarAction("mobileBottomBarCommand", (event) => {
         if (isMobileBlockSelecting()) {
             return;
         }
-        activeBlur();
-        closePanel();
+        closePanel({preserveKeyboard: true});
         commandPanel(app);
+        event.stopPropagation();
     });
 };
 
 const genBottomBarOptions = (pluginDockEntries: readonly IMobilePluginDockEntry[]) => [
-    ...MOBILE_BOTTOM_BAR_ACTIONS.map((action) =>
-        `<option value="${action}"${action === "agent" && isDisabledFeature("ai") ? " disabled" : ""}>${escapeHtml(getActionLabel(action))}</option>`),
+    ...MOBILE_BOTTOM_BAR_ACTIONS.filter(action => action !== "agent" || !isDisabledFeature("ai")).map((action) =>
+        `<option value="${action}">${escapeHtml(getActionLabel(action))}</option>`),
     ...pluginDockEntries.map((entry) =>
         `<option value="${escapeAttr(entry.key)}">${escapeHtml(getPluginDockLabel(entry))}</option>`),
 ].join("");

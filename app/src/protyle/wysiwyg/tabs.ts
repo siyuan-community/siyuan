@@ -1,4 +1,4 @@
-import {getTabContent, getTabItems, getTabTitle, getTabTitleBlock, revealTabAncestors, tabsRender} from "../render/tabsRender";
+import {getTabContent, getTabItems, getTabTask, getTabTitle, getTabTitleBlock, hasTabsTasks, revealTabAncestors, tabsRender} from "../render/tabsRender";
 import {repairActiveTab} from "./tabsRemoval";
 import {transaction} from "./transaction";
 import {Constants} from "../../constants";
@@ -11,67 +11,40 @@ import {avRender} from "../render/av/render";
 import {isHiddenTabContent} from "../render/tabsVisibility";
 import {queueTransaction} from "../util/transactionQueue";
 import {remapTabsDOMIDs} from "../util/tabsCopy";
-import {copyTextByType} from "../toolbar/util";
-import {Dialog} from "../../dialog";
-import {showMessage} from "../../dialog/message";
-import {getTaskListMarker, nextTaskListMarker} from "./taskListMarker";
+import {remapListMindmapIDs} from "../render/listMindmap/model";
+import {copySubMenu, openAttr} from "../../menus/commonMenuItem";
+import {isTaskListMarker, nextTaskListMarker} from "./taskListMarker";
 import {hideElements} from "../ui/hideElements";
+import {getTaskStatusItems} from "./taskStatusDialog";
 
 export const toggleTabsTasks = (protyle: IProtyle, tabs: HTMLElement) => {
     const items = getTabItems(tabs);
-    const enabled = items.some(item => item.hasAttribute("tabs-task"));
-    changeTabs(protyle, [tabs], () => items.forEach(item => {
+    const enabled = hasTabsTasks(tabs);
+    changeTabs(protyle, [tabs], () => {
         if (enabled) {
-            item.removeAttribute("tabs-task");
+            tabs.removeAttribute("tabs-task");
         } else {
-            item.setAttribute("tabs-task", " ");
+            tabs.setAttribute("tabs-task", "true");
         }
-    }));
+        items.forEach(item => item.removeAttribute("tabs-task"));
+    });
 };
 
 export const setTabTask = (protyle: IProtyle, item: HTMLElement, marker: string) => {
-    if (!item.isConnected || !item.hasAttribute("tabs-task") || !getTaskListMarker(`[${marker}]`, false)) {
+    if (!item.isConnected || getTabTask(item) === null || !isTaskListMarker(marker)) {
         return;
     }
     changeTabs(protyle, [item], () => item.setAttribute("tabs-task", marker));
 };
 
-const editTabTask = (protyle: IProtyle, item: HTMLElement) => {
-    if (!canEdit(protyle, item)) {
-        return;
-    }
-    const lang = window.siyuan.languages;
-    const dialog = new Dialog({
-        title: lang.customTaskStatus,
-        content: `<div class="b3-dialog__content"><input class="b3-text-field fn__block" maxlength="1"></div>
-<div class="b3-dialog__action"><button class="b3-button b3-button--cancel">${lang.cancel}</button>
-<div class="fn__space"></div><button class="b3-button b3-button--text">${lang.confirm}</button></div>`,
-        width: "320px",
-    });
-    const input = dialog.element.querySelector("input");
-    input.value = item.getAttribute("tabs-task") || " ";
-    const buttons = dialog.element.querySelectorAll("button");
-    buttons[0].addEventListener("click", () => dialog.destroy());
-    const confirm = () => {
-        const marker = input.value || " ";
-        if (!getTaskListMarker(`[${marker}]`, false)) {
-            showMessage(lang.invalid, 3000, "error");
-            return;
-        }
-        setTabTask(protyle, item, marker);
-        dialog.destroy();
-    };
-    buttons[1].addEventListener("click", confirm);
-    dialog.bindInput(input, confirm);
-    input.select();
-};
-
 const canEdit = (protyle: IProtyle, element: Element) => !protyle.disabled &&
-    !protyle.options.action.includes(Constants.CB_GET_HISTORY) && !element.closest(".protyle-wysiwyg__embed");
+    !protyle.options.action.includes(Constants.CB_GET_HISTORY) &&
+    !element.closest(".protyle-wysiwyg__embed, .list-mindmap__preview-block") &&
+    element.closest(".protyle-wysiwyg") === protyle.wysiwyg.element;
 
 // 同一事务提交受影响的最外层容器，嵌套移动时避免父子更新相互覆盖。
 const changeTabs = (protyle: IProtyle, elements: HTMLElement[], change: () => void) => {
-    if (elements.some(element => !canEdit(protyle, element))) {
+    if (elements.some(element => !element.dataset.nodeId || !canEdit(protyle, element))) {
         return;
     }
     const roots = Array.from(new Set(elements)).filter(element =>
@@ -106,8 +79,7 @@ export const renameTab = (protyle: IProtyle, item: HTMLElement) => {
 
 const addTab = (protyle: IProtyle, tabs: HTMLElement) => {
     const item = newTab(protyle);
-    const items = getTabItems(tabs);
-    if (items.some(entry => entry.hasAttribute("tabs-task"))) {
+    if (hasTabsTasks(tabs)) {
         item.setAttribute("tabs-task", " ");
     }
     changeTabs(protyle, [tabs], () => {
@@ -127,7 +99,11 @@ export const moveTab = (protyle: IProtyle, source: HTMLElement, target: HTMLElem
         return;
     }
     const ids = getTabItems(from).map(item => item.dataset.nodeId);
+    const task = getTabTask(source);
     changeTabs(protyle, [from, to], () => {
+        if (from !== to && task !== null) {
+            source.setAttribute("tabs-task", task);
+        }
         to.insertBefore(source, after ? target.nextSibling : target);
         if (from !== to) {
             repairActiveTab(from, ids, source.dataset.nodeId);
@@ -156,14 +132,17 @@ export const unwrapTabs = (protyle: IProtyle, tabs: HTMLElement) => {
             item.dataset.type = "NodeSuperBlock";
             item.dataset.sbLayout = "row";
             item.removeAttribute("data-tabs-hidden");
+            item.removeAttribute("tabs-task");
             item.replaceChildren(...blocks, genSBElement("row").lastElementChild);
         });
         tabs.querySelector(":scope > .tabs-header")?.remove();
+        tabs.querySelector(":scope > .tabs-divider")?.remove();
         tabs.className = "sb";
         tabs.dataset.type = "NodeSuperBlock";
         tabs.dataset.sbLayout = "row";
         tabs.removeAttribute("tabs-active-id");
         tabs.removeAttribute("tabs-position");
+        tabs.removeAttribute("tabs-task");
     });
 };
 
@@ -179,14 +158,13 @@ export const openTabsMenu = (protyle: IProtyle, tabs: HTMLElement, item: HTMLEle
     }
     const lang = window.siyuan.languages;
     const menu = new Menu();
-    menu.addItem({icon: "iconCopy", label: lang.copy, submenu: [{
-        icon: "iconRef",
-        label: lang.copyBlockRef,
-        click: () => {copyTextByType([item.dataset.nodeId], "ref");},
-    }]});
+    menu.addItem({icon: "iconCopy", label: lang.copy, submenu: copySubMenu([item.dataset.nodeId], false)});
     if (canEdit(protyle, tabs)) {
-        if (item.hasAttribute("tabs-task")) {
-            menu.addItem({icon: "iconCheck", label: lang.customTaskStatus, click: () => editTabTask(protyle, item)});
+        if (getTabTask(item) !== null) {
+            menu.addSeparator({id: "separator_taskStatusBefore"});
+            getTaskStatusItems(getTabTask(item), marker => setTabTask(protyle, item, marker))
+                .forEach(option => menu.addItem(option));
+            menu.addSeparator({id: "separator_taskStatus"});
         }
         menu.addItem({icon: "iconEdit", label: lang.rename, click: () => renameTab(protyle, item)});
         menu.addItem({icon: "iconCopy", label: lang.duplicateCopy, click: () => {
@@ -199,6 +177,7 @@ export const openTabsMenu = (protyle: IProtyle, tabs: HTMLElement, item: HTMLEle
                 block.setAttribute("updated", id.substring(0, 14));
             });
             remapTabsDOMIDs(copy, ids);
+            remapListMindmapIDs(copy, ids);
             changeTabs(protyle, [tabs], () => {
                 item.after(copy);
                 tabs.setAttribute("tabs-active-id", copy.dataset.nodeId);
@@ -214,7 +193,7 @@ export const openTabsMenu = (protyle: IProtyle, tabs: HTMLElement, item: HTMLEle
         }});
     }
     const rect = anchor.getBoundingClientRect();
-    menu.open({x: rect.left, y: rect.bottom});
+    menu.open({x: rect.left, y: rect.bottom, h: rect.height});
 };
 
 export const initEditorTabs = (protyle: IProtyle) => {
@@ -223,20 +202,42 @@ export const initEditorTabs = (protyle: IProtyle) => {
     tabsRender(root, {
         readonly: tabs => !canEdit(protyle, tabs || root),
         label: window.siyuan.languages.tabItem,
-        addLabel: window.siyuan.languages.tabItem,
+        addLabel: window.siyuan.languages.newTabItem,
         taskLabel: window.siyuan.languages.task,
-        task: item => setTabTask(protyle, item, nextTaskListMarker(item.getAttribute("tabs-task"))),
-        taskMenu: item => editTabTask(protyle, item),
+        attributes: {label: window.siyuan.languages.attr, open: (block, focus) => openAttr(block, focus, protyle)},
+        task: item => setTabTask(protyle, item, nextTaskListMarker(getTabTask(item))),
         endEdit: () => hideElements(["toolbar"], protyle),
+        activate: item => {
+            if (!canEdit(protyle, item)) {
+                return;
+            }
+            // 切换页签时同步正文光标和工具栏选区，后续操作沿用当前页签的位置。
+            const content = getTabContent(item);
+            const target = Array.from(content.querySelectorAll<HTMLElement>('[contenteditable="true"]'))
+                .find(element => !isHiddenTabContent(element) && element.getClientRects().length > 0);
+            const range = document.createRange();
+            range.selectNodeContents(target || content);
+            range.collapse(true);
+            hideElements(["toolbar"], protyle);
+            focusByRange(range);
+            protyle.toolbar.range = range.cloneRange();
+        },
         select: (tabs, id) => {
             if (!canEdit(protyle, tabs) || tabs.getAttribute("tabs-active-id") === id) {
                 return;
             }
             tabs.setAttribute("tabs-active-id", id);
             if (!protyle.lite) {
-                queueTransaction(protyle, () => fetchPost("/api/attr/setBlockAttrs", {
-                    id: tabs.dataset.nodeId, attrs: {"tabs-active-id": id},
-                }));
+                queueTransaction(protyle, async () => {
+                    // 撤销及移动会替换容器或移除占位页签，排队保存时只提交仍有效的当前选择。
+                    if (!tabs.isConnected || tabs.getAttribute("tabs-active-id") !== id ||
+                        !getTabItems(tabs).some(item => item.dataset.nodeId === id)) {
+                        return;
+                    }
+                    await fetchPost("/api/attr/setBlockAttrs", {
+                        id: tabs.dataset.nodeId, attrs: {"tabs-active-id": id},
+                    });
+                });
             }
         },
         rename: item => renameTab(protyle, item),

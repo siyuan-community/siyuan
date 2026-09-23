@@ -1,8 +1,10 @@
+import type {FileTreeGetDocRequestInput} from "../types/api";
 import {Constants} from "../constants";
 import {Hint} from "./hint";
 import {getLute} from "./render/setLute";
 import {Preview} from "./preview";
 import {addLoading, initUI, removeLoading} from "./ui/initUI";
+import {BACKLINK_EDITOR_PADDING} from "./ui/padding";
 import {LocalUndo, Undo} from "./undo";
 import {Upload} from "./upload";
 import {Options} from "./util/Options";
@@ -36,6 +38,9 @@ import {disabledProtyle, enableProtyle, onGet, setReadonlyByConfig} from "./util
 import {reloadProtyle} from "./util/reload";
 import {renderBacklink} from "./wysiwyg/renderBacklink";
 import {setEmpty} from "../mobile/util/setEmpty";
+/// #if MOBILE
+import {removeMobileSecondaryEditor, unregisterMobileSecondaryEditor} from "../mobile/util/secondaryEditors";
+/// #endif
 import {resize} from "./util/resize";
 import {getDocByScroll} from "./scroll/saveScroll";
 import type {App} from "../index";
@@ -67,6 +72,7 @@ import {
     queueDatabaseRowRefreshForOperations
 } from "./render/av/databaseRowRefresh";
 import {initEditorTabs} from "./wysiwyg/tabs";
+import {initListMindmaps} from "./render/listMindmap";
 import {registerCustomBlockRoot} from "../plugin/customBlockRender";
 import {getTransactionOperations} from "../util/transactionOperations";
 import {
@@ -204,6 +210,7 @@ export class Protyle {
         this.protyle.undo = this.protyle.lite ? new LocalUndo() : new Undo();
         this.protyle.wysiwyg = new WYSIWYG(this.protyle);
         initEditorTabs(this.protyle);
+        initListMindmaps(this.protyle);
         if (isProtyleCustomBlockRenderEnabled(this.protyle)) {
             registerCustomBlockRoot(this.protyle.wysiwyg.element, {
                 disabled: () => this.protyle.disabled,
@@ -277,7 +284,7 @@ export class Protyle {
                         case "li2doc":
                             if (this.protyle.block.rootID === data.data.srcRootBlockID) {
                                 if (this.protyle.block.showAll && data.cmd === "heading2doc" && !this.protyle.options.backlinkData) {
-                                    const getDocParam: IObject = {
+                                    const getDocParam: FileTreeGetDocRequestInput = {
                                         id: this.protyle.block.rootID,
                                         size: window.siyuan.config.editor.dynamicLoadBlocks,
                                     };
@@ -388,7 +395,10 @@ export class Protyle {
                         case "removeBox":
                             if (this.protyle.notebookId === data.data.box) {
                                 /// #if MOBILE
-                                setEmpty(app);
+                                // 主编辑器由页签管理切换文档，避免切换前显示空白主页
+                                if (!removeMobileSecondaryEditor(this) && !window.siyuan.mobile.tabs) {
+                                    setEmpty(app);
+                                }
                                 /// #else
                                 if (this.protyle.model) {
                                     this.protyle.model.parent.parent.removeTab(this.protyle.model.parent.id);
@@ -399,7 +409,10 @@ export class Protyle {
                         case "removeDoc":
                             if (data.data.ids.includes(this.protyle.block.rootID)) {
                                 /// #if MOBILE
-                                setEmpty(app);
+                                // 主编辑器由页签管理切换文档，避免切换前显示空白主页
+                                if (!removeMobileSecondaryEditor(this) && !window.siyuan.mobile.tabs) {
+                                    setEmpty(app);
+                                }
                                 /// #else
                                 if (this.protyle.model) {
                                     this.protyle.model.parent.parent.removeTab(this.protyle.model.parent.id);
@@ -416,12 +429,15 @@ export class Protyle {
                 this.protyle.block.rootID = options.blockId;
                 renderBacklink(this.protyle, options.backlinkData);
                 // 为了满足 eventPath0.style.paddingLeft 从而显示块标 https://github.com/siyuan-note/siyuan/issues/11578
-                this.protyle.wysiwyg.element.style.padding = "4px 16px 4px 24px";
+                this.protyle.wysiwyg.element.style.padding = BACKLINK_EDITOR_PADDING;
                 return;
             }
             if (!options.blockId) {
                 // 搜索页签需提前初始化
                 removeLoading(this.protyle);
+                if (this.protyle.lite) {
+                    resize(this.protyle);
+                }
                 return;
             }
 
@@ -526,7 +542,7 @@ export class Protyle {
     }
 
     private getDoc(mergedOptions: IProtyleOptions) {
-        const getDocParam: Record<string, any> = {
+        const getDocParam: FileTreeGetDocRequestInput = {
             id: mergedOptions.blockId,
             includeDocInfo: true,
             isBacklink: mergedOptions.action.includes(Constants.CB_GET_BACKLINK),
@@ -641,6 +657,9 @@ export class Protyle {
 
     /** 销毁编辑器 */
     public destroy() {
+        /// #if MOBILE
+        unregisterMobileSecondaryEditor(this);
+        /// #endif
         destroy(this.protyle);
     }
 

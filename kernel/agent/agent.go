@@ -24,6 +24,7 @@ import (
 	"html"
 	"io"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -74,7 +75,7 @@ second paragraph
 - Modify: block.update replaces ONE block's content with new markdown — it does NOT create or append new blocks. To both modify and add, call block.update first, then block.append/prepend/insert as separate calls.
 - Organize: document.move (full document), document.rename (title), block.move (single content block), document.delete.
 - Inbox (cloud-synced clippings, messages, and audio/video/file attachments; requires subscription): inbox.list (paged, summaries only) → inbox.get (read full content to judge how to file it) → inbox.convert (move one or many into local documents under a notebook, auto-deleting the cloud originals on success). Failed conversions are left in the inbox for retry. If a request fails with an auth/subscription error, report it honestly — do not retry.
-- Attributes: attr.get/set on any block. Database/attribute views: database.create (database block with ordered fields), database.item_add (rows), database.key_add (columns), database.render (view). Create database blocks via database.create, never via the file tool or generic block insertion.
+- Attributes: attr.get/set on any block. Database/attribute views: database.create (database block with ordered fields), database.item_add (rows), database.key_add (columns), database.key_update (field configuration: name/type/icon/description, number/date format, display template, date defaults, select options, relation and rollup settings; inspect keys first, send exactly one config setting per call, and render to verify), database.key_set_template (existing template field formulas; use .action{add .Number 1} for a number field plus one, then render to verify; do not write computed template cells with item_update), database.render (view). Create database blocks via database.create, never via the file tool or generic block insertion.
 - Icons: attr.set only changes a document BLOCK's icon — it cannot set a NOTEBOOK's icon. For notebooks use notebook.set_icon (a specific emoji) or notebook.random_icon (random emoji, optionally scoped by id; omit id to randomize ALL notebooks).
 - Document images: image.list finds local images referenced by a document; call image.analyze on a returned asset path to attach it to the current model for understanding. image.generate creates a reusable image asset for insertion or other document operations.
 - HTML components: asset.create_html writes HTML content as an asset and inserts a sandboxed IFrame block in one operation. Prefer self-contained HTML; only use remote resources when the user requests them.
@@ -91,7 +92,7 @@ second paragraph
 
 ## Formatting
 - Inline formatting uses standard markdown: **bold**, *italic*, ~~strikethrough~~, ==mark==, and "code" (backticks).
-- In markdown written to SiYuan blocks, block references must include anchor text. Use ((<blockID> "<static anchor text>")) for fixed text, or ((<blockID> '<dynamic anchor text>')) for text that follows the target block's content. Never use ((<blockID>)) or [[<blockID>]]. These forms are for note content; in chat responses use [title](siyuan://blocks/<blockID>).
+- In markdown written to SiYuan blocks, block references must include anchor text. Use ((<blockID> "<static anchor text>")) for fixed text, which is required whenever the anchor text differs from the referenced block's content. Use ((<blockID> '<dynamic anchor text>')) for text that follows the target block's content, so only when the anchor text is the target block's own content. Never use ((<blockID>)) or [[<blockID>]]. These forms are for note content; in chat responses use [title](siyuan://blocks/<blockID>).
 - For text styling that markdown cannot express (color, background, font size), use SiYuan text marks.
   The syntax requires a leading data-type="text" attribute — WITHOUT it the HTML is escaped and shown as literal text:
   - Text color:      <span data-type="text" style="color: #ff0000;">red text</span>
@@ -163,6 +164,8 @@ const (
 	doomLoopWarnThreshold = 3
 	// doomLoopStopThreshold 是相同签名连续命中时终止 agent 的阈值。
 	doomLoopStopThreshold = 5
+	// fallbackQuestionTimeout 是确认超时时间非法（负数）时 question 工具的兜底等待时长。
+	fallbackQuestionTimeout = 5 * time.Minute
 )
 
 // toolSignatureKeys 列出各工具里真正"区分一次调用"的关键参数。
@@ -377,16 +380,17 @@ type AgentEvent struct {
 }
 
 type AgentMessage struct {
-	Role                 string            `json:"role"`
-	Content              string            `json:"content"`
-	ReasoningContent     string            `json:"reasoningContent,omitempty"`
-	ResponseOutput       []json.RawMessage `json:"responseOutput,omitempty"`
-	ResponseOutputTokens int               `json:"responseOutputTokens,omitempty"`
-	RoundID              string            `json:"roundID,omitempty"`
-	References           []Reference       `json:"references,omitempty"`
-	EditorContext        *EditorContext    `json:"editorContext,omitempty"`
-	ToolCalls            []AgentToolCall   `json:"toolCalls,omitempty"`
-	EntryID              string            `json:"entryID,omitempty"`
+	Role                 string                 `json:"role"`
+	Content              string                 `json:"content"`
+	ReasoningContent     string                 `json:"reasoningContent,omitempty"`
+	NativeContent        *util.AIMessageContent `json:"nativeContent,omitempty"`
+	ResponseOutput       []json.RawMessage      `json:"responseOutput,omitempty"`
+	ResponseOutputTokens int                    `json:"responseOutputTokens,omitempty"`
+	RoundID              string                 `json:"roundID,omitempty"`
+	References           []Reference            `json:"references,omitempty"`
+	EditorContext        *EditorContext         `json:"editorContext,omitempty"`
+	ToolCalls            []AgentToolCall        `json:"toolCalls,omitempty"`
+	EntryID              string                 `json:"entryID,omitempty"`
 }
 
 type AgentToolCall struct {
@@ -460,30 +464,31 @@ func newAgentUserMessage(content, entryID string, references []Reference, editor
 // SessionEntry 与前端 SessionStore.ts 中 entries 元素一一对应，
 // 是会话持久化的唯一数据源（不再单独持久化 messages）。
 type SessionEntry struct {
-	ID                   string             `json:"id,omitempty"`
-	Type                 string             `json:"type"` // user|thinking|assistant|confirm|snapshot|rollback
-	Content              string             `json:"content,omitempty"`
-	References           []Reference        `json:"references,omitempty"`
-	EditorContext        *EditorContext     `json:"editorContext,omitempty"`
-	BlockHTML            string             `json:"blockHTML,omitempty"`    // 仅 user，用于保留发送框的 BlockDOM 展示结构
-	Steps                []SessionEntryStep `json:"steps,omitempty"`        // 仅 thinking
-	ToolCalls            []AgentToolCall    `json:"toolCalls,omitempty"`    // 仅 assistant
-	Duration             float64            `json:"duration,omitempty"`     // 秒（thinking/assistant 均可能带）
-	PromptTokens         int                `json:"promptTokens,omitempty"` // 仅 assistant
-	CompletionTok        int                `json:"completionTokens,omitempty"`
-	Timestamp            int64              `json:"timestamp,omitempty"`
-	ReasoningCont        string             `json:"reasoningContent,omitempty"`
-	ResponseOutput       []json.RawMessage  `json:"responseOutput,omitempty"`
-	ResponseOutputTokens int                `json:"responseOutputTokens,omitempty"`
-	RoundID              string             `json:"roundID,omitempty"`
-	Name                 string             `json:"name,omitempty"`
-	Args                 map[string]any     `json:"args,omitempty"`
-	ConfirmID            string             `json:"confirmID,omitempty"`
-	Status               string             `json:"status,omitempty"`
-	QuestionID           string             `json:"questionID,omitempty"`
-	Questions            []map[string]any   `json:"questions,omitempty"`
-	Answers              []string           `json:"answers,omitempty"`
-	SnapshotID           string             `json:"snapshotID,omitempty"`
+	ID                   string                 `json:"id,omitempty"`
+	Type                 string                 `json:"type"` // user|thinking|assistant|confirm|snapshot|rollback
+	Content              string                 `json:"content,omitempty"`
+	References           []Reference            `json:"references,omitempty"`
+	EditorContext        *EditorContext         `json:"editorContext,omitempty"`
+	BlockHTML            string                 `json:"blockHTML,omitempty"`    // 仅 user，用于保留发送框的 BlockDOM 展示结构
+	Steps                []SessionEntryStep     `json:"steps,omitempty"`        // 仅 thinking
+	ToolCalls            []AgentToolCall        `json:"toolCalls,omitempty"`    // 仅 assistant
+	Duration             float64                `json:"duration,omitempty"`     // 秒（thinking/assistant 均可能带）
+	PromptTokens         int                    `json:"promptTokens,omitempty"` // 仅 assistant
+	CompletionTok        int                    `json:"completionTokens,omitempty"`
+	Timestamp            int64                  `json:"timestamp,omitempty"`
+	ReasoningCont        string                 `json:"reasoningContent,omitempty"`
+	NativeContent        *util.AIMessageContent `json:"nativeContent,omitempty"`
+	ResponseOutput       []json.RawMessage      `json:"responseOutput,omitempty"`
+	ResponseOutputTokens int                    `json:"responseOutputTokens,omitempty"`
+	RoundID              string                 `json:"roundID,omitempty"`
+	Name                 string                 `json:"name,omitempty"`
+	Args                 map[string]any         `json:"args,omitempty"`
+	ConfirmID            string                 `json:"confirmID,omitempty"`
+	Status               string                 `json:"status,omitempty"`
+	QuestionID           string                 `json:"questionID,omitempty"`
+	Questions            []map[string]any       `json:"questions,omitempty"`
+	Answers              []string               `json:"answers,omitempty"`
+	SnapshotID           string                 `json:"snapshotID,omitempty"`
 }
 
 // SessionEntryStep 描述一次思考步骤。工具调用只保留名字与调用 ID 列表，过程正文保存在 Content，
@@ -518,7 +523,7 @@ type agentCheckpoint struct {
 	LastCommittedTurnID   string         `json:"lastCommittedTurnID,omitempty"`
 }
 
-func AgentChat(ctx context.Context, client *openai.Client, protocol, model, imageCapabilityKey string, contextLimit int,
+func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imageCapabilityKey string, contextLimit int,
 	sessionID string, userEntryID string, contentRevision int64, userMessage string, userBlockHTML *string,
 	language string, references []Reference, editorCtx EditorContext, frontendCapabilities []FrontendCapability,
 	regenerate bool, confirmTimeout time.Duration, maxRetries int, reasoningEffort string,
@@ -953,7 +958,7 @@ func AgentChat(ctx context.Context, client *openai.Client, protocol, model, imag
 				}
 			}
 			stream, firstResp, roundCancel, requestMessages, imageDowngraded, imageUnsupportedDetected, streamErr :=
-				createProtocolImageCompatibleStream(util.ContextWithGeminiThoughtSummaries(ctx), client, protocol, req,
+				createProtocolImageCompatibleStream(contextWithNativeContents(util.ContextWithGeminiThoughtSummaries(ctx), checkpointMsgs), client, protocol, req,
 					responseInput, imageCapabilityKey,
 					imageInputDisabled, maxRetries, requestTimeout, streamIdleTimeout, delayForCategory, ch)
 			if imageUnsupportedDetected {
@@ -1117,6 +1122,7 @@ func AgentChat(ctx context.Context, client *openai.Client, protocol, model, imag
 				}
 			}
 
+			nativeContent := stream.NativeContent()
 			responseOutput := stream.ResponseOutput()
 			if len(responseOutput) == 0 {
 				responseOutputTokens = 0
@@ -1151,6 +1157,7 @@ func AgentChat(ctx context.Context, client *openai.Client, protocol, model, imag
 					Role:                 "assistant",
 					Content:              contentBuilder.String(),
 					ReasoningContent:     reasoningBuilder.String(),
+					NativeContent:        nativeContent,
 					ResponseOutput:       responseOutput,
 					ResponseOutputTokens: responseOutputTokens,
 					RoundID:              roundID,
@@ -1417,7 +1424,7 @@ func AgentChat(ctx context.Context, client *openai.Client, protocol, model, imag
 						resultStr = toolInputErr.Error()
 						isErr = true
 					} else if tc.Function.Name == "question" {
-						resultStr = handleQuestion(ctx, args, roundID, ch, 5*time.Minute)
+						resultStr = handleQuestion(ctx, args, roundID, ch, resolveQuestionTimeout(confirmTimeout))
 					} else if registration.isBrowser() {
 						executed := handleBrowserCapability(ctx, tc, registration, args, ch,
 							resolveBrowserCapabilityTimeout(confirmTimeout))
@@ -1517,11 +1524,12 @@ func AgentChat(ctx context.Context, client *openai.Client, protocol, model, imag
 			}
 
 			content := contentBuilder.String()
-			if content != "" || reasoningBuilder.Len() > 0 || len(responseOutput) > 0 {
+			if content != "" || reasoningBuilder.Len() > 0 || len(responseOutput) > 0 || nativeContent != nil {
 				checkpointMsgs = append(checkpointMsgs, AgentMessage{
 					Role:                 "assistant",
 					Content:              content,
 					ReasoningContent:     reasoningBuilder.String(),
+					NativeContent:        nativeContent,
 					ResponseOutput:       responseOutput,
 					ResponseOutputTokens: responseOutputTokens,
 					RoundID:              roundID,
@@ -1556,35 +1564,93 @@ func AgentChat(ctx context.Context, client *openai.Client, protocol, model, imag
 	return ch
 }
 
-func GenerateTitle(client *openai.Client, apiBaseURL, protocol, model, userMsg, language string) string {
+func GenerateTitle(client *util.AIClient, apiBaseURL, protocol, model, userMsg, language string) string {
+	const (
+		initialMaxCompletionTokens  = 50
+		fallbackMaxCompletionTokens = 512
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	ctx = util.ContextWithOpenAIResponsesBaseURL(ctx, apiBaseURL)
-	resp, err := util.CreateOpenAICompletion(ctx, client, protocol, openai.ChatCompletionRequest{
+	request := openai.ChatCompletionRequest{
 		Model: model,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: "You are a title generator. Below is the first message of a conversation. Write a concise title (under 12 words) that summarizes the topic. Output ONLY the title, no other text. Reply in the same language as the user's message. If you cannot determine the language, reply in " + util.I18nTerm(language, "_label") + "."},
 			{Role: openai.ChatMessageRoleUser, Content: "Conversation starts with: " + userMsg},
 		},
-		MaxCompletionTokens: 50,
+		MaxCompletionTokens: initialMaxCompletionTokens,
 		Temperature:         1,
-	}, nil)
+		// 标题不需要模型推理，把有限的输出预算留给最终标题，避免思考模型耗尽预算后没有可见正文。
+		ReasoningEffort: "none",
+	}
+	resp, err := util.CreateOpenAICompletion(ctx, client, protocol, request, nil)
+	if isReasoningEffortUnsupportedError(err) || titleCompletionExhausted(resp, err) {
+		// 兼容不接受或忽略 reasoning_effort 的端点，并为无法关闭思考的模型预留推理预算。
+		request.ReasoningEffort = ""
+		request.MaxCompletionTokens = fallbackMaxCompletionTokens
+		resp, err = util.CreateOpenAICompletion(ctx, client, protocol, request, nil)
+	}
 	if err != nil || len(resp.Choices) == 0 {
-		runes := []rune(userMsg)
-		if len(runes) > 30 {
-			return string(runes[:30]) + "..."
-		}
-		return userMsg
+		return titleFallback(userMsg)
 	}
 	title := strings.TrimSpace(resp.Choices[0].Message.Content)
 	if title == "" {
-		runes := []rune(userMsg)
-		if len(runes) > 30 {
-			return string(runes[:30]) + "..."
-		}
-		return userMsg
+		return titleFallback(userMsg)
 	}
 	return title
+}
+
+func titleCompletionExhausted(resp openai.ChatCompletionResponse, err error) bool {
+	return err == nil && len(resp.Choices) > 0 && resp.Choices[0].FinishReason == openai.FinishReasonLength &&
+		strings.TrimSpace(resp.Choices[0].Message.Content) == ""
+}
+
+func isReasoningEffortUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *openai.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.HTTPStatusCode != 0 && apiErr.HTTPStatusCode != http.StatusBadRequest &&
+		apiErr.HTTPStatusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	param := ""
+	if apiErr.Param != nil {
+		param = strings.ToLower(strings.TrimSpace(*apiErr.Param))
+	}
+	if containsReasoningEffortParameter(param) {
+		return true
+	}
+	message := strings.ToLower(apiErr.Message)
+	if !containsReasoningEffortParameter(message) {
+		return false
+	}
+	for _, marker := range []string{"unsupported", "not support", "unknown", "unrecognized", "not allowed", "invalid"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsReasoningEffortParameter(value string) bool {
+	for _, name := range []string{"reasoning_effort", "reasoning.effort", "reasoning effort"} {
+		if strings.Contains(value, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func titleFallback(userMsg string) string {
+	runes := []rune(userMsg)
+	if len(runes) > 30 {
+		return string(runes[:30]) + "..."
+	}
+	return userMsg
 }
 
 // safeActions 按 action 字符串全局匹配，命中即免 UI 确认。
@@ -1764,7 +1830,7 @@ func handleQuestion(ctx context.Context, args map[string]any, roundID string, ch
 		} else {
 			return "Question cancelled."
 		}
-	case <-time.After(timeout):
+	case <-optionalAgentDeadline(timeout):
 		if acceptedAnswer, accepted := finishQuestionWait(questionID, ch2); accepted {
 			answer = acceptedAnswer
 		} else {
@@ -1830,7 +1896,16 @@ func optionalAgentDeadline(timeout time.Duration) <-chan time.Time {
 
 func resolveBrowserCapabilityTimeout(confirmTimeout time.Duration) time.Duration {
 	if confirmTimeout <= 0 {
-		return 120 * time.Second
+		return time.Duration(conf.DefaultAgentConfirmTimeout) * time.Second
+	}
+	return confirmTimeout
+}
+
+// resolveQuestionTimeout 解析 question 工具等待用户作答的时长：确认超时时间为 0 时一直等待，
+// 其余情况沿用确认超时时间（调用方已把负数兜底为默认值），因此默认配置下为 600 秒。
+func resolveQuestionTimeout(confirmTimeout time.Duration) time.Duration {
+	if confirmTimeout < 0 {
+		return fallbackQuestionTimeout
 	}
 	return confirmTimeout
 }
@@ -1962,6 +2037,10 @@ func buildSystemPrompt(language string, capabilities *capabilitySet) string {
 	sb.WriteString("\nContainer: ")
 	sb.WriteString(util.Container)
 	sb.WriteString("\n</env>")
+
+	if capabilities.hasModelName("decision") {
+		sb.WriteString(decisionModelPrompt)
+	}
 
 	skills := util.DiscoverSkills(kernelModel.EnabledUserSkills())
 	if capabilities.hasModelName("skill") && len(skills) > 0 {
@@ -2150,6 +2229,7 @@ func entriesToAgentMessages(entries []SessionEntry) []AgentMessage {
 				Role:                 "assistant",
 				Content:              e.Content,
 				ReasoningContent:     e.ReasoningCont,
+				NativeContent:        util.CloneAIMessageContent(e.NativeContent),
 				ResponseOutput:       util.CloneOpenAIResponseOutput(e.ResponseOutput),
 				ResponseOutputTokens: e.ResponseOutputTokens,
 				RoundID:              e.RoundID,
@@ -2168,6 +2248,16 @@ func entriesToAgentMessages(entries []SessionEntry) []AgentMessage {
 		}
 	}
 	return msgs
+}
+
+func contextWithNativeContents(ctx context.Context, messages []AgentMessage) context.Context {
+	var contents []*util.AIMessageContent
+	for _, message := range messages {
+		if message.Role == "assistant" {
+			contents = append(contents, message.NativeContent)
+		}
+	}
+	return util.ContextWithAIMessageContents(ctx, contents)
 }
 
 func restoreGeminiThoughtSignatures(state *util.GeminiThoughtSignatureState, messages []AgentMessage) {
@@ -2429,6 +2519,7 @@ func agentMessagesToEntries(msgs []AgentMessage) []SessionEntry {
 				Type:                 "assistant",
 				Content:              m.Content,
 				ReasoningCont:        m.ReasoningContent,
+				NativeContent:        util.CloneAIMessageContent(m.NativeContent),
 				ResponseOutput:       util.CloneOpenAIResponseOutput(m.ResponseOutput),
 				ResponseOutputTokens: m.ResponseOutputTokens,
 				RoundID:              m.RoundID,
@@ -2445,14 +2536,14 @@ var (
 	errModelStreamIdleTimeout = errors.New("model stream idle timeout")
 )
 
-func createStreamWithRetry(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest, maxRetries int,
+func createStreamWithRetry(ctx context.Context, client *util.AIClient, req openai.ChatCompletionRequest, maxRetries int,
 	requestTimeout, streamIdleTimeout time.Duration, retryDelay func(string, int) time.Duration,
 	ch chan<- AgentEvent) (*util.OpenAICompletionStream, openai.ChatCompletionStreamResponse, context.CancelFunc, error) {
 	return createProtocolStreamWithRetry(ctx, client, util.OpenAIProtocolChatCompletions, req, nil, maxRetries,
 		requestTimeout, streamIdleTimeout, retryDelay, ch)
 }
 
-func createProtocolStreamWithRetry(ctx context.Context, client *openai.Client, protocol string,
+func createProtocolStreamWithRetry(ctx context.Context, client *util.AIClient, protocol string,
 	req openai.ChatCompletionRequest, responseInput []any, maxRetries int, requestTimeout, streamIdleTimeout time.Duration,
 	retryDelay func(string, int) time.Duration,
 	ch chan<- AgentEvent) (*util.OpenAICompletionStream, openai.ChatCompletionStreamResponse, context.CancelFunc, error) {
@@ -2493,7 +2584,7 @@ func createProtocolStreamWithRetry(ctx context.Context, client *openai.Client, p
 		if err == nil {
 			for {
 				firstResp, firstErr := recvStreamWithIdleTimeout(stream, streamIdleTimeout, streamCancel)
-				if firstErr != nil || !util.IsOpenAIResponsesProtocol(protocol) || len(firstResp.Choices) > 0 ||
+				if firstErr != nil || (!util.IsOpenAIResponsesProtocol(protocol) && !util.IsAnthropicMessagesProtocol(protocol)) || len(firstResp.Choices) > 0 ||
 					firstResp.Usage != nil {
 					if firstErr == nil || errors.Is(firstErr, io.EOF) {
 						return stream, firstResp, streamCancel, nil
@@ -2566,7 +2657,7 @@ func classifyRetry(err error) string {
 			return "rate_limit"
 		case strings.Contains(code, "timeout"):
 			return "timeout"
-		case code == "server_error" || code == "internal_error":
+		case code == "server_error" || code == "internal_error" || code == "overloaded_error" || code == "api_error":
 			return "server_error"
 		}
 		switch apiErr.HTTPStatusCode {
@@ -2574,7 +2665,7 @@ func classifyRetry(err error) string {
 			return "rate_limit"
 		case 408:
 			return "timeout"
-		case 500, 502, 503, 504:
+		case 500, 502, 503, 504, 529:
 			return "server_error"
 		default:
 			if apiErr.HTTPStatusCode >= 400 {

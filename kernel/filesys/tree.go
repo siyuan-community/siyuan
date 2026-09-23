@@ -168,8 +168,28 @@ func ValidateBoxRelativePath(boxID, p string) (string, error) {
 	return p, nil
 }
 
+// validateTreePath 限制文档读写只访问以块 ID 命名的文档及其父目录，避免订正逻辑覆盖内部配置。
+func validateTreePath(boxID, p string) error {
+	if !ast.IsNodeIDPattern(boxID) {
+		return fmt.Errorf("invalid notebook ID [%s]", boxID)
+	}
+	rel, err := ValidateBoxRelativePath(boxID, p)
+	if err != nil {
+		return err
+	}
+	if !strings.HasSuffix(rel, ".sy") {
+		return fmt.Errorf("invalid document path [%s]", p)
+	}
+	for _, id := range strings.Split(strings.TrimSuffix(rel, ".sy"), "/") {
+		if !ast.IsNodeIDPattern(id) {
+			return fmt.Errorf("invalid document path [%s]", p)
+		}
+	}
+	return nil
+}
+
 func LoadTreeWithFix(boxID, p string, luteEngine *lute.Lute) (ret *parse.Tree, needFix bool, err error) {
-	if _, err = ValidateBoxRelativePath(boxID, p); err != nil {
+	if err = validateTreePath(boxID, p); err != nil {
 		logging.LogErrorf("invalid tree path [%s] for box [%s]: %s", p, boxID, err)
 		return
 	}
@@ -182,12 +202,16 @@ func LoadTreeWithFix(boxID, p string, luteEngine *lute.Lute) (ret *parse.Tree, n
 	defer releaseCryptoLease()
 
 	rootID := util.GetTreeID(p)
+	filePath := filepath.Join(util.DataDir, boxID, p)
 	if raw, ok := cache.GetTreeDataInBox(rootID, boxID); ok {
+		// 内容缓存不代表请求路径仍然有效，移动或删除后的旧路径不能触发补树。
+		if err = checkTreeFile(filePath); err != nil {
+			return
+		}
 		ret, err = LoadTreeByData(raw, boxID, p, luteEngine)
 		return
 	}
 
-	filePath := filepath.Join(util.DataDir, boxID, p)
 	data, err := filelock.ReadFile(filePath)
 	if nil != err {
 		if !os.IsNotExist(err) {
@@ -227,12 +251,18 @@ func NormalizeTreeForRead(tree *parse.Tree) (err error) {
 	if err = treenode.CheckSpec(tree); nil != err {
 		return
 	}
+	if err = treenode.RefreshTableCellRichProjection(tree.Root); nil != err {
+		return
+	}
 	treenode.UpgradeSpec(tree)
 	escapeAttributeValues(tree)
 	return
 }
 
 func LoadTreeByData(data []byte, boxID, p string, luteEngine *lute.Lute) (ret *parse.Tree, err error) {
+	if err = validateTreePath(boxID, p); err != nil {
+		return
+	}
 	ret, err = parseJSON2Tree(boxID, p, data, luteEngine)
 	if nil != err {
 		logging.LogErrorf("parse tree [%s] failed: %s", p, err)
@@ -270,12 +300,20 @@ func LoadTreeByData(data []byte, boxID, p string, luteEngine *lute.Lute) (ret *p
 		parentPath := parentAbsPath
 		parentAbsPath = filepath.Join(util.DataDir, boxID, parentAbsPath)
 
-		parentDocIAL := DocIAL(parentAbsPath)
-		if 1 > len(parentDocIAL) {
+		parentDocIAL, parentErr := readParentDocIAL(parentAbsPath)
+		if parentErr != nil && !errors.Is(parentErr, os.ErrNotExist) {
+			return nil, parentErr
+		}
+		if errors.Is(parentErr, os.ErrNotExist) {
+			// 直接解析数据的调用也必须确认子文档仍在磁盘上，避免旧数据重建已删除的父链。
+			if err = checkTreeFile(filepath.Join(util.DataDir, boxID, p)); err != nil {
+				return nil, err
+			}
 			// 子文档缺失父文档时自动补全 https://github.com/siyuan-note/siyuan/issues/7376
 			parentTree := treenode.NewTree(boxID, parentPath, hPathBuilder.String()+"Untitled", "Untitled")
 			if _, writeErr := WriteTree(parentTree); nil != writeErr {
 				logging.LogErrorf("rebuild parent tree [%s] failed: %s", parentAbsPath, writeErr)
+				return nil, writeErr
 			} else {
 				logging.LogInfof("rebuilt parent tree [%s]", parentAbsPath)
 				treenode.UpsertBlockTree(parentTree)
@@ -295,6 +333,66 @@ func LoadTreeByData(data []byte, boxID, p string, luteEngine *lute.Lute) (ret *p
 	ret.HPath = hPathBuilder.String()
 	ret.Hash = treenode.NodeHash(ret.Root, ret, luteEngine)
 	return
+}
+
+func checkTreeFile(absPath string) error {
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("invalid document file [%s]", absPath)
+	}
+	return nil
+}
+
+// readParentDocIAL 区分父文档缺失与读取、认证、解析失败，只有缺失才允许补树。
+func readParentDocIAL(absPath string) (map[string]string, error) {
+	return readDocIAL(absPath, false)
+}
+
+func readDocIAL(absPath string, strict bool) (map[string]string, error) {
+	boxID := docIALBoxID(absPath)
+	dek, _, release, err := acquireCryptoLease(boxID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	data, err := filelock.ReadFile(absPath)
+	if err != nil {
+		return nil, err
+	}
+	relPath, err := filepath.Rel(filepath.Join(util.DataDir, boxID), absPath)
+	if err != nil {
+		return nil, err
+	}
+	data, err = decryptDataWithDEK(boxID, filepath.ToSlash(relPath), data, dek)
+	if err != nil {
+		return nil, err
+	}
+	if strict {
+		if err = treenode.CheckSpecJSON(data); err != nil {
+			return nil, err
+		}
+	}
+	var doc struct {
+		ID         string
+		Type       string
+		Properties map[string]string
+	}
+	if err = json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse parent document [%s]: %w", absPath, err)
+	}
+	if strict && (doc.ID != util.GetTreeID(absPath) || doc.Type != "NodeDocument") {
+		return nil, fmt.Errorf("invalid document identity [%s]", absPath)
+	}
+	if len(doc.Properties) == 0 {
+		return nil, fmt.Errorf("missing parent document properties [%s]", absPath)
+	}
+	for key, value := range doc.Properties {
+		doc.Properties[key] = html.UnescapeAttrVal(value)
+	}
+	return doc.Properties, nil
 }
 
 func DocIAL(absPath string) (ret map[string]string) {
@@ -320,8 +418,7 @@ func DocIAL(absPath string) (ret map[string]string) {
 			relPath := filepath.ToSlash(strings.TrimPrefix(absPath, filepath.Join(util.DataDir, boxID)+string(os.PathSeparator)))
 			plain, decErr := decryptDataWithDEK(boxID, relPath, raw, dek)
 			if decErr != nil {
-				// 解密失败（可能文件损坏或密钥不匹配）：返回空 map 而非 nil，
-				// 避免 LoadTreeByData 的父文档补全逻辑把 nil 误判为"文档缺失"而凭空创建文档
+				// 属性查询不返回未认证的数据；需要区分缺失与错误的补树流程使用 readParentDocIAL。
 				logging.LogErrorf("decrypt doc [%s] for IAL failed: %s", absPath, decErr)
 				return map[string]string{}
 			}
@@ -444,6 +541,12 @@ func writeTreeByWriteFile(filePath string, data []byte) (err error) {
 }
 
 func prepareWriteTree(tree *parse.Tree) (data []byte, filePath string, err error) {
+	if err = validateTreePath(tree.Box, tree.Path); err != nil {
+		return
+	}
+	if err = treenode.SyncTableCellRichInlineChanges(tree.Root); nil != err {
+		return
+	}
 	if err = treenode.CheckSpec(tree); nil != err {
 		return
 	}
@@ -460,10 +563,6 @@ func prepareWriteTree(tree *parse.Tree) (data []byte, filePath string, err error
 		treenode.UpsertBlockTree(tree)
 	}
 	treenode.UpgradeSpec(tree)
-
-	if _, err = ValidateBoxRelativePath(tree.Box, tree.Path); err != nil {
-		return
-	}
 
 	filePath = filepath.Join(util.DataDir, tree.Box, tree.Path)
 	tree.Root.SetIALAttr("type", "doc")
@@ -542,10 +641,13 @@ func afterWriteTree(tree *parse.Tree) {
 
 // fixTreeJSONData 订正树 JSON 数据。
 func fixTreeJSONData(boxID, p string, jsonData []byte, luteEngine *lute.Lute, dek []byte, encrypted bool) (data []byte, needFix bool, err error) {
-	jsonData, needFix = removeUnescapedUnicodeNull(jsonData)
+	if err = validateTreePath(boxID, p); err != nil {
+		return
+	}
 	if err = treenode.CheckSpecJSON(jsonData); nil != err {
 		return
 	}
+	jsonData, needFix = removeUnescapedUnicodeNull(jsonData)
 	ret, parseNeedFix, err := dataparser.ParseJSON(jsonData, luteEngine.ParseOptions)
 	if parseNeedFix {
 		needFix = true
@@ -559,7 +661,10 @@ func fixTreeJSONData(boxID, p string, jsonData []byte, luteEngine *lute.Lute, de
 	ret.Box = boxID
 	ret.Path = p
 
-	if err = treenode.CheckSpec(ret); errors.Is(err, treenode.ErrSpecTooNew) {
+	if err = treenode.CheckSpec(ret); nil != err {
+		return
+	}
+	if err = treenode.RefreshTableCellRichProjection(ret.Root); nil != err {
 		return
 	}
 
@@ -641,9 +746,10 @@ func parseJSON2Tree(boxID, p string, jsonData []byte, luteEngine *lute.Lute) (re
 	ret.Box = boxID
 	ret.Path = p
 
-	if err = treenode.CheckSpec(ret); errors.Is(err, treenode.ErrSpecTooNew) {
+	if err = treenode.CheckSpec(ret); nil != err {
 		return
 	}
+	err = treenode.RefreshTableCellRichProjection(ret.Root)
 	return
 }
 

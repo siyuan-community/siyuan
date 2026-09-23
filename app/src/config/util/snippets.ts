@@ -4,7 +4,7 @@ import {isMobile, objEquals} from "../../util/functions";
 import {confirmDialog} from "../../dialog/confirmDialog";
 import {Constants} from "../../constants";
 import {refreshHeadingNumberMeasurements} from "../../util/assets";
-import {getHostCapabilities} from "../../util/hostCapabilities";
+import {getExtensionScriptNonce, getHostCapabilities} from "../../util/hostCapabilities";
 
 export const renderSnippet = (timeout = 0) => {
     if (!getHostCapabilities().customAppearance) {
@@ -50,6 +50,10 @@ export const renderSnippet = (timeout = 0) => {
             } else if (item.type === "js") {
                 exitElement = document.createElement("script");
                 exitElement.type = "text/javascript";
+                const nonce = getExtensionScriptNonce();
+                if (nonce) {
+                    exitElement.nonce = nonce;
+                }
                 exitElement.text = item.content;
                 exitElement.id = id;
                 document.head.appendChild(exitElement);
@@ -84,7 +88,7 @@ export const openSnippets = () => {
 <div class="fn__flex-1" style="overflow:auto;padding: 16px 24px">
     <div>
         <div class="fn__flex">
-            <input data-type="css" data-action="search" type="text" placeholder="${window.siyuan.languages.searchPlaceholder}" class="b3-text-field fn__block">
+            <input spellcheck="false" data-type="css" data-action="search" type="text" placeholder="${window.siyuan.languages.searchPlaceholder}" class="b3-text-field fn__block">
             <div class="fn__space"></div>
             <span aria-label="${window.siyuan.languages.addAttr} CSS" id="addCodeSnippetCSS" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
                 <svg><use xlink:href="#iconAdd"></use></svg>
@@ -96,7 +100,7 @@ export const openSnippets = () => {
     </div>
     <div class="fn__none">
         <div class="fn__flex">
-            <input data-type="js" data-action="search" type="text" placeholder="${window.siyuan.languages.searchPlaceholder}" class="b3-text-field fn__block">
+            <input spellcheck="false" data-type="js" data-action="search" type="text" placeholder="${window.siyuan.languages.searchPlaceholder}" class="b3-text-field fn__block">
             <div class="fn__space"></div>
             <span aria-label="${window.siyuan.languages.addAttr} JS" id="addCodeSnippetJS" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show">
                 <svg><use xlink:href="#iconAdd"></use></svg>
@@ -230,7 +234,7 @@ const genSnippet = (options: ISnippet) => {
 };
 
 const setSnippetPost = (dialog: Dialog, snippets: ISnippet[], removeIds: string[]) => {
-    fetchPost("/api/snippet/setSnippet", {snippets}, () => {
+    fetchPost("/api/snippet/setSnippet", {snippets: snippets.map(item => ({...item, id: item.id || ""}))}, () => {
         let cssChanged = false;
         removeIds.forEach(item => {
             const rmElement = document.querySelector(item);

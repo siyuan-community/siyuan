@@ -42,6 +42,7 @@ import {setInlineMemoContentIfMissing} from "./inlineMemoSelection";
 import {
     getInlineFontFamilyLabel,
     getInlineFontFamilyState,
+    getFontFamilyState,
     getInlineFontFamilyValue,
     openFontFamilyMenu,
 } from "./fontFamilyMenu";
@@ -183,7 +184,7 @@ export const appearanceMenu = (protyle: IProtyle, nodeElements?: Element[],
                 }
                 const preview = getBuiltinInlineStylePreview(key as TBuiltinInlineStyleID);
                 return "<button class=\"color__square ariaLabel\" data-position=\"3south\" data-type=\"style1\" " +
-                    `aria-label="${builtinStyleLabels[key as TBuiltinInlineStyleID]}" style="color:${preview.color};` +
+                    `data-builtin-style-id="${key}" aria-label="${builtinStyleLabels[key as TBuiltinInlineStyleID]}" style="color:${preview.color};` +
                     `background-color:${preview.backgroundColor};">A</button>`;
             }
             const style = getInlineStyleByID(key, data);
@@ -255,7 +256,7 @@ export const appearanceMenu = (protyle: IProtyle, nodeElements?: Element[],
                         backgroundColor: lastFontStatus[1],
                         color: lastFontStatus[2],
                     };
-                    lastColorHTML += `<button class="color__square ariaLabel" data-position="3south" aria-label="${customLabel || (builtinStyleID ? builtinStyleLabels[builtinStyleID] : window.siyuan.languages.color + (lastFontStatus[1] ? "" : " " + window.siyuan.languages.default))}" ${lastFontStatus[1] ? `style="background-color:${preview.backgroundColor};color:${preview.color}"` : ""} data-type="${lastFontStatus[0]}">A</button>`;
+                    lastColorHTML += `<button class="color__square ariaLabel" data-position="3south" aria-label="${customLabel || (builtinStyleID ? builtinStyleLabels[builtinStyleID] : window.siyuan.languages.color + (lastFontStatus[1] ? "" : " " + window.siyuan.languages.default))}" ${lastFontStatus[1] ? `style="background-color:${preview.backgroundColor};color:${preview.color}"` : ""} data-builtin-style-id="${builtinStyleID || ""}" data-type="${lastFontStatus[0]}">A</button>`;
                     break;
                 }
                 case "clear":
@@ -266,7 +267,8 @@ export const appearanceMenu = (protyle: IProtyle, nodeElements?: Element[],
         lastColorHTML += "</div>";
     }
     const {fontSize, baseFontSize} = getFontSizeInfo(protyle, nodeElements);
-    const fontFamilyState = getInlineFontFamilyState(protyle, fontFamilyElements || nodeElements);
+    const fontFamilyState = fontFamilyElements ? getInlineFontFamilyState(protyle, fontFamilyElements) :
+        getFontFamilyState(protyle, nodeElements);
     const disableFontFamily = disableFont || fontFamilyState.disabled;
     const showInlineDirection = !nodeElements || nodeElements.length === 0 || !!onChange;
     const applyFontStyle = (type: string, color?: string) => {
@@ -392,7 +394,9 @@ ${showInlineDirection ? `<div class="fn__hr"></div>
                     protyle.toolbar.element.classList.add("fn__none");
                     openInlineStyleDialog(target.dataset.inlineStyleType as TInlineStyleType);
                 } else if (dataType === "style1") {
-                    applyFontStyle(dataType, encodeStyle1(target.style.backgroundColor, target.style.color));
+                    const builtinID = target.dataset.builtinStyleId as TBuiltinInlineStyleID;
+                    applyFontStyle(dataType, builtinID ? getBuiltinInlineStyleApplication(builtinID).color :
+                        encodeStyle1(target.style.backgroundColor, target.style.color));
                     closeSelectionToolbarAppearance();
                 } else if (dataType === "fontSize") {
                     applyFontStyle(dataType, target.getAttribute("data-value"));
@@ -496,20 +500,6 @@ export const fontEvent = (protyle: IProtyle, nodeElements: Element[], type?: str
         return;
     }
     if (nodeElements && nodeElements.length > 0) {
-        if (type === "clear" &&
-            protyle.toolbar.setBlockElementsInlineMark(protyle, nodeElements, type, {type: "text"}, true)) {
-            if (focusRange) {
-                focusByRange(protyle.toolbar.range);
-            }
-            return;
-        }
-        if (type === "fontFamily" &&
-            protyle.toolbar.setBlockElementsInlineMark(protyle, nodeElements, "text", {type, color})) {
-            if (focusRange) {
-                focusByRange(protyle.toolbar.range);
-            }
-            return;
-        }
         updateBatchTransaction(nodeElements, protyle, (e: HTMLElement) => {
             if (type === "clear") {
                 e.style.color = "";

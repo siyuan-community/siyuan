@@ -9,7 +9,7 @@ import {Constants} from "../constants";
 import {openNewWindowById} from "../window/openNewWindow";
 import {MenuItem} from "./Menu";
 import type {App} from "../index";
-import {isInAndroid, saveExportFile, updateHotkeyTip} from "../protyle/util/compatibility";
+import {isInAndroid, isPhablet, saveExportFile, updateHotkeyTip} from "../protyle/util/compatibility";
 import {checkFold} from "../util/noRelyPCFunction";
 import {showMessage} from "../dialog/message";
 import type {Editor} from "../editor";
@@ -86,7 +86,7 @@ export const openEditorTab = (app: App, ids: string[], notebookId?: string, path
                     app,
                     id: ids[0],
                     position: "right",
-                    action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]
+                    action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]
                 });
             } else {
                 ids.forEach((id) => {
@@ -113,7 +113,7 @@ export const openEditorTab = (app: App, ids: string[], notebookId?: string, path
                     app,
                     id: ids[0],
                     position: "bottom",
-                    action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]
+                    action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL]
                 });
             } else {
                 ids.forEach((id) => {
@@ -140,7 +140,7 @@ export const openEditorTab = (app: App, ids: string[], notebookId?: string, path
                     openFileById({
                         app,
                         id: ids[0],
-                        action: [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
+                        action: isPhablet() ? [Constants.CB_GET_SCROLL] : [Constants.CB_GET_FOCUS, Constants.CB_GET_SCROLL],
                         removeCurrentTab: false
                     });
                 } else {
@@ -197,6 +197,9 @@ export const openEditorTab = (app: App, ids: string[], notebookId?: string, path
                 } else {
                     ids.forEach((id) => {
                         fetchPost("/api/block/getBlockInfo", {id}, (response) => {
+                            if (response.code !== 0 || response.data.publishAccessRequired) {
+                                return;
+                            }
                             useShell("showItemInFolder", path.join(window.siyuan.config.system.dataDir, response.data.box, response.data.path));
                         });
                     });
@@ -246,12 +249,16 @@ export const copyPNGByLink = (link: string) => {
             showMessage(window.siyuan.languages.copied);
         }
     };
-    const imageToPNGClipboard = (image: HTMLImageElement) => {
+    const imageToPNGClipboard = (image: HTMLImageElement, vector = false) => {
         try {
             const canvas = document.createElement("canvas");
-            canvas.width = image.naturalWidth;
-            canvas.height = image.naturalHeight;
-            canvas.getContext("2d").drawImage(image, 0, 0);
+            // 矢量图片以至少两倍分辨率采样，限制额外放大的画布尺寸和像素总量。
+            const scale = vector ? Math.max(1, Math.min(Math.max(2, window.devicePixelRatio || 1),
+                16384 / image.naturalWidth, 16384 / image.naturalHeight,
+                Math.sqrt(16777216 / (image.naturalWidth * image.naturalHeight)))) : 1;
+            canvas.width = Math.round(image.naturalWidth * scale);
+            canvas.height = Math.round(image.naturalHeight * scale);
+            canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
             canvas.toBlob((blob) => {
                 if (blob) {
                     copyBlob(blob);
@@ -274,7 +281,7 @@ export const copyPNGByLink = (link: string) => {
         const objectURL = URL.createObjectURL(blob);
         const tempElement = document.createElement("img");
         tempElement.onload = () => {
-            imageToPNGClipboard(tempElement);
+            imageToPNGClipboard(tempElement, blob.type.split(";")[0].trim().toLowerCase() === "image/svg+xml");
             URL.revokeObjectURL(objectURL);
         };
         tempElement.onerror = () => {

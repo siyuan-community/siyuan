@@ -1,8 +1,12 @@
+import {isTableLikeView} from "../viewType";
+import {isAVRenderData} from "../renderData";
+import {getPublishAVView} from "../publishState";
 import {hasClosestByAttribute, hasClosestByClassName} from "../../../util/hasClosest";
 import {getPageSize} from "../groups";
 import {fetchSyncPost} from "../../../../util/fetch";
 import {Constants} from "../../../../constants";
 import {avRender, genTabHeaderHTML} from "../render";
+import {replaceAVContainer} from "../container";
 import {afterRenderGallery, renderGallery} from "../gallery/render";
 import {escapeAttr, escapeHtml} from "../../../../util/escape";
 import {getRowHTML} from "../row";
@@ -92,7 +96,7 @@ export const renderKanban = async (options: {
     data?: IAV,
 }) => {
     const renderToken = beginAVRender(options.blockElement);
-    const searchInputElement = options.blockElement.querySelector('[data-type="av-search"]') as HTMLInputElement;
+    const searchInputElement = options.blockElement.querySelector('[data-type="av-search"]');
     const editIds: IIds[] = [];
     options.blockElement.querySelectorAll(".av__gallery-fields--edit").forEach(item => {
         editIds.push({
@@ -125,7 +129,7 @@ export const renderKanban = async (options: {
     });
     const resetData = {
         isSearching: searchInputElement && document.activeElement === searchInputElement,
-        query: searchInputElement?.value || "",
+        query: searchInputElement?.textContent || "",
         alignSelf: options.blockElement.style.alignSelf,
         oldOffset: options.protyle.contentElement.scrollTop,
         editIds,
@@ -149,26 +153,35 @@ export const renderKanban = async (options: {
     if (!data) {
         const avPageSize = getPageSize(options.blockElement);
         const locateParams = getAVLocateParams(options.blockElement, !created && !snapshot);
-        const historical = !!created || !!snapshot;
-        const response = await fetchSyncPost(created ? "/api/av/renderHistoryAttributeView" : (snapshot ? "/api/av/renderSnapshotAttributeView" : "/api/av/renderAttributeView"), {
+        const common = {
             id: options.blockElement.getAttribute("data-av-id"),
-            created,
-            snapshot,
+            blockID: options.blockElement.getAttribute("data-node-id"),
+            viewID: locateParams?.viewID || (window.siyuan.isPublish ? getPublishAVView(options.blockElement) : ""),
+        };
+        const paging = {
             pageSize: avPageSize.unGroupPageSize,
             groupPaging: avPageSize.groupPageSize,
-            viewID: locateParams?.viewID || "",
-            ...(historical ? {carrierViewID: options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || ""} : {}),
             query: resetData.query.trim(),
-            blockID: options.blockElement.getAttribute("data-node-id"),
+        };
+        const carrierViewID = options.blockElement.getAttribute(Constants.CUSTOM_SY_AV_VIEW) || "";
+        const response = await (created ? fetchSyncPost("/api/av/renderHistoryAttributeView", {
+            ...common, ...paging, created, carrierViewID,
+        }, undefined, false) : snapshot ? fetchSyncPost("/api/av/renderSnapshotAttributeView", {
+            ...common, snapshot, carrierViewID,
+        }, undefined, false) : fetchSyncPost("/api/av/renderAttributeView", {
+            ...common, ...paging,
             initialLayout: options.blockElement.getAttribute("data-av-type"),
+            createIfNotExist: !window.siyuan.isPublish,
             targetItemID: locateParams?.targetItemID || "",
             targetGroupID: locateParams?.targetGroupID || "",
-        }, undefined, false);
+        }, undefined, false));
         if (!isCurrentAVRender(options.blockElement, renderToken)) {
             return;
         }
-        if (response.code !== 0) {
-            failAVRender(options.blockElement, response);
+        if (response.code !== 0 || !isAVRenderData(response.data)) {
+            if (failAVRender(options.blockElement, response)) {
+                await renderKanban(options);
+            }
             return;
         }
         data = response.data;
@@ -181,7 +194,7 @@ export const renderKanban = async (options: {
     }
     applyAVRenderContext(options.blockElement, data);
     prepareAVLocate(options.blockElement, data, resetData);
-    if (data.viewType === "table") {
+    if (isTableLikeView(data.viewType) || data.viewType === "calendar") {
         avRender(options.blockElement, options.protyle, options.cb, options.renderAll, data);
         return;
     }
@@ -226,14 +239,14 @@ export const renderKanban = async (options: {
         }
     });
     if (options.renderAll) {
-        options.blockElement.firstElementChild.outerHTML = `<div class="av__container fn__block">
+        replaceAVContainer(options.blockElement, `<div class="av__container fn__block">
     ${genTabHeaderHTML(data, resetData.isSearching || !!resetData.query,
         !options.protyle.disabled && !queryEmbedElement, options.blockElement, !queryEmbedElement)}
     <div class="av__kanban${isSelectGroup ? " av__kanban--bg" : ""}" data-group-options="${escapeAttr(JSON.stringify(groupOptions))}" style="${getCardStyle(view)}">
         ${bodyHTML}
     </div>
     <div class="av__cursor" contenteditable="true">${Constants.ZWSP}</div>
-</div>`;
+</div>`);
     } else {
         const kanbanElement = options.blockElement.querySelector(".av__kanban");
         kanbanElement.innerHTML = bodyHTML;

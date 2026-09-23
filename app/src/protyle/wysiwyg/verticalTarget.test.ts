@@ -2,6 +2,7 @@ import {before, describe, it} from "node:test";
 import * as assert from "node:assert/strict";
 
 let getAdjacentVisibleBlock: typeof import("./verticalTarget").getAdjacentVisibleBlock;
+let getVerticalNavigationScope: typeof import("./verticalTarget").getVerticalNavigationScope;
 let getVisibleBoundaryBlock: typeof import("./verticalTarget").getVisibleBoundaryBlock;
 
 before(async () => {
@@ -9,7 +10,7 @@ before(async () => {
         SIYUAN_VERSION: "test",
         NODE_ENV: "test",
     });
-    ({getAdjacentVisibleBlock, getVisibleBoundaryBlock} = await import("./verticalTarget"));
+    ({getAdjacentVisibleBlock, getVerticalNavigationScope, getVisibleBoundaryBlock} = await import("./verticalTarget"));
 });
 
 class TestElement {
@@ -101,7 +102,7 @@ const block = (id: string, type = "NodeParagraph") => new TestElement()
     .setAttribute("data-type", type);
 
 describe("vertical navigation targets", () => {
-    it("enters a folded list through its last visible leaf", () => {
+    it("enters a folded list item as one navigation region", () => {
         const list = block("list", "NodeList").addClass("list");
         const item = block("item", "NodeListItem").addClass("li").setAttribute("fold", "1");
         const summary = block("summary");
@@ -109,7 +110,7 @@ describe("vertical navigation targets", () => {
         hidden.visible = false;
         list.append(item.append(summary, hidden));
 
-        assert.equal(getVisibleBoundaryBlock(asElement(list), "up"), asElement(summary));
+        assert.equal(getVisibleBoundaryBlock(asElement(list), "up"), asElement(item));
     });
 
     it("skips hidden folded descendants when leaving the visible summary", () => {
@@ -133,5 +134,68 @@ describe("vertical navigation targets", () => {
         editor.append(hidden, after);
 
         assert.equal(getAdjacentVisibleBlock(asElement(hidden), "down"), false);
+    });
+
+    it("treats custom blocks as opaque regardless of their rendered descendants", () => {
+        const custom = block("custom", "NodeCustomBlock").addClass("custom-block");
+        const innerEditor = new TestElement().addClass("protyle-wysiwyg");
+        const innerFolded = block("inner-folded", "NodeCallout").addClass("callout").setAttribute("fold", "1");
+        const innerAtomic = block("inner-atomic", "NodeMathBlock");
+        const superBlock = block("super", "NodeSuperBlock").addClass("sb");
+        custom.append(innerEditor.append(innerFolded.append(innerAtomic)));
+        superBlock.append(custom);
+
+        assert.equal(getVisibleBoundaryBlock(asElement(custom), "down"), asElement(custom));
+        assert.equal(getVisibleBoundaryBlock(asElement(custom), "up"), asElement(custom));
+        assert.equal(getVisibleBoundaryBlock(asElement(superBlock), "up"), asElement(custom));
+    });
+
+    it("navigates to the last descendant within the current editable embed", () => {
+        const embed = block("embed", "NodeBlockQueryEmbed");
+        const result = new TestElement().addClass("protyle-wysiwyg__embed")
+            .setAttribute("data-allow-child-operation", "true");
+        const list = block("list", "NodeList").addClass("list");
+        const firstItem = block("first-item", "NodeListItem").addClass("li");
+        const lastItem = block("last-item", "NodeListItem").addClass("li");
+        const first = block("first");
+        const last = block("last");
+        embed.append(result.append(list.append(firstItem.append(first), lastItem.append(last))));
+
+        assert.equal(getVisibleBoundaryBlock(asElement(list), "down"), asElement(first));
+        assert.equal(getVisibleBoundaryBlock(asElement(list), "up"), asElement(last));
+    });
+
+    it("keeps adjacent navigation within the current editable embed", () => {
+        const editor = new TestElement().addClass("protyle-wysiwyg");
+        const embed = block("embed", "NodeBlockQueryEmbed");
+        const result = new TestElement().addClass("protyle-wysiwyg__embed")
+            .setAttribute("data-allow-child-operation", "true");
+        const first = block("first");
+        const last = block("last");
+        editor.append(embed.append(result.append(first, last)));
+
+        assert.equal(getVerticalNavigationScope(asElement(first), asElement(editor) as HTMLElement), asElement(embed));
+        assert.equal(getAdjacentVisibleBlock(asElement(first), "down"), asElement(last));
+        assert.equal(getAdjacentVisibleBlock(asElement(last), "down"), false);
+    });
+
+    it("stops at a nested embed instead of entering its rendered result", () => {
+        const editor = new TestElement().addClass("protyle-wysiwyg");
+        const outerEmbed = block("outer-embed", "NodeBlockQueryEmbed");
+        const outerResult = new TestElement().addClass("protyle-wysiwyg__embed")
+            .setAttribute("data-allow-child-operation", "true");
+        const list = block("list", "NodeList").addClass("list");
+        const nestedEmbed = block("nested-embed", "NodeBlockQueryEmbed");
+        const nestedResult = new TestElement().addClass("protyle-wysiwyg__embed")
+            .setAttribute("data-allow-child-operation", "true");
+        const nestedContent = block("nested-content");
+        editor.append(outerEmbed.append(
+            outerResult.append(list.append(nestedEmbed.append(nestedResult.append(nestedContent))))));
+
+        assert.equal(getVisibleBoundaryBlock(asElement(list), "up"), asElement(nestedEmbed));
+        assert.equal(getVerticalNavigationScope(asElement(nestedEmbed), asElement(editor) as HTMLElement),
+            asElement(outerEmbed));
+        assert.equal(getVerticalNavigationScope(asElement(nestedContent), asElement(editor) as HTMLElement),
+            asElement(nestedEmbed));
     });
 });

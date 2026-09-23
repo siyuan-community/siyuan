@@ -19,6 +19,7 @@ package model
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	ginSessions "github.com/gin-contrib/sessions"
@@ -139,6 +140,110 @@ func TestIsLocalRequest(t *testing.T) {
 	}
 }
 
+// TestCheckAuthCrossSiteFetchSite 验证未设置锁屏密码时拒绝浏览器标记的跨站请求，
+// 防止跨站 GET 导航不带 Origin 绕过校验
+// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-2w6q-wgc8-q743
+func TestCheckAuthCrossSiteFetchSite(t *testing.T) {
+	originalConf := Conf
+	Conf = NewAppConf()
+	t.Cleanup(func() { Conf = originalConf })
+
+	engine := gin.New()
+	engine.GET("/api/test", CheckAuth, func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	newRequest := func(site string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:6806/api/test", nil)
+		request.RemoteAddr = "127.0.0.1:1234"
+		if "" != site {
+			request.Header.Set("Sec-Fetch-Site", site)
+		}
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	if recorder := newRequest("cross-site"); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("cross-site status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+	if recorder := newRequest("same-site"); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("same-site status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+	if recorder := newRequest("same-origin"); recorder.Code != http.StatusNoContent {
+		t.Fatalf("same-origin status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	if recorder := newRequest("none"); recorder.Code != http.StatusNoContent {
+		t.Fatalf("none status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	if recorder := newRequest(""); recorder.Code != http.StatusNoContent {
+		t.Fatalf("absent header status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+}
+
+// TestCheckAuthSessionCrossSiteFetchSite 验证会话认证下拒绝浏览器标记的跨站 GET 导航请求
+// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-2w6q-wgc8-q743
+func TestCheckAuthSessionCrossSiteFetchSite(t *testing.T) {
+	originalConf := Conf
+	originalWorkspaceDir := util.WorkspaceDir
+	Conf = NewAppConf()
+	Conf.AccessAuthCode = "test-access-auth-code"
+	util.WorkspaceDir = "test-workspace"
+	t.Cleanup(func() {
+		Conf = originalConf
+		util.WorkspaceDir = originalWorkspaceDir
+	})
+
+	engine := gin.New()
+	store := cookie.NewStore([]byte("test-session-cookie-key"))
+	engine.Use(ginSessions.Sessions("siyuan", store))
+	engine.GET("/login", func(c *gin.Context) {
+		session := util.GetSession(c)
+		workspaceSession := util.GetWorkspaceSession(session)
+		workspaceSession.AccessAuthCode = Conf.AccessAuthCode
+		if err := session.Save(c); err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+	engine.GET("/api/test", CheckAuth, func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	loginRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:6806/login", nil)
+	loginRequest.RemoteAddr = "127.0.0.1:1234"
+	loginRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(loginRecorder, loginRequest)
+	if loginRecorder.Code != http.StatusNoContent {
+		t.Fatalf("login status = %d, want %d", loginRecorder.Code, http.StatusNoContent)
+	}
+
+	request := func(site string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:6806/api/test", nil)
+		request.RemoteAddr = "127.0.0.1:1234"
+		if "" != site {
+			request.Header.Set("Sec-Fetch-Site", site)
+		}
+		for _, responseCookie := range loginRecorder.Result().Cookies() {
+			request.AddCookie(responseCookie)
+		}
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	if recorder := request("cross-site"); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("cross-site status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+	if recorder := request("same-origin"); recorder.Code != http.StatusNoContent {
+		t.Fatalf("same-origin status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	if recorder := request(""); recorder.Code != http.StatusNoContent {
+		t.Fatalf("absent header status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+}
+
 // TestCheckAuthRemoteSessionOrigin 验证局域网浏览器登录后，同源 POST 请求可通过会话鉴权。
 func TestCheckAuthRemoteSessionOrigin(t *testing.T) {
 	originalConf := Conf
@@ -193,5 +298,168 @@ func TestCheckAuthRemoteSessionOrigin(t *testing.T) {
 	}
 	if recorder := request("https://evil.example"); recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("cross-origin status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestCheckAuthLockScreenLocalHostPassThrough 验证设置锁屏密码时跨站请求及无凭据的非本机来源无法访问，
+// 无浏览器头的本机客户端及同源请求可通过本机免认证放行。
+// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-9gpj-3rm3-x42m
+func TestCheckAuthLockScreenLocalHostPassThrough(t *testing.T) {
+	originalConf := Conf
+	originalWorkspaceDir := util.WorkspaceDir
+	Conf = NewAppConf()
+	Conf.AccessAuthCode = "test-access-auth-code"
+	util.WorkspaceDir = "test-workspace"
+	t.Cleanup(func() {
+		Conf = originalConf
+		util.WorkspaceDir = originalWorkspaceDir
+	})
+
+	engine := gin.New()
+	engine.Use(ginSessions.Sessions("siyuan", cookie.NewStore([]byte("test-session-cookie-key"))))
+	engine.GET("/assets/icon.png", CheckAuth, func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	engine.POST("/api/system/exit", CheckAuth, func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	newRequest := func(method, target, host string, headers map[string]string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, target, nil)
+		request.RemoteAddr = "127.0.0.1:1234"
+		request.Host = "127.0.0.1:6806"
+		if "" != host {
+			request.Host = host
+		}
+		for key, value := range headers {
+			request.Header.Set(key, value)
+		}
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	t.Run("headless local client allowed", func(t *testing.T) {
+		if recorder := newRequest(http.MethodGet, "/assets/icon.png", "", nil); recorder.Code != http.StatusNoContent {
+			t.Fatalf("assets status = %d, want %d", recorder.Code, http.StatusNoContent)
+		}
+		if recorder := newRequest(http.MethodPost, "/api/system/exit", "", nil); recorder.Code != http.StatusNoContent {
+			t.Fatalf("exit status = %d, want %d", recorder.Code, http.StatusNoContent)
+		}
+	})
+
+	t.Run("same-origin browser request allowed", func(t *testing.T) {
+		headers := map[string]string{
+			"Sec-Fetch-Site": "same-origin",
+			"Origin":         "http://127.0.0.1:6806",
+		}
+		if recorder := newRequest(http.MethodPost, "/api/system/exit", "", headers); recorder.Code != http.StatusNoContent {
+			t.Fatalf("exit status = %d, want %d", recorder.Code, http.StatusNoContent)
+		}
+	})
+
+	t.Run("cross-site browser request denied", func(t *testing.T) {
+		headers := map[string]string{
+			"Sec-Fetch-Site": "cross-site",
+		}
+		if recorder := newRequest(http.MethodGet, "/assets/icon.png", "", headers); recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("assets status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+		}
+		if recorder := newRequest(http.MethodPost, "/api/system/exit", "", headers); recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("exit status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("non-local origin denied", func(t *testing.T) {
+		headers := map[string]string{
+			"Origin": "https://evil.example",
+		}
+		if recorder := newRequest(http.MethodPost, "/api/system/exit", "", headers); recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("exit status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("non-local host denied", func(t *testing.T) {
+		if recorder := newRequest(http.MethodGet, "/assets/icon.png", "evil.example", nil); recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("assets status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+		}
+	})
+}
+
+// TestCheckAuthLoopbackProxy 验证经环回地址转发的远程访问使用正常认证，且不能借此获取本机免认证权限。
+func TestCheckAuthLoopbackProxy(t *testing.T) {
+	originalConf := Conf
+	originalWorkspaceDir := util.WorkspaceDir
+	Conf = NewAppConf()
+	Conf.AccessAuthCode = "test-access-auth-code"
+	util.WorkspaceDir = "test-workspace"
+	t.Cleanup(func() {
+		Conf = originalConf
+		util.WorkspaceDir = originalWorkspaceDir
+	})
+
+	engine := gin.New()
+	engine.Use(ginSessions.Sessions("siyuan", cookie.NewStore([]byte("test-session-cookie-key"))))
+	engine.GET("/login", func(c *gin.Context) {
+		session := util.GetSession(c)
+		util.GetWorkspaceSession(session).AccessAuthCode = Conf.AccessAuthCode
+		if err := session.Save(c); err != nil {
+			t.Fatal(err)
+		}
+		c.Status(http.StatusNoContent)
+	})
+	for _, path := range []string{"/stage/build/desktop/", "/check-auth", "/assets/icon.png", "/api/system/exit", "/api/test"} {
+		engine.Any(path, CheckAuth, func(c *gin.Context) {
+			if c.Request.URL.Path != "/check-auth" && !IsAdminRoleContext(c) {
+				t.Error("authenticated request has no administrator role")
+			}
+			c.Status(http.StatusNoContent)
+		})
+	}
+	loginRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(loginRecorder, httptest.NewRequest(http.MethodGet, "/login", nil))
+	if loginRecorder.Code != http.StatusNoContent {
+		t.Fatalf("login status = %d", loginRecorder.Code)
+	}
+
+	for _, test := range []struct {
+		name, method, path, origin, site string
+		authenticated                    bool
+		want                             int
+	}{
+		{name: "page redirects to login", method: http.MethodGet, path: "/stage/build/desktop/", site: "none", want: http.StatusFound},
+		{name: "login page accessible", method: http.MethodGet, path: "/check-auth", site: "same-origin", want: http.StatusNoContent},
+		{name: "assets require login", method: http.MethodGet, path: "/assets/icon.png", want: http.StatusFound},
+		{name: "local API requires credentials", method: http.MethodPost, path: "/api/system/exit", want: http.StatusUnauthorized},
+		{name: "DNS rebinding cannot bypass authentication", method: http.MethodPost, path: "/api/system/exit", origin: "http://evil.example:6806", site: "same-origin", want: http.StatusUnauthorized},
+		{name: "authenticated page", method: http.MethodGet, path: "/stage/build/desktop/", authenticated: true, want: http.StatusNoContent},
+		{name: "authenticated assets", method: http.MethodGet, path: "/assets/icon.png", authenticated: true, want: http.StatusNoContent},
+		{name: "authenticated same-origin API", method: http.MethodPost, path: "/api/test", origin: "http://192.0.2.1:6806", site: "same-origin", authenticated: true, want: http.StatusNoContent},
+		{name: "authenticated cross-origin API denied", method: http.MethodPost, path: "/api/test", origin: "https://evil.example", authenticated: true, want: http.StatusUnauthorized},
+		{name: "authenticated cross-site navigation denied", method: http.MethodGet, path: "/assets/icon.png", site: "cross-site", authenticated: true, want: http.StatusUnauthorized},
+		{name: "authenticated same-site request denied", method: http.MethodPost, path: "/api/system/exit", site: "same-site", authenticated: true, want: http.StatusUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, nil)
+			request.Host = "192.0.2.1:6806"
+			request.RemoteAddr = "127.0.0.1:1234"
+			request.Header.Set("User-Agent", "Mozilla/5.0")
+			request.Header.Set("X-Forwarded-Host", request.Host)
+			request.Header.Set("Origin", test.origin)
+			request.Header.Set("Sec-Fetch-Site", test.site)
+			if test.authenticated {
+				for _, responseCookie := range loginRecorder.Result().Cookies() {
+					request.AddCookie(responseCookie)
+				}
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != test.want {
+				t.Fatalf("status = %d, want %d, body = %s", recorder.Code, test.want, recorder.Body.String())
+			}
+			if test.want == http.StatusFound && recorder.Header().Get("Location") != "/check-auth?to="+url.QueryEscape(test.path) {
+				t.Fatalf("unexpected login redirect: %s", recorder.Header().Get("Location"))
+			}
+		})
 	}
 }

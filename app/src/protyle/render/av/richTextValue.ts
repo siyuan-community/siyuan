@@ -25,6 +25,8 @@ export const AV_RICH_TEXT_PREVIEW_SANITIZE_OPTIONS = {
     ALLOWED_ATTR: AV_RICH_TEXT_PREVIEW_ALLOWED_ATTRIBUTES,
     ALLOW_ARIA_ATTR: false,
     ALLOW_DATA_ATTR: false,
+    // 公式源码是纯文本，不按链接地址过滤；链接属性仍使用独立的地址校验。
+    ADD_URI_SAFE_ATTR: ["data-content"],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|siyuan|tel|web\+siyuan):|[#/?]|\.\.?\/|[^a-z]|[a-z0-9._~-]+(?:[/?#]|$))/i,
 };
 const BUILTIN_INLINE_COLOR_COUNT = 13;
@@ -45,7 +47,6 @@ const EXECUTABLE_CODE_LANGUAGES = new Set([
     "graphviz",
     "infographic",
     "mermaid",
-    "mindmap",
     "plantuml",
 ]);
 
@@ -721,6 +722,10 @@ const normalizeAVRichTextInlineStyleValue = (property: AVRichTextStyleProperty, 
         return "";
     }
 
+    const themeStyle = value.match(/^var\(--b3-card-(error|warning|info|success)-(color|background)\)$/);
+    if (themeStyle) {
+        return themeStyle[2] === (property === "color" ? "color" : "background") ? value : "";
+    }
     const builtinStyle = value.match(
         /^var\(--b3-inline-builtin-(error|warning|info|success)-(color|background-color),\s*var\(--b3-card-(error|warning|info|success)-(color|background)\)\)$/
     );

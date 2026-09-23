@@ -2,8 +2,11 @@
 | **中文**
 | [日本語](API.ja.md)
 
+插件资源声明、数据授权与相关接口详见[插件发布](PLUGIN-PUBLISH.zh-CN.md)。
+
 * [规范](#规范)
     * [参数和返回值](#参数和返回值)
+    * [TypeScript 类型契约](#typescript-类型契约)
     * [行为语义](#行为语义)
     * [鉴权](#鉴权)
 * [笔记本](#笔记本)
@@ -103,7 +106,7 @@
 
 * 端点：`http://127.0.0.1:6806`
 * 除非接口中另有说明，否则 API 接口均使用 POST 方法
-* 使用 JSON 入参的接口，参数为 JSON 字符串，放置到 body 里，标头 Content-Type 为 `application/json`
+* 使用 JSON 入参的接口，参数为 JSON 字符串，写入 body 里，标头 Content-Type 为 `application/json`
 * 返回值
 
   ```json
@@ -118,12 +121,27 @@
     * `msg`：正常情况下是空字符串，异常情况下会返回错误文案
     * `data`：可能为 `{}`、`[]` 或者 `NULL`，根据不同接口而不同
 
+### TypeScript 类型契约
+
+插件的 `fetchPost`、`fetchSyncPost` 和 `fetchGet` 声明会根据已迁移的接口路径，从内核生成的契约推导请求与响应类型。覆盖范围持续扩展，包含系统基础接口、块属性批量读写、标签及书签操作、部分块查询、笔记本列表、历史搜索和快照操作。存量未迁移接口及动态 URL 继续支持。读取异步返回值中的成功数据前须检查响应码，并显式处理可空字段。
+
+```typescript
+import {fetchSyncPost} from "siyuan";
+
+const response = await fetchSyncPost("/api/attr/getBlockAttrs", {id: blockID});
+if (response.code === 0 && response.data) {
+    const value = response.data["custom-value"];
+}
+```
+
+准确覆盖范围见[生成的路由声明](../app/src/types/api/index.d.ts)，生成与兼容规则见[契约维护说明](API-CONTRACTS.md)。类型声明本身不执行运行时 JSON 校验。
+
 ### 行为语义
 
 * 只有在本文档中设有独立接口说明的接口属于公开 API。其他内核路由和 `/api/transactions` 操作属于内部实现，除非另有说明，否则不承诺兼容性和行为稳定性
 * `code: 0` 表示接口处理请求时未报告错误，只保证该接口明确说明的结果，不表示相关索引、缓存、WebSocket 广播或同步状态均已更新
 * 省略字段、`null`、空对象和空数组的含义由各接口定义。对象或数组是替换、合并还是局部修改现有状态，以及顺序是否具有意义，也以各接口说明为准
-* 接口可能裁剪、忽略、补全或转换输入。接口说明会返回规范化结果时，调用方应将返回的 `data` 作为实际接受的结果
+* 接口可能裁剪、忽略、填充或转换输入。接口说明会返回规范化结果时，调用方应将返回的 `data` 作为实际接受的结果
 * 不要根据操作名称推断其为只读操作。存在持久化副作用时，各接口会说明其影响范围
 * 只有接口明确说明时，相同请求才保证幂等或可以安全重试。响应中断或结果无法确定时，应尽可能先读取当前状态再决定是否重试
 
@@ -207,6 +225,8 @@
     "data": null
   }
   ```
+
+关闭接口校验笔记本 ID 时不会去除两端空白。请求与响应类型声明生成于 `app/src/types/api/index.d.ts`，并同步到 `petal`。
 
 ### 重命名笔记本
 
@@ -367,7 +387,10 @@
   ```
 
     * `notebook`：笔记本 ID
-    * `path`：文档路径，需要以 / 开头，中间使用 / 分隔层级（这里的 path 对应数据库 hpath 字段）
+    * `path`：文档路径，需要以 `/` 开头，中间使用 `/` 分隔层级（对应数据库 `hpath` 字段）
+        * `/` 是层级分隔符，不能表示文档标题中的斜杠；不存在的父文档会自动创建
+        * 例如，`/Notes/Programming in C/C++` 会在 `Notes` 下的 `Programming in C` 下创建标题为 `C++` 的文档
+        * 导入程序应在拼接路径前逐个处理标题，例如将 ASCII `/` 替换为全角 `／`（U+FF0F）：`/Notes/Programming in C／C++` 会在 `Notes` 下创建标题为 `Programming in C／C++` 的文档。此替换会改变标题文本
     * `markdown`：GFM Markdown 内容
 * 返回值
 
@@ -765,11 +788,11 @@
 * `/api/asset/upload`
 * 参数为 HTTP Multipart 表单
 
-    * `assetsDirPath`：资源文件存放的文件夹路径，以 data 文件夹作为根路径，比如：
+    * `assetsDirPath`：资源文件保存的文件夹路径，以 data 文件夹作为根路径，比如：
         * `"/assets/"`：工作空间/data/assets/ 文件夹
         * `"/assets/sub/"`：工作空间/data/assets/sub/ 文件夹
 
-      常规情况下建议用第一种，统一存放到工作空间资源文件夹下，放在子目录有一些副作用，请参考用户指南资源文件章节。
+      常规情况下建议用第一种，统一保存在工作空间资源文件夹下，因为写入子目录有一些副作用，请参考用户指南资源文件章节。
     * `file[]`：上传的文件列表
 * 返回值
 
@@ -1271,6 +1294,9 @@
   ```
 
     * `stmt`：SQL 脚本
+
+未显式指定外层 `LIMIT` 时，默认最多返回 `search.limit` 行，即设置中的搜索结果条数。因此，请使用显式的 `LIMIT` 和 `OFFSET` 分页，并采用稳定且唯一的排序，例如 `ORDER BY hpath, id`。显式外层 `LIMIT` 会覆盖默认限制，可以大于 `search.limit`。
+
 * 返回值
 
   ```json
@@ -1279,10 +1305,14 @@
     "msg": "",
     "data": [
       { "列": "值" }
-    ]
+    ],
+    "limit": 0,
+    "truncated": false
   }
   ```
-  
+
+成功时，`data` 仍为数组。`limit` 表示本次查询应用的服务端默认上限；SQL 显式指定外层 `LIMIT` 时为 `0`，不表示该子句指定的数值。仅当服务端默认限制导致至少一行结果未返回时，`truncated` 才为 `true`；结果恰好达到上限不算截断。上例显式指定了 `LIMIT 7`，因此 `limit` 为 `0`，`truncated` 为 `false`。错误响应不包含这两个字段。
+
 注意：为保证数据安全，发布模式下禁止访问该接口。
 
 ### 提交事务
@@ -1309,11 +1339,15 @@
   ```json
   {
     "id": "20220724223548-j6g0o87",
-    "path": "F:\\SiYuan\\data\\templates\\foo.md"
+    "path": "F:\\SiYuan\\data\\templates\\foo.md",
+    "mode": "editorInsert"
   }
   ```
+
     * `id`：调用渲染所在的文档 ID
     * `path`：模板文件绝对路径
+    * `mode`：可选渲染模式。目前仅支持 `"preview"` 和 `"editorInsert"`。预览模式生成文档树计划但不写入文件；编辑器插入模式生成可在确认后通过对应编辑器事务应用的计划
+    * 省略 `mode` 时，仍支持旧的布尔参数 `preview`：`preview: true` 等价于 `mode: "preview"`；否则模板按普通内容渲染，并禁用 `createDocTree`
 * 返回值
 
   ```json
@@ -1322,10 +1356,41 @@
     "msg": "",
     "data": {
       "content": "<div data-node-id=\"20220729234848-dlgsah7\" data-node-index=\"1\" data-type=\"NodeParagraph\" class=\"p\" updated=\"20220729234840\"><div contenteditable=\"true\" spellcheck=\"false\">foo</div><div class=\"protyle-attr\" contenteditable=\"false\">​</div></div>",
-      "path": "F:\\SiYuan\\data\\templates\\foo.md"
+      "path": "F:\\SiYuan\\data\\templates\\foo.md",
+      "docTreePlan": {
+        "id": "template-plan-token",
+        "count": 2,
+        "nodes": [
+          {
+            "id": "20260830150000-abc1234",
+            "title": "Materials",
+            "parentID": "20220724223548-j6g0o87",
+            "hPath": "/Parent/Materials",
+            "depth": 1
+          },
+          {
+            "id": "20260830150001-def5678",
+            "title": "Review",
+            "parentID": "20260830150000-abc1234",
+            "hPath": "/Parent/Materials/Review",
+            "depth": 2
+          }
+        ]
+      }
     }
   }
   ```
+
+    * `docTreePlan`：模板通过 `createDocTree` 声明子文档树时返回
+        * `id`：预览模式下为空，且不会写入文件。编辑器插入模式下为短期有效的一次性计划令牌；确认后，将其作为对应事务对象的顶层 `templateDocTreePlanID` 字段提交
+        * `count`：计划中的子文档总数
+        * `nodes`：计划文档的静态描述
+            * `id`：计划文档 ID
+            * `title`：计划文档标题
+            * `parentID`：计划父文档 ID
+            * `hPath`：计划文档的人类可读路径
+            * `depth`：相对于模板插入所在文档的深度
+        * 单个计划最多包含 128 个文档，声明的子文档树最多为 16 层。最终文件树的绝对深度仍受是否允许创建 7 层以上子文档的设置约束
 
 ### 将文档保存为模板
 
@@ -1583,9 +1648,9 @@
 
 * `/api/convert/pandoc`
 * 工作目录
-    * 执行调用 pandoc 命令时工作目录会被设置在 `工作空间/temp/convert/pandoc/${test}` 下
+    * 执行 pandoc 命令时工作目录会被设置在 `工作空间/temp/convert/pandoc/${test}` 下
     * 可先通过 API [`写入文件`](#写入文件) 将待转换文件写入该目录
-    * 然后再调用该 API 进行转换，转换后的文件也会被写入该目录
+    * 然后再调用该 API 转换，转换后的文件也会被写入该目录
     * 最后调用 API [`获取文件`](#获取文件) 获取转换后的文件内容
         * 或者调用 API [`通过 Markdown 创建文档`](#通过-markdown-创建文档)
         * 或者调用内部 API `importStdMd` 将转换后的文件夹直接导入
@@ -1721,7 +1786,7 @@
 
       `text` 保持现有行为，在适用时将字符集转换为 UTF-8。二进制编码作用于字符集转换前的响应正文数据；gzip 解压等现有 HTTP 内容解码行为不变。
 
-      HTTP 内容解码后的响应正文上限为 32 MiB，超限时返回错误码 `10` 且不返回部分正文。大文件或流式响应请使用 `/api/network/proxy`。
+      HTTP 内容解码后的响应正文上限为 32 MiB，超限时返回错误码 `10` 且不返回部分正文。因此，大文件或流式响应请使用 `/api/network/proxy`。
 * 返回值
 
   ```json
@@ -1762,11 +1827,11 @@
 * 请求方法：任意 HTTP 方法
 * 查询参数
 
-    * `u`：必填，目标 `http` 或 `https` URL 使用 Go `base64.RawURLEncoding` 编码后的字符串，也就是 URL 安全且不带 `=` 补位的 Base64
+    * `u`：必填，目标 `http` 或 `https` URL 使用 Go `base64.RawURLEncoding` 编码后的字符串，也就是 URL 安全且不带 `=` 填充的 Base64
     * `h`：可选，请求标头 JSON 使用同样方式编码后的字符串，JSON 类型为 `map[string][]string`，例如 `{"Authorization":["Bearer token"]}`
     * `t`：可选，连接超时时间，使用 Go `time.ParseDuration` 格式，例如 `30s`、`1500ms`
 * 请求体：原样转发当前请求体，当前请求的完整 `Content-Type` 标头会转发到目标请求
-* 返回值：直接返回目标服务的 HTTP 状态码和响应体，不包裹 `code`、`msg`、`data`；目标服务响应标头会添加 `Siyuan-Proxy-` 前缀后返回，例如 `Content-Type` 会返回为 `Siyuan-Proxy-Content-Type`
+* 返回值：直接返回目标服务的 HTTP 状态码和响应体，不封装 `code`、`msg`、`data`；目标服务响应标头会添加 `Siyuan-Proxy-` 前缀后返回，例如 `Content-Type` 会返回为 `Siyuan-Proxy-Content-Type`
 
 #### WebSocket 正向代理
 
@@ -1788,7 +1853,7 @@
     * `u`：必填，目标 `http` 或 `https` URL 使用 Go `base64.RawURLEncoding` 编码后的字符串
     * `h`：可选，请求标头 JSON 使用同样方式编码后的字符串，JSON 类型为 `map[string][]string`
     * `t`：可选，连接超时时间，使用 Go `time.ParseDuration` 格式，例如 `30s`、`1500ms`
-* 返回值：直接流式返回目标服务的 HTTP 状态码和响应体，不包裹 `code`、`msg`、`data`；如果请求标头中没有 `Accept`，会自动使用 `text/event-stream`；目标服务响应标头会添加 `Siyuan-Proxy-` 前缀后返回
+* 返回值：直接流式返回目标服务的 HTTP 状态码和响应体，不封装 `code`、`msg`、`data`；如果请求标头中没有 `Accept`，会自动使用 `text/event-stream`；目标服务响应标头会添加 `Siyuan-Proxy-` 前缀后返回
 
 ## 系统
 
@@ -1841,7 +1906,7 @@
 
 ## 数据库
 
-数据库（内核中为“属性视图”）以字段（列）和条目（行）的形式存储结构化数据。每个数据库由 `avID` 标识，可通过一个或多个数据库块（`blockID`）嵌入到文档中。一个数据库可包含多个不同布局类型的视图（`viewID`）：`table`（表格）、`gallery`（卡片）和 `kanban`（看板）。
+数据库（内核中为“属性视图”）以字段（列）和条目（行）的形式存储结构化数据。每个数据库由 `avID` 标识，可通过一个或多个数据库块（`blockID`）嵌入到文档中。一个数据库可包含多个不同布局类型的视图（`viewID`）：`table`（表格）、`list`（列表）、`gallery`（卡片）和 `kanban`（看板）。
 
 字段类型（`keyType`）如下：
 
@@ -1985,7 +2050,7 @@
   }
   ```
 
-    * `data.view`: 渲染后的视图实例。结构随 `viewType` 而变：`table` 返回 `columns`/`rows`/`rowCount`，`gallery` 和 `kanban` 返回 `fields`/`cards`/`cardCount`。启用分组时，`groups` 包含各分组的视图实例，每个实例含 `groupKey`/`groupValue`。`view` 还包含 `filters`/`sorts`/`group`/`showIcon`/`wrapField`/`groupFolded`/`groupHidden`。注意：启用的过滤或分组可能使条目列表为空，即使条目总数大于 0
+    * `data.view`: 渲染后的视图实例。结构随 `viewType` 而变：`table` 和 `list` 返回 `columns`/`rows`/`rowCount`，`gallery` 和 `kanban` 返回 `fields`/`cards`/`cardCount`。启用分组时，`groups` 包含各分组的视图实例，每个实例含 `groupKey`/`groupValue`。`view` 还包含 `filters`/`sorts`/`group`/`showIcon`/`wrapField`/`groupFolded`/`groupHidden`。注意：启用的过滤或分组可能使条目列表为空，即使条目总数大于 0
     * `data.view.columns[]`: 每列含 `id`/`name`/`type`/`icon`/`wrap`/`hidden`/`desc`/`calc`/`numberFormat`/`template`/`renderTemplate`/`pin`/`width`；`select`/`mSelect` 列还额外包含 `options`。画廊和看板字段在 `data.view.fields[]` 中返回相同的字段元数据
     * `data.view.columns[].renderTemplate`: 普通字段可选的显示模板，仅改变显示内容，字段原有类型的存储值保持不变
     * `data.view.rows[].id`: 表格行的**条目 ID**（`itemID`），也等于该行主键单元格的 `value.blockID`。对于绑定行，绑定块 ID 位于主键单元格的 `value.block.id`；二者是不同概念，不能假设相等
@@ -2147,7 +2212,7 @@
   }
   ```
 
-    * `data.av`: 完整的 `AttributeView` 定义——字段（`keyValues`）、字段顺序（`keyIDs`，可能为 `null`），以及所有视图的原始布局配置（`table`/`gallery`/`kanban`）和条目顺序（`itemIds`）。兼容字段 `viewID` 动态取第一个可用视图，不会持久化。返回值不含渲染后的行或分页；需要计算后的行数据请使用 [渲染](#渲染)
+    * `data.av`: 完整的 `AttributeView` 定义——字段（`keyValues`）、字段顺序（`keyIDs`，可能为 `null`），以及所有视图的原始布局配置（`table`/`list`/`gallery`/`kanban`）和条目顺序（`itemIds`）。兼容字段 `viewID` 动态取第一个可用视图，不会持久化。返回值不含渲染后的行或分页；需要计算后的行数据请使用 [渲染](#渲染)
 
 ### 获取主键值
 
@@ -2282,7 +2347,7 @@
 | `phone`    | `{"phone": {"content": "1234567890"}}`                                                                               |
 | `checkbox` | `{"checkbox": {"checked": true}}`                                                                                    |
 
-> ⚠️ `itemID` 是**条目 ID**，即[渲染](#渲染)返回的条目 `id`：表格为 `rows[].id`，卡片和看板为 `cards[].id`，启用分组时位于 `groups[]` 的对应视图实例中。它也等于主键值的 `value.blockID`。对于绑定条目，绑定块 ID 位于主键值的 `value.block.id`；二者是不同概念，不能假设相等。传入错误的 ID 会把值存为孤儿数据，不会出现在渲染后的单元格中。
+> ⚠️ `itemID` 是**条目 ID**，即[渲染](#渲染)返回的条目 `id`：表格和列表为 `rows[].id`，卡片和看板为 `cards[].id`，启用分组时位于 `groups[]` 的对应视图实例中。它也等于主键值的 `value.blockID`。对于绑定条目，绑定块 ID 位于主键值的 `value.block.id`；二者是不同概念，不能假设相等。传入错误的 ID 会把值存为孤儿数据，不会出现在渲染后的单元格中。
 
 对于富文本，`text.rich.content` 是权威的 Kramdown 源。内核会校验其受支持的结构并派生 `text.content` 纯文本投影；调用方提供的纯文本投影会被忽略。为兼容现有 API 客户端，省略 `text.rich` 时，如果 `text.content` 未改变则保留已存储的富文本载荷，如果 `text.content` 改变则以纯文本替换。即使纯文本投影未改变，也可以发送 `"rich": null` 明确移除富文本格式。包含富文本的数据库使用存储规范 9，无法由仅支持更早数据库规范的内核打开。
 
@@ -2410,7 +2475,9 @@
 
 ### 切换布局
 
-在 `table`（表格）、`gallery`（卡片）和 `kanban`（看板）之间切换数据库块所选视图的布局类型。成功时服务端会重新渲染并返回视图（结构与 [渲染](#渲染) 相同）。
+在 `table`（表格）、`list`（列表）、`gallery`（卡片）和 `kanban`（看板）之间切换数据库块所选视图的布局类型。成功时服务端会重新渲染并返回视图（结构与 [渲染](#渲染) 相同）。
+
+首次切换到 `list` 时，会初始化独立布局，默认仅显示主键字段。之后切换回该布局会保留字段显隐和顺序。隐藏字段的值保持不变，仍可用于过滤和排序；其他布局保留各自的显示设置。
 
 * `/api/av/changeAttrViewLayout`
 * 参数
@@ -2425,8 +2492,8 @@
 
     * `avID`: 数据库 ID
     * `blockID`: 拥有该视图的数据库块
-    * `layoutType`: 目标布局——`table`、`gallery`、`kanban` 之一
-* 返回值：与 [渲染](#渲染) 返回结构相同。当切换到 `kanban` 且已配置分组时，`data.view` 携带 `groups[]` 数组；每个分组是视图实例，含 `groupKey`、`groupValue`，以及看板特有字段（`coverFrom`、`cardAspectRatio`、`cardSize`、`fitImage`、`displayFieldName`、`fillColBackgroundColor`、`fields`）
+    * `layoutType`: 目标布局——`table`、`list`、`gallery`、`kanban` 之一
+* 返回值：与 [渲染](#渲染) 返回结构相同。当切换到 `kanban` 且已配置分组时，`data.view` 包含 `groups[]` 数组；每个分组是视图实例，含 `groupKey`、`groupValue`，以及看板特有字段（`coverFrom`、`cardAspectRatio`、`cardSize`、`fitImage`、`displayFieldName`、`fillColBackgroundColor`、`fields`）
 
 ### 设置分组
 
@@ -2488,7 +2555,7 @@
   }
   ```
 
-  配置后（真实抓取的响应），过滤与排序形如：
+  配置后（真实获取的响应），过滤与排序形如：
 
   ```json
   {
@@ -2620,7 +2687,7 @@
 
 ### 添加字段
 
-添加新字段（列）。该字段会被添加到每个视图（表格/卡片/看板）中 `previousKeyID` 之后的位置（为空时使用默认位置）。
+添加新字段（列）。该字段会被添加到每个视图（表格/列表/卡片/看板）中 `previousKeyID` 之后的位置（为空时使用默认位置）。
 
 * `/api/av/addAttributeViewKey`
 * 参数
@@ -2641,7 +2708,7 @@
     * `keyName`: 字段显示名
     * `keyType`: 字段类型——`text`、`number`、`date`、`select`、`mSelect`、`url`、`email`、`phone`、`mAsset`、`template`、`created`、`updated`、`checkbox`、`relation`、`rollup`、`lineNumber` 之一。`block`（主键）不能通过该接口添加
     * `keyIcon`: 可选字段图标（emoji 或空字符串）
-    * `previousKeyID`: 在此字段 ID 之后插入新列。为空字符串时使用布局默认位置（表格插入到首位，卡片/看板插入到末尾）
+    * `previousKeyID`: 在此字段 ID 之后插入新列。为空字符串时使用布局默认位置（表格插入到首位，列表/卡片/看板插入到末尾）
 * 返回值
 
   ```json
@@ -2751,8 +2818,8 @@
 * `idPath`：搜索范围路径数组
 * `k`：搜索关键字
 * `r`：替换关键字
-* `types`：块类型开关，支持 `mathBlock`、`table`、`blockquote`、`superBlock`、`paragraph`、`document`、`heading`、`list`、`listItem`、`codeBlock`、`htmlBlock`、`embedBlock`、`databaseBlock`、`audioBlock`、`videoBlock`、`iframeBlock`、`widgetBlock` 和 `callout`
-* `subTypes`：块子类型开关，`h1` 至 `h6` 表示标题级别，`o`、`u` 和 `t` 分别表示有序列表、无序列表和任务列表
+* `types`：块类型开关，支持 `mathBlock`、`table`、`blockquote`、`superBlock`、`paragraph`、`document`、`heading`、`list`、`listItem`、`codeBlock`、`htmlBlock`、`embedBlock`、`databaseBlock`、`audioBlock`、`videoBlock`、`iframeBlock`、`widgetBlock`、`callout`、`tabs` 和 `tabItem`
+* `subTypes`：独立的子类型分组，`heading` 使用 `h1` 至 `h6`，`list` 和 `listItem` 分别使用 `o`（有序）、`u`（无序）和 `t`（任务）。分组缺省、为空或所有开关为 `false` 时，不限制该父类型的子类型；父类型仍须在 `types` 中启用。未知顶层键（包括旧扁平格式的 `h1` 至 `h6` 和 `o`、`u`、`t`）会被忽略且不报错，旧格式中保存的子类型选择需要重新选择并保存
 * `replaceTypes`：替换类型开关，支持 `text`、`imgText`、`imgTitle`、`imgSrc`、`aText`、`aTitle`、`aHref`、`code`、`em`、`strong`、`inlineMath`、`inlineMemo`、`blockRef`、`fileAnnotationRef`、`kbd`、`mark`、`s`、`sub`、`sup`、`tag`、`u`、`docTitle`、`codeBlock`、`mathBlock` 和 `htmlBlock`
 
 `types`、`subTypes` 或 `replaceTypes` 中省略的布尔开关按 `false` 处理。
@@ -2786,10 +2853,15 @@
       "r": "",
       "types": {
         "document": true,
-        "paragraph": true
+        "paragraph": true,
+        "heading": true,
+        "list": true,
+        "listItem": true
       },
       "subTypes": {
-        "h1": true
+        "heading": {"h1": true},
+        "list": {"o": true},
+        "listItem": {"t": true}
       },
       "replaceTypes": {
         "text": true

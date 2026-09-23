@@ -652,7 +652,6 @@ func FindReplaceInBox(keyword, replacement string, replaceTypes map[string]bool,
 	escapedKey := util.EscapeHTML(keyword)
 	escapedKey = strings.ReplaceAll(escapedKey, "&#34;", "&quot;")
 	escapedKey = strings.ReplaceAll(escapedKey, "&#39;", "'")
-	escapedR, _ := regexp.Compile(escapedKey)
 	ids = gulu.Str.RemoveDuplicatedElem(ids)
 	var renameRoots []*ast.Node
 	renameRootTitles := map[string]string{}
@@ -825,15 +824,7 @@ func FindReplaceInBox(keyword, replacement string, replaceTypes map[string]bool,
 							return ast.WalkContinue
 						}
 
-						if 0 == method {
-							if strings.Contains(n.TextMarkTextContent, escapedKey) {
-								n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, escapedKey, util.EscapeHTML(replacement))
-							}
-						} else if 3 == method {
-							if nil != escapedR && escapedR.MatchString(n.TextMarkTextContent) {
-								n.TextMarkTextContent = escapedR.ReplaceAllString(n.TextMarkTextContent, util.EscapeHTML(replacement))
-							}
-						}
+						n.TextMarkTextContent, _ = replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 
 						if "" == n.TextMarkTextContent {
 							unlinks = append(unlinks, n)
@@ -841,18 +832,7 @@ func FindReplaceInBox(keyword, replacement string, replaceTypes map[string]bool,
 						}
 					} else if n.IsTextMarkType("a") {
 						if replaceTypes["aText"] {
-							if 0 == method {
-								content := util.UnescapeHTML(n.TextMarkTextContent)
-								if strings.Contains(content, escapedKey) {
-									n.TextMarkTextContent = strings.ReplaceAll(content, escapedKey, replacement)
-								} else if strings.Contains(content, keyword) {
-									n.TextMarkTextContent = strings.ReplaceAll(content, keyword, replacement)
-								}
-							} else if 3 == method {
-								if nil != r && r.MatchString(n.TextMarkTextContent) {
-									n.TextMarkTextContent = r.ReplaceAllString(n.TextMarkTextContent, replacement)
-								}
-							}
+							n.TextMarkTextContent, _ = replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 							if "" == n.TextMarkTextContent {
 								unlinks = append(unlinks, n)
 								mergeSamePreNext(n)
@@ -1012,12 +992,12 @@ func FindReplaceInBox(keyword, replacement string, replaceTypes map[string]bool,
 						if 0 == method {
 							if strings.Contains(n.TextMarkInlineMemoContent, keyword) {
 								n.TextMarkInlineMemoContent = strings.ReplaceAll(n.TextMarkInlineMemoContent, keyword, replacement)
-								n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, keyword, replacement)
+								n.TextMarkTextContent, _ = replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 							}
 						} else if 3 == method {
 							if nil != r && r.MatchString(n.TextMarkInlineMemoContent) {
 								n.TextMarkInlineMemoContent = r.ReplaceAllString(n.TextMarkInlineMemoContent, replacement)
-								n.TextMarkTextContent = r.ReplaceAllString(n.TextMarkTextContent, replacement)
+								n.TextMarkTextContent, _ = replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 							}
 						}
 
@@ -1040,16 +1020,9 @@ func FindReplaceInBox(keyword, replacement string, replaceTypes map[string]bool,
 							return ast.WalkContinue
 						}
 
-						if 0 == method {
-							if strings.Contains(n.TextMarkTextContent, keyword) {
-								n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, keyword, replacement)
-								n.TextMarkBlockRefSubtype = "s"
-							}
-						} else if 3 == method {
-							if nil != r && r.MatchString(n.TextMarkTextContent) {
-								n.TextMarkTextContent = r.ReplaceAllString(n.TextMarkTextContent, replacement)
-								n.TextMarkBlockRefSubtype = "s"
-							}
+						if content, matched := replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r); matched {
+							n.TextMarkTextContent = content
+							n.TextMarkBlockRefSubtype = "s"
 						}
 
 						if "" == n.TextMarkTextContent {
@@ -1060,15 +1033,7 @@ func FindReplaceInBox(keyword, replacement string, replaceTypes map[string]bool,
 							return ast.WalkContinue
 						}
 
-						if 0 == method {
-							if strings.Contains(n.TextMarkTextContent, keyword) {
-								n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, keyword, replacement)
-							}
-						} else if 3 == method {
-							if nil != r && r.MatchString(n.TextMarkTextContent) {
-								n.TextMarkTextContent = r.ReplaceAllString(n.TextMarkTextContent, replacement)
-							}
-						}
+						n.TextMarkTextContent, _ = replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 						if "" == n.TextMarkTextContent {
 							unlinks = append(unlinks, n)
 						}
@@ -1158,12 +1123,7 @@ func replaceNodeTextMarkTextContent(n *ast.Node, method int, keyword, escapedKey
 				n.TextMarkType = strings.TrimSpace(n.TextMarkType)
 			} else if strings.Contains(n.TextMarkTextContent, keyword) || strings.Contains(n.TextMarkTextContent, escapedKey) { // 标签包含了部分关键字的情况
 				if "tag" == n.TextMarkType { // 没有其他类型，仅是标签时保持标签类型不变，仅替换标签部分内容
-					content := n.TextMarkTextContent
-					if strings.Contains(content, escapedKey) {
-						content = strings.ReplaceAll(content, escapedKey, replacement)
-					} else if strings.Contains(content, keyword) {
-						content = strings.ReplaceAll(content, keyword, replacement)
-					}
+					content, _ := replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 					content = strings.ReplaceAll(content, editor.Zwsp, "")
 					n.TextMarkTextContent = content
 					return
@@ -1171,18 +1131,24 @@ func replaceNodeTextMarkTextContent(n *ast.Node, method int, keyword, escapedKey
 			}
 		}
 
-		if strings.Contains(n.TextMarkTextContent, escapedKey) {
-			n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, escapedKey, util.EscapeHTML(replacement))
-		} else if strings.Contains(n.TextMarkTextContent, keyword) {
-			n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, keyword, replacement)
-		}
+		n.TextMarkTextContent, _ = replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 		n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, editor.Zwsp, "")
 	} else if 3 == method {
-		if nil != r && r.MatchString(n.TextMarkTextContent) {
-			n.TextMarkTextContent = r.ReplaceAllString(n.TextMarkTextContent, replacement)
-		}
+		n.TextMarkTextContent, _ = replaceEscapedTextMarkContent(n.TextMarkTextContent, method, keyword, replacement, r)
 		n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, editor.Zwsp, "")
 	}
+}
+
+// replaceEscapedTextMarkContent 在正文上匹配和展开捕获组，写回时统一转义，避免替换结果变成 HTML 标签。
+func replaceEscapedTextMarkContent(content string, method int, keyword, replacement string, r *regexp.Regexp) (string, bool) {
+	text := util.UnescapeHTML(content)
+	if 0 == method && strings.Contains(text, keyword) {
+		return util.EscapeHTML(strings.ReplaceAll(text, keyword, replacement)), true
+	}
+	if 3 == method && nil != r && r.MatchString(text) {
+		return util.EscapeHTML(r.ReplaceAllString(text, replacement)), true
+	}
+	return content, false
 }
 
 type replaceTextFragment struct {
@@ -2057,16 +2023,7 @@ func buildExactAliasSearchOrderCondition(field, query string) string {
 	return "(',' || " + field + " || ',') LIKE '%," + escapedQuery + ",%' ESCAPE '\\'"
 }
 
-// buildTypeFilter returns a complete SQL predicate (including outer parens)
-// suitable for appending after "AND". When subTypes is empty, the result is
-// equivalent to the previous "type IN (...)" behavior. When subTypes contains
-// at least one heading-level (h1..h6) or list (o/u/t) flag, the predicate is
-// extended so that the corresponding parent type (heading or list/listItem)
-// is restricted to the selected subtypes via "subtype IN (...)".
-//
-// Example output:
-//
-//	(type IN ('p','c') OR (type = 'h' AND subtype IN ('h1','h2')))
+// buildTypeFilter 按父类型独立限制子类型，组内为空时仅按父类型筛选。
 func buildTypeFilter(types, subTypes map[string]bool, alias ...string) string {
 	prefix := ""
 	if 0 < len(alias) && "" != alias[0] {
@@ -2097,6 +2054,7 @@ func buildTypeFilter(types, subTypes map[string]bool, alias ...string) string {
 		s.Callout = types["callout"]
 		s.Tabs = types["tabs"]
 		s.TabItem = types["tabItem"]
+		s.CustomBlock = new(types["customBlock"])
 	} else {
 		s.Document = Conf.Search.Document
 		s.Heading = Conf.Search.Heading
@@ -2118,18 +2076,6 @@ func buildTypeFilter(types, subTypes map[string]bool, alias ...string) string {
 		s.Callout = Conf.Search.Callout
 		s.Tabs = Conf.Search.Tabs
 		s.TabItem = Conf.Search.TabItem
-	}
-
-	var headingSubs, listSubs []string
-	for _, h := range []string{"h1", "h2", "h3", "h4", "h5", "h6"} {
-		if subTypes[h] {
-			headingSubs = append(headingSubs, h)
-		}
-	}
-	for _, l := range []string{"o", "u", "t"} {
-		if subTypes[l] {
-			listSubs = append(listSubs, l)
-		}
 	}
 
 	var simpleTypes []string
@@ -2155,32 +2101,34 @@ func buildTypeFilter(types, subTypes map[string]bool, alias ...string) string {
 	addSimple(s.Callout, treenode.TypeAbbr(ast.NodeCallout.String()))
 	addSimple(s.Tabs, "tabs")
 	addSimple(s.TabItem, "tab")
+	addSimple(s.CustomBlockEnabled(), "custom")
 
 	var clauses []string
 
-	if s.Heading {
-		headingAbbr := treenode.TypeAbbr(ast.NodeHeading.String())
-		if 0 == len(headingSubs) {
-			simpleTypes = append(simpleTypes, headingAbbr)
+	for _, group := range []struct {
+		enabled bool
+		abbr    string
+		prefix  string
+		keys    []string
+	}{
+		{s.Heading, "h", "", []string{"h1", "h2", "h3", "h4", "h5", "h6"}},
+		{s.List, "l", "list:", []string{"o", "u", "t"}},
+		{s.ListItem, "i", "listItem:", []string{"o", "u", "t"}},
+	} {
+		if !group.enabled {
+			continue
+		}
+		var selected []string
+		for _, key := range group.keys {
+			if subTypes[group.prefix+key] {
+				selected = append(selected, key)
+			}
+		}
+		if 0 == len(selected) {
+			simpleTypes = append(simpleTypes, group.abbr)
 		} else {
 			clauses = append(clauses, fmt.Sprintf("(%stype = '%s' AND %ssubtype IN (%s))",
-				prefix, headingAbbr, prefix, sqlQuoteJoin(headingSubs)))
-		}
-	}
-
-	var listTypes []string
-	if s.List {
-		listTypes = append(listTypes, treenode.TypeAbbr(ast.NodeList.String()))
-	}
-	if s.ListItem {
-		listTypes = append(listTypes, treenode.TypeAbbr(ast.NodeListItem.String()))
-	}
-	if 0 < len(listTypes) {
-		if 0 == len(listSubs) {
-			simpleTypes = append(simpleTypes, listTypes...)
-		} else {
-			clauses = append(clauses, fmt.Sprintf("(%stype IN (%s) AND %ssubtype IN (%s))",
-				prefix, sqlQuoteJoin(listTypes), prefix, sqlQuoteJoin(listSubs)))
+				prefix, group.abbr, prefix, sqlQuoteJoin(selected)))
 		}
 	}
 

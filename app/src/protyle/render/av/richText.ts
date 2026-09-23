@@ -1,6 +1,9 @@
 import {escapeHtml} from "../../../util/escape";
+import {Constants} from "../../../constants";
+import {CODE_TAB_SPACE_VALUES} from "../../wysiwyg/codeBlockUtil";
 import {highlightRender} from "../highlightRender";
 import {getAgentLute} from "../setLute";
+import {restoreInlineElementBoundaries} from "../../util/inlineElementBoundary";
 import {mathRender} from "../mathRender";
 import {
     createAVRichTextStyleBackslashEncoding,
@@ -98,8 +101,12 @@ const replaceWithText = (element: Element) => {
     element.replaceWith(document.createTextNode(element.textContent || ""));
 };
 
-const removeUnsupportedBlockAttributes = (element: HTMLElement) => {
+const removeUnsupportedBlockAttributes = (element: HTMLElement, codeSettings: boolean) => {
     Array.from(element.attributes).forEach((attribute) => {
+        if (codeSettings && element.dataset.type === "NodeCodeBlock" &&
+            attribute.name === Constants.CUSTOM_SY_CODE_TAB_SPACES) {
+            return;
+        }
         if (attribute.name.startsWith("custom-") || attribute.name === "bookmark" ||
             attribute.name === "memo" || attribute.name === "name" || attribute.name === "style") {
             element.removeAttribute(attribute.name);
@@ -107,42 +114,70 @@ const removeUnsupportedBlockAttributes = (element: HTMLElement) => {
     });
 };
 
-export const sanitizeAVRichTextBlockDOM = (blockDOM: string) => {
+const isSupportedAVRichTextBlock = (element: HTMLElement) => {
+    const type = element.dataset.type;
+    return ALLOWED_BLOCK_TYPES.has(type) &&
+        (type !== "NodeHeading" || /^h[1-6]$/.test(element.dataset.subtype || "")) &&
+        (type !== "NodeCodeBlock" || !element.classList.contains("render-node") &&
+            !isAVRichTextExecutableCodeLanguage(element.dataset.subtype || ""));
+};
+
+export const getAVRichTextUnsupportedPasteBlocks = (blockDOM: string, images = false) => {
     const template = document.createElement("template");
     template.innerHTML = blockDOM;
+    const names = new Set<string>();
+    const keys: Record<string, string> = {
+        NodeTable: "table", NodeBlockQueryEmbed: "blockEmbed", NodeThematicBreak: "line",
+        NodeVideo: "video", NodeAudio: "audio", NodeWidget: "widget", NodeAttributeView: "database",
+        NodeCustomBlock: "custom", NodeSuperBlock: "superBlock", NodeCallout: "callout",
+        NodeTabs: "tabs", NodeTabItem: "tabItem", NodeCodeBlock: "code", NodeHeading: "headings",
+    };
+    template.content.querySelectorAll<HTMLElement>('[data-type^="Node"]').forEach(element => {
+        const type = element.dataset.type;
+        if (!isSupportedAVRichTextBlock(element)) {
+            names.add(type === "NodeHTMLBlock" ? "HTML" : type === "NodeIFrame" ? "IFrame" :
+                type === "NodeCodeBlock" && element.dataset.subtype ? element.dataset.subtype :
+                    window.siyuan.languages[keys[type]] || window.siyuan.languages.agentCatBlock);
+        }
+    });
+    if (!images && template.content.querySelector(".img, img")) {
+        names.add(window.siyuan.languages.image);
+    }
+    return Array.from(names);
+};
+
+export const sanitizeAVRichTextBlockDOM = (blockDOM: string, images = false) => {
+    const template = document.createElement("template");
+    template.innerHTML = blockDOM;
+    // 在过滤临时属性前恢复边界，避免把显示占位符当成富文本内容保存。
+    restoreInlineElementBoundaries(template.content);
     template.content.querySelectorAll<HTMLElement>('[data-type^="Node"]').forEach((element) => {
         const type = element.dataset.type;
-        if (type === "NodeCodeBlock" && (element.classList.contains("render-node") ||
-            isAVRichTextExecutableCodeLanguage(element.dataset.subtype || ""))) {
+        if (!isSupportedAVRichTextBlock(element)) {
             element.remove();
             return;
         }
         if (type === "NodeHeading") {
-            const subtype = element.dataset.subtype || "";
-            if (!/^h[1-6]$/.test(subtype)) {
-                element.remove();
-                return;
-            }
-            element.className = subtype;
+            element.className = element.dataset.subtype;
         }
-        if (ALLOWED_BLOCK_TYPES.has(type)) {
-            removeUnsupportedBlockAttributes(element);
-            return;
-        }
-        element.remove();
+        removeUnsupportedBlockAttributes(element, images);
     });
     template.content.querySelectorAll(
-        ".img, img, iframe, audio, video, object, embed, script, style, link, meta, form, input, button, textarea, select"
+        (images ? "" : ".img, img, ") +
+        "iframe, audio, video, object, embed, script, style, link, meta, form, input, button, textarea, select"
     ).forEach((element) => {
         element.remove();
     });
     template.content.querySelectorAll<HTMLElement>("*").forEach((element) => {
-        if (!isAVRichTextEditorAllowedTag(element.tagName)) {
+        if (!isAVRichTextEditorAllowedTag(element.tagName) && !(images && element.tagName === "IMG")) {
             replaceWithText(element);
         }
     });
     template.content.querySelectorAll<HTMLElement>("span[data-type]").forEach((element) => {
         const types = (element.dataset.type || "").split(" ").filter(Boolean);
+        if (images && types.length === 1 && types[0] === "img") {
+            return;
+        }
         if (types.some((type) => !ALLOWED_INLINE_TYPES.has(type))) {
             replaceWithText(element);
             return;
@@ -161,7 +196,13 @@ export const sanitizeAVRichTextBlockDOM = (blockDOM: string) => {
     template.content.querySelectorAll<HTMLElement>("*").forEach((element) => {
         Array.from(element.attributes).forEach((attribute) => {
             const name = attribute.name.toLowerCase();
-            if (!AV_RICH_TEXT_EDITOR_ALLOWED_ATTRIBUTES.includes(name) ||
+            const imageAttribute = images && ["src", "data-src", "alt", "title", "loading"].includes(name) &&
+                (element.tagName === "IMG" || element.classList.contains("img"));
+            const codeAttribute = images && element.dataset.type === "NodeCodeBlock" &&
+                (["linewrap", "ligatures", "linenumber"].includes(name) && ["true", "false"].includes(attribute.value) ||
+                    name === Constants.CUSTOM_SY_CODE_TAB_SPACES &&
+                    CODE_TAB_SPACE_VALUES.some(value => value.toString() === attribute.value));
+            if ((!AV_RICH_TEXT_EDITOR_ALLOWED_ATTRIBUTES.includes(name) && !imageAttribute && !codeAttribute) ||
                 name === "xlink:href" && !attribute.value.startsWith("#icon")) {
                 element.removeAttribute(attribute.name);
             }
@@ -187,18 +228,41 @@ export const sanitizeAVRichTextBlockDOM = (blockDOM: string) => {
         }
     });
     template.content.querySelectorAll<HTMLElement>("[style]:not(span[data-type])")
-        .forEach((element) => element.removeAttribute("style"));
+        .forEach((element) => {
+            if (!images || !element.closest(".img")) {
+                element.removeAttribute("style");
+            }
+        });
+    if (images) {
+        template.content.querySelectorAll<HTMLElement>(".img[style], .img [style]").forEach(element => {
+            if (/[\\<>@]|url\s*\(|expression\s*\(/i.test(element.getAttribute("style"))) {
+                element.removeAttribute("style");
+            }
+        });
+        template.content.querySelectorAll<HTMLImageElement>("img").forEach(element => {
+            const source = getAVRichTextSafeURL(element.getAttribute("data-src") || element.getAttribute("src"));
+            if (!source) {
+                (element.closest(".img") || element).remove();
+                return;
+            }
+            element.setAttribute("src", source);
+            element.setAttribute("data-src", source);
+        });
+    }
     return (template.innerHTML || "").trim();
 };
 
-const cleanAVRichTextBlockDOMStructure = (blockDOM: string) => {
+const cleanAVRichTextBlockDOMStructure = (blockDOM: string, preserveBlockIDs = false) => {
     const template = document.createElement("template");
     template.innerHTML = blockDOM;
     template.content.querySelectorAll(".protyle-attr, .protyle-icons").forEach((element) => element.remove());
     template.content.querySelectorAll<HTMLElement>("*").forEach((element) => {
-        ["data-node-id", "data-node-index", "updated"].forEach((attribute) => {
+        (preserveBlockIDs ? ["data-node-index", "updated"] : ["data-node-id", "data-node-index", "updated"]).forEach((attribute) => {
             element.removeAttribute(attribute);
         });
+        if (preserveBlockIDs && ALLOWED_BLOCK_TYPES.has(element.dataset.type) && !element.dataset.nodeId) {
+            element.dataset.nodeId = Lute.NewNodeID();
+        }
     });
     return (template.innerHTML || "").trim();
 };
@@ -271,14 +335,26 @@ const getAVRichTextPlainContent = (blockDOM: string, lute: Lute) => {
     return projectAVRichTextPlainBlocks(blocks, lute.BlockDOM2Content(blockDOM));
 };
 
-export const serializeAVRichTextBlockDOM = (blockDOM: string, lute = getAVRichTextLute()) => {
-    const sanitizedBlockDOM = sanitizeAVRichTextBlockDOM(blockDOM);
-    const cleanBlockDOM = cleanAVRichTextBlockDOMStructure(sanitizedBlockDOM);
+export const serializeAVRichTextBlockDOM = (blockDOM: string, lute = getAVRichTextLute(), images = false) => {
+    const sanitizedBlockDOM = sanitizeAVRichTextBlockDOM(blockDOM, images);
+    let cleanBlockDOM = cleanAVRichTextBlockDOMStructure(sanitizedBlockDOM);
+    const template = document.createElement("template");
+    template.innerHTML = cleanBlockDOM;
+    const paragraphs = Array.from(template.content.querySelectorAll<HTMLElement>('[data-type="NodeParagraph"]'));
+    const hasEmptyParagraph = paragraphs.some(element => lute.BlockDOM2Md(element.outerHTML).trim() === "");
+    const singleEmptyParagraph = template.content.children.length === 1 &&
+        template.content.firstElementChild === paragraphs[0] && hasEmptyParagraph;
+    const hasCodeSettings = images && !!template.content.querySelector(
+        `[data-type="NodeCodeBlock"]:is([linewrap], [ligatures], [linenumber], [${Constants.CUSTOM_SY_CODE_TAB_SPACES}])`);
+    // 空段落和代码设置依靠块属性列表保留，同时保留相邻块的标识，避免属性被合并到前一段。
+    if ((hasEmptyParagraph && !singleEmptyParagraph) || hasCodeSettings) {
+        cleanBlockDOM = cleanAVRichTextBlockDOMStructure(sanitizedBlockDOM, true);
+    }
     const styleBackslashEncoding = createAVRichTextStyleBackslashEncoding(cleanBlockDOM);
     const protectedBlockDOM = protectAVRichTextStyleBackslashes(cleanBlockDOM, styleBackslashEncoding);
     const markdown = protectedBlockDOM ?
         styleBackslashEncoding.encodeMarkdown(lute.BlockDOM2Md(protectedBlockDOM).trim()) : "";
-    const normalizedBlockDOM = markdown ? sanitizeAVRichTextBlockDOM(parseAVRichTextKramdown(markdown, lute)) : "";
+    const normalizedBlockDOM = markdown ? sanitizeAVRichTextBlockDOM(parseAVRichTextKramdown(markdown, lute), images) : "";
     return {
         blockDOM: normalizedBlockDOM,
         markdown,
@@ -286,13 +362,14 @@ export const serializeAVRichTextBlockDOM = (blockDOM: string, lute = getAVRichTe
     };
 };
 
-export const getAVRichTextBlockDOM = (markdown: string) => markdown ?
-    sanitizeAVRichTextBlockDOM(parseAVRichTextKramdown(markdown)) : "";
+export const getAVRichTextBlockDOM = (markdown: string, images = false) => markdown ?
+    sanitizeAVRichTextBlockDOM(parseAVRichTextKramdown(markdown), images) : "";
 
 const getAVRichTextPreviewBlockDOM = (blockDOM: string) => {
     const template = document.createElement("template");
-    template.innerHTML = cleanAVRichTextBlockDOMStructure(blockDOM);
-    template.content.querySelectorAll(".protyle-action").forEach((element) => element.remove());
+    // 转换为 HTML 前保留块标识，以保留空段落，预览净化时再移除标识。
+    template.innerHTML = cleanAVRichTextBlockDOMStructure(blockDOM, true);
+    // 代码块操作节点和待办操作节点参与内容解析，需要保留到 HTML 转换完成。
     return (template.innerHTML || "").trim();
 };
 
@@ -309,7 +386,7 @@ const prepareAVRichTextPreviewHTML = (html: string) => {
         element.className = "render-node";
         element.dataset.subtype = "math";
         element.dataset.content = content;
-        element.textContent = "";
+        element.replaceChildren(document.createElement("div"));
     });
     template.content.querySelectorAll<HTMLElement>("pre > code").forEach((element) => {
         const languageClass = Array.from(element.classList).find((className) => className.startsWith("language-"));

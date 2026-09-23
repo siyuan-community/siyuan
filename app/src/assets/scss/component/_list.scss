@@ -1,6 +1,42 @@
 @use "../util/mixin";
 @use "../util/function";
 
+.file-tree__pins {
+  --file-toggle-width: 0px;
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+  max-height: 40%;
+  min-height: 30px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--b3-border-color);
+
+  > .b3-list {
+    min-height: 0;
+  }
+
+  &-list {
+    overflow: auto;
+    min-height: 0;
+  }
+
+  [data-pin-heading] {
+    --file-toggle-width: 22px;
+
+    > .b3-list-item__icon:hover {
+      background-color: transparent;
+    }
+  }
+
+  .b3-list--background .b3-list-item.dragover__top::after {
+    top: 0;
+  }
+
+  .b3-list--background .b3-list-item.dragover__bottom::after {
+    bottom: 0;
+  }
+}
+
 .b3-list {
   --file-toggle-width: 0px;
 
@@ -221,7 +257,7 @@
       height: 22px;
       padding: 0 2px;
       color: var(--b3-theme-on-surface-light);
-      transition: var(--b3-transition);
+      transition: color .2s cubic-bezier(0, 0, .2, 1), background-color .2s cubic-bezier(0, 0, .2, 1);
       border-radius: var(--b3-border-radius);
 
       &--hl {

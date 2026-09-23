@@ -1,3 +1,15 @@
+.agent-chat {
+  min-height: 0;
+}
+
+.sy__agentChat:not(.sy__agentChat--mobile) > .block__icons {
+  > [data-type="session-menu"] svg,
+  > [data-type="fullscreen"] svg {
+    width: 14px;
+    height: 14px;
+    margin: 1px;
+  }
+}
 
 .agent-chat__title {
   font-size: 14px;
@@ -264,9 +276,13 @@
 
 .agent-chat__body--streaming {
   min-height: 20px;
-  // 流式期 body 是纯文本（textContent），需保留换行与空白，富渲染在结束后才进行。
+  // 纯文本流式输出保留换行和空白，Markdown 预览使用正常排版。
   white-space: pre-wrap;
   word-break: break-word;
+
+  &.agent-chat__body--streaming-markdown {
+    white-space: normal;
+  }
 }
 
 .agent-chat__body {
@@ -399,7 +415,7 @@
     height: 14px;
   }
 
-  &:hover, &:focus-visible {
+  &:hover {
     background: var(--b3-list-hover);
   }
 }
@@ -500,7 +516,9 @@
 }
 
 .agent-chat__thinking-body--expanded {
-  max-height: 2000px;
+  // 展开内容随对话统一滚动，避免长篇思考产生独立的滚动区域。
+  max-height: none;
+  overflow-y: auto;
   padding: 8px 0;
   border-top-color: var(--b3-border-color);
 }
@@ -923,6 +941,10 @@
 .agent-session-more {
   position: relative;
 
+  &.b3-menu__item--show {
+    display: flex;
+  }
+
   .b3-menu__submenu {
     white-space: nowrap;
   }
@@ -1015,20 +1037,28 @@
 
 .agent-chat__question-option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 8px;
   border-radius: var(--b3-border-radius);
   cursor: pointer;
   transition: var(--b3-transition);
 
-  &:hover, &:focus-visible {
+  &:hover {
     background: var(--b3-theme-surface-light);
   }
 
   input {
     flex-shrink: 0;
+    margin-top: 2px;
   }
+}
+
+.agent-chat__question-option-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .agent-chat__question-option-label {
@@ -1080,7 +1110,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: var(--nav-gap, 3px);
-  z-index: 10;
+  z-index: 6;
   border: 1px solid transparent;
   border-radius: var(--b3-border-radius-b);
   padding: 6px 4px 6px 12px;
@@ -1191,7 +1221,7 @@
   font-size: var(--b3-font-size);
   line-height: 1.6;
   color: var(--b3-theme-on-background);
-  padding: 0;
+  padding: 0 !important;
 }
 
 .agent-chat__composer-host .protyle-wysiwyg {

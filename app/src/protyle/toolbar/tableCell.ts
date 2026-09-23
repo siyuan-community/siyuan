@@ -69,7 +69,7 @@ export const getTableCellTextStyleMenus = (protyle: IProtyle, cellElements: HTML
         click: () => openTableCellAppearance(protyle, cellElements, onApply),
     });
     menus.push({
-        icon: "iconClear",
+        icon: "iconEraser",
         label: window.siyuan.languages.clearInline,
         accelerator: window.siyuan.config.keymap.editor.insert.clearInline.custom,
         click: () => {
@@ -85,7 +85,7 @@ export const applyTableCellStyleHotkey = (protyle: IProtyle, cellElements: HTMLT
     if (event.repeat || cellElements.length === 0) {
         return false;
     }
-    if (matchHotKey(window.siyuan.config.keymap.editor.insert.lastUsed.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.insert.lastUsed, event)) {
         fontEvent(protyle, [], undefined, undefined, false, (type, color) => {
             applyTableCellFontStyle(protyle, cellElements, type, color);
             onApply?.();

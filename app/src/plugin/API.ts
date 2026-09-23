@@ -2,6 +2,7 @@ import {confirmDialog} from "../dialog/confirmDialog";
 import {Plugin} from "./index";
 import {hideMessage, showMessage} from "../dialog/message";
 import {Dialog} from "../dialog";
+import {openInputDialog} from "../dialog/inputDialog";
 import {fetchGet, fetchPost, fetchSyncPost} from "../util/fetch";
 import {getBackend, getFrontend} from "../util/functions";
 /// #if !MOBILE
@@ -39,8 +40,8 @@ import {adjustEditorFontSize, setEditorFontSize} from "../util/editorFontSize";
 import {isDockPanelVisible, toggleDockPanel} from "../layout/dock/panel";
 /// #endif
 
-let openTab;
-let openWindow;
+let openTab: (options: any) => any;
+let openWindow: (options: any) => void;
 /// #if MOBILE
 openTab = () => {
     // TODO: Mobile
@@ -306,7 +307,7 @@ export const expandDocTree = async (options: {
         liElement = file.element.querySelector(`.b3-list[data-url="${options.id}"]`)?.firstElementChild as HTMLElement;
     } else {
         const response = await fetchSyncPost("/api/block/getBlockInfo", {id: options.id});
-        if (response.code === -1) {
+        if (response.code !== 0 || response.data.publishAccessRequired) {
             return;
         }
         notebookId = response.data.box;
@@ -393,7 +394,7 @@ const isBottomDockVisible = () => {
     /// #endif
 };
 
-export const API = {
+const createAPI = () => ({
     adaptHotkey: updateHotkeyTip,
     confirm: confirmDialog,
     Constants,
@@ -416,6 +417,7 @@ export const API = {
     ProtyleMethod,
     Plugin,
     Dialog,
+    openInputDialog,
     Menu,
     Setting,
     getAllEditor,
@@ -439,4 +441,14 @@ export const API = {
     isLeftDockVisible,
     isRightDockVisible,
     isBottomDockVisible,
+});
+
+let api: ReturnType<typeof createAPI>;
+
+export const getAPI = () => {
+    // 在插件首次请求接口时初始化，避免循环依赖读取尚未初始化的模块成员。
+    if (!api) {
+        api = createAPI();
+    }
+    return api;
 };

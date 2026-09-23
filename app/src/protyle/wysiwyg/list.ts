@@ -20,12 +20,11 @@ import {
     type TListSubtype
 } from "./listContext";
 import {fetchSyncPost} from "../../util/fetch";
-import {Dialog} from "../../dialog";
-import {isMobile} from "../../util/functions";
+import {openInputDialog} from "../../dialog/inputDialog";
 import {showMessage} from "../../dialog/message";
 import {activateTrackedRangeInsertion, type ITrackedRangeInsertion} from "../util/trackedRange";
 import {normalizeHTMLAssetIFrameBlockDOM} from "../../asset/html";
-import {nextTaskListMarker} from "./taskListMarker";
+import {isTaskListMarker, nextTaskListMarker, nextTaskListStatus} from "./taskListMarker";
 
 const getLastChildBlock = (element: Element) => {
     if (!element || !element.lastElementChild) {
@@ -44,7 +43,7 @@ const getLastChildBlock = (element: Element) => {
 const unfoldElements = (protyle: IProtyle, elements: Element[]) => {
     elements.forEach(item => {
         if (item.getAttribute("fold") === "1") {
-            setFold(protyle, item, true, false, false, false, false);
+            setFold(protyle, item, true, false, false, false);
         }
     });
 };
@@ -106,60 +105,54 @@ export const openOrderedListStartDialog = (protyle: IProtyle, listElement: HTMLE
         return;
     }
     const initialStart = Number.parseInt(listItemElements[0].getAttribute("data-marker"), 10);
-    const dialog = new Dialog({
+    openInputDialog({
         title: window.siyuan.languages.orderedListStart,
-        content: `<div class="b3-dialog__content"><input class="b3-text-field fn__block" type="number" min="0" max="${maxStart}" step="1"></div>
-<div class="b3-dialog__action">
-    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
-</div>`,
-        width: isMobile() ? "92vw" : "360px",
+        value: Number.isFinite(initialStart) ? Math.trunc(initialStart).toString() : "1",
+        type: "number",
+        min: "0",
+        max: String(maxStart),
+        step: "1",
         destroyCallback() {
             if (range?.startContainer?.isConnected) {
                 focusByRange(range);
             }
-        }
-    });
-    const inputElement = dialog.element.querySelector("input") as HTMLInputElement;
-    const buttonElements = dialog.element.querySelectorAll<HTMLButtonElement>(".b3-button");
-    inputElement.value = Number.isFinite(initialStart) ? Math.trunc(initialStart).toString() : "1";
-    dialog.bindInput(inputElement, () => {
-        buttonElements[1].click();
-    });
-    inputElement.select();
-    buttonElements[0].addEventListener("click", () => {
-        dialog.destroy();
-    });
-    buttonElements[1].addEventListener("click", () => {
-        const start = parseOrderedListStart(inputElement.value, listItemElements.length);
-        if (start === undefined) {
-            showMessage(window.siyuan.languages.invalid, 3000, "error");
-            inputElement.focus();
-            inputElement.select();
-            return;
-        }
-        setOrderedListStart(protyle, listElement, start);
-        dialog.destroy();
+        },
+        onConfirm: (value, dialog) => {
+            const start = parseOrderedListStart(value, listItemElements.length);
+            if (start === undefined) {
+                showMessage(window.siyuan.languages.invalid, 3000, "error");
+                const inputElement = dialog.element.querySelector("input");
+                inputElement.focus();
+                inputElement.select();
+                return;
+            }
+            setOrderedListStart(protyle, listElement, start);
+            dialog.destroy();
+        },
     });
 };
 
-export const toggleTaskListItem = (protyle: IProtyle, taskItemElement: Element): void => {
-    const html = taskItemElement.outerHTML;
-    const marker = nextTaskListMarker(taskItemElement.getAttribute("data-task"));
-    const useElement = taskItemElement.querySelector("use");
-    if (marker === " ") {
-        taskItemElement.setAttribute("data-task", " ");
-        taskItemElement.classList.remove("protyle-task--done");
-        useElement?.setAttribute("xlink:href", "#iconUncheck");
-    } else {
-        taskItemElement.setAttribute("data-task", "X");
-        taskItemElement.classList.add("protyle-task--done");
-        useElement?.setAttribute("xlink:href", "#iconCheck");
+export const setTaskListItemMarker = (protyle: IProtyle, taskItemElement: Element, marker: string): void => {
+    if (!taskItemElement.isConnected || protyle.disabled || protyle.options.action.includes(Constants.CB_GET_HISTORY) ||
+        taskItemElement.getAttribute("data-type") !== "NodeListItem" ||
+        taskItemElement.getAttribute("data-subtype") !== "t" || !isTaskListMarker(marker)) {
+        return;
     }
+    const html = taskItemElement.outerHTML;
+    taskItemElement.setAttribute("data-task", marker);
+    taskItemElement.classList.toggle("protyle-task--done", marker !== " ");
+    taskItemElement.querySelector(":scope > .protyle-action use")?.setAttribute("xlink:href",
+        marker === " " ? "#iconUncheck" : "#iconCheck");
     taskItemElement.setAttribute("updated", dayjs().format("YYYYMMDDHHmmss"));
     taskItemElement.setAttribute(Constants.ATTRIBUTE_EDITING, "true");
     updateTransaction(protyle, taskItemElement, html);
 };
+
+export const toggleTaskListItem = (protyle: IProtyle, taskItemElement: Element): void =>
+    setTaskListItemMarker(protyle, taskItemElement, nextTaskListMarker(taskItemElement.getAttribute("data-task")));
+
+export const cycleTaskListItemStatus = (protyle: IProtyle, taskItemElement: Element): void =>
+    setTaskListItemMarker(protyle, taskItemElement, nextTaskListStatus(taskItemElement.getAttribute("data-task")));
 
 export const genListItemElement = (listItemElement: Element, offset = 0, wbr = false, startIndex?: number) => {
     const element = document.createElement("template");
@@ -180,6 +173,9 @@ const getListElementByID = async (protyle: IProtyle, listID: string) => {
         id: listID,
         notebook: protyle.notebookId,
     });
+    if (response.code !== 0) {
+        return;
+    }
     const template = document.createElement("template");
     template.innerHTML = normalizeHTMLAssetIFrameBlockDOM(response.data?.dom || "");
     const listElement = template.content.firstElementChild as HTMLElement;
@@ -375,7 +371,10 @@ const getFocusedListTailItem = async (protyle: IProtyle, listID: string, current
         n: 1,
         notebook: protyle.notebookId,
     });
-    const tailBlock = tailResponse.data?.[0] as {id?: string, type?: string} | undefined;
+    if (tailResponse.code !== 0) {
+        return;
+    }
+    const tailBlock = tailResponse.data?.[0];
     if (!tailBlock?.id || tailBlock.type !== "i") {
         return;
     }
@@ -387,6 +386,9 @@ const getFocusedListTailItem = async (protyle: IProtyle, listID: string, current
         id: tailBlock.id,
         notebook: protyle.notebookId,
     });
+    if (domResponse.code !== 0) {
+        return;
+    }
     const template = document.createElement("template");
     template.innerHTML = domResponse.data?.dom || "";
     const tailItemElement = template.content.firstElementChild as HTMLElement;
@@ -644,7 +646,7 @@ export const insertEmptyChildList = (protyle: IProtyle, previousElement: HTMLEle
         if (item.getAttribute("fold") !== "1") {
             return;
         }
-        const foldData = setFold(protyle, item, true, false, false, true);
+        const foldData = setFold(protyle, item, true, false, true);
         if (foldData?.doOperations?.length > 0) {
             doOperations.push(...foldData.doOperations);
             undoOperations.push(...foldData.undoOperations);
@@ -904,7 +906,7 @@ export const listIndent = async (protyle: IProtyle, liItemElements: Element[], r
                     });
                 });
             }
-            const foldOperations = setFold(protyle, foldElement, true, false, false, true);
+            const foldOperations = setFold(protyle, foldElement, true, false, true);
             doOperations.push(...foldOperations.doOperations);
             undoOperations.push(...foldOperations.undoOperations);
             if (focusedParentListElement) {
@@ -1128,7 +1130,8 @@ export const listOutdent = async (protyle: IProtyle, liItemElements: Element[], 
     });
     const movedListItemElements = [...liItemElements] as HTMLElement[];
     if (parentLiItemElement.classList.contains("protyle-wysiwyg") || parentLiItemElement.classList.contains("sb") ||
-        parentLiItemElement.classList.contains("bq") || parentLiItemElement.classList.contains("callout")) {
+        parentLiItemElement.classList.contains("bq") || parentLiItemElement.classList.contains("callout") ||
+        parentLiItemElement.classList.contains("tab-item")) {
         // 顶层列表
         const topDoOperations: IOperation[] = [];
         const topUndoOperations: IOperation[] = [];

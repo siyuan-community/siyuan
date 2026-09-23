@@ -1,3 +1,4 @@
+import {isTableLikeView} from "./viewType";
 import {Menu} from "../../../plugin/Menu";
 import {hasClosestBlock, hasClosestByClassName} from "../../util/hasClosest";
 import {transaction} from "../../wysiwyg/transaction";
@@ -8,6 +9,7 @@ import {
     cellValueIsEmpty,
     genCellValueByElement,
     getCellText,
+    getCellValueText,
     getTypeByCellElement,
     popTextCell,
     renderCell,
@@ -54,6 +56,7 @@ import {createAttributeViewItem, createAttributeViewItemDocs, openNewItemTemplat
 import {openDatabaseRowByData} from "./openDatabaseRow";
 import {openKanbanGroupMenu} from "./kanban/groupMenu";
 import {getGroupFoldedStates, updateGroupFoldedStates} from "./groupFold";
+import {setPublishAVFolds, setPublishAVView} from "./publishState";
 import {
     finishCardCoverPosition,
     isCardCoverPositioning,
@@ -402,7 +405,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             return true;
         } else if (type === "av-add-more" && !protyle.disabled) {
             const templateID = blockElement.querySelector<HTMLElement>(".av__header")?.dataset.defaultTemplateId;
-            if (templateID) {
+            if (templateID || blockElement.getAttribute("data-av-type") === "calendar") {
                 createAttributeViewItem({blockElement, protyle, templateID});
             } else {
                 insertRows({
@@ -549,7 +552,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                     return;
                 }
                 const cellType = getTypeByCellElement(target);
-                if (viewType === "table") {
+                if (isTableLikeView(viewType)) {
                     const scrollElement = hasClosestByClassName(target, "av__scroll");
                     if (!scrollElement) {
                         return;
@@ -647,6 +650,12 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                 initUnfoldedGroupTables(blockElement, protyle);
                 updateGroupFoldedStates(blockElement, doData);
                 clearTimeout(foldTimeout);
+                if (window.siyuan.isPublish) {
+                    setPublishAVFolds(blockElement, viewID, doData);
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return true;
+                }
                 transaction(protyle, [{
                     action: "foldAttrViewGroups",
                     avID: blockElement.dataset.avId,
@@ -666,6 +675,12 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                 initUnfoldedGroupTables(blockElement, protyle);
                 updateGroupFoldedStates(blockElement, {[target.dataset.id]: isOpen});
                 clearTimeout(foldTimeout);
+                if (window.siyuan.isPublish) {
+                    setPublishAVFolds(blockElement, viewID, {[target.dataset.id]: isOpen});
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return true;
+                }
                 foldTimeout = window.setTimeout(() => {
                     transaction(protyle, [{
                         action: "foldAttrViewGroup",
@@ -716,8 +731,11 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             /// #endif
             if (target.classList.contains("item--focus")) {
                 openViewMenu({protyle, blockElement, element: target});
-            } else if (protyle.options.action.includes(Constants.CB_GET_HISTORY)) {
+            } else if (window.siyuan.isPublish || protyle.options.action.includes(Constants.CB_GET_HISTORY)) {
                 clearSelect(["row", "galleryItem"], blockElement);
+                if (window.siyuan.isPublish) {
+                    setPublishAVView(blockElement, target.dataset.id);
+                }
                 blockElement.setAttribute(Constants.CUSTOM_SY_AV_VIEW, target.dataset.id);
                 blockElement.removeAttribute("data-render");
                 if (target.dataset.page) {
@@ -764,6 +782,25 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.stopPropagation();
             return true;
         } else if (type === "copy") {
+            if (target.hasAttribute("data-rollup-value")) {
+                const values: IAVCellValue[] = JSON.parse(decodeURIComponent(target.dataset.rollupValue));
+                writeText(values.map(value => {
+                    if (value.type === "block") {
+                        return value.block?.content || window.siyuan.languages.untitled;
+                    }
+                    if (value.type === "checkbox") {
+                        return value.checkbox?.checked ? "true" : "false";
+                    }
+                    if (value.type === "mAsset") {
+                        return (value.mAsset || []).map(asset => asset.content).join(", ");
+                    }
+                    return getCellValueText(value);
+                }).join(", "));
+                showMessage(window.siyuan.languages.copied);
+                event.preventDefault();
+                event.stopPropagation();
+                return true;
+            }
             const cellElement = hasClosestByClassName(target, "av__cell") as HTMLElement;
             const source = getAVTextSource(genCellValueByElement("text", cellElement));
             if (source.kind === "rich") {
@@ -785,6 +822,14 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.preventDefault();
             event.stopPropagation();
             return true;
+        } else if (type === "av-search-close") {
+            const searchElement = blockElement.querySelector<HTMLElement>('[data-type="av-search"]');
+            searchElement.textContent = "";
+            searchElement.blur();
+            searchElement.dispatchEvent(new Event("input", {bubbles: true}));
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
         } else if (type === "av-search-icon") {
             const searchElement = blockElement.querySelector('div[data-type="av-search"]') as HTMLInputElement;
             searchElement.style.width = "128px";
@@ -792,7 +837,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             searchElement.style.marginRight = "1em";
             const viewsElement = hasClosestByClassName(searchElement, "av__views");
             if (viewsElement) {
-                viewsElement.classList.add("av__views--show");
+                viewsElement.classList.add("av__views--show", "av__views--search");
             }
             if (window.JSAndroid && window.JSAndroid.showKeyboard || window.JSHarmony && window.JSHarmony.showKeyboard) {
                 callMobileAppShowKeyboard();
@@ -814,6 +859,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
 export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undefined, position: IPosition, options?: {
     blockElement?: HTMLElement;
     anchorElement?: HTMLElement;
+    customize?: (menu: Menu) => void;
 }) => {
     hideElements(["hint"], protyle);
     if (rowElement?.classList.contains("av__row--header")) {
@@ -824,7 +870,9 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undef
         return false;
     }
     const avType = blockElement.getAttribute("data-av-type") as TAVView;
-    if (rowElement && avType === "table") {
+    const editable = !protyle.disabled && !window.siyuan.isPublish &&
+        !protyle.options.history?.created && !protyle.options.history?.snapshot;
+    if (rowElement && isTableLikeView(avType)) {
         if (!rowElement.classList.contains("av__row--select")) {
             clearSelect(["row"], blockElement);
         }
@@ -1089,14 +1137,16 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undef
         });
     }
 
-    copyMenu.push({
-        id: "duplicate",
-        iconHTML: "",
-        label: window.siyuan.languages.duplicateCopy,
-        click: () => {
-            duplicateRows(blockElement, protyle, selectedItemInfos.map(item => item.itemID));
-        }
-    });
+    if (editable) {
+        copyMenu.push({
+            id: "duplicate",
+            iconHTML: "",
+            label: window.siyuan.languages.duplicateCopy,
+            click: () => {
+                duplicateRows(blockElement, protyle, selectedItemInfos.map(item => item.itemID));
+            }
+        });
+    }
 
     menu.addItem({
         id: "copy",
@@ -1105,7 +1155,7 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undef
         type: "submenu",
         submenu: copyMenu
     });
-    if (!protyle.disabled) {
+    if (editable) {
         const detachedItemIDs = selectedItems.filter(item => item.isDetached).map(item => item.itemID);
         if (detachedItemIDs.length > 0) {
             menu.addItem({
@@ -1184,15 +1234,15 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undef
                 });
             }
         });
-        if (selectedItemInfos.length === 1) {
+        if (selectedItemInfos.length === 1 && avType !== "calendar") {
             if (!primaryRows[0].isDetached) {
                 menu.addSeparator({id: "separator_1"});
             }
             menu.addItem({
-                id: avType === "table" ? "insertRowBefore" : "insertItemBefore",
+                id: isTableLikeView(avType) ? "insertRowBefore" : "insertItemBefore",
                 icon: "iconBefore",
                 label: `<div class="fn__flex" style="align-items: center;">
-${window.siyuan.languages[avType === "table" ? "insertRowBefore" : "insertItemBefore"].replace("${x}", `<span class="fn__space"></span><input type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field b3-text-field--size"><span class="fn__space"></span>`)}
+${window.siyuan.languages[isTableLikeView(avType) ? "insertRowBefore" : "insertItemBefore"].replace("${x}", `<span class="fn__space"></span><input type="number" step="1" min="1" value="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field b3-text-field--size"><span class="fn__space"></span>`)}
 </div>`,
                 bind(element) {
                     const inputElement = element.querySelector("input");
@@ -1224,10 +1274,10 @@ ${window.siyuan.languages[avType === "table" ? "insertRowBefore" : "insertItemBe
                 }
             });
             menu.addItem({
-                id: avType === "table" ? "insertRowAfter" : "insertItemAfter",
+                id: isTableLikeView(avType) ? "insertRowAfter" : "insertItemAfter",
                 icon: "iconAfter",
                 label: `<div class="fn__flex" style="align-items: center;">
-${window.siyuan.languages[avType === "table" ? "insertRowAfter" : "insertItemAfter"].replace("${x}", `<span class="fn__space"></span><input type="number" step="1" min="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field b3-text-field--size" value="1"><span class="fn__space"></span>`)}
+${window.siyuan.languages[isTableLikeView(avType) ? "insertRowAfter" : "insertItemAfter"].replace("${x}", `<span class="fn__space"></span><input type="number" step="1" min="1" placeholder="${window.siyuan.languages.enterKey}" class="b3-text-field b3-text-field--size" value="1"><span class="fn__space"></span>`)}
 </div>`,
                 bind(element) {
                     const inputElement = element.querySelector("input");
@@ -1293,6 +1343,7 @@ ${window.siyuan.languages[avType === "table" ? "insertRowAfter" : "insertItemAft
             submenu: getAVEditFieldMenuItems(protyle, blockElement)
         });
     }
+    options?.customize?.(menu);
     if (protyle) {
         emitOpenMenu({
             type: "open-menu-av",

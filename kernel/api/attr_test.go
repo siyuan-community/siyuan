@@ -29,6 +29,7 @@ import (
 	"github.com/88250/lute/parse"
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -48,6 +49,7 @@ func TestBlockAttrsRespectPublishAccess(t *testing.T) {
 	previousDataDir := util.DataDir
 	previousLangs := util.Langs
 	model.Conf = model.NewAppConf()
+	model.Conf.Sync = conf.NewSync()
 	util.DataDir = t.TempDir()
 	util.BlockTreeDBPath = filepath.Join(util.DataDir, "blocktree.db")
 	util.Langs = map[string]map[int]string{
@@ -156,6 +158,9 @@ func postBlockAttrs(t *testing.T, role model.Role, path, body string, handler gi
 	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	engine.ServeHTTP(recorder, request)
+	if path == "/api/attr/getBlockAttrs" {
+		requireAPIContract(t, http.MethodPost, path, recorder)
+	}
 
 	response := &blockAttrsResponse{}
 	if err := json.Unmarshal(recorder.Body.Bytes(), response); err != nil {

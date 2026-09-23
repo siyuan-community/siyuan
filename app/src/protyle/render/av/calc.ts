@@ -1,3 +1,4 @@
+import {isAVRenderData} from "./renderData";
 import {Menu} from "../../../plugin/Menu";
 import {transaction} from "../../wysiwyg/transaction";
 import {hasClosestBlock, hasClosestByClassName} from "../../util/hasClosest";
@@ -5,7 +6,7 @@ import {fetchSyncPost} from "../../../util/fetch";
 import {getFieldsByData} from "./view";
 import {Constants} from "../../../constants";
 import {Dialog} from "../../../dialog";
-import {escapeAttr} from "../../../util/escape";
+import {escapeAttr, escapeHtml} from "../../../util/escape";
 import {getAVTemplateHTML} from "./attributeValue";
 
 const calcItem = (options: {
@@ -305,6 +306,9 @@ export const openCalcMenu = async (protyle: IProtyle, calcElement: HTMLElement, 
         let avData = panelData?.data;
         if (!avData) {
             const avResponse = await fetchSyncPost("/api/av/renderAttributeView", {id: avId, blockID});
+            if (avResponse.code !== 0 || !isAVRenderData(avResponse.data)) {
+                return;
+            }
             avData = avResponse.data;
         }
 
@@ -329,6 +333,9 @@ export const openCalcMenu = async (protyle: IProtyle, calcElement: HTMLElement, 
             });
             if (relationAvId) {
                 const colResponse = await fetchSyncPost("/api/av/getAttributeView", {id: relationAvId});
+                if (colResponse.code !== 0) {
+                    return;
+                }
                 colResponse.data.av.keyValues.find((item: { key: { id: string, name: string, type: TAVCol } }) => {
                     if (item.key.id === keyID) {
                         rollupIsNumber = item.key.type === "number" || rollupIsNumber;
@@ -448,6 +455,9 @@ export const openCalcMenu = async (protyle: IProtyle, calcElement: HTMLElement, 
         currentTemplate = colData?.calc?.template || "";
     } else {
         const avResponse = await fetchSyncPost("/api/av/renderAttributeView", {id: avId, blockID});
+        if (avResponse.code !== 0 || !isAVRenderData(avResponse.data)) {
+            return;
+        }
         const colData = getFieldsByData(avResponse.data).find((item) => item.id === colId);
         currentTemplate = colData?.calc?.template || "";
     }
@@ -481,7 +491,7 @@ export const openCalcMenu = async (protyle: IProtyle, calcElement: HTMLElement, 
             const dialog = new Dialog({
                 title: window.siyuan.languages.calcOperatorTemplate,
                 content: `<div class="b3-dialog__content">
-    <textarea spellcheck="false" class="fn__block b3-text-field" placeholder="${escapeAttr(window.siyuan.languages.rollupTemplateTip)}" rows="8" style="resize: vertical;font-family: var(--b3-font-family-code);">${currentTemplate}</textarea>
+    <textarea spellcheck="false" class="fn__block b3-text-field" placeholder="${escapeAttr(window.siyuan.languages.rollupTemplateTip)}" rows="8" style="resize: vertical;font-family: var(--b3-font-family-code);">${escapeHtml(currentTemplate)}</textarea>
 </div>
 <div class="b3-dialog__action">
     <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>

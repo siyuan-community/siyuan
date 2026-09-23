@@ -12,13 +12,13 @@ import {insertHTML} from "../protyle/util/insertHTML";
 import {blockRender} from "../protyle/render/blockRender";
 import {processRender} from "../protyle/util/processCode";
 import {highlightRender} from "../protyle/render/highlightRender";
-import {copyPlainText} from "../protyle/util/compatibility";
+import {copyPlainText, isDisabledFeature} from "../protyle/util/compatibility";
 import {showMessage} from "../dialog/message";
 import {confirmDialog} from "../dialog/confirmDialog";
 import {escapeAriaLabel, escapeHtml} from "../util/escape";
 import {isMobile} from "../util/functions";
 import {Constants} from "../constants";
-import {bindThinkingCardToggle} from "./thinkingCard";
+import {bindThinkingCardToggle, updateThinkingBody} from "./thinkingCard";
 import {BLOCK_SELECTION_MODE_CLASS} from "../protyle/wysiwyg/blockSelection";
 import {normalizeHTMLAssetIFrameBlockDOM} from "../asset/html";
 
@@ -373,10 +373,11 @@ const renderTaskPreview = (task: IAIEditorTask, rich = false) => {
 };
 
 const renderTaskReasoning = (task: IAIEditorTask) => {
-    task.thinkingReasoningElement.textContent = task.reasoningContent;
+    updateThinkingBody(task.thinkingBody, () => {
+        task.thinkingReasoningElement.textContent = task.reasoningContent;
+    });
     task.thinkingLatestElement.textContent = task.reasoningContent.replace(/\s+/g, " ").trim();
     task.thinkingLatestElement.scrollLeft = task.thinkingLatestElement.scrollWidth;
-    task.thinkingBody.scrollTop = task.thinkingBody.scrollHeight;
 };
 
 const updateTaskThinkingText = (task: IAIEditorTask) => {
@@ -714,6 +715,9 @@ const createTask = (protyle: IProtyle, source: IAIEditorSource) => {
 };
 
 const beginTask = (protyle: IProtyle, source: IAIEditorSource) => {
+    if (isDisabledFeature("ai")) {
+        return;
+    }
     const state = getState(protyle);
     const start = () => {
         if (state.task) {

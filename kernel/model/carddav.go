@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/emersion/go-vcard"
+	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/carddav"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
@@ -397,6 +399,8 @@ func (c *Contacts) DeleteAddressBook(path string) (err error) {
 	// delete map item
 	if value, loaded := c.books.LoadAndDelete(path); loaded {
 		addressBook = value.(*AddressBook)
+	} else {
+		return webdav.NewHTTPError(http.StatusNotFound, ErrorCardDavBookNotFound)
 	}
 
 	// delete list item

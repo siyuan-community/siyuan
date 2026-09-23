@@ -2,14 +2,9 @@ import type {App} from "../index";
 import {Menu} from "./Menu";
 import {setStorageVal} from "../protyle/util/compatibility";
 import {isBazaarAvailable} from "../util/bazaarAvailability";
-/// #if !MOBILE
-import {setTabPosition} from "../layout/tabUtil";
-/// #endif
 import {Constants} from "../constants";
 import {hasPluginSetting} from "./index";
 import {isMobile} from "../util/functions";
-import {isEntryVisible, setEntryVisibilityValue} from "../config/entryVisibility/runtime";
-import {TOP_BAR_ROOT_PATH} from "../config/entryVisibility/catalog";
 
 export const openTopBarMenu = (app: App, target?: Element) => {
     const menu = new Menu(Constants.MENU_BAR_PLUGIN);
@@ -27,34 +22,31 @@ export const openTopBarMenu = (app: App, target?: Element) => {
         ignore: !isBazaarAvailable() || window.siyuan.config.readonly,
     });
     let hasPlugin = false;
+    const settingItems: IMenu[] = [];
     app.plugins.forEach((plugin) => {
         const hasSetting = hasPluginSetting(plugin);
-        let hasTopBar = false;
         for (let i = 0; i < plugin.topBarIcons.length; i++) {
             const item = plugin.topBarIcons[i];
-            if (!document.contains(item)) {
+            const hasUnpin = isMobile() && window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].includes(item.id);
+            if (!document.contains(item) && !hasUnpin) {
                 plugin.topBarIcons.splice(i, 1);
                 i--;
                 continue;
             }
-            const entryKey = item.getAttribute("data-topbar-entry");
-            const entryPath = entryKey ? `${TOP_BAR_ROOT_PATH}.${entryKey}` : "";
-            const hasUnpin = isMobile() || !entryPath
-                ? window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].includes(item.id)
-                : !isEntryVisible(entryPath);
-            const submenu: IMenu[] = [{
-                id: hasUnpin ? "pin" : "unpin",
-                icon: hasUnpin ? "iconPin" : "iconUnpin",
-                label: hasUnpin ? window.siyuan.languages.pin : window.siyuan.languages.unpin,
-                disabled: !isMobile() && window.siyuan.config.readonly,
-                click() {
-                    if (!isMobile() && entryPath) {
-                        setEntryVisibilityValue(entryPath, hasUnpin);
-                    } else {
+            const submenu: IMenu[] = [];
+            if (isMobile()) {
+                submenu.push({
+                    id: hasUnpin ? "pin" : "unpin",
+                    icon: hasUnpin ? "iconPin" : "iconUnpin",
+                    label: hasUnpin ? window.siyuan.languages.pin : window.siyuan.languages.unpin,
+                    click() {
                         if (hasUnpin) {
                             window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].splice(
                                 window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].indexOf(item.id), 1);
                             item.classList.remove("fn__none");
+                            if (!document.contains(item)) {
+                                document.getElementById("menuPluginTopBar")?.after(item);
+                            }
                         } else {
                             window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN].push(item.id);
                             window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN] = Array.from(new Set(
@@ -64,19 +56,6 @@ export const openTopBarMenu = (app: App, target?: Element) => {
                         setStorageVal(Constants.LOCAL_PLUGINTOPUNPIN,
                             window.siyuan.storage[Constants.LOCAL_PLUGINTOPUNPIN]);
                     }
-                    /// #if !MOBILE
-                    setTabPosition(true);
-                    /// #endif
-                }
-            }];
-            if (hasSetting) {
-                submenu.push({
-                    id: "config",
-                    icon: "iconSettings",
-                    label: window.siyuan.languages.config,
-                    click() {
-                        plugin.openSetting();
-                    },
                 });
             }
             const itemLabel = target ? item.getAttribute("aria-label") : item.textContent.trim();
@@ -98,20 +77,23 @@ export const openTopBarMenu = (app: App, target?: Element) => {
                 click: target ? () => {
                     item.dispatchEvent(new CustomEvent("click"));
                 } : undefined,
-                type: "submenu",
-                submenu
             };
+            if (submenu.length > 0) {
+                menuOption.type = "submenu";
+                menuOption.submenu = submenu;
+            }
             const customIconElement = item.querySelector(":scope > .b3-menu__icon--custom");
-            const iconElement = (customIconElement || item.querySelector("svg")).cloneNode(true) as HTMLElement;
-            iconElement.classList.add("b3-menu__icon");
-            menuOption.iconHTML = iconElement.outerHTML;
+            const sourceIconElement = customIconElement || item.querySelector("svg");
+            if (sourceIconElement) {
+                const iconElement = sourceIconElement.cloneNode(true) as HTMLElement;
+                iconElement.classList.add("b3-menu__icon");
+                menuOption.iconHTML = iconElement.outerHTML;
+            }
             menu.addItem(menuOption);
             hasPlugin = true;
-            hasTopBar = true;
         }
-        if (!hasTopBar && hasSetting) {
-            hasPlugin = true;
-            menu.addItem({
+        if (hasSetting) {
+            settingItems.push({
                 id: plugin.name,
                 icon: "iconSettings",
                 label: plugin.displayName,
@@ -121,6 +103,13 @@ export const openTopBarMenu = (app: App, target?: Element) => {
             });
         }
     });
+    if (settingItems.length > 0) {
+        if (hasPlugin) {
+            menu.addSeparator({id: "separator_settings"});
+        }
+        settingItems.forEach((item) => menu.addItem(item));
+        hasPlugin = true;
+    }
     if (!hasPlugin) {
         manageSeparatorElement?.remove();
         if (!manageElement && !target) {
@@ -137,7 +126,7 @@ export const openTopBarMenu = (app: App, target?: Element) => {
         if (rect.width === 0) {
             rect = document.querySelector("#barMore").getBoundingClientRect();
         }
-        menu.open({x: rect.right, y: rect.bottom, isLeft: true});
+        menu.open({x: rect.right, y: rect.bottom, h: rect.height, isLeft: true});
     } else {
         menu.fullscreen();
     }

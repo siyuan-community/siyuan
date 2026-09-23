@@ -13,6 +13,7 @@ import {Custom} from "../../../layout/dock/Custom";
 /// #endif
 import {searchMarkRender} from "../searchMarkRender";
 import {registerDatabaseRowRefresh} from "./databaseRowRefresh";
+import {focusNewDatabasePrimary} from "./primaryFocus";
 
 export interface IDatabaseRowOpenData {
     avID: string;
@@ -26,6 +27,7 @@ export interface IDatabaseRowOpenData {
     matchedValueID?: string;
     matchedKeyID?: string;
     keywords?: string[];
+    focusPrimary?: boolean;
 }
 
 const highlightDatabaseRow = (protyle: IProtyle, rootElement: HTMLElement, data: IDatabaseRowOpenData) => {
@@ -53,10 +55,11 @@ const closeMobileDatabaseRow = () => {
     }
 };
 
-const openMobileDatabaseRow = (protyle: IProtyle, data: IDatabaseRowOpenData, title: string) => {
+const openMobileDatabaseRow = (protyle: Pick<IProtyle, "app">, data: IDatabaseRowOpenData, title: string) => {
     closeMobileDatabaseRow();
     const context: { ghostProtyle?: Protyle } = {};
     let unregisterRefresh: () => void;
+    let renderVersion = 0;
     const dialog = new Dialog({
         content: `<div class="protyle-db-row protyle-db-row--mobile protyle-content">
     <div class="protyle-db-row__title"><svg><use xlink:href="#iconDatabase"></use></svg><span></span></div>
@@ -67,22 +70,27 @@ const openMobileDatabaseRow = (protyle: IProtyle, data: IDatabaseRowOpenData, ti
         containerClassName: "b3-dialog__container--database-row",
         disableAnimation: true,
         destroyCallback() {
+            renderVersion++;
             unregisterRefresh?.();
             context.ghostProtyle?.destroy();
         },
     });
     const rowElement = dialog.element.querySelector<HTMLElement>(".protyle-db-row");
-    rowElement.dataset.protyleId = protyle.id;
     rowElement.querySelector(".protyle-db-row__title span").textContent = title;
     const render = (contextProtyle: IProtyle) => {
         const previousBodyElement = rowElement.querySelector<HTMLElement>(".protyle-db-row__body");
         if (!previousBodyElement) {
             return;
         }
+        const currentRenderVersion = ++renderVersion;
         const bodyElement = document.createElement("div");
         bodyElement.className = "custom-attr protyle-db-row__body";
-        previousBodyElement.replaceWith(bodyElement);
         renderAVAttribute(bodyElement, data.itemID, contextProtyle, (element) => {
+            if (currentRenderVersion !== renderVersion || !previousBodyElement.isConnected) {
+                return;
+            }
+            // 保留当前内容，待属性和反链加载完成后一次替换，避免刷新期间出现空白。
+            previousBodyElement.replaceWith(element);
             const primaryElement = element.querySelector<HTMLElement>('[data-primary="true"] [data-cell-value]');
             if (primaryElement?.dataset.cellValue) {
                 const value = JSON.parse(decodeURIComponent(primaryElement.dataset.cellValue)) as IAVCellValue;
@@ -91,10 +99,12 @@ const openMobileDatabaseRow = (protyle: IProtyle, data: IDatabaseRowOpenData, ti
                 rowElement.querySelector(".protyle-db-row__title span").textContent = currentTitle;
             }
             highlightDatabaseRow(contextProtyle, rowElement, data);
+            focusNewDatabasePrimary(rowElement, contextProtyle, data);
         }, {
             avID: data.avID,
             itemID: data.itemID,
             valueID: data.valueID,
+            databaseBlockID: data.databaseBlockID,
         });
     };
     context.ghostProtyle = new Protyle(protyle.app, document.createElement("div"), {
@@ -123,6 +133,7 @@ const showDatabaseRowPreview = (model: Editor, data: IDatabaseRowOpenData) => {
     editorProtyle.contentElement.scrollTop = 0;
     editorProtyle.databaseAttributePanel?.afterRender(() => {
         highlightDatabaseRow(editorProtyle, editorProtyle.contentElement, data);
+        focusNewDatabasePrimary(editorProtyle.contentElement, editorProtyle, data);
     });
 };
 
@@ -163,12 +174,13 @@ const getDatabaseRowPreviewTab = (blockID: string) => {
 };
 /// #endif
 
-export const openDatabaseRowByData = async (protyle: IProtyle, data: IDatabaseRowOpenData, options?: {
+export const openDatabaseRowByData = async (protyle: Pick<IProtyle, "app">, data: IDatabaseRowOpenData, options?: {
     position?: string,
     keepAVPanel?: boolean,
+    standalone?: boolean,
 }) => {
     const title = data.title || window.siyuan.languages.untitled;
-    const openStandalone = data.isDetached || !window.siyuan.config.editor.databaseAttrShow;
+    const openStandalone = options?.standalone || data.isDetached || !window.siyuan.config.editor.databaseAttrShow;
     /// #if MOBILE
     if (openStandalone) {
         openMobileDatabaseRow(protyle, data, title);
@@ -186,6 +198,7 @@ export const openDatabaseRowByData = async (protyle: IProtyle, data: IDatabaseRo
             editorProtyle.contentElement.scrollTop = 0;
             editorProtyle.databaseAttributePanel?.afterRender(() => {
                 highlightDatabaseRow(editorProtyle, editorProtyle.contentElement, data);
+                focusNewDatabasePrimary(editorProtyle.contentElement, editorProtyle, data);
             });
         }, true);
     return true;
@@ -214,6 +227,7 @@ export const openDatabaseRowByData = async (protyle: IProtyle, data: IDatabaseRo
                     matchedValueID: data.matchedValueID,
                     matchedKeyID: data.matchedKeyID,
                     keywords: data.keywords,
+                    focusPrimary: data.focusPrimary,
                 },
             },
             afterOpen(model) {

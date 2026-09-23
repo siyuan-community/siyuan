@@ -1,3 +1,5 @@
+import {openInputDialog} from "../dialog/inputDialog";
+import {showMessage} from "../dialog/message";
 import {Dialog} from "../dialog";
 import {confirmDialog} from "../dialog/confirmDialog";
 import {Constants} from "../constants";
@@ -59,13 +61,14 @@ const renderDoc = (element: HTMLElement, currentPage: number, id: string) => {
         const pageInfoElement = nextElement.nextElementSibling.nextElementSibling;
         pageInfoElement.classList.remove("fn__none");
         pageInfoElement.textContent = window.siyuan.languages.pageCountAndHistoryCount.replace("${x}", response.data.pageCount).replace("${y}", response.data.totalCount);
-        if (response.data.histories.length === 0) {
+        const histories = response.data.histories || [];
+        if (histories.length === 0) {
             listElement.innerHTML = `${genCurrentVersionItem()}<li class="b3-list--empty">${window.siyuan.languages.emptyContent}</li>`;
             element.dispatchEvent(new CustomEvent("versionListRendered"));
             return;
         }
         let logsHTML = genCurrentVersionItem();
-        response.data.histories.forEach((item: string) => {
+        histories.forEach((item: string) => {
             logsHTML += `<li class="b3-list-item b3-list-item--hide-action" data-created="${item}">
     <span class="b3-list-item__text">${dayjs(parseInt(item) * 1000).format("YYYY-MM-DD HH:mm:ss")}</span>
     <span class="fn__space"></span>
@@ -225,7 +228,7 @@ export const openDocHistory = (options: {
     </div>
 </div>`;
     const dialog = new Dialog({
-        title: options.pathString,
+        title: escapeHtml(options.pathString),
         content: contentHTML,
         width: isMobile() ? "100vw" : "90vw",
         height: isMobile() ? "100dvh" : "80vh",
@@ -462,17 +465,21 @@ export const openDocHistory = (options: {
                 break;
             } else if (type === "jumpRepoPage") {
                 const totalPage = parseInt(target.getAttribute("data-totalpage") || "1");
-                confirmDialog(
-                    window.siyuan.languages.jumpToPage.replace("${x}", totalPage),
-                    `<input class="b3-text-field fn__block" type="number" min="1" max="${totalPage}" value="${pageNumElement.textContent}">`,
-                    (confirmD) => {
-                        const inputElement = confirmD.element.querySelector(".b3-text-field") as HTMLInputElement;
-                        if (inputElement.value === "") {
+                openInputDialog({
+                    title: window.siyuan.languages.jumpToPage.replace("${x}", totalPage),
+                    value: String(pageNumElement.textContent),
+                    type: "number",
+                    min: "1",
+                    max: String(totalPage),
+                    onConfirm: (value, dialog) => {
+                        if (!Number.isFinite(parseInt(value))) {
+                            showMessage(window.siyuan.languages.jumpToPage.replace("${x}", totalPage));
                             return;
                         }
-                        renderDoc(fileElement, Math.max(1, Math.min(parseInt(inputElement.value), totalPage)), options.id);
-                    }
-                );
+                        renderDoc(fileElement, Math.max(1, Math.min(parseInt(value), totalPage)), options.id);
+                        dialog.destroy();
+                    },
+                });
             } else if ((type === "snapshotprevious" || type === "snapshotnext") &&
                 target.getAttribute("disabled") !== "disabled") {
                 const currentPage = parseInt(repoElement.getAttribute("data-page") || "1");
@@ -482,17 +489,21 @@ export const openDocHistory = (options: {
                 break;
             } else if (type === "jumpSnapshotPage") {
                 const totalPage = parseInt(target.getAttribute("data-totalpage") || "1");
-                confirmDialog(
-                    window.siyuan.languages.jumpToPage.replace("${x}", totalPage),
-                    `<input class="b3-text-field fn__block" type="number" min="1" max="${totalPage}" value="${target.textContent}">`,
-                    (confirmD) => {
-                        const inputElement = confirmD.element.querySelector(".b3-text-field") as HTMLInputElement;
-                        if (inputElement.value === "") {
+                openInputDialog({
+                    title: window.siyuan.languages.jumpToPage.replace("${x}", totalPage),
+                    value: String(target.textContent),
+                    type: "number",
+                    min: "1",
+                    max: String(totalPage),
+                    onConfirm: (value, dialog) => {
+                        if (!Number.isFinite(parseInt(value))) {
+                            showMessage(window.siyuan.languages.jumpToPage.replace("${x}", totalPage));
                             return;
                         }
-                        renderRepo(repoElement, Math.max(1, Math.min(parseInt(inputElement.value), totalPage)), options.id);
-                    }
-                );
+                        renderRepo(repoElement, Math.max(1, Math.min(parseInt(value), totalPage)), options.id);
+                        dialog.destroy();
+                    },
+                });
             }
             target = target.parentElement;
         }

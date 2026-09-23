@@ -74,11 +74,14 @@ func TestAssetDownloadFootnoteExport(t *testing.T) {
 	if err := prepareExportBlockAssets(source.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	exported := exportTree(prepareExportTree(getExportBlockTree(source.ID)), true, false, true,
+	exported, prepareErr := exportTree(prepareExportTree(getExportBlockTree(source.ID)), true, true, false, true,
 		Conf.Export.BlockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 		Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
 		Conf.Export.BlockRefTextLeft, Conf.Export.BlockRefTextRight,
-		Conf.Export.AddTitle, "", Conf.Export.InlineMemo, true, true)
+		Conf.Export.AddTitle, "", Conf.Export.InlineMemo, true, true, nil)
+	if prepareErr != nil {
+		t.Fatal(prepareErr)
+	}
 	containsAsset := false
 	for _, dest := range getAssetsLinkDests(exported.Root, false) {
 		if dest == "assets/file.bin" {
@@ -92,7 +95,13 @@ func TestAssetDownloadFootnoteExport(t *testing.T) {
 	appearancePath := util.AppearancePath
 	t.Cleanup(func() { util.AppearancePath = appearancePath })
 	util.AppearancePath = t.TempDir()
-	if err := os.MkdirAll(filepath.Join(util.AppearancePath, "themes", Conf.Appearance.ThemeLight), 0755); err != nil {
+	writeAppearanceTestEmojiFont(t)
+	for _, theme := range []string{Conf.Appearance.ThemeLight, Conf.Appearance.ThemeDark} {
+		if err := os.MkdirAll(filepath.Join(util.AppearancePath, "themes", theme), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(util.AppearancePath, "icons", Conf.Appearance.Icon), 0755); err != nil {
 		t.Fatal(err)
 	}
 	_, _, exportErr := exportMarkdownHTML(source.ID, exportDir, false, false)

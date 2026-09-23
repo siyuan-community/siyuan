@@ -1,0 +1,103 @@
+import * as assert from "node:assert/strict";
+import {test} from "node:test";
+import {applyMobileToolbarEntries} from "./toolbarEntries";
+import {getDefaultToolbar, getPluginToolbarEntryKey, markPluginToolbarEntries} from "../../protyle/toolbar/defaults";
+
+class ToolbarElement {
+    public children: ToolbarElement[] = [];
+    public dataset: {type?: string; id?: string};
+    private classes = new Set<string>();
+    public classList = {
+        contains: (name: string) => this.classes.has(name),
+        toggle: (name: string, enabled: boolean) => enabled ? this.classes.add(name) : this.classes.delete(name),
+    };
+
+    constructor(type?: string, separator?: string) {
+        this.dataset = {type};
+        if (separator) {
+            this.dataset.id = separator;
+            this.classes.add("keyboard__split");
+        }
+    }
+
+    public append(item: ToolbarElement) {
+        this.children = this.children.filter(child => child !== item);
+        this.children.push(item);
+    }
+}
+
+test("shared toolbar restores document entries after editing a restricted fragment", () => {
+    const root = new ToolbarElement();
+    const back = new ToolbarElement("goback");
+    const bold = new ToolbarElement("strong");
+    const tag = new ToolbarElement("tag");
+    const separator = new ToolbarElement(undefined, "separator_1");
+    root.children = [back, bold, separator, tag];
+    const options = {order: ["strong", "separator_1", "tag"], isVisible: () => true};
+    applyMobileToolbarEntries(root as unknown as HTMLElement, ["strong"], options);
+    assert.deepEqual(root.children.filter(item => !item.classList.contains("fn__none")), [back, bold]);
+    applyMobileToolbarEntries(root as unknown as HTMLElement, getDefaultToolbar(true), options);
+    assert.deepEqual(root.children.filter(item => !item.classList.contains("fn__none")), [back, bold, separator, tag]);
+});
+
+test("mobile toolbar keeps navigation reachable and removes empty separators", () => {
+    const root = new ToolbarElement();
+    const back = new ToolbarElement("goback");
+    const family = new ToolbarElement("font-family");
+    const size = new ToolbarElement("font-size");
+    const first = new ToolbarElement(undefined, "separator_1");
+    const second = new ToolbarElement(undefined, "separator_2");
+    root.children = [back, first, family, second, size];
+    const toolbar = getDefaultToolbar(true);
+    const order = ["separator_1", "font-family", "separator_2", "font-size"];
+    applyMobileToolbarEntries(root as unknown as HTMLElement, toolbar, {order, isVisible: key => key !== "font-family"});
+    assert.deepEqual(root.children.filter(item => !item.classList.contains("fn__none")), [back, size]);
+    applyMobileToolbarEntries(root as unknown as HTMLElement, toolbar, {order, isVisible: () => false});
+    assert.deepEqual(root.children.filter(item => !item.classList.contains("fn__none")), [back]);
+    applyMobileToolbarEntries(root as unknown as HTMLElement, toolbar, {
+        order: ["font-size", "separator_1", "font-family", "separator_2"], isVisible: () => true,
+    });
+    assert.deepEqual(root.children.filter(item => !item.classList.contains("fn__none")), [back, size, first, family]);
+});
+
+test("mobile toolbar follows font visibility changes while preserving formatting entries", () => {
+    const root = new ToolbarElement();
+    const back = new ToolbarElement("goback");
+    const family = new ToolbarElement("font-family");
+    const size = new ToolbarElement("font-size");
+    const appearance = new ToolbarElement("text");
+    const bold = new ToolbarElement("strong");
+    const separator = new ToolbarElement(undefined, "separator_1");
+    root.children = [back, family, size, separator, appearance, bold];
+    applyMobileToolbarEntries(root as unknown as HTMLElement, getDefaultToolbar(true), {
+        order: ["font-family", "font-size", "separator_1", "text", "strong"],
+        isVisible: key => !["font-family", "font-size"].includes(key),
+    });
+    assert.deepEqual(root.children.filter(item => !item.classList.contains("fn__none")), [back, appearance, bold]);
+    applyMobileToolbarEntries(root as unknown as HTMLElement, getDefaultToolbar(true), {
+        order: ["font-family", "font-size", "separator_1", "text", "strong"],
+        isVisible: () => true,
+    });
+    assert.deepEqual(root.children.filter(item => !item.classList.contains("fn__none")),
+        [back, family, size, separator, appearance, bold]);
+});
+
+test("mobile toolbar applies plugin visibility and restores its configured order", () => {
+    const defaults = getDefaultToolbar(true);
+    const plugin = {name: "plugin-action"};
+    const toolbar = markPluginToolbarEntries(defaults, [...defaults, plugin], "example", () => "Example");
+    const key = getPluginToolbarEntryKey("example", "plugin-action");
+    const root = new ToolbarElement();
+    const back = new ToolbarElement("goback");
+    const family = new ToolbarElement("font-family");
+    const custom = new ToolbarElement(plugin.name);
+    root.children = [back, family, custom];
+    const order = [key, "font-family"];
+    applyMobileToolbarEntries(root as unknown as HTMLElement, toolbar, {order, isVisible: id => id !== key});
+    assert.equal(custom.dataset.id, key);
+    assert.deepEqual(root.children, [back, custom, family]);
+    assert.equal(custom.classList.contains("fn__none"), true);
+    applyMobileToolbarEntries(root as unknown as HTMLElement, toolbar, {order, isVisible: () => true});
+    assert.deepEqual(root.children, [back, custom, family]);
+    assert.equal(custom.classList.contains("fn__none"), false);
+});

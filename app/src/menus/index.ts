@@ -3,6 +3,8 @@ import {getInstanceById, setPanelFocus} from "../layout/util";
 import {Tab} from "../layout/Tab";
 import {initSearchMenu} from "./search";
 import {initDockMenu} from "./dock";
+import {initTopBarMenu} from "./topBar";
+import {initStatusBarMenu} from "./statusBar";
 import {initFileMenu, initNavigationMenu} from "./navigation";
 import {initTabMenu} from "./tab";
 /// #endif
@@ -57,6 +59,19 @@ export class Menus {
             } else {
                 event.preventDefault();
             }
+            if (target.closest("#status")) {
+                hideTooltip();
+                initStatusBarMenu(target.closest("[data-statusbar-entry]") || undefined)
+                    .popup({x: event.clientX, y: event.clientY});
+                event.stopPropagation();
+                return;
+            }
+            if (target.id === "toolbar" || target.closest("#drag")) {
+                hideTooltip();
+                initTopBarMenu().popup({x: event.clientX, y: event.clientY});
+                event.stopPropagation();
+                return;
+            }
             while (target && target.parentElement   // ⌃⇥ 后点击会为空
             && !target.parentElement.isEqualNode(document.querySelector("body"))) {
                 const dataType = target.getAttribute("data-type");
@@ -74,16 +89,23 @@ export class Menus {
                     }
                     this.unselect();
                     // navigation 根上：新建文档/文件夹/取消挂在/打开文件位置
-                    initNavigationMenu(app, target).popup({x: event.clientX, y: event.clientY});
+                    const rect = target.getBoundingClientRect();
+                    initNavigationMenu(app, target).popup({
+                        x: event.clientX,
+                        y: rect.bottom,
+                        h: rect.height,
+                    });
                     setPanelFocus(hasClosestByClassName(target, "sy__file") as HTMLElement);
                     event.stopPropagation();
                     break;
                 } else if (dataType === "navigation-file") {
                     this.unselect();
+                    const rect = target.getBoundingClientRect();
                     // navigation 文件上：删除/重命名/打开文件位置/导出
                     initFileMenu(app, this.getDir(target), target.getAttribute("data-path"), target).popup({
                         x: event.clientX,
-                        y: event.clientY
+                        y: rect.bottom,
+                        h: rect.height,
                     });
                     setPanelFocus(hasClosestByClassName(target, "sy__file") as HTMLElement);
                     event.stopPropagation();
@@ -98,6 +120,20 @@ export class Menus {
                 } else if (dataType && target.classList.contains("dock__item")) {
                     hideTooltip();
                     initDockMenu(target).popup({x: event.clientX, y: event.clientY});
+                    event.stopPropagation();
+                    break;
+                } else if (target.hasAttribute("data-topbar-entry")) {
+                    hideTooltip();
+                    initTopBarMenu(target).popup({x: event.clientX, y: event.clientY});
+                    event.stopPropagation();
+                    break;
+                } else if (target.classList.contains("dock") || target.classList.contains("dock__items") ||
+                    target.classList.contains("dock__item--space")) {
+                    hideTooltip();
+                    initDockMenu(undefined, target).popup({
+                        x: event.clientX,
+                        y: event.clientY
+                    });
                     event.stopPropagation();
                     break;
                 } else if (dataType === "textMenu") {

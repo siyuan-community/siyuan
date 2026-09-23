@@ -38,6 +38,11 @@ var (
 	indexMu        sync.Mutex
 	indexQueueSize atomic.Int64
 	indexFlock     *flock.Flock
+
+	// HPathRefreshLock 在重建索引前阻止路径任务写回；锁顺序为路径任务锁、数据库初始化锁、索引队列锁。
+	HPathRefreshLock sync.Mutex
+	// ResetHPathRefreshQueue 由模型层注入，在持有 HPathRefreshLock 时同步清理普通索引的路径恢复记录。
+	ResetHPathRefreshQueue func() error
 )
 
 type indexEntry struct {
@@ -107,8 +112,8 @@ func dbOpToIndexEntry(op *dbQueueOperation) *indexEntry {
 		return &indexEntry{Action: "upsert", ID: op.upsertTree.ID, Box: op.upsertTree.Box, Path: op.upsertTree.Path}
 	case "index":
 		return &indexEntry{Action: "index", ID: op.indexTree.ID, Box: op.indexTree.Box, Path: op.indexTree.Path}
-	case "rename":
-		return &indexEntry{Action: "rename", ID: op.indexTree.ID, Box: op.indexTree.Box, Path: op.indexTree.Path}
+	case "rename", "rename_doc":
+		return &indexEntry{Action: op.action, ID: op.indexTree.ID, Box: op.indexTree.Box, Path: op.indexTree.Path}
 	case "move":
 		return &indexEntry{Action: "move", ID: op.indexTree.ID, Box: op.indexTree.Box, Path: op.indexTree.Path}
 	case "update_refs":
@@ -192,6 +197,12 @@ func readIndexEntriesFrom(indexQueuePath string, offset int64) (entries []indexE
 }
 
 func clearIndexQueueEntries() {
+	// 调用方持有 HPathRefreshLock；普通队列刷新只清理自身快照，不会进入这里。
+	if ResetHPathRefreshQueue != nil {
+		if err := ResetHPathRefreshQueue(); err != nil {
+			logging.LogErrorf("clear hpath refresh queue failed: %s", err)
+		}
+	}
 	indexMu.Lock()
 	defer indexMu.Unlock()
 
@@ -273,13 +284,13 @@ func indexEntryToOp(e indexEntry, luteEngine *lute.Lute, prefix string) *dbQueue
 			return nil
 		}
 		return &dbQueueOperation{indexTree: tree, inQueueTime: time.Now(), action: "index"}
-	case "rename":
+	case "rename", "rename_doc":
 		tree, err := filesys.LoadTree(e.Box, e.Path, luteEngine)
 		if err != nil {
 			logIndexEntryLoadError(prefix, "rename", e, err)
 			return nil
 		}
-		return &dbQueueOperation{indexTree: tree, inQueueTime: time.Now(), action: "rename"}
+		return &dbQueueOperation{indexTree: tree, inQueueTime: time.Now(), action: e.Action}
 	case "move":
 		tree, err := filesys.LoadTree(e.Box, e.Path, luteEngine)
 		if err != nil {

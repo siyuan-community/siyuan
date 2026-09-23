@@ -1,6 +1,7 @@
 import {MenuItem} from "./Menu";
 /// #if !BROWSER
 import {ipcRenderer} from "electron";
+import {openRemoteConnection} from "../dialog/remoteConnection";
 /// #endif
 import {openHistory} from "../history/history";
 import {getOpenNotebookCount, originalPath, pathPosix, useShell} from "../util/pathName";
@@ -17,17 +18,18 @@ import {
 } from "../protyle/util/compatibility";
 import {openCard} from "../card/openCard";
 import {openSetting} from "../config";
-import {getAllDocks} from "../layout/getAll";
+import {getAllDocks, getAllModels} from "../layout/getAll";
 import {getDockHotkey} from "../layout/dock/hotkey";
 import {exportLayout, getAllLayout} from "../layout/util";
 import {getDockByType} from "../layout/tabUtil";
 import {exitSiYuan, lockScreen} from "../dialog/processSystem";
 import {showMessage} from "../dialog/message";
 import {getFileTreeIconHTML} from "../emoji/fileTreeIcon";
-import {Dock} from "../layout/dock";
+import {togglePinDock} from "./dockLayout";
 import {escapeAttr, escapeHtml} from "../util/escape";
 import {viewCards} from "../card/viewCards";
 import {Dialog} from "../dialog";
+import {openInputDialog} from "../dialog/inputDialog";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
 import {confirmDialog} from "../dialog/confirmDialog";
 import type {App} from "../index";
@@ -39,115 +41,91 @@ import {openDataMigration} from "./dataMigration";
 import {openLink} from "../editor/openLink";
 import {adjustEditorFontSize} from "../util/editorFontSize";
 import {getHostCapabilities} from "../util/hostCapabilities";
+import {openTemplateManager} from "../template/manager";
 
 const editLayout = (layoutName?: string) => {
-    const dialog = new Dialog({
+    const dialog = openInputDialog({
         positionId: Constants.DIALOG_SAVEWORKSPACE,
         title: layoutName ? window.siyuan.languages.edit : window.siyuan.languages.save,
-        content: `<div class="b3-dialog__content">
-        <input class="b3-text-field fn__block" value="${layoutName || ""}" placeholder="${window.siyuan.languages.memo}">
-</div>
-<div class="b3-dialog__action">
-    <button class="b3-button b3-button--remove${layoutName ? "" : " fn__none"}">${window.siyuan.languages.delete}</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--text${layoutName ? "" : " fn__none"}">${window.siyuan.languages.rename}</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--text">${window.siyuan.languages[layoutName ? "updateLayout" : "confirm"]}</button>
-</div>`,
+        value: layoutName || "",
+        placeholder: window.siyuan.languages.memo,
         width: "520px",
-    });
-    dialog.element.setAttribute("data-key", Constants.DIALOG_SAVEWORKSPACE);
-    const btnsElement = dialog.element.querySelectorAll(".b3-button");
-    const inputElement = dialog.element.querySelector("input");
-    inputElement.select();
-    inputElement.focus();
-    dialog.bindInput(inputElement, () => {
-        btnsElement[3].dispatchEvent(new CustomEvent("click"));
-    });
-    btnsElement[0].addEventListener("click", () => {
-        window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((layoutItem: ISaveLayout, index: number) => {
-            if (layoutItem.name === layoutName) {
-                window.siyuan.storage[Constants.LOCAL_LAYOUTS].splice(index, 1);
-                setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
-                return true;
+        confirmText: window.siyuan.languages[layoutName ? "updateLayout" : "confirm"],
+        actions: layoutName ? [{
+            text: window.siyuan.languages.delete,
+            danger: true,
+            position: "beforeCancel",
+            onClick: (value, dialog) => {
+                window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((layoutItem: ISaveLayout, index: number) => {
+                    if (layoutItem.name === layoutName) {
+                        window.siyuan.storage[Constants.LOCAL_LAYOUTS].splice(index, 1);
+                        setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+                        return true;
+                    }
+                });
+                dialog.destroy();
+            },
+        }, {
+            text: window.siyuan.languages.rename,
+            onClick: (value, dialog) => {
+                if (!value) {
+                    showMessage(window.siyuan.languages["_kernel"]["142"]);
+                    return;
+                }
+                dialog.destroy();
+                window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((layoutItem: ISaveLayout) => {
+                    if (layoutItem.name === layoutName) {
+                        layoutItem.name = value;
+                        layoutItem.time = Date.now();
+                        setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+                        return true;
+                    }
+                });
+            },
+        }] : [],
+        onConfirm: (value, dialog) => {
+            if (!value) {
+                showMessage(window.siyuan.languages["_kernel"]["142"]);
+                return;
             }
-        });
-        dialog.destroy();
-    });
-    btnsElement[1].addEventListener("click", () => {
-        dialog.destroy();
-    });
-    btnsElement[2].addEventListener("click", () => {
-        const value = inputElement.value;
-        if (!value) {
-            showMessage(window.siyuan.languages["_kernel"]["142"]);
-            return;
-        }
-        dialog.destroy();
-        window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((layoutItem: ISaveLayout) => {
-            if (layoutItem.name === layoutName) {
-                layoutItem.name = value;
-                layoutItem.time = Date.now();
-                setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
-                return true;
+            dialog.destroy();
+            if (layoutName) {
+                window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((layoutItem: ISaveLayout) => {
+                    if (layoutItem.name === layoutName) {
+                        layoutItem.name = value;
+                        layoutItem.time = Date.now();
+                        layoutItem.layout = getAllLayout();
+                        layoutItem.filesPaths = window.siyuan.storage[Constants.LOCAL_FILESPATHS];
+                        setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+                        return true;
+                    }
+                });
+                return;
             }
-        });
-    });
-    btnsElement[3].addEventListener("click", () => {
-        const value = inputElement.value;
-        if (!value) {
-            showMessage(window.siyuan.languages["_kernel"]["142"]);
-            return;
-        }
-        dialog.destroy();
-        if (layoutName) {
-            window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((layoutItem: ISaveLayout) => {
-                if (layoutItem.name === layoutName) {
-                    layoutItem.name = value;
-                    layoutItem.time = Date.now();
-                    layoutItem.layout = getAllLayout();
-                    layoutItem.filesPaths = window.siyuan.storage[Constants.LOCAL_FILESPATHS];
-                    setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+            const hadName = window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((item: ISaveLayout) => {
+                if (item.name === value) {
+                    confirmDialog(window.siyuan.languages.save, window.siyuan.languages.exportTplTip, () => {
+                        item.layout = getAllLayout();
+                        item.time = Date.now();
+                        item.filesPaths = window.siyuan.storage[Constants.LOCAL_FILESPATHS];
+                        setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+                    });
                     return true;
                 }
             });
-            return;
-        }
-        const hadName = window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((item: ISaveLayout) => {
-            if (item.name === value) {
-                confirmDialog(window.siyuan.languages.save, window.siyuan.languages.exportTplTip, () => {
-                    item.layout = getAllLayout();
-                    item.time = Date.now();
-                    item.filesPaths = window.siyuan.storage[Constants.LOCAL_FILESPATHS];
-                    setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
-                });
-                return true;
+            if (hadName) {
+                return;
             }
-        });
-        if (hadName) {
-            return;
-        }
-        window.siyuan.storage[Constants.LOCAL_LAYOUTS].push({
-            name: value,
-            time: Date.now(),
-            layout: getAllLayout(),
-            filesPaths: window.siyuan.storage[Constants.LOCAL_FILESPATHS]
-        });
-        setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+            window.siyuan.storage[Constants.LOCAL_LAYOUTS].push({
+                name: value,
+                time: Date.now(),
+                layout: getAllLayout(),
+                filesPaths: window.siyuan.storage[Constants.LOCAL_FILESPATHS]
+            });
+            setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+        },
     });
-};
-
-const togglePinDock = (id: "switchLeftDock" | "switchRightDock" | "switchBottomDock", dock: Dock, pinIcon: string, unpinIcon: string) => {
-    const isFloating = dock.isFloating();
-    return {
-        id,
-        label: `${isFloating ? window.siyuan.languages.switchToFixedLayout : window.siyuan.languages.switchToFloatingLayout}`,
-        icon: `${isFloating ? pinIcon : unpinIcon}`,
-        accelerator: window.siyuan.config.keymap.general[id].custom,
-        current: isFloating,
-        click() {
-            dock.togglePin();
-        }
-    };
+    dialog.element.setAttribute("data-key", Constants.DIALOG_SAVEWORKSPACE);
 };
 
 const getApplicationZoomSubMenu = () => {
@@ -243,12 +221,17 @@ const getZoomSubMenu = () => {
     return submenu;
 };
 
-export const workspaceMenu = (app: App, rect: DOMRect) => {
+export const workspaceMenu = async (app: App, rect: DOMRect) => {
     if (!window.siyuan.menus.menu.element.classList.contains("fn__none") &&
         window.siyuan.menus.menu.element.getAttribute("data-name") === Constants.MENU_BAR_WORKSPACE) {
         window.siyuan.menus.menu.remove();
         return;
     }
+    let remoteConnections: string[] = [];
+    /// #if !BROWSER
+    remoteConnections = await ipcRenderer.invoke(Constants.SIYUAN_GET, {cmd: "remoteConnections"});
+    const manageConnections = (origin?: string) => openRemoteConnection(origin);
+    /// #endif
     const renderMenu = (workspaces: IWorkspace[]) => {
         window.siyuan.menus.menu.remove();
         window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_BAR_WORKSPACE);
@@ -288,12 +271,13 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
             type: "submenu",
             submenu: dockMenu
         }).element);
-        if (!window.siyuan.config.readonly && getHostCapabilities().workspaces) {
+        if ((!window.siyuan.config.readonly && getHostCapabilities().workspaces) || !isBrowser()) {
             let workspaceSubMenu: IMenu[];
             /// #if !BROWSER
-            workspaceSubMenu = [{
+            workspaceSubMenu = getHostCapabilities().workspaces ? [{
                 id: "newOrOpenBy",
-                label: `${window.siyuan.languages.new} / ${window.siyuan.languages.openBy}`,
+                label: getHostCapabilities().workspaces
+                    ? `${window.siyuan.languages.new} / ${window.siyuan.languages.openBy}` : window.siyuan.languages.openBy,
                 iconHTML: "",
                 click: async () => {
                     const localPath = await ipcRenderer.invoke(Constants.SIYUAN_GET, {
@@ -308,48 +292,48 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                         if (response.data.isWorkspace) {
                             openWorkspace(localPath.filePaths[0]);
                         } else {
-                            confirmDialog("🏗️ " + window.siyuan.languages.createWorkspace, window.siyuan.languages.createWorkspaceTip + `<br><br><code class="fn__code">${localPath.filePaths[0]}</code>`, () => {
+                            confirmDialog("🏗️ " + window.siyuan.languages.createWorkspace, window.siyuan.languages.createWorkspaceTip + `<br><br><code class="fn__code">${escapeHtml(localPath.filePaths[0])}</code>`, () => {
                                 openWorkspace(localPath.filePaths[0]);
                             });
                         }
                     });
                 }
-            }];
-            workspaceSubMenu.push({id: "separator_1", type: "separator"});
+            }] : [];
+            workspaceSubMenu.push({
+                id: "connectRemoteKernel",
+                label: window.siyuan.languages.connectRemoteKernel,
+                icon: "iconCloud",
+                click: () => manageConnections(),
+            });
+            if (workspaces.length + remoteConnections.length > 0) {
+                workspaceSubMenu.push({id: "separator_1", type: "separator"});
+            }
             workspaces.forEach((item: IWorkspace) => {
                 workspaceSubMenu.push(workspaceItem(item) as IMenu);
             });
+            remoteConnections.forEach(origin => workspaceSubMenu.push({
+                label: escapeHtml(window.siyuan.languages.remoteConnection + " · " + origin),
+                icon: "iconCloud",
+                click: () => manageConnections(origin),
+            }));
             /// #else
             workspaceSubMenu = [{
                 id: "new",
                 label: window.siyuan.languages.new,
                 iconHTML: "",
                 click() {
-                    const createWorkspaceDialog = new Dialog({
+                    const createWorkspaceDialog = openInputDialog({
                         title: window.siyuan.languages.new,
-                        content: `<div class="b3-dialog__content">
-    <input class="b3-text-field fn__block">
-</div>
-<div class="b3-dialog__action">
-    <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--text">${window.siyuan.languages.confirm}</button>
-</div>`,
-                        width: "520px",
+                        value: "",
+                        onConfirm: (value, dialog) => {
+                            fetchPost("/api/system/createWorkspaceDir", {
+                                path: pathPosix().join(pathPosix().dirname(window.siyuan.config.system.workspaceDir), value)
+                            }, () => {
+                                dialog.destroy();
+                            });
+                        },
                     });
                     createWorkspaceDialog.element.setAttribute("data-key", Constants.DIALOG_CREATEWORKSPACE);
-                    const inputElement = createWorkspaceDialog.element.querySelector("input");
-                    inputElement.focus();
-                    const btnsElement = createWorkspaceDialog.element.querySelectorAll(".b3-button");
-                    btnsElement[0].addEventListener("click", () => {
-                        createWorkspaceDialog.destroy();
-                    });
-                    btnsElement[1].addEventListener("click", () => {
-                        fetchPost("/api/system/createWorkspaceDir", {
-                            path: pathPosix().join(pathPosix().dirname(window.siyuan.config.system.workspaceDir), inputElement.value)
-                        }, () => {
-                            createWorkspaceDialog.destroy();
-                        });
-                    });
                 }
             }, {
                 id: "openBy",
@@ -359,7 +343,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                     fetchPost("/api/system/getMobileWorkspaces", {}, (response) => {
                         let selectHTML = "";
                         response.data.forEach((item: string, index: number) => {
-                            selectHTML += `<option value="${item}"${index === 0 ? ' selected="selected"' : ""}>${pathPosix().basename(item)}</option>`;
+                            selectHTML += `<option value="${escapeAttr(escapeHtml(item))}"${index === 0 ? ' selected="selected"' : ""}>${escapeHtml(pathPosix().basename(item))}</option>`;
                         });
                         const openWorkspaceDialog = new Dialog({
                             title: window.siyuan.languages.openBy,
@@ -383,7 +367,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                                 openWorkspaceDialog.destroy();
                                 return;
                             }
-                            confirmDialog(window.siyuan.languages.confirm, `${pathPosix().basename(window.siyuan.config.system.workspaceDir)} -> ${pathPosix().basename(openPath)}?`, () => {
+                            confirmDialog(window.siyuan.languages.confirm, `${escapeHtml(pathPosix().basename(window.siyuan.config.system.workspaceDir))} -> ${escapeHtml(pathPosix().basename(openPath))}?`, () => {
                                 fetchPost("/api/system/setWorkspaceDir", {
                                     path: openPath
                                 }, () => {
@@ -410,14 +394,14 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                                     fetchPost("/api/system/removeWorkspaceDir", {path: item.path});
                                     return;
                                 }
-                                confirmDialog(window.siyuan.languages.deleteOpConfirm, window.siyuan.languages.removeWorkspacePhysically.replace("${x}", item.path), () => {
+                                confirmDialog(window.siyuan.languages.deleteOpConfirm, window.siyuan.languages.removeWorkspacePhysically.replace("${x}", () => escapeHtml(item.path)), () => {
                                     fetchPost("/api/system/removeWorkspaceDirPhysically", {path: item.path});
                                 }, () => {
                                     fetchPost("/api/system/removeWorkspaceDir", {path: item.path});
                                 }, true);
                                 return;
                             }
-                            confirmDialog(window.siyuan.languages.confirm, `${pathPosix().basename(window.siyuan.config.system.workspaceDir)} -> ${pathPosix().basename(item.path)}?`, () => {
+                            confirmDialog(window.siyuan.languages.confirm, `${escapeHtml(pathPosix().basename(window.siyuan.config.system.workspaceDir))} -> ${escapeHtml(pathPosix().basename(item.path))}?`, () => {
                                 fetchPost("/api/system/setWorkspaceDir", {
                                     path: item.path
                                 }, () => {
@@ -452,7 +436,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
             layoutSubMenu.push({
                 iconHTML: "",
                 type: "empty",
-                label: `<input class="b3-text-field fn__block" style="margin: 4px 0" placeholder="${window.siyuan.languages.searchPlaceholder}">
+                label: `<input spellcheck="false" class="b3-text-field fn__block" style="margin: 4px 0" placeholder="${window.siyuan.languages.searchPlaceholder}">
 <div class="b3-list b3-list--background" style="width: 220px"></div>`,
                 bind(menuElement) {
                     const genListHTML = (isInit = false) => {
@@ -634,15 +618,6 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                 }
             }).element);
             window.siyuan.menus.menu.append(new MenuItem({
-                id: "lockScreen",
-                label: window.siyuan.languages.lockScreen,
-                icon: "iconLock",
-                accelerator: window.siyuan.config.keymap.general.lockScreen.custom,
-                click: () => {
-                    lockScreen();
-                }
-            }).element);
-            window.siyuan.menus.menu.append(new MenuItem({
                 id: "dataHistory",
                 label: window.siyuan.languages.dataHistory,
                 icon: "iconHistory",
@@ -661,6 +636,27 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                     }
                 }).element);
             }
+            if (getHostCapabilities().importExport) {
+                window.siyuan.menus.menu.append(new MenuItem({
+                    id: "templateManager",
+                    label: window.siyuan.languages.templateManager,
+                    icon: "iconMarkdown",
+                    click: () => {
+                        const editor = getAllModels().editor.find(item =>
+                            item.parent.headElement.classList.contains("item--focus"));
+                        openTemplateManager(editor?.editor.protyle.block.rootID || "");
+                    }
+                }).element);
+            }
+            window.siyuan.menus.menu.append(new MenuItem({
+                id: "lockScreen",
+                label: window.siyuan.languages.lockScreen,
+                icon: "iconLock",
+                accelerator: window.siyuan.config.keymap.general.lockScreen.custom,
+                click: () => {
+                    lockScreen();
+                }
+            }).element);
             window.siyuan.menus.menu.append(new MenuItem({id: "separator_2", type: "separator"}).element);
         }
         window.siyuan.menus.menu.append(new MenuItem({
@@ -709,7 +705,7 @@ export const workspaceMenu = (app: App, rect: DOMRect) => {
                 }
             }).element);
         }
-        window.siyuan.menus.menu.popup({x: rect.left, y: rect.bottom});
+        window.siyuan.menus.menu.popup({x: rect.left, y: rect.bottom, h: rect.height});
     };
     if (getHostCapabilities().workspaces) {
         fetchPost("/api/system/getWorkspaces", {}, (response) => renderMenu(response.data));

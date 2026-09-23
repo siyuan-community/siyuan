@@ -6,7 +6,7 @@
 		"id": "20201227173504-847cs1q",
 		"title": "Docker 伺服",
 		"type": "doc",
-		"updated": "20260903150000"
+		"updated": "20260921003419"
 	},
 	"Children": [
 		{
@@ -293,7 +293,8 @@
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
-				"id": "20201227174908-s19h988"
+				"id": "20201227174908-s19h988",
+				"updated": "20260918190000"
 			},
 			"Children": [
 				{
@@ -396,7 +397,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20210301201353-sffb1m7",
-				"updated": "20231108220447"
+				"updated": "20260918190000"
 			},
 			"Children": [
 				{
@@ -422,6 +423,19 @@
 				{
 					"Type": "NodeText",
 					"Data": "​"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。通过 Docker 部署并启用发布服务时，除伺服端口映射外，还需在创建容器的命令中添加 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "-p 6808:6808"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。Docker 端口映射格式为宿主机端口:容器端口；若修改发布服务端口，应同步调整容器端口，访问时使用宿主机端口。请使用固定的发布服务端口，不要设置为 0"
 				}
 			]
 		},
@@ -634,7 +648,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210930091350-4oy2gq8",
-				"updated": "20210930091414"
+				"updated": "20260921003419"
 			},
 			"Children": [
 				{
@@ -663,7 +677,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20210930091550-c9aemmk",
-				"updated": "20211112103359"
+				"updated": "20260921003419"
 			},
 			"Children": [
 				{
@@ -702,6 +716,88 @@
 							]
 						}
 					]
+				},
+				{
+					"ID": "20260921003419-qnv6oha",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Children": [
+						{
+							"ID": "20260921003419-iwqwtrh",
+							"Type": "NodeParagraph",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "普通请求和 "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "/ws"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " 的反向代理都需要保留原始 "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "Host"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " 请求头及端口，在 NGINX 的两处代理配置中均设置 "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "proxy_set_header Host $http_host;"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "。使用 "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "$host"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " 会丢失非标准端口（如 "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "8443"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "），可能导致来源校验失败，表现为登录后停留在 LOGO 并反复刷新、接口返回 "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "401"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " 或 WebSocket 连接失败"
+								}
+							],
+							"Properties": {
+								"id": "20260921003419-iwqwtrh",
+								"updated": "20260921003419"
+							}
+						}
+					],
+					"Properties": {
+						"id": "20260921003419-qnv6oha",
+						"updated": "20260921003419"
+					}
 				}
 			]
 		},

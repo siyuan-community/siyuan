@@ -10,6 +10,7 @@ import {disabledWYSIWYG} from "../util/disabledWYSIWYG";
 import {normalizeHTMLAssetIFrameBlockDOM} from "../../asset/html";
 import {finishCustomEmbedRender, finishEmptyEmbedRender, IEmbedRenderLoadingState} from "./embedRenderState";
 import {getHostCapabilities} from "../../util/hostCapabilities";
+import {isDirectHeadingEmbed} from "./embedHeading";
 
 /**
  * 渲染嵌入块
@@ -26,6 +27,9 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number, o
         return;
     }
     blockElements.forEach((item: HTMLElement) => {
+        if (item.closest(".list-mindmap__preview-block")) {
+            return;
+        }
         const content = Lute.UnEscapeHTMLStr(item.getAttribute("data-content"));
         if (!content.trim()) {
             genRenderFrame(item);
@@ -48,12 +52,8 @@ export const blockRender = (protyle: IProtyle, element: Element, top?: number, o
                 }
             }
         }
-        let breadcrumb: boolean | string = item.getAttribute("breadcrumb");
-        if (breadcrumb) {
-            breadcrumb = breadcrumb === "true";
-        } else {
-            breadcrumb = window.siyuan.config.editor.embedBlockBreadcrumb;
-        }
+        const breadcrumbAttribute = item.getAttribute("breadcrumb");
+        const breadcrumb = breadcrumbAttribute ? breadcrumbAttribute === "true" : window.siyuan.config.editor.embedBlockBreadcrumb;
 
         if (content.startsWith("//!js")) {
             // 安全模式下禁用 JS 查询嵌入块，与代码片段（CSS/JS snippet）的处理保持一致
@@ -133,7 +133,9 @@ const renderEmbed = (blocks: {
         }
         const childOperationAttr = blocksItem.allowChildOperation ? " data-allow-child-operation=\"true\"" : "";
         const rootIDAttr = blocksItem.block.rootID ? ` data-root-id="${blocksItem.block.rootID}"` : "";
-        html += `<div class="protyle-wysiwyg__embed" data-id="${blocksItem.block.id}"${rootIDAttr}${childOperationAttr}>
+        const headingAttr = blocks.length === 1 && isDirectHeadingEmbed(Lute.UnEscapeHTMLStr(item.getAttribute("data-content")),
+            blocksItem.block.id, blocksItem.block.type) ? " data-embed-heading=\"true\"" : "";
+        html += `<div class="protyle-wysiwyg__embed" data-id="${blocksItem.block.id}"${rootIDAttr}${childOperationAttr}${headingAttr}>
 ${popover}${breadcrumbHTML}${blocksItem.block.content}
 </div>`;
     });

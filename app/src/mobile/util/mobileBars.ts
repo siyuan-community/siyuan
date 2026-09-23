@@ -4,6 +4,7 @@ import {
     MOBILE_BARS_SCROLL_OPTIONS,
     reduceMobileBarsState,
 } from "./mobileBarsState";
+import {isMobileBarsAutoHide} from "./mobileBarsConfig";
 
 const PANEL_IDS = ["sidebar", "sidebarRight", "menu", "model"];
 
@@ -43,17 +44,20 @@ const renderMobileBars = () => {
 
     const progress = MOBILE_BARS_SCROLL_OPTIONS.maxOffset === 0 ? 0 :
         barsState.readingBarsOffset / MOBILE_BARS_SCROLL_OPTIONS.maxOffset;
+    // 顶栏和面包屑整体滑出，使完全隐藏时的底边与滚动视口顶部重合。
+    const breadcrumbTranslateY = `calc(${0 - progress} * (var(--mobile-topbar-height) + var(--mobile-breadcrumb-height)))`;
     const topbarElement = document.getElementById("mobileTopBar");
     if (topbarElement) {
-        topbarElement.style.setProperty("--mobile-bar-translate-y", `${0 - barsState.readingBarsOffset}px`);
+        topbarElement.style.setProperty("--mobile-bar-translate-y", breadcrumbTranslateY);
         topbarElement.toggleAttribute("inert", immersive);
         topbarElement.setAttribute("aria-hidden", immersive ? "true" : "false");
     }
     const breadcrumbElement = document.querySelector<HTMLElement>("#editor > .protyle-breadcrumb");
-    const breadcrumbTranslateY = `${0 - barsState.readingBarsOffset}px`;
     const breadcrumbPositionChanged = breadcrumbElement &&
         breadcrumbElement.style.getPropertyValue("--mobile-bar-translate-y") !== breadcrumbTranslateY;
     breadcrumbElement?.style.setProperty("--mobile-bar-translate-y", breadcrumbTranslateY);
+    breadcrumbElement?.toggleAttribute("inert", immersive);
+    breadcrumbElement?.setAttribute("aria-hidden", immersive ? "true" : "false");
     if (breadcrumbPositionChanged) {
         breadcrumbPositionChange?.();
     }
@@ -117,6 +121,9 @@ const onScroll = () => {
             type: "scroll",
             scrollTop: scrollElement.scrollTop,
         });
+        if (!isMobileBarsAutoHide()) {
+            barsState = reduceMobileBarsState(barsState, {type: "set-reading-bars", visible: true});
+        }
         renderMobileBars();
     });
 };

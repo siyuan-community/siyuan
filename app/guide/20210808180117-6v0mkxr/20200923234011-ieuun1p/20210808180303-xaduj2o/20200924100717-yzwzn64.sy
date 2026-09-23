@@ -6,7 +6,7 @@
 		"id": "20200924100717-yzwzn64",
 		"title": "Kernel parameter",
 		"type": "doc",
-		"updated": "20260718113226"
+		"updated": "20260917190844"
 	},
 	"Children": [
 		{
@@ -212,7 +212,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20220517144139-qeoe1f3",
-				"updated": "20260302173748"
+				"updated": "20260914011526"
 			},
 			"Children": [
 				{
@@ -227,7 +227,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20220517144139-7q5hnts",
-				"updated": "20260718113226"
+				"updated": "20260914011526"
 			},
 			"Children": [
 				{
@@ -399,6 +399,15 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
+					"TextMarkTextContent": "sr"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "​, "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
 					"TextMarkTextContent": "th"
 				},
 				{
@@ -449,7 +458,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20220601091217-g6ohtlq",
-				"updated": "20220601091217"
+				"updated": "20260917190844"
 			},
 			"Children": [
 				{
@@ -505,7 +514,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20220601091217-nnqyj25",
-				"updated": "20220601091217"
+				"updated": "20260917190844"
 			},
 			"Children": [
 				{
@@ -528,7 +537,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "."
+					"Data": ". This appearance folder contains built-in resources. Third-party themes and icon packages always use workspace/data/themes/ and workspace/data/icons/, regardless of the runtime mode."
 				}
 			]
 		},

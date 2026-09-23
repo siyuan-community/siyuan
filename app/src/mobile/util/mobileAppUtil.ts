@@ -1,4 +1,5 @@
 import {hasClosestByAttribute, hasClosestByClassName} from "../../protyle/util/hasClosest";
+import {notifyMobileKeyboardChange} from "./mobileKeyboardChange";
 
 export let keyboardLockUntil = 0;
 
@@ -10,7 +11,7 @@ export const armKeyboardLock = () => {
 
 export const callMobileAppShowKeyboard = () => {
     armKeyboardLock();
-    window.dispatchEvent(new CustomEvent("siyuan-mobile-keyboard-change", {detail: true}));
+    notifyMobileKeyboardChange(true);
 
     if (window.JSAndroid && window.JSAndroid.showKeyboard) {
         window.JSAndroid.showKeyboard();
@@ -34,7 +35,7 @@ export const canInput = (element: Element) => {
     if (wysiwygElement && wysiwygElement.getAttribute("data-readonly") === "false") {
         // 按最近的编辑边界判断，避免点击不可编辑的渲染区域时唤起键盘并恢复旧光标位置。
         const editableElement = hasClosestByAttribute(element, "contenteditable", null, true);
-        return editableElement && editableElement.getAttribute("contenteditable") === "true" && editableElement;
+        return editableElement && ["true", "plaintext-only"].includes(editableElement.getAttribute("contenteditable")) && editableElement;
     }
     return false;
 };

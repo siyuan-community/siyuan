@@ -1,6 +1,10 @@
+import {sendGlobalShortcut} from "../boot/globalEvent/globalShortcut";
 import type {App} from "../index";
 import {EventBus} from "./EventBus";
-import {fetchPost} from "../util/fetch";
+import type {subMenu} from "../menus/Menu";
+import {setTopBarContextMenu} from "./topBarContextMenu";
+import {fetchPost, fetchSyncPost} from "../util/fetch";
+import {ContractFormData} from "../util/contractFormData";
 import {isMobile, isWindow} from "../util/functions";
 import {getAllEditor, getAllModels} from "../layout/getAll";
 /// #if !MOBILE
@@ -12,9 +16,6 @@ import {clearOBG} from "../layout/dock/util";
 ///#else
 import {MobileCustom} from "../mobile/dock/MobileCustom";
 /// #endif
-/// #if !BROWSER
-import {ipcRenderer} from "electron";
-/// #endif
 import {hasClosestByAttribute} from "../protyle/util/hasClosest";
 import {BlockPanel} from "../block/Panel";
 import {Setting} from "./Setting";
@@ -23,7 +24,6 @@ import {addPluginDock, removePluginDock} from "./loader";
 import {normalizeStoragePath} from "../util/pathName";
 import {Kernel} from "./kernel";
 import {IAgentCapabilityEffects, registerCapability} from "../layout/dock/agent/frontendCapabilities";
-import {isDisallowedTextInputHotkey} from "../util/hotKeyPolicy";
 import {
     addBreadcrumbButton as addPluginBreadcrumbButton,
     removeBreadcrumbButton as removePluginBreadcrumbButton,
@@ -60,7 +60,7 @@ const refreshPluginToolbars = () => {
 
 export class Plugin {
     private app: App;
-    public i18n: Record<string, string>;
+    public i18n: Record<string, import("../types/api").JSONValue>;
     public eventBus: EventBus;
     public kernel: Kernel;
     public data: any = {};
@@ -70,6 +70,8 @@ export class Plugin {
         filter: string[],
         html: string,
         id: string,
+        /** 是否在精简版中显示。默认值：false */
+        showInLite?: boolean,
         callback: (protyle: import("../protyle").Protyle, nodeElement: HTMLElement) => void
     }[] = [];
     public customBlockRenders: {
@@ -78,6 +80,7 @@ export class Plugin {
         }
     } = {};
     public topBarIcons: Element[] = [];
+    private customTopBarElements = new WeakSet<HTMLElement>();
     public setting: Setting;
     public statusBarIcons: Element[] = [];
     public commands: ICommand[] = [];
@@ -104,7 +107,7 @@ export class Plugin {
         app: App,
         name: string,
         displayName: string,
-        i18n: Record<string, string>
+        i18n: Record<string, import("../types/api").JSONValue>
     }) {
         this.app = options.app;
         this.i18n = options.i18n;
@@ -195,7 +198,7 @@ export class Plugin {
         if (typeof command.hotkey !== "string") {
             command.hotkey = "";
         }
-        const keymapItem = updatePluginKeymap(this.name, command.langKey, command.hotkey);
+        const keymapItem = updatePluginKeymap(this.name, command.langKey, command.hotkey, command.hotkeys);
         command.hotkey = keymapItem.default;
         command.customHotkey = keymapItem.custom;
         if (typeof command.customHotkey !== "string") {
@@ -204,12 +207,8 @@ export class Plugin {
             this.commands.push(command);
             registerPluginCommand(this.app, this, command);
             /// #if !BROWSER
-            if (!isWindow() && command.globalCallback && command.customHotkey &&
-                !isDisallowedTextInputHotkey(command.customHotkey)) {
-                ipcRenderer.send(Constants.SIYUAN_CMD, {
-                    cmd: "registerGlobalShortcut",
-                    accelerator: command.customHotkey
-                });
+            if (command.globalCallback) {
+                sendGlobalShortcut(this.app);
             }
             /// #endif
         }
@@ -236,24 +235,53 @@ export class Plugin {
 
     public addTopBar(options: {
         id?: string,
-        icon: string,
+        icon?: string,
         title: string,
         position?: "right" | "left",
-        callback: (evt: MouseEvent) => void
+        element?: HTMLElement,
+        contextMenu?: (menu: subMenu) => void,
+        callback?: (evt: MouseEvent) => void
     }) {
         if (isPluginDisposed(this)) {
             return;
         }
-        options.icon = options.icon.trim();
-        if (!options.icon.startsWith("icon") && !options.icon.startsWith("<svg")) {
+        if (options.element && (isMobile() || isWindow())) {
+            return;
+        }
+        if (!options.element) {
+            options.icon = options.icon?.trim() || "";
+        }
+        if (!options.element && !options.icon.startsWith("icon") && !options.icon.startsWith("<svg")) {
             console.error(`plugin ${this.name} addTopBar error: icon must be svg id or svg tag`);
             return;
         }
         let iconElement = typeof options.id === "string" ? this.topBarIcons.find(item =>
             item.getAttribute("data-id") === options.id) as HTMLElement : undefined;
+        if (options.element && this.topBarIcons.includes(options.element)) {
+            if (typeof options.id !== "string") {
+                iconElement = options.element;
+            } else if (iconElement !== options.element) {
+                console.error(`plugin ${this.name} addTopBar error: element is already registered with another id`);
+                return;
+            }
+        }
         const isNew = !iconElement;
+        if (iconElement && (options.element && options.element !== iconElement ||
+            !options.element && this.customTopBarElements.has(iconElement))) {
+            const replacement = options.element || document.createElement("div");
+            ["id", "data-id", "data-topbar-entry", "data-location"].forEach(name => {
+                const value = iconElement.getAttribute(name);
+                if (value !== null) {
+                    replacement.setAttribute(name, value);
+                }
+            });
+            setTopBarContextMenu(iconElement);
+            iconElement.replaceWith(replacement);
+            this.topBarIcons[this.topBarIcons.indexOf(iconElement)] = replacement;
+            iconElement = replacement;
+        }
         if (!iconElement) {
-            iconElement = document.createElement("div");
+            iconElement = options.element || document.createElement("div");
             if (typeof options.id === "string") {
                 iconElement.id = `plugin_${encodeURIComponent(this.name)}:${encodeURIComponent(options.id)}`;
                 iconElement.setAttribute("data-id", options.id);
@@ -268,16 +296,28 @@ export class Plugin {
             }
         }
         const previousLocation = iconElement.getAttribute("data-location");
-        iconElement.setAttribute("data-menu", "true");
-        iconElement.onclick = options.callback;
-        if (isMobile()) {
+        setTopBarContextMenu(iconElement, options.contextMenu ? (menu) => {
+            if (!isPluginDisposed(this)) {
+                options.contextMenu(menu);
+            }
+        } : undefined);
+        if (options.element) {
+            this.customTopBarElements.add(iconElement);
+            iconElement.setAttribute("data-topbar-custom", "true");
+            iconElement.setAttribute("aria-label", options.title);
+            iconElement.setAttribute("data-location", options.position || "right");
+        } else {
+            iconElement.setAttribute("data-menu", "true");
+            iconElement.onclick = options.callback;
+        }
+        if (!options.element && isMobile()) {
             iconElement.className = "b3-menu__item";
             const iconHTML = options.icon.startsWith("icon") ?
                 `<svg class="b3-menu__icon"><use xlink:href="#${options.icon}"></use></svg>` :
                 `<span class="b3-menu__icon b3-menu__icon--custom">${options.icon}</span>`;
             iconElement.innerHTML = iconHTML +
                 `<span class="b3-menu__label">${options.title}</span>`;
-        } else if (!isWindow()) {
+        } else if (!options.element && !isWindow()) {
             iconElement.className = "toolbar__item ariaLabel";
             iconElement.setAttribute("aria-label", options.title);
             iconElement.innerHTML = options.icon.startsWith("icon") ? `<svg><use xlink:href="#${options.icon}"></use></svg>` : options.icon;
@@ -289,7 +329,9 @@ export class Plugin {
                 document.getElementById("menuPluginTopBar")?.after(iconElement);
             }
         } else if (!isWindow() && window.siyuan.storage) {
-            if (!document.contains(iconElement) || previousLocation !== iconElement.getAttribute("data-location")) {
+            if (!document.contains(iconElement) ||
+                options.element && iconElement.parentElement !== document.getElementById("toolbar") ||
+                previousLocation !== iconElement.getAttribute("data-location")) {
                 document.querySelector("#" + (iconElement.getAttribute("data-location") === "right" ? "barPlugins" : "drag"))?.before(iconElement);
             }
         }
@@ -314,6 +356,7 @@ export class Plugin {
         if (index === -1) {
             return;
         }
+        setTopBarContextMenu(this.topBarIcons[index]);
         this.topBarIcons[index].remove();
         this.topBarIcons.splice(index, 1);
         /// #if !MOBILE
@@ -379,6 +422,27 @@ export class Plugin {
         this.setting.open(this.displayName || this.name);
     }
 
+    public async loadPublishData(): Promise<Record<string, string | number | boolean | null>> {
+        if (isPluginDisposed(this)) {
+            throw {code: 410, msg: "Plugin lifecycle has ended", data: null};
+        }
+        const response = await fetchSyncPost("/api/petal/loadPluginPublishData", {packageName: this.name}, undefined, false);
+        if (response.code !== 0 || !response.data) {
+            throw response;
+        }
+        return response.data;
+    }
+
+    public async savePublishData(data: Record<string, string | number | boolean | null>): Promise<void> {
+        if (isPluginDisposed(this)) {
+            throw {code: 410, msg: "Plugin lifecycle has ended", data: null};
+        }
+        const response = await fetchSyncPost("/api/petal/savePluginPublishData", {packageName: this.name, data}, undefined, false);
+        if (response.code !== 0) {
+            throw response;
+        }
+    }
+
     public loadData(storageName: string): Promise<any> {
         if (isPluginDisposed(this)) {
             return Promise.reject({code: 410, msg: "Plugin lifecycle has ended", data: null});
@@ -429,11 +493,12 @@ export class Plugin {
                 });
                 return;
             }
-            const formData = new FormData();
-            formData.append("path", pathString);
-            formData.append("file", file);
-            formData.append("isDir", "false");
-            formData.append("app", Constants.SIYUAN_APPID);
+            const formData = new ContractFormData({
+                path: pathString,
+                file,
+                isDir: "false",
+                app: Constants.SIYUAN_APPID,
+            });
             fetchPost("/api/file/putFile", formData, (response) => {
                 this.data[storageName] = data;
                 resolve(response);
@@ -657,7 +722,7 @@ export class Plugin {
         x?: number,
         y?: number,
         targetElement?: HTMLElement,
-        originalRefBlockIDs?: IObject,
+        originalRefBlockIDs?: Record<string, string>,
         isBacklink: boolean,
     }) => {
         if (isPluginDisposed(this)) {

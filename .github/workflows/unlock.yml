@@ -1,13 +1,15 @@
-name: Unlock reopened issues
+name: Unlock issues with new activity
 
 on:
   issues:
     types: [reopened]
+  issue_comment:
+    types: [created]
 
 jobs:
   unlock:
     if: ${{ github.event.issue.locked }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       issues: write
     steps:

@@ -60,6 +60,10 @@ const registerEditorBehaviorGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.listItemDotNumberClickFocus,
         desc: window.siyuan.languages.listItemDotNumberClickFocusTip,
     });
+    group.switch("editor.hashTagSearch", {
+        title: window.siyuan.languages.hashTagSearch,
+        desc: window.siyuan.languages.hashTagSearchTip,
+    });
     group.switch("editor.pasteURLAutoConvert", {
         title: window.siyuan.languages.pasteURLAutoConvert,
         desc: window.siyuan.languages.pasteURLAutoConvertTip,
@@ -86,22 +90,18 @@ const registerEditorBehaviorGroup = (tab: SettingTabBuilder) => {
     ].filter((item) => getHostCapabilities().localFileSystem || !["app", "folder"].includes(item.value));
     const assetOpenControls = [
         {
-            key: "click",
             label: window.siyuan.languages.assetOpenClick,
             control: controlSelect("editor.assetOpen.click", {options: assetOpenOptions}),
         },
         {
-            key: "ctrlClick",
             label: window.siyuan.languages.assetOpenCtrlClick,
             control: controlSelect("editor.assetOpen.ctrlClick", {options: assetOpenOptions}),
         },
         {
-            key: "altClick",
             label: window.siyuan.languages.assetOpenAltClick,
             control: controlSelect("editor.assetOpen.altClick", {options: assetOpenOptions}),
         },
         {
-            key: "shiftClick",
             label: window.siyuan.languages.assetOpenShiftClick,
             control: controlSelect("editor.assetOpen.shiftClick", {options: assetOpenOptions}),
         },
@@ -124,7 +124,6 @@ const registerEditorBehaviorGroup = (tab: SettingTabBuilder) => {
         ] as StackLine[]),
         controls: assetOpenControls.map((item) => ({
             control: item.control,
-            save: (value) => editorConfigApi.patch(`assetOpen.${item.key}`, value),
         })),
     });
     /// #endif
@@ -311,6 +310,10 @@ const registerEditorBidirectionalGroup = (tab: SettingTabBuilder) => {
         title: window.siyuan.languages.backlinkContainChildren,
         desc: window.siyuan.languages.backlinkContainChildrenTip,
     });
+    group.switch("editor.backlinkHideReference", {
+        title: window.siyuan.languages.backlinkHideReference,
+        desc: window.siyuan.languages.backlinkHideReferenceTip,
+    });
     if (!isMobile()) {
         group.switch("editor.backlinkShowBottom", {
             title: window.siyuan.languages.backlinkShowBottom,
@@ -386,10 +389,12 @@ const registerEditorMarkdownInlineGroup = (tab: SettingTabBuilder) => {
 const registerEditorAdvancedGroup = (tab: SettingTabBuilder) => {
     const group = tab.group("advanced", window.siyuan.languages.configGroupAdvanced);
     group.text("editor.plantUMLServePath", {
+        spellcheck: false,
         title: window.siyuan.languages.md39,
         desc: window.siyuan.languages.md40,
     });
     group.textBlock("editor.katexMacros", {
+        spellcheck: false,
         title: window.siyuan.languages.katexMacros,
         desc: window.siyuan.languages.katexMacrosTip,
         mode: "textarea",

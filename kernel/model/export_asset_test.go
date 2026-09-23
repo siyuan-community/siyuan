@@ -19,6 +19,7 @@ package model
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -80,6 +81,7 @@ func TestResolveExportAssetPaths(t *testing.T) {
 		videoAsset  = "assets/video file-20260724150608-42z1qwz.webm"
 		audioAsset  = "assets/audio file-20260724150608-42z1qwz.wav?box=20260724163822-tfrplrg"
 		iframeAsset = "assets/frame file-20260724150608-42z1qwz.html"
+		pdfAsset    = "assets/document-20260724150608-42z1qwz.pdf?dataPath=/docs/a.sy#page=3"
 	)
 
 	tests := []struct {
@@ -94,6 +96,7 @@ func TestResolveExportAssetPaths(t *testing.T) {
 				videoAsset:  {videoAsset, videoAsset},
 				audioAsset:  {audioAsset, audioAsset},
 				iframeAsset: {iframeAsset, iframeAsset},
+				pdfAsset:    {pdfAsset, pdfAsset},
 			},
 		},
 		{
@@ -106,7 +109,10 @@ func TestResolveExportAssetPaths(t *testing.T) {
 					audioAsset,
 					"assets/audio file.wav?box=20260724163822-tfrplrg",
 				},
-				iframeAsset: {iframeAsset, "assets/frame file.html"},
+				"assets/frame file.html": {iframeAsset, "assets/frame file.html"},
+				"assets/document.pdf?dataPath=/docs/a.sy#page=3": {
+					pdfAsset, "assets/document.pdf?dataPath=/docs/a.sy#page=3",
+				},
 			},
 		},
 	}
@@ -123,6 +129,7 @@ func TestResolveExportAssetPaths(t *testing.T) {
 
 			root := &ast.Node{Type: ast.NodeDocument}
 			root.AppendChild(&ast.Node{Type: ast.NodeLinkDest, Tokens: []byte(imageAsset)})
+			root.AppendChild(&ast.Node{Type: ast.NodeLinkDest, Tokens: []byte(pdfAsset)})
 			root.AppendChild(&ast.Node{Type: ast.NodeVideo, Tokens: []byte(`<video src="` + videoAsset + `"></video>`)})
 			root.AppendChild(&ast.Node{Type: ast.NodeAudio, Tokens: []byte(`<audio src="` + audioAsset + `"></audio>`)})
 			root.AppendChild(&ast.Node{Type: ast.NodeIFrame, Tokens: []byte(`<iframe src="` + iframeAsset + `"></iframe>`)})
@@ -146,7 +153,92 @@ func TestResolveExportAssetPaths(t *testing.T) {
 						asset, oldAsset, newAsset, expected[0], expected[1])
 				}
 			}
+			if test.removeID {
+				oldAsset, newAsset := resolveExportAssetPaths(iframeAsset, assetsOldNew, assetsNewOld)
+				if oldAsset != iframeAsset || newAsset != "assets/frame file.html" {
+					t.Fatalf("original HTML URL must still resolve through the rename map: %s, %s", oldAsset, newAsset)
+				}
+			}
 		})
+	}
+}
+
+func TestExportHTMLMultipleAssetReferences(t *testing.T) {
+	setupAppearancePackagesTest(t)
+	fixture := setupFileOperationTest(t)
+	originalWorkspaceDir := util.WorkspaceDir
+	util.WorkspaceDir = filepath.Dir(util.DataDir)
+	t.Cleanup(func() { util.WorkspaceDir = originalWorkspaceDir })
+	Conf.Editor = conf.NewEditor()
+	Conf.Export = conf.NewExport()
+	Conf.Appearance = conf.NewAppearance()
+	Conf.Search = conf.NewSearch()
+	Conf.System = conf.NewSystem()
+	assetsDir := filepath.Join(util.DataDir, "assets")
+	if err := os.MkdirAll(assetsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"first.png", "second.png", "file.pdf", "a&b.png"}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(assetsDir, name), []byte(name), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tree := addFileOperationTestDoc(t, fixture, "20260918000001-abcdefg", "HTML assets", false)
+	tree.Root.AppendChild(&ast.Node{Type: ast.NodeHTMLBlock, Tokens: []byte(`<div><img src="assets/first.png"><img src="assets/second.png"><a href="assets/file.pdf">download</a><img src="assets/a&amp;b.png"></div>`)})
+	if _, err := filesys.WriteTree(tree); err != nil {
+		t.Fatal(err)
+	}
+	savePath := t.TempDir()
+	if _, _, err := exportMarkdownHTML(tree.ID, savePath, false, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if data, err := os.ReadFile(filepath.Join(savePath, "assets", name)); err != nil || string(data) != name {
+			t.Fatalf("export omitted %s: %q, %v", name, data, err)
+		}
+	}
+}
+
+func TestExportAssetEntityRename(t *testing.T) {
+	originalConf := Conf
+	t.Cleanup(func() { Conf = originalConf })
+	Conf = NewAppConf()
+	Conf.Export = conf.NewExport()
+	for _, removeID := range []bool{false, true} {
+		Conf.Export.RemoveAssetsID = removeID
+		for _, typ := range []ast.NodeType{ast.NodeHTMLBlock, ast.NodeInlineHTML, ast.NodeIFrame, ast.NodeAudio, ast.NodeVideo} {
+			markup := `<video src='assets/a&amp;b-20260724150608-42z1qwz.webm?x=1&#38;y=2#part' poster="assets/a&amp;amp;b-20260724150608-42z1qwz.png"><source src=assets/second-20260724150608-42z1qwz.webm></video>`
+			root := &ast.Node{Type: ast.NodeDocument}
+			node := &ast.Node{Type: typ, Tokens: []byte(markup)}
+			root.AppendChild(node)
+			oldNew, newOld := map[string]string{}, map[string]string{}
+			removeAssetsID(&parse.Tree{Root: root}, oldNew, newOld)
+			original := []string{"assets/a&b-20260724150608-42z1qwz.webm?x=1&y=2#part", "assets/a&amp;b-20260724150608-42z1qwz.png", "assets/second-20260724150608-42z1qwz.webm"}
+			want := append([]string(nil), original...)
+			if removeID {
+				for i := range want {
+					want[i] = strings.ReplaceAll(want[i], "-20260724150608-42z1qwz", "")
+				}
+			}
+			if got := htmlAssetLinkDests(node.Tokens, false); !reflect.DeepEqual(got, want) {
+				t.Fatalf("node %v removeID=%v: %v, want %v", typ, removeID, got, want)
+			}
+			markdown := "before\n\n" + markup + "\n\nafter\n"
+			rewritten := rewriteExportMarkdownAssets(markdown, oldNew)
+			if got := htmlAssetLinkDests([]byte(rewritten), false); !reflect.DeepEqual(got, want) {
+				t.Fatalf("Markdown %v removeID=%v: %s, references %v, want %v", typ, removeID, rewritten, got, want)
+			}
+			if !removeID && rewritten != markdown {
+				t.Fatalf("disabled renaming changed source HTML: %s", rewritten)
+			}
+			for i, dest := range want {
+				oldPath, newPath := resolveExportAssetPaths(dest, oldNew, newOld)
+				if oldPath != original[i] || newPath != dest {
+					t.Fatalf("copied asset and rendered URL differ: %s, %s, want %s, %s", oldPath, newPath, original[i], dest)
+				}
+			}
+		}
 	}
 }
 

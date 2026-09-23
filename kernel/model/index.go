@@ -378,13 +378,19 @@ func autoIndexEmbedBlock() {
 
 		// 需要移除首尾的空白字符以判断是否具有 //!js 标记
 		stmt = strings.TrimSpace(stmt)
+		if "" == stmt {
+			continue
+		}
 		if strings.HasPrefix(stmt, "//!js") {
 			// https://github.com/siyuan-note/siyuan/issues/9648
 			// js 嵌入块不支持自动索引，由前端主动调用 /api/search/updateEmbedBlock 接口更新内容 https://github.com/siyuan-note/siyuan/issues/9736
 			continue
 		}
 
-		if !strings.Contains(strings.ToLower(stmt), "select") {
+		// 嵌入块脚本来自文档内容，属于不可信输入：执行前必须校验为单条只读查询，
+		// 不能用「是否包含 select 子串」代替，注释或子查询即可绕过
+		if err := sql.CheckReadonlyBlockQueryStatement(stmt, embedBlock.Box); nil != err {
+			logging.LogWarnf("skip non-readonly embed block [%s] script: %s", embedBlock.ID, err)
 			continue
 		}
 

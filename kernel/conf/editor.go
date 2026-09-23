@@ -89,13 +89,17 @@ type Editor struct {
 	RTL                             bool           `json:"rtl"`                             // 是否从右到左显示
 	Spellcheck                      bool           `json:"spellcheck"`                      // 是否启用拼写检查
 	SpellcheckLanguages             []string       `json:"spellcheckLanguages"`             // 拼写检查语言
+	HashTagSearch                   *bool          `json:"hashTagSearch"`                   // 输入 # 时是否进行标签搜索
 	OnlySearchForDoc                bool           `json:"onlySearchForDoc"`                // 是否启用 [[ 仅搜索文档块
 	BacklinkExpandCount             int            `json:"backlinkExpandCount"`             // 反向链接默认展开数量
 	BackmentionExpandCount          int            `json:"backmentionExpandCount"`          // 反链提及默认展开数量
 	BacklinkMentionExclude          string         `json:"backlinkMentionExclude"`          // 反链提及关键字排除列表
 	BacklinkContainChildren         bool           `json:"backlinkContainChildren"`         // 反向链接是否包含子块进行计算
+	BacklinkHideReference           bool           `json:"backlinkHideReference"`           // 反链面板是否隐藏传递型纯引用块
 	BacklinkShowBottom              bool           `json:"backlinkShowBottom"`              // 是否在文档底部显示反向链接
 	BacklinkSort                    *int           `json:"backlinkSort"`                    // 反向链接排序方式
+	BacklinkGlobalSort              int            `json:"backlinkGlobalSort"`              // 0 文档分组，1 全局锚文本升序，2 全局锚文本降序
+	BacklinkBlockSort               int            `json:"backlinkBlockSort"`               // 文档内引用排序：0 正文顺序，1 锚文本升序，2 锚文本降序
 	BackmentionSort                 *int           `json:"backmentionSort"`                 // 反链提及排序方式
 	HeadingNumber                   bool           `json:"headingNumber"`                   // 是否显示标题编号
 	HeadingNumberFormat             string         `json:"headingNumberFormat"`             // 标题编号格式
@@ -228,6 +232,7 @@ func NewEditor() *Editor {
 		RTL:                             false,
 		Spellcheck:                      false,
 		SpellcheckLanguages:             []string{"en-US"},
+		HashTagSearch:                   new(true),
 		BacklinkExpandCount:             8,
 		BackmentionExpandCount:          -1,
 		BacklinkContainChildren:         true,

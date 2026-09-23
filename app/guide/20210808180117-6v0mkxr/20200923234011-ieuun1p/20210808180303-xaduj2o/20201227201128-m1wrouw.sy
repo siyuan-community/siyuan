@@ -6,7 +6,7 @@
 		"id": "20201227201128-m1wrouw",
 		"title": "Docker hosting",
 		"type": "doc",
-		"updated": "20260903150000"
+		"updated": "20260921003419"
 	},
 	"Children": [
 		{
@@ -293,7 +293,8 @@
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
-				"id": "20201227201751-5d6snqe"
+				"id": "20201227201751-5d6snqe",
+				"updated": "20260918190000"
 			},
 			"Children": [
 				{
@@ -396,7 +397,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20210301202938-prn2v5a",
-				"updated": "20231108220518"
+				"updated": "20260918190000"
 			},
 			"Children": [
 				{
@@ -422,6 +423,19 @@
 				{
 					"Type": "NodeText",
 					"Data": "​"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ". When deploying with Docker and enabling the publish service, add "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "-p 6808:6808"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " to the container creation command in addition to the hosting port mapping. Docker uses host-port:container-port mappings; if you change the publish service port, update the container port accordingly and use the host port to access the service. Use a fixed publish service port rather than 0"
 				}
 			]
 		},
@@ -630,7 +644,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210930092059-ifrr6wz",
-				"updated": "20210930092059"
+				"updated": "20260921003419"
 			},
 			"Children": [
 				{
@@ -659,7 +673,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20210930092059-34ljyge",
-				"updated": "20211112103356"
+				"updated": "20260921003419"
 			},
 			"Children": [
 				{
@@ -694,6 +708,88 @@
 							]
 						}
 					]
+				},
+				{
+					"ID": "20260921003419-ozfsnu8",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Children": [
+						{
+							"ID": "20260921003419-hvawzrd",
+							"Type": "NodeParagraph",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Preserve the original "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "Host"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " header, including the port, for both regular requests and "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "/ws"
+								},
+								{
+									"Type": "NodeText",
+									"Data": ". In NGINX, configure "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "proxy_set_header Host $http_host;"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " in both proxy locations. Using "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "$host"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " drops non-standard ports (such as "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "8443"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "), which can cause Origin validation to fail, leaving the page stuck on the logo with repeated reloads, API responses of "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "401"
+								},
+								{
+									"Type": "NodeText",
+									"Data": ", or failed WebSocket connections"
+								}
+							],
+							"Properties": {
+								"id": "20260921003419-hvawzrd",
+								"updated": "20260921003419"
+							}
+						}
+					],
+					"Properties": {
+						"id": "20260921003419-ozfsnu8",
+						"updated": "20260921003419"
+					}
 				}
 			]
 		},

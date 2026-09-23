@@ -91,7 +91,8 @@ func QueryRootBlockByCondition(condition, exactKeyword string, limit int, args .
 	exactCondition, exactArg := rootBlockExactMatchCondition(exactKeyword, caseSensitive)
 	sqlStmt := "SELECT *, length(hpath) - length(replace(hpath, '/', '')) AS lv FROM blocks WHERE type = 'd' AND " + condition +
 		" ORDER BY CASE WHEN " + exactCondition + " THEN 0 ELSE 1 END ASC, box DESC, lv ASC LIMIT ?"
-	args = append(args, exactArg, limit)
+	args = append(args, exactArg...)
+	args = append(args, limit)
 	rows, err := query(sqlStmt, args...)
 	if err != nil {
 		logging.LogErrorf("sql query [%s] failed: %s", sqlStmt, err)
@@ -114,7 +115,8 @@ func QueryRootBlockByConditionInBox(condition, exactKeyword string, limit int, b
 	exactCondition, exactArg := rootBlockExactMatchCondition(exactKeyword, caseSensitive)
 	sqlStmt := "SELECT *, length(hpath) - length(replace(hpath, '/', '')) AS lv FROM blocks WHERE type = 'd' AND " + condition +
 		" ORDER BY CASE WHEN " + exactCondition + " THEN 0 ELSE 1 END ASC, box DESC, lv ASC LIMIT ?"
-	args = append(args, exactArg, limit)
+	args = append(args, exactArg...)
+	args = append(args, limit)
 	rows, err := queryForBox(boxID, sqlStmt, args...)
 	if err != nil {
 		logging.LogErrorf("sql query [%s] failed: %s", sqlStmt, err)
@@ -133,11 +135,24 @@ func QueryRootBlockByConditionInBox(condition, exactKeyword string, limit int, b
 	return
 }
 
-func rootBlockExactMatchCondition(keyword string, sensitive bool) (condition, arg string) {
+func rootBlockExactMatchCondition(keyword string, sensitive bool) (condition string, args []any) {
 	if sensitive {
-		return "content = ?", keyword
+		condition = "content = ? OR name = ?"
+		args = []any{keyword, keyword}
+	} else {
+		condition = "content LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'"
+		args = []any{escapeLikePattern(keyword), escapeLikePattern(keyword)}
 	}
-	return "content LIKE ? ESCAPE '\\'", escapeLikePattern(keyword)
+	if "" != keyword && !strings.Contains(keyword, ",") {
+		if sensitive {
+			condition += " OR instr(',' || alias || ',', ?) > 0"
+			args = append(args, ","+keyword+",")
+		} else {
+			condition += " OR (',' || alias || ',') LIKE ? ESCAPE '\\'"
+			args = append(args, "%,"+escapeLikePattern(keyword)+",%")
+		}
+	}
+	return
 }
 
 func (block *Block) IsContainerBlock() bool {
@@ -417,6 +432,13 @@ func QueryNoLimitArgs(stmt string, args ...any) (ret []map[string]any, err error
 }
 
 func Query(stmt string, limit int) (ret []map[string]any, err error) {
+	return queryWithLimitInfo(stmt, limit, nil)
+}
+
+func queryWithLimitInfo(stmt string, limit int, info *QueryLimitInfo) (ret []map[string]any, err error) {
+	if info != nil && containsMultipleStatements(stmt) {
+		return queryRawStmtWithLimitInfo(stmt, limit, info)
+	}
 	originalStmt := stmt
 	fallbackStmt := originalStmt
 	// Kernel API `/api/query/sql` support `||` operator https://github.com/siyuan-note/siyuan/issues/9662
@@ -429,12 +451,15 @@ func Query(stmt string, limit int) (ret []map[string]any, err error) {
 			// 这个解析器无法处理 || 连接字符串操作符
 			parsedStmt, err2 := sqlparser.Parse(stmt)
 			if nil != err2 {
-				return queryRawStmt(stmt, limit)
+				return queryRawStmtWithLimitInfo(stmt, limit, info)
 			}
 
 			switch parsedStmt.(type) {
 			case *sqlparser.Select:
 				slct := parsedStmt.(*sqlparser.Select)
+				if info != nil && slct.Limit != nil && slct.Limit.Rowcount != nil {
+					info.Limit = 0
+				}
 				if nil == slct.Limit || nil == slct.Limit.Rowcount {
 					fallbackStmt += " LIMIT " + strconv.Itoa(limit)
 				}
@@ -444,6 +469,9 @@ func Query(stmt string, limit int) (ret []map[string]any, err error) {
 			case *sqlparser.Union:
 				// Kernel API `/api/query/sql` support `UNION` statement https://github.com/siyuan-note/siyuan/issues/8226
 				union := parsedStmt.(*sqlparser.Union)
+				if info != nil && union.Limit != nil && union.Limit.Rowcount != nil {
+					info.Limit = 0
+				}
 				if nil == union.Limit || nil == union.Limit.Rowcount {
 					fallbackStmt += " LIMIT " + strconv.Itoa(limit)
 				}
@@ -451,26 +479,29 @@ func Query(stmt string, limit int) (ret []map[string]any, err error) {
 				union.Limit = limitClause
 				stmt = sqlparser.String(union)
 			default:
-				return queryRawStmt(stmt, limit)
+				return queryRawStmtWithLimitInfo(stmt, limit, info)
 			}
 		} else {
-			return queryRawStmt(stmt, limit)
+			return queryRawStmtWithLimitInfo(stmt, limit, info)
 		}
 	} else {
 		switch parsedStmt2.(type) {
 		case *sqlparser2.SelectStatement:
 			slct := parsedStmt2.(*sqlparser2.SelectStatement)
+			if info != nil && slct.LimitExpr != nil {
+				info.Limit = 0
+			}
 			if nil == slct.LimitExpr {
 				fallbackStmt += " LIMIT " + strconv.Itoa(limit)
 				slct.LimitExpr = &sqlparser2.NumberLit{Value: strconv.Itoa(limit)}
 				serialized, ok := stringifySelectStatement(slct)
 				if !ok {
-					return queryRawStmt(originalStmt, limit)
+					return queryRawStmtWithLimitInfo(originalStmt, limit, info)
 				}
 				stmt = serialized
 			}
 		default:
-			return queryRawStmt(stmt, limit)
+			return queryRawStmtWithLimitInfo(stmt, limit, info)
 		}
 	}
 
@@ -509,7 +540,11 @@ func Query(stmt string, limit int) (ret []map[string]any, err error) {
 			m[colName] = *val
 		}
 		ret = append(ret, m)
+		if info != nil && info.Limit > 0 && len(ret) >= limit {
+			break
+		}
 	}
+	err = rows.Err()
 	return
 }
 
@@ -580,6 +615,10 @@ func getLimitClause(parsedStmt sqlparser.Statement, limit int) (ret *sqlparser.L
 }
 
 func queryRawStmt(stmt string, limit int) (ret []map[string]any, err error) {
+	return queryRawStmtWithLimitInfo(stmt, limit, nil)
+}
+
+func queryRawStmtWithLimitInfo(stmt string, limit int, info *QueryLimitInfo) (ret []map[string]any, err error) {
 	rows, err := query(stmt)
 	if err != nil {
 		if strings.Contains(err.Error(), "syntax error") {
@@ -595,6 +634,12 @@ func queryRawStmt(stmt string, limit int) (ret []map[string]any, err error) {
 	}
 
 	noLimit := !containsLimitClause(stmt)
+	if info != nil {
+		noLimit = !containsOuterLimitClause(stmt)
+		if !noLimit {
+			info.Limit = 0
+		}
+	}
 	var count int
 	for rows.Next() {
 		columns := make([]any, len(cols))
@@ -615,10 +660,11 @@ func queryRawStmt(stmt string, limit int) (ret []map[string]any, err error) {
 
 		ret = append(ret, m)
 		count++
-		if noLimit && limit < count {
+		if noLimit && (limit < count || (info != nil && limit == count)) {
 			break
 		}
 	}
+	err = rows.Err()
 	return
 }
 
@@ -663,6 +709,20 @@ func queryRawStmtArgs(stmt string, args []any, limit int) (ret []map[string]any,
 	return
 }
 
+// checkRawBlockQueryStmt 校验原始块查询语句为单条只读查询，未通过时记录告警并返回 false。
+// 所有把完整 SQL 交给 db.Query 的块查询出口都必须先调用本函数，保证没有调用方能绕过校验。
+func checkRawBlockQueryStmt(stmt, boxID string) bool {
+	if err := CheckReadonlyBlockQueryStatement(stmt, boxID); nil != err {
+		// 空脚本和 JS 嵌入块（//!js）本来就不是 SQL，由前端负责执行，校验不通过属正常情况
+		trimmed := strings.TrimSpace(stmt)
+		if "" != trimmed && !strings.HasPrefix(trimmed, "//!js") {
+			logging.LogWarnf("sql query [%s] rejected as non-readonly: %s", stmt, err)
+		}
+		return false
+	}
+	return true
+}
+
 func SelectBlocksRawStmtNoParse(stmt string, limit int) (ret []*Block) {
 	return selectBlocksRawStmt(stmt, limit)
 }
@@ -670,6 +730,10 @@ func SelectBlocksRawStmtNoParse(stmt string, limit int) (ret []*Block) {
 // SelectBlocksRawStmtArgs 与 selectBlocksRawStmt 行为一致，但通过绑定参数执行，
 // 绕开 sqlparser 解析（vitess 会把 "?" 改写为 ":vN" 导致占位失效），用于含用户可控参数的搜索语句。
 func SelectBlocksRawStmtArgs(stmt string, args []any, limit int) (ret []*Block) {
+	if !checkRawBlockQueryStmt(stmt, "") {
+		return
+	}
+
 	rows, err := query(stmt, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "syntax error") {
@@ -701,13 +765,14 @@ func SelectBlocksRawStmtArgs(stmt string, args []any, limit int) (ret []*Block) 
 type queryRowsFunc func(string, ...any) (*sql.Rows, error)
 
 func SelectBlocksRawStmt(stmt string, page, limit int) (ret []*Block) {
-	return selectBlocksRawStmtWithQuery(stmt, page, limit, query)
+	return selectBlocksRawStmtWithQuery(stmt, page, limit, "", query)
 }
 
-func selectBlocksRawStmtWithQuery(stmt string, page, limit int, queryFn queryRowsFunc) (ret []*Block) {
+func selectBlocksRawStmtWithQuery(stmt string, page, limit int, boxID string, queryFn queryRowsFunc) (ret []*Block) {
 	parsedStmt, err := sqlparser.Parse(stmt)
 	if err != nil {
-		return selectBlocksRawStmtNoParseWithQuery(stmt, limit, queryFn)
+		// 解析失败时按原样执行，因此只读校验必须在执行前完成，不能依赖下面的语句类型分派
+		return selectBlocksRawStmtNoParseWithQuery(stmt, limit, boxID, queryFn)
 	}
 
 	switch parsedStmt.(type) {
@@ -783,6 +848,9 @@ func selectBlocksRawStmtWithQuery(stmt string, page, limit int, queryFn queryRow
 	stmt = strings.ReplaceAll(stmt, "\\\"", "\"")
 	stmt = strings.ReplaceAll(stmt, "\\\\*", "\\*")
 	stmt = strings.ReplaceAll(stmt, "from dual", "")
+	if !checkRawBlockQueryStmt(stmt, boxID) {
+		return
+	}
 	rows, err := queryFn(stmt)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -908,10 +976,14 @@ func SelectBlocksRegexArgs(stmt string, exp *regexp.Regexp, name, alias, memo, i
 }
 
 func selectBlocksRawStmt(stmt string, limit int) (ret []*Block) {
-	return selectBlocksRawStmtNoParseWithQuery(stmt, limit, query)
+	return selectBlocksRawStmtNoParseWithQuery(stmt, limit, "", query)
 }
 
-func selectBlocksRawStmtNoParseWithQuery(stmt string, limit int, queryFn queryRowsFunc) (ret []*Block) {
+func selectBlocksRawStmtNoParseWithQuery(stmt string, limit int, boxID string, queryFn queryRowsFunc) (ret []*Block) {
+	if !checkRawBlockQueryStmt(stmt, boxID) {
+		return
+	}
+
 	rows, err := queryFn(stmt)
 	if err != nil {
 		if strings.Contains(err.Error(), "syntax error") {

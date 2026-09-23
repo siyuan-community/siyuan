@@ -2,8 +2,11 @@
 | [中文](API.zh-CN.md)
 | [日本語](API.ja.md)
 
+Plugin resource declarations, data authorization, and publishing APIs are documented in [Plugin publishing](PLUGIN-PUBLISH.md).
+
 * [Specification](#Specification)
     * [Parameters and return values](#Parameters-and-return-values)
+    * [TypeScript contracts](#TypeScript-contracts)
     * [Behavior semantics](#Behavior-semantics)
     * [Authentication](#Authentication)
 * [Notebooks](#Notebooks)
@@ -118,6 +121,21 @@
     * `msg`: an empty string under normal circumstances, an error text will be returned under abnormal conditions
     * `data`: may be `{}`, `[]` or `NULL`, depending on the interface
 
+### TypeScript contracts
+
+The plugin `fetchPost`, `fetchSyncPost`, and `fetchGet` declarations infer request and response types for migrated API paths from generated kernel contracts. Coverage is expanding and includes system utilities, batch block attributes, tag and bookmark operations, selected block queries, notebook listing, history search, and snapshot operations. Existing untyped endpoints and dynamic URLs remain supported. Check the response code before reading successful data from asynchronous calls, and handle nullable fields explicitly.
+
+```typescript
+import {fetchSyncPost} from "siyuan";
+
+const response = await fetchSyncPost("/api/attr/getBlockAttrs", {id: blockID});
+if (response.code === 0 && response.data) {
+    const value = response.data["custom-value"];
+}
+```
+
+See the [generated route declarations](../app/src/types/api/index.d.ts) for exact coverage and the [contract maintenance guide](API-CONTRACTS.md) for generation and compatibility rules. Type declarations do not validate JSON at runtime.
+
 ### Behavior semantics
 
 * Only interfaces with dedicated interface sections in this document are public APIs. Other kernel routes and `/api/transactions` operations are internal implementations and provide no compatibility or behavioral stability guarantees unless otherwise stated
@@ -207,6 +225,8 @@ View the API token in <kbd>Settings - Authentication - API token</kbd>. Use it i
     "data": null
   }
   ```
+
+The close endpoint validates the notebook ID without trimming whitespace. Typed request and response declarations are generated in `app/src/types/api/index.d.ts` and synchronized to `petal`.
 
 ### Rename a notebook
 
@@ -367,8 +387,10 @@ View the API token in <kbd>Settings - Authentication - API token</kbd>. Use it i
   ```
 
     * `notebook`: Notebook ID
-    * `path`: Document path, which needs to start with / and separate levels with / (path here corresponds to the
-      database hpath field)
+    * `path`: Document path, which needs to start with `/` and separate levels with `/` (corresponds to the database `hpath` field)
+        * `/` is a hierarchy separator and cannot represent a literal slash in a document title; missing parent documents are created automatically
+        * For example, `/Notes/Programming in C/C++` creates a document titled `C++` under `Programming in C` under `Notes`
+        * Importers should sanitize each title before joining titles into a path, for example by replacing ASCII `/` with full-width `／` (U+FF0F): `/Notes/Programming in C／C++` creates a document titled `Programming in C／C++` under `Notes`. This replacement changes the title text
     * `markdown`: GFM Markdown content
 * Return value
 
@@ -771,7 +793,7 @@ Move documents by `id`:
         * `"/assets/sub/"`: workspace/data/assets/sub/ folder
 
       Under normal circumstances, it is recommended to use the first method, which is stored in the assets folder of the
-      workspace, putting in a subdirectory has some side effects, please refer to the assets chapter of the user guide.
+      workspace, since putting in a subdirectory has some side effects, please refer to the assets chapter of the user guide.
     * `file[]`: Uploaded file list
 * Return value
 
@@ -805,7 +827,7 @@ Move documents by `id`:
     * `errFiles`: List of filenames with errors in upload processing
     * `failedFiles`: Files explicitly reported as failed. `index` is the file's index in `file[]`, `name` is its upload filename, and `error` is the failure message. This field may omit files that were not attempted or not reported individually; use `succFiles` when each input item must be identified unambiguously
     * `succFiles`: Successfully processed files in input order. `index` is the file's index in `file[]`, `name` is its upload filename, and `path` is the uploaded asset path. Use this field when a batch can contain duplicate filenames
-    * `succMap`: Compatibility mapping for existing callers. The key is the upload filename and the value is assets/foo-id.png. When a batch contains duplicate filenames, only the last item with a given key remains in this map
+    * `succMap`: Compatibility mapping for existing callers. The key is the upload filename and the value is assets/foo-id.png. However, when a batch contains duplicate filenames, only the last item with a given key remains in this map
 
 ## Blocks
 
@@ -1275,6 +1297,9 @@ Move documents by `id`:
   ```
 
     * `stmt`: SQL statement
+
+Without an explicit outer `LIMIT`, results default to at most `search.limit` rows (the configured search result limit). Use explicit `LIMIT` and `OFFSET` clauses to paginate, with a stable, unique ordering such as `ORDER BY hpath, id`. However, an explicit outer `LIMIT` overrides the default, including values larger than `search.limit`.
+
 * Return value
 
   ```json
@@ -1283,9 +1308,13 @@ Move documents by `id`:
     "msg": "",
     "data": [
       { "col": "val" }
-    ]
+    ],
+    "limit": 0,
+    "truncated": false
   }
   ```
+
+On success, `data` remains an array. `limit` is the server default limit applied to this query, or `0` when the SQL supplies an explicit outer `LIMIT`; it is not the value of that explicit clause. `truncated` is `true` only when the server default limit omitted at least one result row. Exactly meeting the limit does not imply truncation. For the example above, `LIMIT 7` is explicit, so `limit` is `0` and `truncated` is `false`. These fields are omitted on errors.
 
 Note: To ensure data security, access to this interface is prohibited in Publish Mode.
 
@@ -1761,7 +1790,7 @@ Note: To ensure data security, access to this interface is prohibited in Publish
 
       `text` preserves the existing behavior and converts the character set to UTF-8 when applicable. The binary encodings encode the response body before character-set conversion; existing HTTP content decoding behavior, such as gzip decompression, is unchanged.
 
-      The response body is limited to 32 MiB after HTTP content decoding. If the limit is exceeded, the API returns error code `10` without a partial body. Use `/api/network/proxy` for large files or streaming responses.
+      The response body is limited to 32 MiB after HTTP content decoding. If the limit is exceeded, the API returns error code `10` without a partial body. Therefore, use `/api/network/proxy` for large files or streaming responses.
 * Return value
 
   ```json
@@ -1881,7 +1910,7 @@ Note: To ensure data security, access to this interface is prohibited in Publish
 
 ## Database
 
-A database (internally an "attribute view") stores structured data as fields (columns) and items (rows). Each database is identified by an `avID` and can be embedded into a document through one or more database blocks (`blockID`). A single database may contain multiple views (`viewID`) of different layout types: `table`, `gallery`, and `kanban`.
+A database (internally an "attribute view") stores structured data as fields (columns) and items (rows). Each database is identified by an `avID` and can be embedded into a document through one or more database blocks (`blockID`). A single database may contain multiple views (`viewID`) of different layout types: `table`, `list`, `gallery`, and `kanban`.
 
 The field types (`keyType`) are:
 
@@ -2025,8 +2054,8 @@ The field types (`keyType`) are:
   }
   ```
 
-    * `data.view`: The rendered view instance. Its shape depends on `viewType`: `table` returns `columns`/`rows`/`rowCount`, while `gallery` and `kanban` return `fields`/`cards`/`cardCount`. When grouping is enabled, `groups` contains a view instance for each group, including `groupKey`/`groupValue`. `view` also carries `filters`, `sorts`, `group`, `showIcon`, `wrapField`, `groupFolded`, and `groupHidden`. Note: active filters or grouping can make the item list empty even when the total item count is greater than 0
-    * `data.view.columns[]`: Each has `id`, `name`, `type`, `icon`, `wrap`, `hidden`, `desc`, `calc`, `numberFormat`, `template`, `renderTemplate`, `pin`, `width`; `select`/`mSelect` columns additionally carry `options`. Gallery and kanban fields expose the same field metadata under `data.view.fields[]`
+    * `data.view`: The rendered view instance. Its shape depends on `viewType`: `table` and `list` return `columns`/`rows`/`rowCount`, while `gallery` and `kanban` return `fields`/`cards`/`cardCount`. When grouping is enabled, `groups` contains a view instance for each group, including `groupKey`/`groupValue`. `view` also includes `filters`, `sorts`, `group`, `showIcon`, `wrapField`, `groupFolded`, and `groupHidden`. Note: active filters or grouping can make the item list empty even when the total item count is greater than 0
+    * `data.view.columns[]`: Each has `id`, `name`, `type`, `icon`, `wrap`, `hidden`, `desc`, `calc`, `numberFormat`, `template`, `renderTemplate`, `pin`, `width`; `select`/`mSelect` columns additionally include `options`. Gallery and kanban fields expose the same field metadata under `data.view.fields[]`
     * `data.view.columns[].renderTemplate`: Optional display template for a normal field. It changes only the displayed content; the field's stored typed value remains unchanged
     * `data.view.rows[].id`: The table row's **item ID** (`itemID`). It also equals `value.blockID` in that row's primary-key cell. For a bound row, the bound block ID is stored in `value.block.id` in the primary-key cell; these are distinct concepts and must not be assumed equal
     * `data.view.cards[].id`: The **item ID** (`itemID`) of a gallery or kanban card. When grouping is enabled, table rows or cards are in the corresponding view instances under `groups[]`
@@ -2187,7 +2216,7 @@ The field types (`keyType`) are:
   }
   ```
 
-    * `data.av`: The full `AttributeView` definition — fields (`keyValues`), field ordering (`keyIDs`, may be `null`), and all views with their raw layout config (`table`/`gallery`/`kanban`) and item ordering (`itemIds`). The compatibility `viewID` is computed as the first available view and is not persisted. Returns no rendered rows or pagination; use [Render](#Render) for computed rows
+    * `data.av`: The full `AttributeView` definition — fields (`keyValues`), field ordering (`keyIDs`, may be `null`), and all views with their raw layout config (`table`/`list`/`gallery`/`kanban`) and item ordering (`itemIds`). The compatibility `viewID` is computed as the first available view and is not persisted. Returns no rendered rows or pagination; therefore, use [Render](#Render) for computed rows
 
 ### Get primary key values
 
@@ -2248,7 +2277,7 @@ The field types (`keyType`) are:
   }
   ```
 
-    * `data.rows`: A `KeyValues` object holding the primary-key (`block`) field and its paginated values
+    * `data.rows`: A `KeyValues` object containing the primary-key (`block`) field and its paginated values
     * `data.blockIDs`: IDs of all database blocks (mirrors) that reference this database
     * `data.total`: Number of primary-key values after filtering and before pagination
 
@@ -2323,7 +2352,7 @@ Updates a single cell (one field of one row). This is the primary write endpoint
 | `mAsset`   | `{"mAsset": [{"type": "image", "name": "", "content": "https://example.com/image"}]}`                               |
 | `checkbox` | `{"checkbox": {"checked": true}}`                                                                                    |
 
-> ⚠️ `itemID` is the **item ID**, which is the rendered item's `id` from [Render](#Render): `rows[].id` for a table and `cards[].id` for a gallery or kanban, inside the corresponding view instance under `groups[]` when grouping is enabled. It also equals the primary-key value's `value.blockID`. For a bound item, the bound block ID is stored in the primary-key value's `value.block.id`; these are distinct concepts and must not be assumed equal. Passing the wrong ID stores the value as an orphan that does not appear in the rendered cell.
+> ⚠️ `itemID` is the **item ID**, which is the rendered item's `id` from [Render](#Render): `rows[].id` for a table or list and `cards[].id` for a gallery or kanban, inside the corresponding view instance under `groups[]` when grouping is enabled. It also equals the primary-key value's `value.blockID`. For a bound item, the bound block ID is stored in the primary-key value's `value.block.id`; these are distinct concepts and must not be assumed equal. Passing the wrong ID stores the value as an orphan that does not appear in the rendered cell.
 
 For `mAsset`, each item uses `type: "image"` to render an image or `type: "file"` to render a file link. Updating the value replaces the entire `mAsset` array, so append operations must include the existing items.
 
@@ -2380,7 +2409,7 @@ For rich text, `text.rich.content` is the authoritative Kramdown source. The ker
 
 ### Add items
 
-Adds one or more items (rows). Each source can either bind an existing block (`isDetached: false`) or create a detached row that only lives inside the view (`isDetached: true`).
+Adds one or more items (rows). Each source can either bind an existing block (`isDetached: false`) or create a detached row that exists only inside the view (`isDetached: true`).
 
 * `/api/av/addAttributeViewBlocks`
 * Parameters
@@ -2406,7 +2435,7 @@ Adds one or more items (rows). Each source can either bind an existing block (`i
     * `avID`: Database ID
     * `blockID`: The database block that owns this database (resolves target view/group)
     * `viewID`: Explicit target view. When omitted, the view selected by `blockID` is used, then the first available view
-    * `groupID`: Target group ID for kanban views. Omit for table/gallery
+    * `groupID`: Target group ID for kanban views. Omit for table/list/gallery
     * `previousID`: Insert after this item ID. Empty means append to the end
     * `srcs[].id`: For bound blocks (`isDetached: false`), the block ID to bind. Must match the node ID pattern
     * `srcs[].isDetached`: `true` to create a detached row; `false` to bind an existing block
@@ -2453,7 +2482,9 @@ Removes one or more items (rows). Detached rows are deleted; bound blocks are un
 
 ### Change layout
 
-Switches the layout type of the view selected by the database block between `table`, `gallery`, and `kanban`. On success the server re-renders the view and returns it (same shape as [Render](#Render)).
+Switches the layout type of the view selected by the database block between `table`, `list`, `gallery`, and `kanban`. On success the server re-renders the view and returns it (same shape as [Render](#Render)).
+
+The first switch to `list` initializes an independent layout with only the primary-key field visible. Subsequent switches back to this layout preserve its field visibility and ordering. Hidden fields retain their values and remain available for filtering and sorting; other layouts keep their own display settings.
 
 * `/api/av/changeAttrViewLayout`
 * Parameters
@@ -2468,8 +2499,8 @@ Switches the layout type of the view selected by the database block between `tab
 
     * `avID`: Database ID
     * `blockID`: The database block that owns the view
-    * `layoutType`: Target layout — one of `table`, `gallery`, `kanban`
-* Return value: same shape as [Render](#Render). When switching to `kanban` and a group is configured, `data.view` carries a `groups[]` array; each group is a view instance with `groupKey`, `groupValue`, plus kanban-specific fields (`coverFrom`, `cardAspectRatio`, `cardSize`, `fitImage`, `displayFieldName`, `fillColBackgroundColor`, `fields`)
+    * `layoutType`: Target layout — one of `table`, `list`, `gallery`, `kanban`
+* Return value: same shape as [Render](#Render). When switching to `kanban` and a group is configured, `data.view` contains a `groups[]` array; each group is a view instance with `groupKey`, `groupValue`, plus kanban-specific fields (`coverFrom`, `cardAspectRatio`, `cardSize`, `fitImage`, `displayFieldName`, `fillColBackgroundColor`, `fields`)
 
 ### Set grouping
 
@@ -2560,7 +2591,7 @@ Returns the current filter and sort rules of the view bound to a database block.
   }
   ```
 
-    * `data.filters`: Array of `ViewFilter`. The top level holds a single root group node `{ "combination": "and"|"or", "filters": [...] }`; the array elements are either leaf filters or nested group nodes, enabling recursive AND/OR combinations.
+    * `data.filters`: Array of `ViewFilter`. The top level contains a single root group node `{ "combination": "and"|"or", "filters": [...] }`; the array elements are either leaf filters or nested group nodes, enabling recursive AND/OR combinations.
     * `data.filters[].column`: Field (column) ID the filter applies to (leaf node only)
     * `data.filters[].valueSource`: Optional value source for a leaf node — `stored` is the default when omitted, and `rendered` filters the field's display-template result
     * `data.filters[].operator`: Filter operator (see the operator table below; leaf node only)
@@ -2619,7 +2650,7 @@ Returns the current filter and sort rules of the view bound to a database block.
 
     * `avID`: Database ID
     * `blockID`: The database block that owns the view
-    * `data`: Full new array of `ViewFilter` objects that **replaces** the view's existing filters entirely (see [Get filter and sort](#Get-filter-and-sort)). Pass `[]` to clear all filters. The top level holds a single root group node `{ "combination": "and"|"or", "filters": [...] }`; the array elements are either leaf filters or nested group nodes, enabling recursive AND/OR combinations
+    * `data`: Full new array of `ViewFilter` objects that **replaces** the view's existing filters entirely (see [Get filter and sort](#Get-filter-and-sort)). Pass `[]` to clear all filters. The top level contains a single root group node `{ "combination": "and"|"or", "filters": [...] }`; the array elements are either leaf filters or nested group nodes, enabling recursive AND/OR combinations
 * Return value
 
   ```json
@@ -2665,7 +2696,7 @@ Returns the current filter and sort rules of the view bound to a database block.
 
 ### Add a field
 
-Adds a new field (column). The field is appended to every view (table/gallery/kanban) at the position after `previousKeyID` (or at the default position when empty).
+Adds a new field (column). The field is appended to every view (table/list/gallery/kanban) at the position after `previousKeyID` (or at the default position when empty).
 
 * `/api/av/addAttributeViewKey`
 * Parameters
@@ -2686,7 +2717,7 @@ Adds a new field (column). The field is appended to every view (table/gallery/ka
     * `keyName`: Field display name
     * `keyType`: Field type — one of `text`, `number`, `date`, `select`, `mSelect`, `url`, `email`, `phone`, `mAsset`, `template`, `created`, `updated`, `checkbox`, `relation`, `rollup`, `lineNumber`. `block` (primary key) cannot be added through this endpoint
     * `keyIcon`: Optional field icon (emoji or empty string)
-    * `previousKeyID`: Insert the new column after this field ID. Empty string uses the layout default (first column for table, last for gallery/kanban)
+    * `previousKeyID`: Insert the new column after this field ID. Empty string uses the layout default (first column for table, last for list/gallery/kanban)
 * Return value
 
   ```json
@@ -2796,8 +2827,8 @@ Saved search criteria use the following fields:
 * `idPath`: Search scope path array
 * `k`: Search keyword
 * `r`: Replacement keyword
-* `types`: Block type flags. Supported keys are `mathBlock`, `table`, `blockquote`, `superBlock`, `paragraph`, `document`, `heading`, `list`, `listItem`, `codeBlock`, `htmlBlock`, `embedBlock`, `databaseBlock`, `audioBlock`, `videoBlock`, `iframeBlock`, `widgetBlock`, and `callout`
-* `subTypes`: Block subtype flags. `h1` through `h6` select heading levels; `o`, `u`, and `t` select ordered, unordered, and task lists
+* `types`: Block type flags. Supported keys are `mathBlock`, `table`, `blockquote`, `superBlock`, `paragraph`, `document`, `heading`, `list`, `listItem`, `codeBlock`, `htmlBlock`, `embedBlock`, `databaseBlock`, `audioBlock`, `videoBlock`, `iframeBlock`, `widgetBlock`, `callout`, `tabs`, and `tabItem`
+* `subTypes`: Independent subtype groups: `heading` accepts `h1` through `h6`; `list` and `listItem` each accept `o` (ordered), `u` (unordered), and `t` (task). A missing or empty group, or a group with all flags `false`, leaves that parent type unrestricted by subtype. The parent must still be enabled in `types`. Unknown top-level keys, including the former flat `h1`–`h6` and `o`/`u`/`t` flags, are ignored without error; saved subtype selections in that format must be selected and saved again
 * `replaceTypes`: Replacement type flags. Supported keys are `text`, `imgText`, `imgTitle`, `imgSrc`, `aText`, `aTitle`, `aHref`, `code`, `em`, `strong`, `inlineMath`, `inlineMemo`, `blockRef`, `fileAnnotationRef`, `kbd`, `mark`, `s`, `sub`, `sup`, `tag`, `u`, `docTitle`, `codeBlock`, `mathBlock`, and `htmlBlock`
 
 Boolean flags omitted from `types`, `subTypes`, or `replaceTypes` are treated as `false`.
@@ -2831,10 +2862,15 @@ Creates a criterion or completely replaces the existing criterion with the same 
       "r": "",
       "types": {
         "document": true,
-        "paragraph": true
+        "paragraph": true,
+        "heading": true,
+        "list": true,
+        "listItem": true
       },
       "subTypes": {
-        "h1": true
+        "heading": {"h1": true},
+        "list": {"o": true},
+        "listItem": {"t": true}
       },
       "replaceTypes": {
         "text": true
