@@ -299,6 +299,12 @@ export const getViewHTML = (data: IAV) => {
     <span class="b3-menu__accelerator">${countFilterLeaves(view.filters)}</span>
     <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
 </button>
+<button class="b3-menu__item" data-type="goConditionalColors">
+    <svg class="b3-menu__icon"><use xlink:href="#iconFont"></use></svg>
+    <span class="b3-menu__label">${window.siyuan.languages.conditionalColors}</span>
+    <span class="b3-menu__accelerator">${view.conditionalColors?.length || 0}</span>
+    <svg class="b3-menu__icon b3-menu__icon--small"><use xlink:href="#iconRight"></use></svg>
+</button>
 <button class="b3-menu__item" data-type="goSorts">
     <svg class="b3-menu__icon"><use xlink:href="#iconSort"></use></svg>
     <span class="b3-menu__label">${window.siyuan.languages.sort}</span>
@@ -485,15 +491,6 @@ export const addView = (protyle: IProtyle, blockElement: Element) => {
         }
     });
     addMenu.addItem({
-        icon: "iconCalendar",
-        label: window.siyuan.languages.calendarView,
-        click() {
-            addVisibleView();
-            const context = {avID, id, blockID: blockElement.getAttribute("data-node-id"), layout: "calendar"};
-            transaction(protyle, [{...context, action: "addAttrViewView"}], [{...context, action: "removeAttrViewView"}]);
-        }
-    });
-    addMenu.addItem({
         icon: "iconList",
         label: window.siyuan.languages.listView,
         click() {
@@ -507,6 +504,26 @@ export const addView = (protyle: IProtyle, blockElement: Element) => {
             }], [{
                 action: "removeAttrViewView",
                 layout: "list",
+                avID,
+                id,
+                blockID: blockElement.getAttribute("data-node-id")
+            }]);
+        }
+    });
+    addMenu.addItem({
+        icon: "iconGallery",
+        label: window.siyuan.languages.gallery,
+        click() {
+            addVisibleView();
+            transaction(protyle, [{
+                action: "addAttrViewView",
+                avID,
+                layout: "gallery",
+                id,
+                blockID: blockElement.getAttribute("data-node-id")
+            }], [{
+                action: "removeAttrViewView",
+                layout: "gallery",
                 avID,
                 id,
                 blockID: blockElement.getAttribute("data-node-id")
@@ -534,23 +551,12 @@ export const addView = (protyle: IProtyle, blockElement: Element) => {
         }
     });
     addMenu.addItem({
-        icon: "iconGallery",
-        label: window.siyuan.languages.gallery,
+        icon: "iconCalendar",
+        label: window.siyuan.languages.calendarView,
         click() {
             addVisibleView();
-            transaction(protyle, [{
-                action: "addAttrViewView",
-                avID,
-                layout: "gallery",
-                id,
-                blockID: blockElement.getAttribute("data-node-id")
-            }], [{
-                action: "removeAttrViewView",
-                layout: "gallery",
-                avID,
-                id,
-                blockID: blockElement.getAttribute("data-node-id")
-            }]);
+            const context = {avID, id, blockID: blockElement.getAttribute("data-node-id"), layout: "calendar"};
+            transaction(protyle, [{...context, action: "addAttrViewView"}], [{...context, action: "removeAttrViewView"}]);
         }
     });
     viewElement.classList.add("av__views--show");

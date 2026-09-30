@@ -15,23 +15,24 @@ type AVTable struct {
 }
 
 type AVBaseInstance struct {
-	ID               string           `json:"id" api:"optional,nullable"`
-	Icon             string           `json:"icon" api:"optional,nullable"`
-	Name             string           `json:"name" api:"optional,nullable"`
-	Desc             string           `json:"desc" api:"optional,nullable"`
-	HideAttrViewName bool             `json:"hideAttrViewName" api:"optional,nullable"`
-	Filters          []*AVViewFilter  `json:"filters" api:"optional,nullable"`
-	Sorts            []*AVViewSort    `json:"sorts" api:"optional,nullable"`
-	Group            *AVViewGroup     `json:"group" api:"optional,nullable"`
-	PageSize         int              `json:"pageSize" api:"optional,nullable"`
-	ShowIcon         bool             `json:"showIcon" api:"optional,nullable"`
-	WrapField        bool             `json:"wrapField" api:"optional,nullable"`
-	GroupKey         *AVKey           `json:"groupKey,omitempty" api:"optional,nullable"`
-	GroupValue       *AVValue         `json:"groupValue,omitempty" api:"optional,nullable"`
-	Groups           []AVViewInstance `json:"groups,omitempty" api:"optional,nullable"`
-	GroupCalc        *AVGroupCalc     `json:"groupCalc,omitempty" api:"optional,nullable"`
-	GroupFolded      bool             `json:"groupFolded" api:"optional,nullable"`
-	GroupHidden      int              `json:"groupHidden" api:"optional,nullable"`
+	ConditionalColors []*AVConditionalColorRule `json:"conditionalColors" api:"optional,nullable"`
+	ID                string                    `json:"id" api:"optional,nullable"`
+	Icon              string                    `json:"icon" api:"optional,nullable"`
+	Name              string                    `json:"name" api:"optional,nullable"`
+	Desc              string                    `json:"desc" api:"optional,nullable"`
+	HideAttrViewName  bool                      `json:"hideAttrViewName" api:"optional,nullable"`
+	Filters           []*AVViewFilter           `json:"filters" api:"optional,nullable"`
+	Sorts             []*AVViewSort             `json:"sorts" api:"optional,nullable"`
+	Group             *AVViewGroup              `json:"group" api:"optional,nullable"`
+	PageSize          int                       `json:"pageSize" api:"optional,nullable"`
+	ShowIcon          bool                      `json:"showIcon" api:"optional,nullable"`
+	WrapField         bool                      `json:"wrapField" api:"optional,nullable"`
+	GroupKey          *AVKey                    `json:"groupKey,omitempty" api:"optional,nullable"`
+	GroupValue        *AVValue                  `json:"groupValue,omitempty" api:"optional,nullable"`
+	Groups            []AVViewInstance          `json:"groups,omitempty" api:"optional,nullable"`
+	GroupCalc         *AVGroupCalc              `json:"groupCalc,omitempty" api:"optional,nullable"`
+	GroupFolded       bool                      `json:"groupFolded" api:"optional,nullable"`
+	GroupHidden       int                       `json:"groupHidden" api:"optional,nullable"`
 }
 
 type AVViewFilter struct {
@@ -71,6 +72,9 @@ type AVValue struct {
 	Relation        *AVValueRelation `json:"relation,omitempty" api:"optional,nullable"`
 	Rollup          *AVValueRollup   `json:"rollup,omitempty" api:"optional,nullable"`
 	RenderedContent string           `json:"renderedContent,omitempty" api:"optional,nullable"`
+	// 显示模板已计算时为 true，空结果仍以模板显示；关联内容使用目标主键模板，原始 block 内容和标识不变。
+	// 这是运行时显示信息，不写入数据库文件；旧响应未包含此字段时沿用 renderedContent 和字段模板配置。
+	HasRenderTemplate bool `json:"hasRenderTemplate,omitempty" api:"optional,nullable"`
 }
 
 type AVValueBlock struct {
@@ -302,8 +306,9 @@ type AVBaseInstanceField struct {
 }
 
 type AVTableRow struct {
-	ID    string         `json:"id" api:"optional,nullable"`
-	Cells []*AVTableCell `json:"cells" api:"optional,nullable"`
+	ConditionalColors *AVItemConditionalColors `json:"conditionalColors,omitempty" api:"optional"`
+	ID                string                   `json:"id" api:"optional,nullable"`
+	Cells             []*AVTableCell           `json:"cells" api:"optional,nullable"`
 }
 
 type AVTableCell struct {
@@ -341,11 +346,12 @@ type AVGalleryField struct {
 }
 
 type AVGalleryCard struct {
-	ID            string                 `json:"id" api:"optional,nullable"`
-	Values        []*AVGalleryFieldValue `json:"values" api:"optional,nullable"`
-	CoverURL      string                 `json:"coverURL" api:"optional,nullable"`
-	CoverContent  string                 `json:"coverContent" api:"optional,nullable"`
-	CoverPosition *AVCardCoverPosition   `json:"coverPosition,omitempty" api:"optional,nullable"`
+	ConditionalColors *AVItemConditionalColors `json:"conditionalColors,omitempty" api:"optional"`
+	ID                string                   `json:"id" api:"optional,nullable"`
+	Values            []*AVGalleryFieldValue   `json:"values" api:"optional,nullable"`
+	CoverURL          string                   `json:"coverURL" api:"optional,nullable"`
+	CoverContent      string                   `json:"coverContent" api:"optional,nullable"`
+	CoverPosition     *AVCardCoverPosition     `json:"coverPosition,omitempty" api:"optional,nullable"`
 }
 
 type AVGalleryFieldValue struct {
@@ -382,11 +388,12 @@ type AVKanbanField struct {
 }
 
 type AVKanbanCard struct {
-	ID            string                `json:"id" api:"optional,nullable"`
-	Values        []*AVKanbanFieldValue `json:"values" api:"optional,nullable"`
-	CoverURL      string                `json:"coverURL" api:"optional,nullable"`
-	CoverContent  string                `json:"coverContent" api:"optional,nullable"`
-	CoverPosition *AVCardCoverPosition  `json:"coverPosition,omitempty" api:"optional,nullable"`
+	ConditionalColors *AVItemConditionalColors `json:"conditionalColors,omitempty" api:"optional"`
+	ID                string                   `json:"id" api:"optional,nullable"`
+	Values            []*AVKanbanFieldValue    `json:"values" api:"optional,nullable"`
+	CoverURL          string                   `json:"coverURL" api:"optional,nullable"`
+	CoverContent      string                   `json:"coverContent" api:"optional,nullable"`
+	CoverPosition     *AVCardCoverPosition     `json:"coverPosition,omitempty" api:"optional,nullable"`
 }
 
 type AVKanbanFieldValue struct {
@@ -463,31 +470,32 @@ type AVAttributeViewCustomColor struct {
 }
 
 type AVView struct {
-	ID               string            `json:"id" api:"optional,nullable"`
-	Icon             string            `json:"icon" api:"optional,nullable"`
-	Name             string            `json:"name" api:"optional,nullable"`
-	HideAttrViewName bool              `json:"hideAttrViewName" api:"optional,nullable"`
-	Desc             string            `json:"desc" api:"optional,nullable"`
-	Filters          []*AVViewFilter   `json:"filters,omitempty" api:"optional,nullable"`
-	Sorts            []*AVViewSort     `json:"sorts,omitempty" api:"optional,nullable"`
-	PageSize         int               `json:"pageSize" api:"optional,nullable"`
-	LayoutType       string            `json:"type" api:"optional,nullable,enum=table|list|gallery|kanban|calendar"`
-	Table            *AVLayoutTable    `json:"table,omitempty" api:"optional,nullable"`
-	Calendar         *AVLayoutCalendar `json:"calendar,omitempty" api:"optional,nullable"`
-	List             *AVLayoutTable    `json:"list,omitempty" api:"optional,nullable"`
-	Gallery          *AVLayoutGallery  `json:"gallery,omitempty" api:"optional,nullable"`
-	Kanban           *AVLayoutKanban   `json:"kanban,omitempty" api:"optional,nullable"`
-	ItemIDs          []string          `json:"itemIds,omitempty" api:"optional,nullable"`
-	Group            *AVViewGroup      `json:"group,omitempty" api:"optional,nullable"`
-	GroupCreated     int64             `json:"groupCreated" api:"optional,nullable"`
-	Groups           []*AVView         `json:"groups,omitempty" api:"optional,nullable"`
-	GroupItemIDs     []string          `json:"groupItemIds" api:"optional,nullable"`
-	GroupCalc        *AVGroupCalc      `json:"groupCalc,omitempty" api:"optional,nullable"`
-	GroupKey         *AVKey            `json:"groupKey,omitempty" api:"optional,nullable"`
-	GroupVal         *AVValue          `json:"groupVal,omitempty" api:"optional,nullable"`
-	GroupFolded      bool              `json:"groupFolded" api:"optional,nullable"`
-	GroupHidden      int               `json:"groupHidden" api:"optional,nullable"`
-	GroupSort        int               `json:"groupSort" api:"optional,nullable"`
+	ConditionalColors []*AVConditionalColorRule `json:"conditionalColors" api:"optional,nullable"`
+	ID                string                    `json:"id" api:"optional,nullable"`
+	Icon              string                    `json:"icon" api:"optional,nullable"`
+	Name              string                    `json:"name" api:"optional,nullable"`
+	HideAttrViewName  bool                      `json:"hideAttrViewName" api:"optional,nullable"`
+	Desc              string                    `json:"desc" api:"optional,nullable"`
+	Filters           []*AVViewFilter           `json:"filters,omitempty" api:"optional,nullable"`
+	Sorts             []*AVViewSort             `json:"sorts,omitempty" api:"optional,nullable"`
+	PageSize          int                       `json:"pageSize" api:"optional,nullable"`
+	LayoutType        string                    `json:"type" api:"optional,nullable,enum=table|list|gallery|kanban|calendar"`
+	Table             *AVLayoutTable            `json:"table,omitempty" api:"optional,nullable"`
+	Calendar          *AVLayoutCalendar         `json:"calendar,omitempty" api:"optional,nullable"`
+	List              *AVLayoutTable            `json:"list,omitempty" api:"optional,nullable"`
+	Gallery           *AVLayoutGallery          `json:"gallery,omitempty" api:"optional,nullable"`
+	Kanban            *AVLayoutKanban           `json:"kanban,omitempty" api:"optional,nullable"`
+	ItemIDs           []string                  `json:"itemIds,omitempty" api:"optional,nullable"`
+	Group             *AVViewGroup              `json:"group,omitempty" api:"optional,nullable"`
+	GroupCreated      int64                     `json:"groupCreated" api:"optional,nullable"`
+	Groups            []*AVView                 `json:"groups,omitempty" api:"optional,nullable"`
+	GroupItemIDs      []string                  `json:"groupItemIds" api:"optional,nullable"`
+	GroupCalc         *AVGroupCalc              `json:"groupCalc,omitempty" api:"optional,nullable"`
+	GroupKey          *AVKey                    `json:"groupKey,omitempty" api:"optional,nullable"`
+	GroupVal          *AVValue                  `json:"groupVal,omitempty" api:"optional,nullable"`
+	GroupFolded       bool                      `json:"groupFolded" api:"optional,nullable"`
+	GroupHidden       int                       `json:"groupHidden" api:"optional,nullable"`
+	GroupSort         int                       `json:"groupSort" api:"optional,nullable"`
 }
 
 type AVLayoutTable struct {

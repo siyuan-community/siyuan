@@ -1,4 +1,6 @@
 import {MenuItem} from "../../menus/Menu";
+import {getTableGridRect, TableGridCache} from "./tableGridCache";
+import {getVirtualTableGrid, setTableVirtualSelection, TABLE_VIRTUAL_ID, TABLE_VIRTUAL_ROWS} from "./tableVirtualizationDOM";
 import {clearTableCellContent, getTableCellPlainText, mergeTableCellContents} from "./tableCellRich";
 import {renderTableCellRichElements} from "../render/tableCellRich";
 import {updateTransaction} from "../wysiwyg/transaction";
@@ -115,13 +117,13 @@ const getCell = (target: EventTarget | Node) => {
     const element = target instanceof Element ? target : (target as Node)?.parentElement;
     const cell = element?.closest?.("th, td") as HTMLTableCellElement;
     const editor = element?.closest?.(".table__cell-editor");
-    return cell && !cell.closest(".list-mindmap__preview-block") &&
+    return cell && !cell.closest(`.mindmap-view__preview-block, tr[${TABLE_VIRTUAL_ROWS}]`) &&
         (element.closest(".protyle-wysiwyg") === cell.closest(".protyle-wysiwyg") ||
         editor?.parentElement === cell) ? cell : undefined;
 };
 
 const getTableNode = (cell: HTMLTableCellElement) => {
-    if (cell?.closest(".protyle-custom, .list-mindmap__preview-block")) {
+    if (cell?.closest(".protyle-custom, .mindmap-view__preview-block")) {
         return;
     }
     return cell?.closest<HTMLElement>('[data-type="NodeTable"]');
@@ -185,14 +187,19 @@ export const getCommonTableCellStyle = (cells: HTMLTableCellElement[], property:
     if (cells.length === 0) {
         return undefined;
     }
-    const value = cells[0].style.getPropertyValue(property);
-    return cells.every(cell => cell.style.getPropertyValue(property) === value) ? value : undefined;
+    const getValue = (cell: HTMLTableCellElement) => cell.style.getPropertyValue(property) ||
+        (property === "text-align" ? cell.getAttribute("align") || "" : "");
+    const value = getValue(cells[0]);
+    return cells.every(cell => getValue(cell) === value) ? value : undefined;
 };
 
 export const setTableCellStyle = (protyle: IProtyle, node: HTMLElement, cells: HTMLTableCellElement[],
                                   property: string, value: string) => {
     const oldHTML = node.outerHTML;
     cells.forEach(cell => {
+        if (property === "text-align") {
+            cell.removeAttribute("align");
+        }
         if (value) {
             cell.style.setProperty(property, value);
         } else {
@@ -337,6 +344,11 @@ export class TableControl {
     private selectionElementIndex = 0;
     private selectedCells: HTMLTableCellElement[] = [];
     private selectionGrid: ITableGrid;
+    private gridCache = new TableGridCache(table => {
+        const grid = table.hasAttribute(TABLE_VIRTUAL_ID) ? getVirtualTableGrid(table) : buildTableGrid(table);
+        return {grid, cells: new Map(grid.cellInfos.map(info => [info.cell, info])),
+            merged: grid.cellInfos.some(info => info.rowspan > 1 || info.colspan > 1)};
+    });
     private frame: number;
     private dragState: IDragState;
     private resizeState: IResizeState;
@@ -436,6 +448,7 @@ export class TableControl {
         this.cancelResize();
         this.abortController.abort();
         this.observer.disconnect();
+        this.gridCache.destroy();
         this.pinnedTableResizeObserver.disconnect();
         this.pinnedTableActions.forEach(action => this.clearPinnedTableFrame(action));
         this.pinnedTableActions.clear();
@@ -444,6 +457,9 @@ export class TableControl {
     }
 
     public clear() {
+        if (this.selection) {
+            setTableVirtualSelection(this.selection.table);
+        }
         this.cancelResize();
         this.clearDragPreview();
         this.dragState = undefined;
@@ -471,9 +487,10 @@ export class TableControl {
         if (!node || !table || getTableNode(activeCell) !== node || activeCell.closest("table") !== table) {
             return false;
         }
-        const grid = buildTableGrid(table);
-        const anchorInfo = grid.cellInfos.find(item => item.cell === anchorCell);
-        const activeInfo = grid.cellInfos.find(item => item.cell === activeCell);
+        const cached = this.gridCache.get(table);
+        const grid = cached.grid;
+        const anchorInfo = cached.cells.get(anchorCell);
+        const activeInfo = cached.cells.get(activeCell);
         const cells = getTableCellsInRectangle(grid.cellInfos, anchorInfo, activeInfo).map(item => item.cell);
         if (cells.length === 0) {
             return false;
@@ -489,6 +506,7 @@ export class TableControl {
             activeCell,
         };
         this.caretCell = undefined;
+        setTableVirtualSelection(table, [anchorCell, activeCell]);
         this.updateSelectedCells(grid);
         getSelection()?.removeAllRanges();
         this.scheduleRender();
@@ -1020,6 +1038,10 @@ export class TableControl {
         return this.selectedCells.filter(cell => cell.isConnected);
     }
 
+    public hasVirtualCellSelection() {
+        return this.selection?.mode === "cell" && this.selection.table.hasAttribute(TABLE_VIRTUAL_ID);
+    }
+
     private updateSelectedCells(grid?: ITableGrid) {
         if (!this.selection) {
             this.selectedCells = [];
@@ -1081,26 +1103,7 @@ export class TableControl {
         return Math.max(table.getBoundingClientRect().bottom, table.parentElement.getBoundingClientRect().bottom);
     }
 
-    private getTableGridRect(table: HTMLTableElement) {
-        const rowRects = Array.from(table.rows).map(row => row.getBoundingClientRect()).filter(rect => rect.height > 0);
-        if (rowRects.length === 0) {
-            return table.getBoundingClientRect();
-        }
-        const left = Math.min(...rowRects.map(rect => rect.left));
-        const top = Math.min(...rowRects.map(rect => rect.top));
-        const right = Math.max(...rowRects.map(rect => rect.right));
-        const bottom = Math.max(...rowRects.map(rect => rect.bottom));
-        return {
-            left,
-            top,
-            right,
-            bottom,
-            width: right - left,
-            height: bottom - top,
-        };
-    }
-
-    private getTableGridViewportRect(table: HTMLTableElement, gridRect = this.getTableGridRect(table)) {
+    private getTableGridViewportRect(table: HTMLTableElement, gridRect = getTableGridRect(table)) {
         return intersectRects(this.getTableViewportRect(table), gridRect);
     }
 
@@ -1135,15 +1138,14 @@ export class TableControl {
     private getEdgeHover(clientX: number, clientY: number) {
         const candidates: ITableEdgeHover[] = [];
         this.wysiwygElement.querySelectorAll<HTMLTableElement>('[data-type="NodeTable"] table').forEach(table => {
-            if (table.closest(".protyle-custom, .list-mindmap__preview-block")) {
+            if (table.closest(".protyle-custom, .mindmap-view__preview-block")) {
                 return;
             }
-            const gridRect = this.getTableGridRect(table);
+            const gridRect = getTableGridRect(table);
             const addColumnEdge = gridRect.right;
             const viewportRect = this.getTableGridViewportRect(table, gridRect);
             const addRowEdge = this.getTableAddRowEdge(table);
             const contentRect = (this.protyle.contentElement || this.protyle.element).getBoundingClientRect();
-            const grid = buildTableGrid(table);
             const columnControlVisible = addColumnEdge <= viewportRect.right + 1 &&
                 isTableResizeControlVisible(addColumnEdge, contentRect.right, TABLE_ADD_CONTROL_THICKNESS,
                     TABLE_ADD_CONTROL_GAP);
@@ -1153,7 +1155,7 @@ export class TableControl {
                 clientX <= addColumnEdge + TABLE_ADD_CONTROL_GAP + TABLE_ADD_CONTROL_THICKNESS &&
                 clientY >= addRowEdge &&
                 clientY <= addRowEdge + TABLE_ADD_CONTROL_GAP + TABLE_ADD_CONTROL_THICKNESS) {
-                const cell = grid.cellInfos[0]?.cell;
+                const cell = this.gridCache.get(table).grid.cellInfos[0]?.cell;
                 if (cell) {
                     candidates.push({
                         cell,
@@ -1166,7 +1168,7 @@ export class TableControl {
                 clientX >= addColumnEdge &&
                 clientX <= addColumnEdge + TABLE_ADD_CONTROL_GAP + TABLE_ADD_CONTROL_THICKNESS &&
                 clientY >= viewportRect.top && clientY <= viewportRect.bottom) {
-                const cell = grid.cellInfos[0]?.cell;
+                const cell = this.gridCache.get(table).grid.cellInfos[0]?.cell;
                 if (cell) {
                     candidates.push({
                         cell,
@@ -1179,7 +1181,7 @@ export class TableControl {
                 clientY >= addRowEdge &&
                 clientY <= addRowEdge + TABLE_ADD_CONTROL_GAP + TABLE_ADD_CONTROL_THICKNESS &&
                 clientX >= viewportRect.left && clientX <= viewportRect.right) {
-                const cell = grid.cellInfos[0]?.cell;
+                const cell = this.gridCache.get(table).grid.cellInfos[0]?.cell;
                 if (cell) {
                     candidates.push({
                         cell,
@@ -1247,7 +1249,7 @@ export class TableControl {
             item.classList.remove("protyle-table-control__add--active");
         });
         this.selectionElements.forEach(item => item.classList.add("fn__none"));
-        const gridRect = this.getTableGridRect(state.table);
+        const gridRect = getTableGridRect(state.table);
         const addColumnEdge = gridRect.right;
         const viewportRect = this.getTableGridViewportRect(state.table, gridRect);
         const tableViewportRect = this.getTableViewportRect(state.table);
@@ -1298,7 +1300,7 @@ export class TableControl {
         const actions = new Map<HTMLTableElement, HTMLElement>();
         this.wysiwygElement.querySelectorAll<HTMLTableElement>(
             '[data-type="NodeTable"][custom-pinthead="true"] table').forEach(table => {
-            if (table.closest(".protyle-custom, .list-mindmap__preview-block")) {
+            if (table.closest(".protyle-custom, .mindmap-view__preview-block")) {
                 return;
             }
             const action = table.nextElementSibling as HTMLElement;
@@ -1355,7 +1357,7 @@ export class TableControl {
         });
         this.resizeLabel.classList.add("fn__none");
         if (visible) {
-            const gridRect = this.getTableGridRect(table);
+            const gridRect = getTableGridRect(table);
             const addColumnEdge = gridRect.right;
             const viewportRect = this.getTableGridViewportRect(table, gridRect);
             const tableViewportRect = this.getTableViewportRect(table);
@@ -1366,17 +1368,19 @@ export class TableControl {
             const columnControlVisible = addColumnEdge <= viewportRect.right + 1 &&
                 isTableResizeControlVisible(addColumnEdge, contentRect.right, TABLE_ADD_CONTROL_THICKNESS,
                     TABLE_ADD_CONTROL_GAP);
-            const grid = this.selection?.table === table && this.selectionGrid ?
-                this.selectionGrid : buildTableGrid(table);
-            const cellInfo = grid.cellInfos.find(item => item.cell === cell);
+            const cached = this.gridCache.get(table);
+            const grid = this.selection?.table === table && this.selectionGrid ? this.selectionGrid : cached.grid;
+            const cellInfo = grid === cached.grid ? cached.cells.get(cell) : grid.cellInfos.find(item => item.cell === cell);
             const rowIndex = cellInfo?.row;
-            const rowRect = typeof rowIndex === "number" ? table.rows[rowIndex]?.getBoundingClientRect() : undefined;
+            const rowRect = typeof rowIndex === "number" ? cell.parentElement.getBoundingClientRect() : undefined;
             const visibleRowRect = rowRect ? intersectRects(rowRect, viewportRect) : undefined;
             const columnIndex = cellInfo?.col;
             const columnRect = typeof columnIndex === "number" ?
                 this.getColumnRect(table, grid, columnIndex) : undefined;
             const visibleColumnRect = columnRect ? intersectRects(columnRect, viewportRect) : undefined;
-            const merged = grid.cellInfos.some(info => info.rowspan > 1 || info.colspan > 1);
+            // 虚拟窗口的跨列占位行不属于合并单元格，操作前会恢复完整网格。
+            const merged = !table.hasAttribute(TABLE_VIRTUAL_ID) &&
+                (grid === cached.grid ? cached.merged : grid.cellInfos.some(info => info.rowspan > 1 || info.colspan > 1));
             this.rowHandle.classList.toggle("protyle-table-control__handle--drag-disabled", merged ||
                 (this.selection?.table === table && this.selection.mode === "row" &&
                     this.selection.indexes.size > 1 && this.selection.indexes.has(0)));
@@ -1440,7 +1444,7 @@ export class TableControl {
             this.selectedCells = [];
             return;
         }
-        const selectionGridRect = this.getTableGridRect(this.selection.table);
+        const selectionGridRect = getTableGridRect(this.selection.table);
         const selectionViewportRect = intersectRects(
             this.getTableViewportRect(this.selection.table), selectionGridRect);
         if (this.selection.mode === "row") {
@@ -1476,7 +1480,8 @@ export class TableControl {
                 }
             });
         } else if (this.isRectangle()) {
-            const cells = this.getSelectedCells();
+            const cells = this.hasVirtualCellSelection() ?
+                [this.selection.anchor as HTMLTableCellElement, this.selection.activeCell] : this.getSelectedCells();
             const rects = cells.map(item => item.getBoundingClientRect());
             if (rects.length > 0) {
                 const left = Math.min(...rects.map(rect => rect.left));
@@ -1725,9 +1730,10 @@ export class TableControl {
             const row = document.createElement("tr");
             for (let column = 0; column < grid.columnCount; column++) {
                 const cell = document.createElement(tag);
-                const align = grid.grid[sourceRow]?.[column]?.getAttribute("align");
+                const source = grid.grid[sourceRow]?.[column];
+                const align = source?.style.textAlign || source?.getAttribute("align");
                 if (align) {
-                    cell.setAttribute("align", align);
+                    cell.style.textAlign = align;
                 }
                 row.append(cell);
             }
@@ -2421,9 +2427,10 @@ export class TableControl {
                 const row = document.createElement("tr");
                 for (let columnIndex = 0; columnIndex < targetColumns; columnIndex++) {
                     const cell = document.createElement("td");
-                    const align = grid.grid[sourceRow]?.[columnIndex]?.getAttribute("align");
+                    const source = grid.grid[sourceRow]?.[columnIndex];
+                    const align = source?.style.textAlign || source?.getAttribute("align");
                     if (align) {
-                        cell.setAttribute("align", align);
+                        cell.style.textAlign = align;
                     }
                     row.append(cell);
                 }

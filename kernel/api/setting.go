@@ -582,6 +582,12 @@ var setSearch = contractHandler(apicontract.SetSearch, func(c *gin.Context, requ
 	if s.CustomBlock == nil {
 		s.CustomBlock = new(model.Conf.Search.CustomBlockEnabled())
 	}
+	if s.Mindmap == nil {
+		s.Mindmap = new(model.Conf.Search.MindmapEnabled())
+	}
+	if s.MindmapItem == nil {
+		s.MindmapItem = new(model.Conf.Search.MindmapItemEnabled())
+	}
 
 	if 32 > s.Limit {
 		s.Limit = 32
@@ -822,7 +828,7 @@ var getPublish = contractHandler(apicontract.GetPublish, func(c *gin.Context, re
 })
 
 var getCloudUser = contractHandler(apicontract.GetCloudUser, func(c *gin.Context, request apicontract.SettingCloudUserRequest) apicontract.Response[*apicontract.SettingUser] {
-	user, err := model.RefreshUser(request.Token)
+	user, err := model.GetCloudUser(request.Token, request.Cached)
 	data := settingUserPayload(user)
 	if err == nil {
 		return apicontract.Success(data)

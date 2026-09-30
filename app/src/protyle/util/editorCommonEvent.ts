@@ -67,6 +67,7 @@ import {
     getMissingDragIds,
     getSameSuperBlockEdgeTarget,
     getSuperBlockResizeDropTarget,
+    getTabsContentDropTarget,
     getTopListDragTarget,
     isAttributeViewTitleTarget,
     isCopyBlockDrag,
@@ -80,8 +81,7 @@ import {
     uniqueDragIds
 } from "./dragDocument";
 import {getAVFilteredTipContext, getAVViewID} from "../render/av/filteredTip";
-import {getAVData, getAVPreviousItemID, getAVSelectedItemPoints, updateAVRowSelect} from "../render/av/virtualScroll";
-import {setAVItemAnchor} from "../render/av/rangeSelect";
+import {getAVData, getAVPreviousItemID, getAVSelectedItemPoints} from "../render/av/virtualScroll";
 import {getCaretRect} from "./caretRect";
 import {isBlockRefDropTargetDisabled} from "./blockRefDrop";
 import {appendCancelSuperBlockOperations} from "../../block/cancelSuperBlock";
@@ -131,8 +131,25 @@ const getTargetListItem = (targetElement: Element, isBottom: boolean) => {
 };
 
 type TDragSourcePosition = {
+    nextID?: string,
     previousID: string,
     parentID: string
+};
+
+const getDragSourceNextID = (element: Element, sources: Element[]) => {
+    let current = element;
+    while (current) {
+        let next = getNextBlockSibling(current);
+        // 折叠标题下辖块与其他源块都会移动，撤销锚点必须留在原容器中。
+        while (next && shouldUnfoldMovedHeading(current, next)) {
+            next = getNextBlockSibling(next);
+        }
+        if (!next || !sources.includes(next)) {
+            return next?.getAttribute("data-node-id") || "";
+        }
+        current = next;
+    }
+    return "";
 };
 
 type TDragSourceContainerSnapshot = {
@@ -221,6 +238,7 @@ const cancelDragSourceSB = async (nodeElement: Element, excludedChildIDs: Set<st
 const wrapInRowSB = async (protyle: IProtyle, elements: Element[]) => {
     const firstElement = elements[0];
     const sourcePosition: TDragSourcePosition = {
+        nextID: getDragSourceNextID(firstElement, elements),
         previousID: getPreviousBlockSibling(firstElement)?.getAttribute("data-node-id") || "",
         parentID: await getDragSourceParentID(protyle, firstElement)
     };
@@ -282,7 +300,8 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
     const copyFoldHeadingIds: { newId: string, oldId: string }[] = [];
     const removedSourceIDs = new Set(sourceElements.map(item => item.getAttribute("data-node-id"))
         .filter((id): id is string => !!id));
-    const targetId = targetElement.getAttribute("data-node-id");
+    const targetId = targetElement.classList.contains("tab-item-content") ?
+        targetElement.parentElement.getAttribute("data-node-id") : targetElement.getAttribute("data-node-id");
     const newSourceElements: Element[] = [];
     let tempTargetElement = targetElement;
     let isSameLi = true;
@@ -297,7 +316,14 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
     let tabsPlaceholderID: string;
     const orderListElements: { [key: string]: { element: Element, start?: number } } = {};
     const sourceTabs = new Map<HTMLElement, {ids: string[], active: string}>();
+    const sourceTabItems = new Set<HTMLElement>();
     if (!isCopy) {
+        sourceElements.forEach(item => {
+            const tabItem = item.closest<HTMLElement>(".tab-item");
+            if (tabItem?.parentElement?.getAttribute("data-type") === "NodeTabs") {
+                sourceTabItems.add(tabItem);
+            }
+        });
         sourceElements.filter(item => item.getAttribute("data-type") === "NodeTabItem").forEach(item => {
             const tabs = item.parentElement;
             if (tabs.getAttribute("data-type") !== "NodeTabs") {
@@ -316,6 +342,7 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
             const id = item.getAttribute("data-node-id");
             if (id && !sourcePositions.has(id)) {
                 sourcePositions.set(id, {
+                    nextID: getDragSourceNextID(item, sourceElements),
                     previousID: getPreviousBlockSibling(item)?.getAttribute("data-node-id") || "",
                     parentID: await getDragSourceParentID(protyle, item)
                 });
@@ -352,7 +379,8 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
                 action: "insert",
                 data: newListElement.outerHTML,
                 id: newListId,
-                previousID: position === "afterbegin" ? null : (position === "afterend" ? targetId : getPreviousBlockSibling(tempTargetElement)?.getAttribute("data-node-id")),
+                nextID: position === "beforebegin" ? tempTargetElement.getAttribute("data-node-id") : undefined,
+                previousID: position === "afterend" ? targetId : undefined,
                 parentID: position === "afterbegin" ? targetId : (getParentBlock(tempTargetElement)?.getAttribute("data-node-id") || protyle.block.parentID || protyle.block.rootID),
             });
             undoOperations.push({
@@ -380,10 +408,11 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
             });
         } else {
             // 用 DOM 移动前预捕获的源位置构造撤销操作，避免移动后 item 的父/兄弟已变导致撤销移到错误位置
-            const srcPos = sourcePositions.get(id) || {previousID: "", parentID};
+            const srcPos = sourcePositions.get(id) || {nextID: "", previousID: "", parentID};
             undoMoveOperation = {
                 action: "move",
                 id,
+                nextID: srcPos.nextID,
                 previousID: srcPos.previousID,
                 parentID: srcPos.parentID,
                 context: {moveGroupID},
@@ -430,7 +459,8 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
                     action: "insert",
                     id: copyNewId,
                     data: copyElement.outerHTML,
-                    previousID: position === "afterbegin" ? null : (position === "afterend" ? targetId : getPreviousBlockSibling(copyElement)?.getAttribute("data-node-id")), // 不能使用常量，移动后会被修改
+                    nextID: position === "beforebegin" ? tempTargetElement.getAttribute("data-node-id") : undefined,
+                    previousID: position === "afterend" ? targetId : undefined,
                     parentID: position === "afterbegin" ? targetId : (getParentBlock(copyElement)?.getAttribute("data-node-id") || protyle.block.parentID || protyle.block.rootID),
                 });
                 newSourceElements.push(copyElement);
@@ -502,7 +532,8 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
                 doOperations.push({
                     action: "move",
                     id,
-                    previousID: position === "afterbegin" ? null : (position === "afterend" ? targetId : getPreviousBlockSibling(item)?.getAttribute("data-node-id")), // 不能使用常量，移动后会被修改
+                    nextID: position === "beforebegin" ? tempTargetElement.getAttribute("data-node-id") : undefined,
+                    previousID: position === "afterend" ? targetId : undefined,
                     parentID: position === "afterbegin" ? targetId : (getParentBlock(item)?.getAttribute("data-node-id") || protyle.block.parentID || protyle.block.rootID),
                     context: {moveGroupID},
                 });
@@ -656,6 +687,17 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
             tempTargetElement = isCopy ? copyElement : item;
         }
     }
+    sourceTabItems.forEach(tabItem => {
+        const content = tabItem.querySelector<HTMLElement>(":scope > .tab-item-content");
+        if (!content || content.querySelector(":scope > [data-node-id]")) {
+            return;
+        }
+        const paragraph = genEmptyElement(false, false);
+        content.appendChild(paragraph);
+        doOperations.push({action: "insert", id: paragraph.dataset.nodeId,
+            parentID: tabItem.dataset.nodeId, data: paragraph.outerHTML});
+        undoOperations.push({action: "delete", id: paragraph.dataset.nodeId});
+    });
     sourceTabs.forEach(({ids, active}, tabs) => {
         if (!tabs.isConnected) {
             return;
@@ -769,6 +811,9 @@ const dragSb = async (protyle: IProtyle, sourceElements: Element[], targetElemen
         wrapUndoOperations.splice(0, 0, ...targetWrap.undoOperations);
         targetElement = targetWrap.element;
         sourcePositions.forEach(position => {
+            if (position.nextID === targetID) {
+                position.nextID = targetElement.getAttribute("data-node-id");
+            }
             if (position.previousID === targetID) {
                 position.previousID = targetElement.getAttribute("data-node-id");
             }
@@ -901,7 +946,8 @@ const dragSame = async (protyle: IProtyle, sourceElements: Element[], targetElem
     if (!isCopy && isDragTargetInSource(sourceElements, targetElement)) {
         return;
     }
-    const siblingElements = Array.from(targetElement.parentElement.children)
+    const intoEmptyTab = targetElement.classList.contains("tab-item-content");
+    const siblingElements = Array.from((intoEmptyTab ? targetElement : targetElement.parentElement).children)
         .filter(item => item.hasAttribute("data-node-id"));
     if (!isCopy && isSameSiblingMove(siblingElements, sourceElements, targetElement, isBottom)) {
         return;
@@ -920,7 +966,7 @@ const dragSame = async (protyle: IProtyle, sourceElements: Element[], targetElem
     });
 
     const sourceHasFoldHeading = sourceElements.some(isFoldedHeading);
-    const targetParentElement = targetElement.parentElement;
+    const targetParentElement = intoEmptyTab ? targetElement : targetElement.parentElement;
     const isColumnDrop = targetParentElement.classList.contains("sb") &&
         targetParentElement.getAttribute("data-sb-layout") === "col";
     const wrapUndoOperations: IOperation[] = [];
@@ -940,6 +986,9 @@ const dragSame = async (protyle: IProtyle, sourceElements: Element[], targetElem
         wrapUndoOperations.splice(0, 0, ...targetWrap.undoOperations);
         targetElement = targetWrap.element;
         sourcePositions.forEach(position => {
+            if (position.nextID === targetID) {
+                position.nextID = targetElement.getAttribute("data-node-id");
+            }
             if (position.previousID === targetID) {
                 position.previousID = targetElement.getAttribute("data-node-id");
             }
@@ -961,8 +1010,9 @@ const dragSame = async (protyle: IProtyle, sourceElements: Element[], targetElem
     }
     const targetListStart = targetElement.getAttribute("data-type") === "NodeListItem" &&
         targetElement.getAttribute("data-subtype") === "o" ? getOrderedListStart(targetElement.parentElement) : undefined;
+    const previousBlockElement = getPreviousBlockSibling(targetElement);
     const moveToResult = await moveTo(protyle, sourceElements, sourceRowElement || targetElement, isSameEditor,
-        sourceRowElement ? "afterbegin" : (isBottom ? "afterend" : "beforebegin"), isCopy, sourcePositions);
+        sourceRowElement || intoEmptyTab ? "afterbegin" : (isBottom ? "afterend" : "beforebegin"), isCopy, sourcePositions);
     if (sourceRowElement && isCopy) {
         clearCopiedColumnWidth(sourceRowElement, moveToResult.doOperations);
     }
@@ -977,7 +1027,6 @@ const dragSame = async (protyle: IProtyle, sourceElements: Element[], targetElem
     }
     undoOperations.push(...wrapUndoOperations);
     const newSourceParentElement = moveToResult.newSourceElements;
-    const previousBlockElement = getPreviousBlockSibling(targetElement);
     const unfoldHeadingElements = new Set<Element>();
     if (!isColumnDrop && isBottom &&
         targetElement.getAttribute("data-type") === "NodeHeading" &&
@@ -1184,13 +1233,11 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
             } else if (target.classList.contains("av__gallery-item")) {
                 const blockElement = hasClosestBlock(target);
                 if (blockElement) {
-                    if (!target.classList.contains("av__gallery-item--select")) {
-                        clearSelect(["galleryItem"], blockElement);
-                        target.classList.add("av__gallery-item--select");
-                        const bodyElement = hasClosestByClassName(target, "av__body") as HTMLElement;
-                        updateAVRowSelect(bodyElement, target.dataset.id, true);
-                        setAVItemAnchor(blockElement, target);
-                    }
+                    const isSelected = target.classList.contains("av__gallery-item--select");
+                    const groupID = (hasClosestByClassName(target, "av__body") as HTMLElement).dataset.groupId;
+                    const selectIds = isSelected ? getAVSelectedItemPoints(blockElement).map(item =>
+                        item.itemID + (item.groupID ? `@${item.groupID}` : "")) :
+                        [target.dataset.id + (groupID ? `@${groupID}` : "")];
                     const ghostElement = document.createElement("div");
                     ghostElement.className = "protyle-wysiwyg protyle-wysiwyg--attr";
                     const isKanban = blockElement.getAttribute("data-av-type") === "kanban";
@@ -1199,7 +1246,8 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
                     }
                     let galleryElement: HTMLElement;
                     let cloneGalleryElement = document.createElement("div");
-                    const selectElements = blockElement.querySelectorAll(".av__gallery-item--select");
+                    const selectElements = isSelected ?
+                        Array.from(blockElement.querySelectorAll(".av__gallery-item--select")) : [target];
                     selectElements.forEach(item => {
                         if (!galleryElement || !galleryElement.contains(item)) {
                             galleryElement = item.parentElement;
@@ -1235,8 +1283,6 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
                         });
                     }
                     window.siyuan.dragElement = target;
-                    const selectIds = getAVSelectedItemPoints(blockElement).map(item =>
-                        item.itemID + (item.groupID ? `@${item.groupID}` : ""));
                     event.dataTransfer.setData(`${Constants.SIYUAN_DROP_GUTTER}NodeAttributeView${Constants.ZWSP}GalleryItem${Constants.ZWSP}${selectIds}`,
                         ghostElement.outerHTML);
                 }
@@ -1870,6 +1916,11 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
                         }
                     }
                 } else if (sourceElements.length > 0) {
+                    if (targetElement.classList.contains("tab-item-content")) {
+                        await dragSame(protyle, sourceElements, targetElement, false, isCopyDrag);
+                        dragoverElement = undefined;
+                        return;
+                    }
                     const isChild = targetClass.some((c: string) => c.indexOf("--child") > -1);
                     const isBottom = targetClass.some((c: string) => c.indexOf("dragover__bottom") === 0);
 
@@ -2667,6 +2718,11 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
             }
         }
 
+        if (targetElement && gutterType && !isAvSubType && gutterTypes[0] !== "nodetabitem") {
+            // 页签标题栏和空白正文区指向当前页签的正文块，避免把普通块移为页签项的兄弟。
+            targetElement = getTabsContentDropTarget(targetElement, event.target);
+        }
+
         if (!targetElement) {
             clearBlockDragoverTarget();
             hideDragTip();
@@ -2689,6 +2745,21 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
         } else if (isInEmbedBlock(targetElement)) {
             clearBlockDragoverTarget();
             hideDragTip();
+            return;
+        }
+        if (targetElement.classList.contains("tab-item-content")) {
+            const isSelf = !event.ctrlKey && !event.shiftKey && !event.altKey && gutterTypes[2]?.split(",").some(id =>
+                id && hasClosestByAttribute(targetElement as HTMLElement, "data-node-id", id));
+            if (isSelf) {
+                clearBlockDragoverTarget();
+                hideDragTip();
+                return;
+            }
+            if (dragoverElement !== targetElement || !targetElement.classList.contains("dragover__bottom")) {
+                clearBlockDragoverTarget();
+                targetElement.classList.add("dragover__bottom");
+                dragoverElement = targetElement;
+            }
             return;
         }
         const isNotAvItem = !targetElement.classList.contains("av__row") &&

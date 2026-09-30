@@ -50,6 +50,9 @@ const getCardFullRowHTML = (view: IAVGallery | IAVKanban) => {
         <span class="b3-menu__label ft__center">${window.siyuan.languages.fullRow}</span>
     </button>
     <button class="b3-menu__separator"></button>
+    <div class="b3-menu__item b3-menu__item--readonly">
+        <span class="b3-menu__label ft__on-surface fn__flex"><span class="fn__flex-center">${window.siyuan.languages.cardFullRowTip}</span></span>
+    </div>
     ${fieldsHTML}
 </div>`;
 };
@@ -122,25 +125,25 @@ export const getLayoutHTML = (data: IAV) => {
                 <div class="fn__hr"></div>
                 <div>${window.siyuan.languages.table}</div>
             </div>
-            <div data-type="set-layout" data-view-type="calendar" class="av__layout-item${data.viewType === "calendar" ? " av__layout-item--select" : ""}">
-                <svg><use xlink:href="#iconCalendar"></use></svg>
-                <div class="fn__hr"></div>
-                <div>${window.siyuan.languages.calendarView}</div>
-            </div>
             <div data-type="set-layout" data-view-type="list" class="av__layout-item${data.viewType === "list" ? " av__layout-item--select" : ""}">
                 <svg><use xlink:href="#iconList"></use></svg>
                 <div class="fn__hr"></div>
                 <div>${window.siyuan.languages.listView}</div>
+            </div>
+            <div data-type="set-layout" data-view-type="gallery" class="av__layout-item${data.viewType === "gallery" ? " av__layout-item--select" : ""}">
+                <svg><use xlink:href="#iconGallery"></use></svg>
+                <div class="fn__hr"></div>
+                <div>${window.siyuan.languages.gallery}</div>
             </div>
             <div data-type="set-layout" data-view-type="kanban" class="av__layout-item${data.viewType === "kanban" ? " av__layout-item--select" : ""}">
                 <svg><use xlink:href="#iconBoard"></use></svg>
                 <div class="fn__hr"></div>
                 <div>${window.siyuan.languages.kanban}</div>
             </div>
-            <div data-type="set-layout" data-view-type="gallery" class="av__layout-item${data.viewType === "gallery" ? " av__layout-item--select" : ""}">
-                <svg><use xlink:href="#iconGallery"></use></svg>
+            <div data-type="set-layout" data-view-type="calendar" class="av__layout-item${data.viewType === "calendar" ? " av__layout-item--select" : ""}">
+                <svg><use xlink:href="#iconCalendar"></use></svg>
                 <div class="fn__hr"></div>
-                <div>${window.siyuan.languages.gallery}</div>
+                <div>${window.siyuan.languages.calendarView}</div>
             </div>
         </div>
     </button>

@@ -1,3 +1,115 @@
+.workspace-storage {
+  &__header {
+    flex-wrap: wrap;
+  }
+
+  &__time {
+    flex: 1 0 100%;
+    text-align: right;
+  }
+
+  &__content {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    line-height: 1.5;
+  }
+
+  &__figure {
+    display: grid;
+    flex: 1 1 14em;
+    min-width: 0;
+  }
+
+  &__chart,
+  &__total {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  &__chart,
+  &__placeholder {
+    height: 16em;
+    max-height: 280px;
+  }
+
+  &__placeholder {
+    position: relative;
+  }
+
+  &__total {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  &__details {
+    flex: 1 1 16em;
+    min-width: 0;
+    margin: 0;
+  }
+
+  &__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 3.5em;
+    gap: 8px;
+    margin: 8px 0;
+
+    dt {
+      display: flex;
+      align-items: baseline;
+      overflow-wrap: anywhere;
+    }
+
+    dd {
+      margin: 0;
+      text-align: end;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    &--assets {
+      padding-inline-start: 16px;
+    }
+  }
+
+  &__color {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    margin-inline-end: 8px;
+  }
+}
+
+.config--mobile .workspace-storage__content {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.config--mobile .workspace-storage__figure,
+.config--mobile .workspace-storage__details {
+  flex: auto;
+}
+
+@media (max-width: 750px) {
+  .workspace-storage__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0;
+
+    dt {
+      grid-row: 1 / span 2;
+    }
+  }
+
+  .workspace-storage__percent {
+    grid-column: 2;
+  }
+}
+
 .config-body-gradient {
   display: flex;
   flex-wrap: wrap;
@@ -1216,6 +1328,7 @@
       }
 
       .config-entry-visibility__column {
+        box-sizing: border-box;
         flex: 1 0 100%;
       }
 
@@ -1223,13 +1336,33 @@
         margin: 0 8px 8px;
       }
 
-      .config-entry-visibility__drag,
       .config-entry-visibility__arrow-space {
         display: none;
       }
 
       .config-entry-visibility__row {
         min-height: 44px;
+      }
+
+      .config-entry-visibility__drag {
+        min-height: 32px;
+        min-width: 24px;
+        touch-action: none;
+      }
+    }
+
+    &__mobile-header {
+      flex: 0 1 auto;
+      min-height: 0;
+      max-height: 60%;
+      overflow-y: auto;
+    }
+
+    &__mobile-controls {
+      margin: 0 8px 8px;
+
+      > .b3-select {
+        width: 100%;
       }
     }
 
@@ -1246,7 +1379,8 @@
       margin: 0 0 16px;
     }
 
-    &__content > .config-group + .config-group {
+    &__content > .config-group + .config-group,
+    &__mobile-header > .config-group + .config-group {
       margin-top: 0;
     }
 
@@ -1431,17 +1565,11 @@
     }
 
     &__drag {
-      color: var(--b3-theme-on-surface-light);
       cursor: grab;
-      flex: 0 0 16px;
-      height: 16px;
       margin-right: 8px;
-      width: 16px;
 
       svg {
-        height: 16px;
         pointer-events: none;
-        width: 16px;
       }
 
       &:active {

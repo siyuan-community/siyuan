@@ -1,5 +1,7 @@
 import {Constants} from "../../constants";
-import {escapeHtml} from "../../util/escape";
+import {isEncryptedBox} from "../../util/pathName";
+import {preparePasteAssets} from "./pasteAssets";
+import {escapeHtml, escapeMarkdownPlainText} from "../../util/escape";
 import {getTableCellPlainText} from "./tableCellRich";
 import {uploadFiles, uploadLocalFiles} from "../upload";
 import type {IUploadInsertOptions} from "../upload";
@@ -53,6 +55,7 @@ import {
     shouldPreservePastedBlockStructure
 } from "./pasteSource";
 import {normalizePasteResponse} from "./pasteResponse";
+import {shouldPasteMarkdownFromHTML} from "./markdownClipboard";
 import {applyLuteMarkdownSyntax} from "../render/luteMarkdownSyntax";
 import {convertOfficeLists} from "./officeList";
 import {extractOfficeMathHTML} from "./officeMath";
@@ -64,6 +67,7 @@ import {
 } from "./wpsPresentation";
 import {hasDataTransferFiles} from "../upload/localDropFiles";
 import {resetPastedQueryEmbedRenderState} from "../render/embedRenderState";
+import {expandQueryEmbedsForClipboard} from "./queryEmbedClipboard";
 import {getHostCapabilities, sanitizeKernelHTML} from "../../util/hostCapabilities";
 import {eventBusHas, hasPluginSubscriber} from "../../plugin/EventBusCore";
 import {getTextWithoutSemanticMarkers, normalizeSemanticInlineElements, stripSemanticMarkersFromRangeText} from "./inlineElementMarker";
@@ -72,6 +76,7 @@ import {
     getProtyleBlockDOMSanitizer,
     getProtyleUnsupportedPasteBlocks,
     getProtyleRestrictedPlainTextHTML,
+    isProtyleRichHTMLPasteEnabled,
     isProtyleUploadDisabled,
     restoreProtyleLuteMarkdownSyntax,
 } from "../runtimeCapabilities";
@@ -204,9 +209,16 @@ export const getTextStar = (blockElement: HTMLElement, contentOnly = false) => {
     return refText + ` <span data-type="block-ref" data-subtype="s" data-id="${blockElement.getAttribute("data-node-id")}">*</span>`;
 };
 
-export const getPlainText = (blockElement: HTMLElement, isNested = false) => {
-    let text = "";
+export const getPlainText = (blockElement: HTMLElement, isNested = false): string => {
     const dataType = blockElement.dataset.type;
+    if (dataType === "NodeBlockQueryEmbed" || blockElement.classList.contains("protyle-wysiwyg__embed") ||
+        (!isNested && blockElement.querySelector('[data-type="NodeBlockQueryEmbed"], .protyle-wysiwyg__embed'))) {
+        const template = document.createElement("template");
+        template.innerHTML = expandQueryEmbedsForClipboard(blockElement.outerHTML);
+        return Array.from(template.content.children).map(item => getPlainText(item as HTMLElement, isNested))
+            .filter(Boolean).join("\n");
+    }
+    let text = "";
     if ("NodeHTMLBlock" === dataType) {
         text += blockElement.querySelector("protyle-html").getAttribute("data-content");
     } else if ("NodeAttributeView" === dataType) {
@@ -274,27 +286,7 @@ export const pasteEscaped = async (protyle: IProtyle, nodeElement: Element, prep
 
         // 这里必须多加一个反斜杆，因为 Lute 在进行 Markdown 嵌套节点转换平铺标记节点时会剔除 Backslash 节点，
         // 多加入的一个反斜杆会作为文本节点保留下来，后续 Spin 时刚好用于转义标记符
-        clipText = clipText.replace(/\\/g, "\\\\")
-            .replace(/\*/g, "\\*")
-            .replace(/_/g, "\\_")
-            .replace(/\[/g, "\\[")
-            .replace(/]/g, "\\]")
-            .replace(/!/g, "\\!")
-            .replace(/`/g, "\\`")
-            .replace(/</g, "\\<")
-            .replace(/>/g, "\\>")
-            .replace(/&/g, "\\&")
-            .replace(/~/g, "\\~")
-            .replace(/\{/g, "\\{")
-            .replace(/}/g, "\\}")
-            .replace(/\(/g, "\\(")
-            .replace(/\)/g, "\\)")
-            .replace(/=/g, "\\=")
-            .replace(/#/g, "\\#")
-            .replace(/\$/g, "\\$")
-            .replace(/\^/g, "\\^")
-            .replace(/\|/g, "\\|")
-            .replace(/\./g, "\\.");
+        clipText = escapeMarkdownPlainText(clipText);
         // 转义文本不能使用 DOM 结构 https://github.com/siyuan-note/siyuan/issues/11778
         paste(protyle, {textPlain: clipText, textHTML: "", target: nodeElement as HTMLElement});
     } catch (e) {
@@ -794,6 +786,21 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
             return;
         }
     }
+    if (blockDOMSanitizer && isProtyleRichHTMLPasteEnabled(protyle) && !siyuanHTML && !files?.length &&
+        (textHTML || /<[a-z][^>]*>/i.test(textPlain))) {
+        // 表格单元格将可解析的富文本转换为块 DOM，再统一检查不支持的块和净化行内标记。
+        const richBlockDOM = textHTML ?
+            (!preserveSourceFormat && shouldPasteMarkdownFromHTML(textHTML, textPlain) ?
+                protyle.lute.Md2BlockDOM(textPlain) :
+                /^<span\b[^>]*\bdata-type\s*=\s*["']custom_[^>]*>[\s\S]*<\/span>$/i.test(textHTML.trim()) ?
+                protyle.lute.Md2BlockDOM(textHTML) : protyle.lute.HTML2BlockDOM(textHTML)) :
+            protyle.lute.Md2BlockDOM(textPlain);
+        const richTemplate = document.createElement("template");
+        richTemplate.innerHTML = richBlockDOM;
+        if (!richTemplate.content.querySelector(".img, img")) {
+            siyuanHTML = richBlockDOM;
+        }
+    }
     if (blockDOMSanitizer) {
         // 在清洗和修改选区前检查完整载荷，避免不支持的块被静默删除后只粘贴部分内容。
         const getUnsupportedBlocks = getProtyleUnsupportedPasteBlocks(protyle);
@@ -1031,6 +1038,17 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
         insertAtPasteRange(removeZWJ(textPlain).replace(/```/g, "\u200D```"), range);
         return;
     } else if (siyuanHTML) {
+        if (isEncryptedBox(protyle.notebookId)) {
+            const prepared = await preparePasteAssets(protyle.notebookId, siyuanHTML);
+            if (prepared === null) {
+                return;
+            }
+            siyuanHTML = prepared;
+            range = restorePasteInsertRange();
+            if (!range) {
+                return;
+            }
+        }
         async function streamInsert(container: HTMLElement, bigHtmlString: string) {
             // 大段内容使用惰性解析避免将 HTML 写入同源 iframe，防止 script 执行
             const doc = new DOMParser().parseFromString(bigHtmlString, "text/html");
@@ -1285,6 +1303,13 @@ export const paste = async (protyle: IProtyle, event: (ClipboardEvent | DragEven
                     0 > textHTMLLowercase.indexOf("</h3>") && 0 > textHTMLLowercase.indexOf("</h4>") &&
                     0 > textHTMLLowercase.indexOf("</h5>") && 0 > textHTMLLowercase.indexOf("</h6>"))) {
                 // 豆包复制粘贴问题 https://github.com/siyuan-note/siyuan/issues/13265 https://github.com/siyuan-note/siyuan/issues/14313
+                isHTML = false;
+            }
+            // 豆包同时提供 Markdown 和未解析公式的 HTML，内容与结构一致时使用完整原文。
+            // https://github.com/siyuan-note/siyuan/issues/19820
+            if (isHTML && !preserveSourceFormat && !officeListConverted && !files?.length &&
+                !mathML && !office && !officeMathHTML && !wps && !wpsPresentation &&
+                shouldPasteMarkdownFromHTML(textHTML, textPlain)) {
                 isHTML = false;
             }
         } else if (textPlain && textPlain.trimStart().startsWith("<")) {

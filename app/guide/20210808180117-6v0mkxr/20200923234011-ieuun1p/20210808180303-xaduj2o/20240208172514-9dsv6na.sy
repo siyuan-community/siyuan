@@ -7,7 +7,7 @@
 		"id": "20240208172514-9dsv6na",
 		"title": "Database",
 		"type": "doc",
-		"updated": "20260921201901"
+		"updated": "20260927123058"
 	},
 	"Children": [
 		{
@@ -45,7 +45,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20251224101749-zybcbjk",
-				"updated": "20260920084445"
+				"updated": "20260923103343"
 			},
 			"Children": [
 				{
@@ -687,7 +687,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260920225154-tz8a00o",
-				"updated": "20260921201901"
+				"updated": "20260924110133"
 			},
 			"Children": [
 				{
@@ -701,12 +701,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260920225154-vz01ydx",
-				"updated": "20260920225154"
+				"updated": "20260923103343"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Displays dated entries by month or week. The week view has seven date columns; entries spanning multiple days continue across those days. Your browsing date and month/week choice are independent in each editor."
+					"Data": "Displays dated entries by month or week. The week view has seven date columns; entries spanning multiple days continue across those days. Each editor keeps its current mode and browsing date independently. The month/week choice is saved for each calendar view in this workspace and restored when opening it in a new editor or restarting SiYuan. A new editor starts browsing from today."
 				}
 			]
 		},
@@ -716,7 +716,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260920225154-qqxdh7e",
-				"updated": "20260921201901"
+				"updated": "20260927113016"
 			},
 			"Children": [
 				{
@@ -787,7 +787,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Date field: Choose one date, created time, or updated time field in the layout settings. If no suitable field exists, the calendar prompts you to choose or create one. It does not fill ordinary dates for existing entries; entries without a date are hidden"
+									"Data": "Date field: Choose one date, created time, or updated time field in the layout settings. If no suitable field exists, the calendar prompts you to choose or create one. It does not fill ordinary dates for existing entries; entries without a date stay out of the grid. With an ordinary date field, they remain available in the undated list"
 								}
 							]
 						}
@@ -802,7 +802,7 @@
 					},
 					"Properties": {
 						"id": "20260920225154-vblms0p",
-						"updated": "20260921201901"
+						"updated": "20260923095432"
 					},
 					"Children": [
 						{
@@ -810,12 +810,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20260920225154-4wsrq3z",
-								"updated": "20260921201901"
+								"updated": "20260923095432"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Browsing: Use the previous/next buttons, Today, or the date picker. Month view collapses crowded dates; use the more button to expand that week. Dates follow your local time zone. Month view shows four, five, or six weeks as needed"
+									"Data": "Browsing: Use the previous/next buttons, Today, or the date picker. Month view collapses crowded dates; use the more button to expand that week. Dates follow your local time zone. Month view shows four, five, or six weeks as needed. Both views show ISO week numbers at the start of each row. Use the calendar button to jump by date or by ISO week year and number. When a week starts on a day other than Monday, its row number is determined by that row's Thursday"
 								}
 							]
 						}
@@ -830,7 +830,7 @@
 					},
 					"Properties": {
 						"id": "20260920225154-ronkl9y",
-						"updated": "20260921201901"
+						"updated": "20260924110133"
 					},
 					"Children": [
 						{
@@ -838,12 +838,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20260920225154-3lkyx9g",
-								"updated": "20260921201901"
+								"updated": "20260924110133"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Editing: Click an entry to open its existing database entry editor. With an ordinary date field, use the plus button on a day to create an entry, drag an entry to move its dates, or drag its end handles to adjust its range. Date changes support undo. On touch screens, use the move handle on the entry to drag it. New entries focus the primary field automatically. Dragging previews the resulting dates and highlights their cells; changes are saved on release. The context menu also offers copying, creating and binding documents, adding to another database, editing fields, and creating an entry on the selected date"
+									"Data": "Editing: Click an entry to open its existing database entry editor. With an ordinary date field, use the plus button on a day to create an entry, drag an entry to move its dates, or drag its end handles to adjust its range. Use No date beside the view filter to search undated entries, then drag one onto a day or select it and choose a day, including on touch screens. This assigns an all-day date; clearing it returns the entry to the undated list. Date changes support undo. On touch screens, use the move handle on an existing calendar entry to drag it. Opening or creating an entry automatically focuses the primary field. Dragging previews the resulting dates and highlights their cells; changes are saved on release. The context menu also offers copying, creating and binding documents, adding to another database, editing fields, and creating an entry on the selected date"
 								}
 							]
 						}
@@ -914,7 +914,7 @@
 					},
 					"Properties": {
 						"id": "20260920225154-3w6c98i",
-						"updated": "20260921201901"
+						"updated": "20260927113016"
 					},
 					"Children": [
 						{
@@ -922,12 +922,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20260920225154-8p9e3ov",
-								"updated": "20260921201901"
+								"updated": "20260927113016"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "View settings: Filtering, sorting, field visibility, and new-entry templates use the existing database settings. A single-select field can supply entry colors. Grouping is suspended in calendar layout, and its settings are retained when switching back. Visible item rows can be set to 3, 5, 10, or all in the layout settings, with 3 as the default. This setting is saved per calendar view and only controls folding in month view; week view displays all entries, and the complete date range is still loaded"
+									"Data": "View settings: Filtering, sorting, field visibility, and new-entry templates use the existing database settings. Conditional colors can set entry backgrounds. Grouping is suspended in calendar layout, and its settings are retained when switching back. Visible item rows can be set to 3, 5, 10, or all in the layout settings, with 3 as the default. This setting is saved per calendar view and only controls folding in month view; week view displays all entries, and the complete date range is still loaded"
 								}
 							]
 						}
@@ -1212,7 +1212,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260613162855-sxaxx5x",
-				"updated": "20260613171129"
+				"updated": "20260927112821"
 			},
 			"Children": [
 				{
@@ -1408,6 +1408,114 @@
 							]
 						}
 					]
+				}
+			]
+		},
+		{
+			"ID": "20260927112821-dmce6cp",
+			"Type": "NodeHeading",
+			"HeadingLevel": 2,
+			"Properties": {
+				"id": "20260927112821-dmce6cp",
+				"updated": "20260927121828"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Conditional colors"
+				}
+			]
+		},
+		{
+			"ID": "20260927112821-u18f0d0",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260927112821-u18f0d0",
+				"updated": "20260927112821"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Open the database view settings and choose "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Conditional colors"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " to add a rule. Select one field and a condition, then choose a background color and its target. Changes take effect immediately and support undo and redo."
+				}
+			]
+		},
+		{
+			"ID": "20260927112821-xoxibjc",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260927112821-xoxibjc",
+				"updated": "20260927112821"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Rules belong to the current view. Table, list, calendar, kanban, and gallery views support entry backgrounds. Table views also support coloring the property used by the condition. Property rules remain stored but do not apply in other layouts."
+				}
+			]
+		},
+		{
+			"ID": "20260927112821-7hfkus2",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260927112821-7hfkus2",
+				"updated": "20260927123058"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Each rule evaluates its own single-field condition; rules are not combined with AND. Drag a rule by its handle to change priority, including on touch screens. The first matching rule for each property wins. A matching entry rule colors the remaining area and stops evaluation; earlier property colors are retained. Default background also counts as a match."
+				}
+			]
+		},
+		{
+			"ID": "20260927112821-qw0iuyn",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260927112821-qw0iuyn",
+				"updated": "20260927112821"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "For example, place a blue property rule first and a green entry rule second. An entry matching both keeps that property blue and uses green elsewhere. Move the green entry rule first to make the whole entry green."
+				}
+			]
+		},
+		{
+			"ID": "20260927112821-e6uldts",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260927112821-e6uldts",
+				"updated": "20260927112821"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "For select and multi-select fields, Match first option uses the first selected option in the entry, including its default color; it does not use the order of option definitions. You can also choose a fixed built-in or custom color. Conditions use the existing filter operators and can use rendered values when available."
+				}
+			]
+		},
+		{
+			"ID": "20260927112821-ks3ham9",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20260927112821-ks3ham9",
+				"updated": "20260927112821"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Colors do not change field values or filter out entries. Hidden fields can still drive rules. Incomplete conditions and rules referring to deleted fields do not apply. Copying a view copies its rules; editing one view does not change the other. Existing calendar option colors remain available as a compatible rule, and deleting all rules clears the colors."
 				}
 			]
 		},
@@ -3497,7 +3605,7 @@
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "A display template reads each field's original stored value, not the display result produced by another display template. Filters, sorts, and groups can use either the original value or the template-rendered value. Clear the display template to restore the field's original display."
+					"Data": "A display template reads each field's original stored value, not the display result produced by another display template. Filters, sorts, and groups can use either the original value or the template-rendered value. Clear the display template to restore the field's original display. Relation fields follow the display template of the target database's primary key, including empty results, while preserving the original primary key value and relation."
 				}
 			]
 		},

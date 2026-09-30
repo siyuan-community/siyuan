@@ -35,7 +35,7 @@ import {
     refreshSlashMenuCatalog,
     SLASH_MENU_ROOT_PATH,
 } from "../../config/entryVisibility/catalog";
-import {getEntryOrder, isEntryVisible} from "../../config/entryVisibility/runtime";
+import {getConfiguredEntryVisibility, getEntryOrder} from "../../config/entryVisibility/runtime";
 import {resolveSlashMenuItems, TSlashMenuItem} from "./slashMenu";
 import {
     getBuiltinInlineStylePropertyValue,
@@ -176,11 +176,6 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         value: "- [ ] " + Lute.Caret,
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconCheck"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.check}</span>${getHotkeyOrMarker(window.siyuan.config.keymap.editor.insert.check.custom, "[]")}</div>`,
     }, {
-        filter: [window.siyuan.languages.mindmap, "mindmap", "思维导图", "siweidaotu", "swdt", "脑图", "naotu", "nt"],
-        id: "mindmap",
-        value: `- ${Lute.Caret}\n{: ${Constants.CUSTOM_SY_LIST_MINDMAP}="1"}`,
-        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconMindmap"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.mindmap}</span></div>`,
-    }, {
         filter: [window.siyuan.languages.quote, "blockquote", "bq", "引述", "yinshu", "ys"],
         id: "quote",
         value: "> " + Lute.Caret,
@@ -190,6 +185,11 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         id: "tabs",
         value: `::: tabs\n@tab\n\n${Lute.Caret}\n\n@tab\n\n:::\n`,
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconTabs"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.tabs}</span></div>`,
+    }, {
+        filter: [window.siyuan.languages.mindmap, "mindmap", "思维导图", "siweidaotu", "swdt", "脑图", "naotu", "nt"],
+        id: "mindmap",
+        value: `- ${Lute.Caret}\n{: ${Constants.CUSTOM_SY_LIST_MINDMAP}="1"}`,
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconMindmap"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.mindmap}</span></div>`,
     }, {
         filter: [window.siyuan.languages.callout, "callout", "ts", "提示", "tishi", "note"],
         id: "calloutNote",
@@ -251,20 +251,20 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         value: '<div data-type="NodeAttributeView" data-av-type="list"></div>',
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconList"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseListView}</span></div>`,
     }, {
-        filter: [window.siyuan.languages.databaseCalendarView, "database calendar view", "日历", "rili"],
-        id: "databaseCalendarView",
-        value: '<div data-type="NodeAttributeView" data-av-type="calendar"></div>',
-        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconCalendar"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseCalendarView}</span></div>`,
+        filter: [window.siyuan.languages.databaseGalleryView, "database card view", "database gallery view", "数据库卡片视图", "shujukukapianshitu", "sjkkps"],
+        id: "databaseGalleryView",
+        value: '<div data-type="NodeAttributeView" data-av-type="gallery"></div>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconGallery"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseGalleryView}</span></div>`,
     }, {
         filter: [window.siyuan.languages.databaseKanbanView, "database kanban view", "数据库看板视图", "shujukukanbanshitu", "sjkkbs"],
         id: "databaseKanbanView",
         value: '<div data-type="NodeAttributeView" data-av-type="kanban"></div>',
         html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconBoard"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseKanbanView}</span></div>`,
     }, {
-        filter: [window.siyuan.languages.databaseGalleryView, "database card view", "database gallery view", "数据库卡片视图", "shujukukapianshitu", "sjkkps"],
-        id: "databaseGalleryView",
-        value: '<div data-type="NodeAttributeView" data-av-type="gallery"></div>',
-        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconGallery"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseGalleryView}</span></div>`,
+        filter: [window.siyuan.languages.databaseCalendarView, "database calendar view", "日历", "rili"],
+        id: "databaseCalendarView",
+        value: '<div data-type="NodeAttributeView" data-av-type="calendar"></div>',
+        html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconCalendar"></use></svg><span class="b3-list-item__text">${window.siyuan.languages.databaseCalendarView}</span></div>`,
     }, {
         value: "",
         id: "separator_2",
@@ -441,7 +441,7 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
 };
 
 export const hintSlash = registerBuiltinSlashHint((key: string, protyle: IProtyle, sourceOrHideConfiguredCreate: THintSource | boolean = false) => {
-    const enabled = isEntryVisible(SLASH_MENU_ROOT_PATH);
+    const enabled = getConfiguredEntryVisibility(SLASH_MENU_ROOT_PATH);
     if (!enabled) {
         return [];
     }
@@ -489,7 +489,7 @@ export const hintSlash = registerBuiltinSlashHint((key: string, protyle: IProtyl
         canUpload: !!(protyle.options.upload.handler || (protyle.options.upload.url && protyle.upload)),
         key,
         order: getEntryOrder(SLASH_MENU_ROOT_PATH),
-        visible: (entryKey) => isEntryVisible(getSlashMenuEntryPath(entryKey)),
+        visible: (entryKey) => getConfiguredEntryVisibility(getSlashMenuEntryPath(entryKey)),
     });
 });
 
@@ -611,6 +611,12 @@ export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IH
                     value: `((newSubDoc "${newFileName}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))`,
                     html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFile"></use></svg>
 <span class="b3-list-item__text">${window.siyuan.languages.newSubDoc} <mark>${response.data.k}</mark></span></div>`,
+                });
+                createItemCount++;
+                dataList.push({
+                    value: `((newFileAtPath "${newFileName}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))`,
+                    html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFolder"></use></svg>
+<span class="b3-list-item__text">${window.siyuan.languages.newFileAtPath} <mark>${response.data.k}</mark></span></div>`,
                 });
                 createItemCount++;
             }

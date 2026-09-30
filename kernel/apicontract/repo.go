@@ -59,6 +59,12 @@ type UploadCloudSnapshotRequest struct {
 }
 type GetRepoSnapshotsRequest struct {
 	Page float64 `json:"page"`
+	// ID 可选，去除首尾空白后按 7 至 40 位十六进制快照 ID 前缀查询本地仓库，不区分大小写，忽略分页。
+	// 前缀匹配多个快照时全部返回，按创建时间降序排列。
+	// 省略或留空时保留分页列表；未找到返回空列表，格式错误及仓库读取失败返回错误。
+	ID string `json:"id" api:"optional"`
+	// IncludeFiles 默认为 false；为 true 时 ID 必须完整，返回该快照的文件元数据，不读取文件正文。
+	IncludeFiles bool `json:"includeFiles" api:"optional"`
 }
 type SearchRepoFileRequest struct {
 	Keyword string  `json:"keyword" api:"trim"`
@@ -139,6 +145,9 @@ type RepoKeyData struct {
 }
 type RepoSnapshot struct {
 	RepoLog
+	// Tags 为该快照的全部本地标记，按名称排序；未标记时为空数组。
+	// Tag 保留标记快照视图中当前行的单个标记，供上传、移除等操作使用。
+	Tags             []string         `json:"tags"`
 	TypesCount       []*RepoTypeCount `json:"typesCount"`
 	RequiresDownload bool             `json:"requiresDownload"`
 }
@@ -161,6 +170,9 @@ type RepoDocHistory struct {
 	Title   string `json:"title"`
 	HSize   string `json:"hSize"`
 	Updated int64  `json:"updated"`
+	// Snapshots 包含引用此文件版本的全部本地标记快照，按快照时间倒序排列；同一快照的标记合并。
+	// 以仓库文件 ID 匹配，不只查询 IndexID；仅返回标记、备注等元数据，不读取文件正文。
+	Snapshots []*DocHistorySnapshot `json:"snapshots"`
 }
 type RepoTypeCount struct {
 	Type  string `json:"type"`
@@ -319,6 +331,18 @@ func init() {
 		}
 		if request.Page, err = legacyField[float64](fields, "page", "Number", true); err != nil {
 			return request, err
+		}
+		if request.ID, err = legacyField[string](fields, "id", "String", false); err != nil {
+			return request, err
+		}
+		request.ID = strings.TrimSpace(request.ID)
+		if raw, exists := fields["includeFiles"]; exists {
+			if string(raw) == "null" {
+				return request, errors.New("includeFiles must be a boolean")
+			}
+			if err = json.Unmarshal(raw, &request.IncludeFiles); err != nil {
+				return request, err
+			}
 		}
 		return request, nil
 	}

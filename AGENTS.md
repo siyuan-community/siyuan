@@ -99,6 +99,10 @@ SiYuan repository guide. Module path `github.com/siyuan-note/siyuan`, license AG
     - After contract changes, run `pnpm run api:generate --petal ../../petal` and `pnpm run api:check --petal ../../petal` from `app/`; synchronize related public declarations in `petal` and do not hand-edit generated declarations or schemas
     - Run `pnpm run lint` from `app/`, `go test ./apicontract/...` from `kernel/`, and the applicable API compatibility and route coverage tests described in the maintenance document. Verify that existing CI selections and documented commands discover new regression cases; automatic discovery or coverage by an existing full-suite command satisfies this requirement without a documentation edit. Update CI selections and documented commands only when they would otherwise miss the new tests. Report task-specific verification commands and results in the task response or PR description
 
+11. **Desktop and mobile parity:**
+    - When changing functionality shared by desktop and mobile, inspect the corresponding mobile implementation under `app/src/mobile/` and update it in the same task. This includes menus, toolbars, dialogs, interactions, and their event handlers; do not assume that desktop changes automatically apply to mobile
+    - Before finishing, verify both implementations and their shared dependencies, preserving platform-appropriate interactions. If no corresponding mobile feature exists or the change is desktop-only, state why mobile changes are not needed in the task response
+
 ---
 
 ## 3. Coding conventions
@@ -212,6 +216,7 @@ All Go libraries above are dependencies in `kernel/go.mod`. GitHub org: `siyuan-
 - **Editing Go dependencies:** To test a local change, add a temporary `replace` in `kernel/go.mod` pointing at your local checkout; **never commit that temporary `replace`**.
 - **Rebuilding `lute.min.js`:** Change `lute`, rebuild with GopherJS, and copy the artifact into `app/stage/protyle/js/lute/`.
 - **Type declarations:** when changing files under `app/src/types/` or other TypeScript declarations and constants exposed to plugins, synchronize the corresponding declarations and constants in the `petal` repository in the same task.
+- **Petal changelog:** Whenever changing files in the `petal` repository, update `petal/CHANGELOG.md` in the same task. Add a concise entry under the current unreleased version before committing the Petal change.
 - **Petal documentation:** Keep `petal/README.md` limited to the project title and the `plugin-sample` link. Do not add feature descriptions, API usage explanations, or code examples to the README. Document API behavior, constraints, and lifecycle in comments on the corresponding API declarations in `petal`; put executable usage examples in the actual source code of `plugin-sample`.
 
 ---

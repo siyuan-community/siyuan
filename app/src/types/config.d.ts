@@ -761,6 +761,8 @@ declare namespace Config {
          * Whether to enable RTL (left-to-right chirography) mode
          */
         rtl: boolean;
+        /** 默认关闭；自动判定段落和标题的文本方向，手动方向优先，不改变列表和表格布局 */
+        autoDirection: boolean;
         /**
          * Whether to enable spell checking
          */
@@ -1358,7 +1360,13 @@ declare namespace Config {
     export interface IKeymapEditorList extends IKeys {
         prependListItem?: IKey;
         appendListItem?: IKey;
+        /** 在思维导图中添加同级节点，编辑时先保存当前内容。 */
+        mindmapAddSibling?: IKey;
+        /** 在思维导图中添加子节点，编辑时先保存当前内容。 */
+        mindmapAddChild?: IKey;
         checkToggle?: IKey;
+        /** 切换任务完成状态，默认未绑定；待办和进行中变为完成，其他状态变为待办。 */
+        taskCompletionToggle?: IKey;
         indent?: IKey;
         outdent?: IKey;
     }
@@ -1383,6 +1391,8 @@ declare namespace Config {
      * SiYuan general shortcut keys
      */
     export interface IKeymapGeneral extends IKeys {
+        /** 打开当前焦点的上下文菜单，默认 ⌘/，支持多绑定和解绑。 */
+        openContextMenu?: IKey;
         mainMenu?: IKey;
         commandPanel?: IKey;
         increaseEditorFontSize?: IKey;
@@ -1428,6 +1438,7 @@ declare namespace Config {
         goToTab9?: IKey;
         goToTabNext?: IKey;
         goToTabPrev?: IKey;
+        switchTab?: IKey;
         goToEditTabNext?: IKey;
         goToEditTabPrev?: IKey;
         recentClosed?: IKey;
@@ -1596,6 +1607,10 @@ declare namespace Config {
         callout: boolean;
         tabs?: boolean;
         tabItem?: boolean;
+        /** 思维导图搜索；缺省时默认开启，更新设置时省略则保留当前值 */
+        mindmap?: boolean;
+        /** 思维导图项搜索；缺省时默认关闭，更新设置时省略则保留当前值 */
+        mindmapItem?: boolean;
         customBlock?: boolean;
         /**
          * Whether to distinguish between uppercase and lowercase letters when searching
@@ -2224,7 +2239,7 @@ declare namespace Config {
         ({instance?: "Layout"} & Partial<Pick<IUILayoutLayout, "direction" | "size" | "type" | "resize">>) |
         ({instance: "Wnd"} & Partial<Pick<IUILayoutWnd, "resize" | "width" | "height">>) |
         ({instance: "Tab"} & Partial<Pick<IUILayoutTab, "title" | "lang" | "icon" | "docIcon" | "pin" | "active" | "activeTime">>) |
-        ({instance: "Editor"} & Partial<Pick<IUILayoutTabEditor, "blockId" | "rootId" | "notebookId">>) |
+        ({instance: "Editor"} & Partial<Pick<IUILayoutTabEditor, "blockId" | "rootId" | "notebookId" | "scrollAttr">>) |
         ({instance: "Asset"} & Partial<Pick<IUILayoutTabAsset, "path" | "page">>) |
         ({instance: "Backlink"} & Partial<Pick<IUILayoutTabBacklink, "blockId" | "rootId" | "notebookId" | "type">>) |
         ({instance: "Graph"} & Partial<Pick<IUILayoutTabGraph, "blockId" | "rootId" | "notebookId" | "type">>) |
@@ -2474,6 +2489,10 @@ declare namespace Config {
          * (Editor) Document block ID
          */
         rootId: string;
+        /**
+         * 窗口布局独立保存的阅读位置，优先于全局文档阅读位置
+         */
+        scrollAttr?: IScrollAttr;
     }
 
     /**
@@ -2818,6 +2837,10 @@ declare namespace Config {
         callout: boolean;
         tabs?: boolean;
         tabItem?: boolean;
+        /** 思维导图搜索；旧配置继承全局设置，初始默认开启 */
+        mindmap?: boolean;
+        /** 思维导图项搜索；旧配置继承全局设置，初始默认关闭 */
+        mindmapItem?: boolean;
         customBlock?: boolean;
         /**
          * Search results contain code blocks

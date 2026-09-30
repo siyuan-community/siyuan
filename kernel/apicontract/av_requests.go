@@ -108,6 +108,14 @@ type GetAttributeViewRelationCandidatesRequest struct {
 	Page             *float64 `json:"page" api:"optional,nullable"`
 	PageSize         *float64 `json:"pageSize" api:"optional,nullable"`
 	SelectedBlockIDs []string `json:"selectedBlockIDs" api:"optional,nullable,filterstrings"`
+	// Sort 仅对本次候选查询排序，在搜索过滤后、分页前应用；不修改数据库视图或已选条目的顺序。
+	// 省略时按创建时间倒序；指定时 column 必须属于关联数据库，order 为 ASC 或 DESC。
+	Sort *AVRelationCandidateSort `json:"sort" api:"optional,nullable"`
+}
+
+type AVRelationCandidateSort struct {
+	Column string `json:"column"`
+	Order  string `json:"order"`
 }
 
 type AppendAttributeViewDetachedBlocksWithValuesRequest struct {
@@ -282,6 +290,19 @@ type RenderAttributeViewRequest struct {
 	IgnoreRows       bool                      `json:"ignoreRows" api:"optional,nullable"`
 	TargetItemID     string                    `json:"targetItemID" api:"optional,nullable"`
 	TargetGroupID    string                    `json:"targetGroupID" api:"optional,nullable"`
+}
+
+// AVCalendarUndatedRequest 只读取普通日期字段为空的条目，不修改视图或数据库。
+// query 沿用当前视图搜索，search 仅匹配待安排条目的标题；页码从 1 开始，页大小默认 50，最大 100。
+// 端点仅供可编辑用户使用，并按 blockID 保持加密笔记本读取租约。
+type AVCalendarUndatedRequest struct {
+	ID       string   `json:"id"`
+	BlockID  string   `json:"blockID" api:"optional,nullable"`
+	ViewID   string   `json:"viewID"`
+	Query    string   `json:"query" api:"optional,nullable"`
+	Search   string   `json:"search" api:"optional,nullable"`
+	Page     *float64 `json:"page" api:"optional,nullable"`
+	PageSize *float64 `json:"pageSize" api:"optional,nullable"`
 }
 
 type GetCurrentAttrViewImagesRequest struct {

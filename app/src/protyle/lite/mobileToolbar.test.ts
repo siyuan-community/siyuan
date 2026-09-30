@@ -5,7 +5,7 @@ import {bindMobileToolbar, getMobileToolbarPaddingElement, getMobileToolbarProty
 test("table cell keyboard padding belongs to its outer editor", () => {
     const createEditor = (lite = false) => ({
         lite,
-        element: {parentElement: {style: {paddingBottom: ""}}},
+        element: {parentElement: {style: {paddingBottom: ""}}, closest: (): unknown => null},
         contentElement: {style: {paddingBottom: ""}},
     }) as unknown as IProtyle;
     for (const lite of [false, true]) {
@@ -23,6 +23,19 @@ test("table cell keyboard padding belongs to its outer editor", () => {
     }
     const composer = createEditor(true);
     assert.equal(getMobileToolbarPaddingElement(composer), composer.contentElement);
+    const agentPanel = {style: {paddingBottom: ""}};
+    composer.element.closest = (() => agentPanel) as typeof composer.element.closest;
+    const cell = createEditor(true);
+    setMobileToolbarUndo(cell, composer, () => {});
+    for (const editor of [composer, cell]) {
+        assert.equal(getMobileToolbarPaddingElement(editor), agentPanel);
+        for (const padding of ["48px", "320px", ""]) {
+            getMobileToolbarPaddingElement(editor).style.paddingBottom = padding;
+            assert.equal(agentPanel.style.paddingBottom, padding);
+            assert.equal(composer.contentElement.style.paddingBottom, "");
+            assert.equal(cell.contentElement.style.paddingBottom, "");
+        }
+    }
 });
 
 test("shared mobile toolbar follows fragment focus, retains panel ownership and releases destroyed editors", () => {
@@ -40,6 +53,8 @@ test("shared mobile toolbar follows fragment focus, retains panel ownership and 
     const composer = createEditor();
     const cell = createEditor();
     const changes: IProtyle[] = [];
+    let focusRefreshes = 0;
+    events.addEventListener("siyuan-mobile-toolbar-focus", () => focusRefreshes++);
     events.addEventListener("siyuan-mobile-toolbar-editor", (event: CustomEvent<IProtyle>) => changes.push(event.detail));
     Object.defineProperty(globalThis, "window", {configurable: true, value: events});
     Object.defineProperty(globalThis, "document", {configurable: true, value: state});
@@ -58,6 +73,13 @@ test("shared mobile toolbar follows fragment focus, retains panel ownership and 
         composer.wysiwyg.element.dispatchEvent(new Event("focusin"));
         assert.equal(getMobileToolbarProtyle(), composer);
 
+        const firstActivation = changes.length;
+        composer.wysiwyg.element.dispatchEvent(new Event("pointerdown"));
+        assert.equal(changes.length, firstActivation);
+        composer.wysiwyg.element.dispatchEvent(new Event("focusin"));
+        assert.equal(changes.length, firstActivation);
+        assert.equal(focusRefreshes, 1);
+
         state.activeElement = {closest: () => null};
         assert.equal(getMobileToolbarProtyle(), composer);
 
@@ -70,7 +92,10 @@ test("shared mobile toolbar follows fragment focus, retains panel ownership and 
         assert.equal(getMobileToolbarProtyle(), undefined);
 
         state.activeElement = {closest: () => cell.wysiwyg.element};
+        assert.equal(getMobileToolbarProtyle(), cell);
+        const beforeRefocus = focusRefreshes;
         cell.wysiwyg.element.dispatchEvent(new Event("focusin"));
+        assert.equal(focusRefreshes, beforeRefocus + 1);
         cleanups.pop()();
         assert.equal(getMobileToolbarProtyle(), undefined);
         assert.equal(changes.at(-1), cell);

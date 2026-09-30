@@ -212,6 +212,18 @@ const gutterCopyChildren = (single = false) => [
 ];
 
 const gutterTurnInto = (multi: boolean) => node("turnInto", lang("turnInto"), true, [
+        node("removeList", lang("removeList")),
+        node("list", lang("list")),
+        node("orderedList", lang("ordered-list")),
+        node("check", lang("check")),
+        ...(!multi ? [node("listMindmap", lang("mindmap"))] : []),
+        node("includeSublists", lang("includeSublists"), true, [
+            node("recursiveRemoveList", lang("removeList")),
+            node("recursiveList", lang("list")),
+            node("recursiveOrderedList", lang("ordered-list")),
+            node("recursiveCheck", lang("check")),
+            node("recursiveParagraph", lang("paragraph")),
+        ]),
         node("paragraph", lang("paragraph")),
         node("quote", lang("quote")),
         node("callout", lang("callout")),
@@ -222,10 +234,7 @@ const gutterTurnInto = (multi: boolean) => node("turnInto", lang("turnInto"), tr
         node("calloutCaution", location(lang("callout"), literal("Caution"))),
         node("calloutCustom", location(lang("callout"), () => `${window.siyuan.languages.custom}...`)),
         ...(!multi ? [node("tabs", lang("tabs"))] : []),
-        node("list", lang("list")),
-        node("orderedList", lang("ordered-list")),
-        node("check", lang("check")),
-        ...(!multi ? [node("listMindmap", lang("mindmap"))] : []),
+        // 列表及列表项复用段落和标题入口，保持单选、多选的配置标识和默认顺序一致。
         node("heading1", lang("heading1")),
         node("heading2", lang("heading2")),
         node("heading3", lang("heading3")),
@@ -237,12 +246,6 @@ const gutterTurnInto = (multi: boolean) => node("turnInto", lang("turnInto"), tr
         node("table", lang("tableBlock")),
         node("line", lang("line")),
         node("math", lang("math")),
-        node("includeSublists", lang("includeSublists"), true, [
-            node("recursiveParagraph", lang("paragraph")),
-            node("recursiveList", lang("list")),
-            node("recursiveOrderedList", lang("ordered-list")),
-            node("recursiveCheck", lang("check")),
-        ]),
     ]);
 
 const gutterHeadingTransform = () => node("tWithSubtitle", lang("tWithSubtitle"), true, [
@@ -404,8 +407,6 @@ const gutterSingle = () => [
         node("md27", lang("md27")),
         node("saveCodeBlockAsFile", lang("saveCodeBlockAsFile")),
     ]),
-    separator("separator_chart"),
-    node("chart", lang("chart"), true, [node("height", lang("height")), node("update", lang("update"))]),
     separator("separator_table"),
     gutterTable(),
     separator("separator_exportCSV"),
@@ -527,9 +528,9 @@ const slashMenuBuiltinChildren = [
     node("list", lang("list")),
     node("orderedList", lang("ordered-list")),
     node("check", lang("check")),
-    node("mindmap", lang("mindmap")),
     node("quote", lang("quote")),
     node("tabs", lang("tabs")),
+    node("mindmap", lang("mindmap")),
     node("calloutNote", location(lang("callout"), literal("Note"))),
     node("calloutTip", location(lang("callout"), literal("Tip"))),
     node("calloutImportant", location(lang("callout"), literal("Important"))),
@@ -542,9 +543,9 @@ const slashMenuBuiltinChildren = [
     node("html", literal("HTML")),
     node("databaseTableView", lang("databaseTableView")),
     node("databaseListView", lang("databaseListView")),
-    node("databaseCalendarView", lang("databaseCalendarView")),
-    node("databaseKanbanView", lang("databaseKanbanView")),
     node("databaseGalleryView", lang("databaseGalleryView")),
+    node("databaseKanbanView", lang("databaseKanbanView")),
+    node("databaseCalendarView", lang("databaseCalendarView")),
     separator("separator_2"),
     node("emoji", lang("emoji")),
     node("link", lang("link")),
@@ -583,6 +584,7 @@ const slashMenuBuiltinChildren = [
 
 const slashMenuRoot = {
     ...node("menu", lang("entrySlashMenu"), true, [...slashMenuBuiltinChildren], true),
+    defaultVisible: () => typeof window === "undefined" || !window.siyuan.mobile,
     displayChildrenDirectly: true,
 };
 
@@ -594,6 +596,7 @@ const toolbarCatalogSection: IEntryCatalogSection = {
 
 export const TOP_BAR_ROOT_PATH = "topBar";
 export const STATUS_BAR_ROOT_PATH = "statusBar";
+export const WINDOW_TOP_BAR_ROOT_PATH = "windowTopBar";
 
 const statusBarCatalogSection: IEntryCatalogSection = {
     key: STATUS_BAR_ROOT_PATH,
@@ -687,6 +690,14 @@ const dockCatalogSection: IEntryCatalogSection = {
 
 export const entryCatalog: IEntryCatalogSection[] = [
     topBarCatalogSection,
+    {
+        key: WINDOW_TOP_BAR_ROOT_PATH,
+        label: lang("entryWindowTopBar"),
+        children: [
+            node("windowWorkspace", lang("layout")),
+            node("pinWindow", lang("pin")),
+        ],
+    },
     statusBarCatalogSection,
     dockCatalogSection,
     {

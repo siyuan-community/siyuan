@@ -13,15 +13,50 @@ const browserCases = async (source: string, enterSource: string, hintSource: str
     const codeTabAttribute = "custom-sy-code-tab-spaces";
     const api = new Function("Constants", source + "\nreturn {getAgentLute, configureAVRichTextLute, getTableCellEditorLute, " +
         "canEnterCodeBlock, hasCodeBlockFence, getTableCellInlineHTML, serializeTableCellRich, " +
-        "updateTableCellEditingValue, getTableCellRichBlockDOM, sanitizeAVRichTextBlockDOM};")({
+        "updateTableCellEditingValue, getTableCellRichBlockDOM, sanitizeAVRichTextBlockDOM, restoreTableVirtualizationDOM};")({
         CUSTOM_SY_CODE_TAB_SPACES: codeTabAttribute,
     }) as
         typeof import("../render/setLute") & typeof import("../render/av/richTextValue") &
         typeof import("./tableCellRichLute") & typeof import("../wysiwyg/codeBlockEnter") &
-        typeof import("./tableCellRich") & typeof import("../render/av/richText");
+        typeof import("./tableCellRich") & typeof import("../render/av/richText") & typeof import("./tableVirtualizationDOM");
     const base = api.configureAVRichTextLute(api.getAgentLute({emojiSite: "/emojis", emojis: {},
         headingAnchor: false, listStyle: false, paragraphBeginningSpace: true, sanitize: true}));
     const lute = api.getTableCellEditorLute(base);
+    const customHTML = '<span data-type="custom_symble_strong_CJK_rectangle_yin" ' +
+        'style="--custom-symble-strong: rgb(0 166 240 / 1);">test</span>';
+    const customBlockDOM = base.Md2BlockDOM(customHTML + "\n\nsecond");
+    const customCell = document.createElement("td");
+    const customValue = api.serializeTableCellRich(customBlockDOM);
+    api.updateTableCellEditingValue(customCell, customValue);
+    check.ok(customCell.hasAttribute("data-sy-table-cell-rich"));
+    const reopenedCustom = api.getTableCellRichBlockDOM(customCell);
+    check.match(reopenedCustom, /data-type="custom_symble_strong_CJK_rectangle_yin"/);
+    check.match(reopenedCustom, /--custom-symble-strong: rgb\(0 166 240 \/ 1\)/);
+    check.match(reopenedCustom, /second/);
+    check.doesNotMatch(api.sanitizeAVRichTextBlockDOM(customBlockDOM, true), /custom_symble/);
+    const variableHTML = '<span data-type="custom_symble_strong_CJK_rectangle_yin" ' +
+        'style="--custom-symble-strong: var(--b3-font-color12);">colored</span>';
+    const variableValue = api.serializeTableCellRich(base.Md2BlockDOM("before " + variableHTML));
+    const variableCell = document.createElement("td");
+    api.updateTableCellEditingValue(variableCell, variableValue);
+    check.match(variableValue.markdown, /--custom-symble-strong: var\(--b3-font-color12\)/);
+    check.match(api.getTableCellRichBlockDOM(variableCell), /--custom-symble-strong: var\(--b3-font-color12\)/);
+    check.match(api.getTableCellRichBlockDOM(variableCell), /before/);
+    const unsafeCustom = api.sanitizeAVRichTextBlockDOM(
+        '<div data-type="NodeParagraph"><div contenteditable="true">' +
+        '<span data-type="custom_bad" style="--custom-bad: url(javascript:alert(1)); ' +
+        '--custom-unknown: var(--theme-color); --custom-safe: #abc;" onclick="alert(1)">safe</span></div></div>', true, true);
+    check.match(unsafeCustom, /--custom-safe: #abc;/);
+    check.doesNotMatch(unsafeCustom, /url\(|onclick|javascript:|--custom-unknown/);
+    const externalCustom = api.serializeTableCellRich(base.Md2BlockDOM(customHTML));
+    check.match(externalCustom.blockDOM, /data-type="custom_symble_strong_CJK_rectangle_yin"/);
+    check.match(externalCustom.blockDOM, /--custom-symble-strong: rgb\(0 166 240 \/ 1\)/);
+    const inlineCustomCell = document.createElement("td");
+    api.updateTableCellEditingValue(inlineCustomCell, externalCustom);
+    check.equal(inlineCustomCell.hasAttribute("data-sy-table-cell-rich"), false);
+    check.match(api.getTableCellRichBlockDOM(inlineCustomCell), /custom_symble_strong_CJK_rectangle_yin/);
+    const externalBold = api.serializeTableCellRich(base.HTML2BlockDOM("<strong>bold</strong>"));
+    check.match(externalBold.blockDOM, /data-type="strong"/);
     const editable = document.createElement("div");
     for (const text of ["```", "```go", "~~~~shell", "  ```js", "before\n\n```ts"]) {
         editable.textContent = text;
@@ -147,7 +182,7 @@ const browserCases = async (source: string, enterSource: string, hintSource: str
         typeof import("../wysiwyg/enter").enter;
     const fill = new Function(...Object.keys(dependencies), hintSource + "\nreturn Hint.prototype.fill;")(...Object.values(dependencies));
     const fragment = {wysiwyg, protyle, hintElement, getBlockHTML: () => wysiwyg.innerHTML};
-    const keyDependencies = {...dependencies, host, cell, fragment, owner: protyle, signal: new AbortController().signal,
+    const keyDependencies = {...dependencies, host, cell, table: cell.closest("table"), fragment, owner: protyle, signal: new AbortController().signal,
         captureBeforeChange: () => {}, composing: false, matchHotKey: () => false, finish: () => {},
         fixTable: () => { calls.navigated++; }};
     new Function(...Object.keys(keyDependencies), keydownSource)(...Object.values(keyDependencies));
@@ -492,13 +527,13 @@ test("table cells insert code through slash and Enter without losing soft breaks
         .replace(/^export /gm, ""), {compilerOptions: {target: ScriptTarget.ES2021}}).outputText;
     const read = (file: string) => readFileSync(path.join(__dirname, file), "utf8");
     const source = ["longTextWrap.ts", "inlineElementBoundary.ts", "../toolbar/fontFamilyCore.ts", "../../util/escape.ts",
-        "../render/setLute.ts", "../wysiwyg/codeBlockUtil.ts", "../render/av/richTextValue.ts", "../render/av/richText.ts",
+        "tableVirtualizationDOM.ts", "../render/setLute.ts", "../wysiwyg/codeBlockUtil.ts", "../render/av/richTextValue.ts", "../render/av/richText.ts",
         "../wysiwyg/taskListMarker.ts", "../wysiwyg/codeBlockEnter.ts", "tableCellRichLute.ts", "tableCellRichValue.ts",
         "tableCellRich.ts"].map(file => compile(read(file))).join("\n");
     const hint = createSourceFile("hint.ts", read("../hint/index.ts"), ScriptTarget.Latest, true);
     const hintClass = hint.statements.find(isClassDeclaration);
     const fill = hintClass.members.find(member => isMethodDeclaration(member) && member.name.getText(hint) === "fill");
-    const hintSource = compile("class Hint {" + fill.getText(hint) + "}");
+    const hintSource = compile("const isProtyleListItemFragment = () => false; class Hint {" + fill.getText(hint) + "}");
     const editor = read("../render/tableCellRichEditor.ts");
     const start = editor.indexOf('host.addEventListener("keydown", event => {');
     const end = editor.indexOf("}, {capture: true, signal});", start) + "}, {capture: true, signal});".length;

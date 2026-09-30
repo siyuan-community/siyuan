@@ -538,6 +538,10 @@ func ExportSystemLog() (zipPath string) {
 		return
 	}
 
+	if err := writeSystemGoroutineLog(exportFolder); err != nil {
+		logging.LogErrorf("export goroutine log failed: %s", err)
+	}
+
 	appLog := filepath.Join(util.HomeDir, ".config", "siyuan", "app.log")
 	if gulu.File.IsExist(appLog) {
 		to := filepath.Join(exportFolder, "app.log")
@@ -1347,6 +1351,16 @@ func ExportHTML(id, savePath string, pdf, keepFold, merge bool, mergeHeadingOpti
 
 func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle bool, customTitle string,
 	mergeHeadingOptions ...MergeHeadingOptions) (name, dom string, node *ast.Node) {
+	return exportHTMLWithTitle(id, savePath, pdf, keepFold, merge, addTitle, customTitle, false, mergeHeadingOptions...)
+}
+
+func ExportPreviewHTMLWithTitle(id string, keepFold, merge, addTitle bool, customTitle string, keepJSEmbed bool,
+	mergeHeadingOptions ...MergeHeadingOptions) (name, dom string, node *ast.Node) {
+	return exportHTMLWithTitle(id, "", true, keepFold, merge, addTitle, customTitle, keepJSEmbed, mergeHeadingOptions...)
+}
+
+func exportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle bool, customTitle string, keepJSEmbed bool,
+	mergeHeadingOptions ...MergeHeadingOptions) (name, dom string, node *ast.Node) {
 	if err := prepareExportBlockAssets(id, merge); err != nil {
 		util.PushErrMsg(err.Error(), 7000)
 		return
@@ -1394,6 +1408,9 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 			}
 		}
 
+		if keepJSEmbed {
+			preserveExportJSEmbeds(tree)
+		}
 		tree, exportTreeErr := exportTree(tree, true, true, keepFold, true,
 			blockRefMode, Conf.Export.BlockEmbedMode, Conf.Export.FileAnnotationRefMode,
 			Conf.Export.TagOpenMarker, Conf.Export.TagCloseMarker,
@@ -1473,6 +1490,18 @@ func ExportHTMLWithTitle(id, savePath string, pdf, keepFold, merge, addTitle boo
 		luteEngine.SetSanitize(false)
 
 		renderer := render.NewProtyleExportRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
+		if keepJSEmbed {
+			renderHTML := renderer.RendererFuncs[ast.NodeHTMLBlock]
+			renderer.RendererFuncs[ast.NodeHTMLBlock] = func(n *ast.Node, entering bool) ast.WalkStatus {
+				if n.IALAttr("data-export-js-embed") != "true" {
+					return renderHTML(n, entering)
+				}
+				if entering {
+					renderer.Write(n.Tokens)
+				}
+				return ast.WalkSkipChildren
+			}
+		}
 		dom = gulu.Str.FromBytes(renderer.Render())
 		return nil
 	}); exportErr != nil {
@@ -3607,13 +3636,15 @@ func exportTree(tree *parse.Tree, wysiwyg, richTableCells, keepFold, avHiddenCol
 		mdTable.AppendChild(mdTableHead)
 		mdTableHeadRow := &ast.Node{Type: ast.NodeTableRow, TableAligns: aligns}
 		mdTableHead.AppendChild(mdTableHeadRow)
+		alignIndex := 0
 		for _, col := range table.Columns {
 			if avHiddenCol && col.Hidden {
 				// 按需跳过隐藏列 Improve database table view exporting https://github.com/siyuan-note/siyuan/issues/12232
 				continue
 			}
 
-			cell := &ast.Node{Type: ast.NodeTableCell}
+			cell := &ast.Node{Type: ast.NodeTableCell, TableCellAlign: aligns[alignIndex]}
+			alignIndex++
 			name := col.Name
 			if !wysiwyg {
 				name = string(lex.EscapeProtyleMarkers([]byte(col.Name)))
@@ -3628,14 +3659,25 @@ func exportTree(tree *parse.Tree, wysiwyg, richTableCells, keepFold, avHiddenCol
 		for _, row := range table.Rows {
 			mdTableRow := &ast.Node{Type: ast.NodeTableRow, TableAligns: aligns}
 			mdTable.AppendChild(mdTableRow)
-			for _, cell := range row.Cells {
-				if avHiddenCol && nil != cell.Value {
-					if col := table.GetColumn(cell.Value.KeyID); nil != col && col.Hidden {
+			alignIndex = 0
+			for columnIndex, cell := range row.Cells {
+				if avHiddenCol {
+					if columnIndex < len(table.Columns) && table.Columns[columnIndex].Hidden {
 						continue
+					}
+					if nil != cell.Value {
+						if col := table.GetColumn(cell.Value.KeyID); nil != col && col.Hidden {
+							continue
+						}
 					}
 				}
 
-				mdTableCell := &ast.Node{Type: ast.NodeTableCell}
+				cellAlign := 0
+				if alignIndex < len(aligns) {
+					cellAlign = aligns[alignIndex]
+				}
+				mdTableCell := &ast.Node{Type: ast.NodeTableCell, TableCellAlign: cellAlign}
+				alignIndex++
 				mdTableRow.AppendChild(mdTableCell)
 				var val string
 				if nil != cell.Value {
@@ -3943,30 +3985,13 @@ func resolveFootnotesDefs(refFootnoteOrder *[]string, refFootnotesByID map[strin
 	footnotesDefBlock = &ast.Node{Type: ast.NodeFootnotesDefBlock}
 	var rendered []string
 
-	var bts map[string]*treenode.BlockTree
-	if currentTree.Box == "" {
-		bts = treenode.GetBlockTrees(*refFootnoteOrder)
-	} else {
-		bts = treenode.GetBlockTreesInBox(*refFootnoteOrder, currentTree.Box)
-	}
 	for _, defID := range *refFootnoteOrder {
 		foot := refFootnotesByID[defID]
 		if nil == foot {
 			continue
 		}
-		bt := bts[defID]
-		if nil == bt {
-			logging.LogWarnf("not found block tree for footnote def [%s] refNum [%s]", defID, foot.refNum)
-			continue
-		}
-
-		var t *parse.Tree
-		var err error
-		if currentTree.Box == "" {
-			t, err = LoadTreeByBlockID(bt.RootID)
-		} else {
-			t, err = LoadTreeByBlockIDInExactBox(bt.RootID, currentTree.Box)
-		}
+		// 按引用目标所属笔记本加载脚注，同时保留源笔记本的加密边界限制。
+		t, err := loadExportRelatedTree(defID, currentTree.Box)
 		if nil != err {
 			logging.LogWarnf("load tree for footnote def [%s] refNum [%s] failed: %s", defID, foot.refNum, err)
 			continue
@@ -4142,18 +4167,14 @@ func collectFootnotesDefs(currentTree *parse.Tree, id string, refFootnoteOrder *
 	if 4096 < *depth {
 		return
 	}
-	b := treenode.GetBlockTreeInBox(id, currentTree.Box)
-	if nil == b {
-		return
-	}
-	t, err := LoadTreeByBlockIDInExactBox(b.RootID, currentTree.Box)
+	t, err := loadExportRelatedTree(id, currentTree.Box)
 	if nil != err {
 		return
 	}
 
-	node := treenode.GetNodeInTree(t, b.ID)
+	node := treenode.GetNodeInTree(t, id)
 	if nil == node {
-		logging.LogErrorf("not found node [%s] in tree [%s]", b.ID, t.Root.ID)
+		logging.LogErrorf("not found node [%s] in tree [%s]", id, t.Root.ID)
 		return
 	}
 	collectFootnotesDefs0(currentTree, node, refFootnoteOrder, refFootnotesByID, depth)

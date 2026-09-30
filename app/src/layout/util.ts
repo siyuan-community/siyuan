@@ -69,8 +69,9 @@ export const isSensitiveTab = (tab: Tab) => {
 
 export const setPanelFocus = (element: Element, isSaveLayout = true) => {
     if (element.getAttribute("data-type") === "wnd") {
-        const title = element.querySelector('.layout-tab-bar .item--focus[data-type="tab-header"] .item__text')?.textContent || "";
-        setTitle(title, title ? false : true);
+        const tabHeader = element.querySelector('.layout-tab-bar .item--focus[data-type="tab-header"]');
+        const title = tabHeader?.querySelector(".item__text")?.textContent || "";
+        setTitle(title, !title, tabHeader?.querySelector(".item__icon"));
     }
     if (element.classList.contains("layout__tab--active") || element.classList.contains("layout__wnd--active")) {
         return;
@@ -163,8 +164,23 @@ export const resetLayout = () => {
 };
 
 let saveCount = 0;
+let saveRetryTimeout = 0;
+let layoutSavingSuspended = false;
+const layoutSaveRequests = new Set<Promise<void>>();
+
+// 切换布局前停止自动保存并等待在途请求，成功后保持暂停直到页面刷新，失败时由调用方恢复。
+export const suspendLayoutSaving = async () => {
+    layoutSavingSuspended = true;
+    window.clearTimeout(saveRetryTimeout);
+    saveCount = 0;
+    await Promise.allSettled(layoutSaveRequests);
+    return () => {
+        layoutSavingSuspended = false;
+    };
+};
+
 export const saveLayout = () => {
-    if (!window.siyuan.layout?.layout) {
+    if (layoutSavingSuspended || !window.siyuan.layout?.layout) {
         return;
     }
     const breakObj = {};
@@ -190,20 +206,23 @@ export const saveLayout = () => {
     }
     if (Object.keys(breakObj).length > 0 && saveCount < 10) {
         saveCount++;
-        setTimeout(() => {
+        saveRetryTimeout = window.setTimeout(() => {
             saveLayout();
         }, Constants.TIMEOUT_LOAD * saveCount);
     } else {
         saveCount = 0;
         if (isWindow()) {
             sessionStorage.setItem("layout", JSON.stringify(layoutJSON));
+            window.dispatchEvent(new Event("siyuan-window-layout"));
         } else {
             if (!window.siyuan.config.readonly) {
                 const request = {
                     layout: layoutJSON,
                     errorExit: false    // 后台不接受该参数，用于请求发生错误时退出程序
                 };
-                fetchPost("/api/system/setUILayout", request);
+                const saving = fetchPost("/api/system/setUILayout", request);
+                layoutSaveRequests.add(saving);
+                void saving.then(() => layoutSaveRequests.delete(saving), () => layoutSaveRequests.delete(saving));
             }
         }
     }
@@ -228,12 +247,17 @@ export const exportLayout = async (options: {
         // 关闭时滚动位置保存超时，继续保存布局并执行退出流程。
         console.warn("Save scroll timed out before closing");
     });
+    if (layoutSavingSuspended) {
+        options.cb();
+        return;
+    }
     if (isWindow()) {
         const layoutJSON: any = {
             layout: {},
         };
         layoutToJSON(window.siyuan.layout.layout, layoutJSON.layout);
         sessionStorage.setItem("layout", JSON.stringify(layoutJSON));
+        window.dispatchEvent(new Event("siyuan-window-layout"));
         options.cb();
         return;
     }
@@ -329,16 +353,17 @@ const ensureAgentChatDock = (layout: Pick<Config.IUiLayout, "left" | "right" | "
 };
 
 const initInternalDock = (dockItem: Config.IUILayoutDockTab[]) => {
-    dockItem.forEach((existSubItem, index) => {
+    for (let index = dockItem.length - 1; index >= 0; index--) {
+        const existSubItem = dockItem[index];
         if ((window.siyuan.isPublish && (existSubItem.type === "inbox" || existSubItem.type === "agentChat")) ||
             (isDisabledFeature("ai") && existSubItem.type === "agentChat")) {
             dockItem.splice(index, 1);
-            return;
+            continue;
         }
         if (existSubItem.hotkeyLangId) {
             existSubItem.title = window.siyuan.languages[existSubItem.hotkeyLangId];
         }
-    });
+    }
 };
 
 const JSONToDock = (json: any, app: App) => {
@@ -736,6 +761,13 @@ export const layoutToJSON = (layout: Layout | Wnd | Tab | Model, json: any, brea
         json.action = (layout.editor.protyle.block.showAll && layout.editor.protyle.block.id !== layout.editor.protyle.block.rootID) ? Constants.CB_GET_ALL : Constants.CB_GET_SCROLL;
         json.databaseRowId = layout.editor.protyle.element.dataset.databaseRowId;
         json.instance = "Editor";
+        if (isWindow()) {
+            const scrollAttr = saveScroll(layout.editor.protyle, true);
+            if (scrollAttr && "rootId" in scrollAttr) {
+                json.scrollAttr = scrollAttr;
+                json.action = Constants.CB_GET_SCROLL;
+            }
+        }
     } else if (layout instanceof Asset) {
         json.path = layout.path;
         if (layout.pdfObject) {
@@ -941,6 +973,7 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
             notebookId: json.notebookId,
             mode: json.mode,
             scrollPosition: json.scrollPosition,
+            scrollAttr: json.scrollAttr,
             action,
             afterInitProtyle(editor) {
                 if (json.databaseRowId) {

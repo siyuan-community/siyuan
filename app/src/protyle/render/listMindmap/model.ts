@@ -1,6 +1,8 @@
 import {Constants} from "../../../constants";
 import {getOrderedListMarkerUpdates} from "../../wysiwyg/listContext";
 import type {MindmapManualRoute} from "./routing";
+import {getListMindmapSiblingIDs, normalizeListMindmapSummaries} from "./summary";
+import type {ListMindmapSummary} from "./summary";
 
 export interface ListMindmapNodeStyle {
     textColor?: string;
@@ -30,8 +32,10 @@ export interface ListMindmapRelation {
 export interface ListMindmapMetadata {
     version: 1;
     rootTitle?: string;
+    viewLocked?: boolean;
     nodes: Record<string, ListMindmapNodeStyle>;
     relations: ListMindmapRelation[];
+    summaries?: ListMindmapSummary[];
 }
 
 export interface ListMindmapNode {
@@ -94,6 +98,9 @@ export const parseListMindmapMetadata = (value: string | null): ListMindmapMetad
     if (data.rootTitle !== undefined && typeof data.rootTitle !== "string") {
         throw invalidMetadata();
     }
+    if (data.viewLocked !== undefined && typeof data.viewLocked !== "boolean") {
+        throw invalidMetadata();
+    }
     const numberKeys = ["fontSize", "borderWidth", "borderRadius", "lineWidth"];
     const booleanKeys = ["bold", "italic", "lineDash"];
     for (const [id, style] of Object.entries(data.nodes)) {
@@ -128,6 +135,28 @@ export const parseListMindmapMetadata = (value: string | null): ListMindmapMetad
         }
         relationIds.add(relation.id);
     }
+    if ("summaries" in data) {
+        if (!Array.isArray(data.summaries)) {
+            throw invalidMetadata();
+        }
+        const summaryIds = new Set<string>();
+        const members = new Set<string>();
+        for (const summary of data.summaries) {
+            if (!isRecord(summary) || typeof summary.id !== "string" || !summary.id || summaryIds.has(summary.id) ||
+                typeof summary.parentId !== "string" || !summary.parentId || typeof summary.label !== "string" ||
+                !Array.isArray(summary.nodeIds) || !summary.nodeIds.length ||
+                ("color" in summary && typeof summary.color !== "string")) {
+                throw invalidMetadata();
+            }
+            summaryIds.add(summary.id);
+            for (const id of summary.nodeIds) {
+                if (typeof id !== "string" || !id || id === summary.parentId || members.has(id)) {
+                    throw invalidMetadata();
+                }
+                members.add(id);
+            }
+        }
+    }
     return data as unknown as ListMindmapMetadata;
 };
 
@@ -138,10 +167,29 @@ export const writeListMindmapMetadata = (list: HTMLElement, metadata: ListMindma
     list.setAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA, value);
 };
 
+export const retagMindmapBranch = (root: Element, toMindmap: boolean) => {
+    const sourceBranch = toMindmap ? "NodeList" : "NodeMindmap";
+    const sourceItem = toMindmap ? "NodeListItem" : "NodeMindmapItem";
+    const pending = [root];
+    while (pending.length > 0) {
+        const branch = pending.pop();
+        if (branch.getAttribute("data-type") !== sourceBranch) {
+            continue;
+        }
+        branch.setAttribute("data-type", toMindmap ? "NodeMindmap" : "NodeList");
+        branch.classList.replace(toMindmap ? "list" : "mindmap", toMindmap ? "mindmap" : "list");
+        Array.from(branch.children).filter(item => item.getAttribute("data-type") === sourceItem).forEach(item => {
+            item.setAttribute("data-type", toMindmap ? "NodeMindmapItem" : "NodeListItem");
+            item.classList.replace(toMindmap ? "li" : "mindmap-item", toMindmap ? "mindmap-item" : "li");
+            pending.push(...Array.from(item.children).filter(child => child.getAttribute("data-type") === sourceBranch));
+        });
+    }
+};
+
 // 复制块树时同步替换节点样式和关系线端点，先校验全部配置再写入，避免出现部分改写。
 export const remapListMindmapIDs = (root: Element, ids: Map<string, string>) => {
     const lists = Array.from(root.querySelectorAll<HTMLElement>(`[${Constants.CUSTOM_SY_LIST_MINDMAP_DATA}]`)).filter(list =>
-        !list.closest(".list-mindmap"));
+        !list.closest(".mindmap-view"));
     if (root.hasAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA)) {
         lists.unshift(root as HTMLElement);
     }
@@ -160,11 +208,18 @@ export const remapListMindmapIDs = (root: Element, ids: Map<string, string>) => 
             }
             nodes[mappedId] = style;
         });
-        return {list, metadata: {...metadata, nodes, relations: metadata.relations.map(relation => ({
+        const copied = {...metadata, nodes, relations: metadata.relations.map(relation => ({
             ...relation,
             from: ids.get(relation.from) || relation.from,
             to: ids.get(relation.to) || relation.to,
-        })).filter(relation => validIds.has(relation.from) && validIds.has(relation.to))}};
+        })).filter(relation => validIds.has(relation.from) && validIds.has(relation.to))};
+        if (metadata.summaries) {
+            copied.summaries = metadata.summaries.map(summary => ({...summary,
+                parentId: ids.get(summary.parentId) || summary.parentId,
+                nodeIds: summary.nodeIds.map(id => ids.get(id) || id).filter(id => validIds.has(id)),
+            })).filter(summary => validIds.has(summary.parentId) && summary.nodeIds.length > 0);
+        }
+        return {list, metadata: copied};
     });
     updates.forEach(({list, metadata}) => list.setAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA, JSON.stringify(metadata)));
     cleanListMindmapDOM(root);
@@ -174,14 +229,17 @@ const directBlocks = (element: HTMLElement) => Array.from(element.children).filt
     child.hasAttribute("data-node-id")) as HTMLElement[];
 
 const sourceBlocks = (element: HTMLElement) => Array.from(element.querySelectorAll<HTMLElement>("[data-node-id]")).filter(child =>
-    !child.closest(".list-mindmap"));
+    !child.closest(".mindmap-view"));
+
+const branchType = (list: HTMLElement) => list.getAttribute("data-type") === "NodeMindmap" ? "NodeMindmap" : "NodeList";
+const itemType = (list: HTMLElement) => branchType(list) === "NodeMindmap" ? "NodeMindmapItem" : "NodeListItem";
 
 const directItems = (list: HTMLElement) => directBlocks(list).filter(child =>
-    child.getAttribute("data-type") === "NodeListItem");
+    child.getAttribute("data-type") === itemType(list));
 
 export const readListMindmap = (list: HTMLElement): ListMindmapModel => {
-    if (list.getAttribute("data-type") !== "NodeList" || !list.getAttribute("data-node-id")) {
-        throw new Error("A list mindmap requires a list block");
+    if (!["NodeList", "NodeMindmap"].includes(list.getAttribute("data-type")) || !list.getAttribute("data-node-id")) {
+        throw new Error("A mindmap requires a container block");
     }
     const metadata = parseListMindmapMetadata(list.getAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA));
     const nodes = new Map<string, ListMindmapNode>();
@@ -205,7 +263,7 @@ export const readListMindmap = (list: HTMLElement): ListMindmapModel => {
                 id,
                 parentId: current.parent.id,
                 element: item,
-                contentBlocks: blocks.filter(block => block.getAttribute("data-type") !== "NodeList"),
+                contentBlocks: blocks.filter(block => block.getAttribute("data-type") !== branchType(list)),
                 children: [],
                 collapsed: item.getAttribute("fold") === "1",
                 virtual: false,
@@ -215,8 +273,8 @@ export const readListMindmap = (list: HTMLElement): ListMindmapModel => {
             };
             current.parent.children.push(node);
             nodes.set(id, node);
-            // 子列表可以与其他正文块交错出现，只将直属子列表映射为下一级节点。
-            blocks.filter(block => block.getAttribute("data-type") === "NodeList").reverse().forEach(child => {
+            // 子分支可以与正文块交错出现，只将直属分支映射为下一级节点。
+            blocks.filter(block => block.getAttribute("data-type") === branchType(list)).reverse().forEach(child => {
                 pending.push({list: child, parent: node});
             });
         }
@@ -231,19 +289,19 @@ export const readListMindmap = (list: HTMLElement): ListMindmapModel => {
 };
 
 const cleanListMindmapDOM = (root: Element | DocumentFragment) => {
-    root.querySelectorAll(".list-mindmap").forEach(element => element.remove());
-    const elements = Array.from(root.querySelectorAll("[data-list-mindmap-rendered], [data-list-mindmap-editing]"));
+    root.querySelectorAll(".mindmap-view, .list-mindmap").forEach(element => element.remove());
+    const elements = Array.from(root.querySelectorAll("[data-mindmap-view-rendered], [data-mindmap-view-editing]"));
     if (root.nodeType === 1) {
         elements.push(root as Element);
     }
     elements.forEach(element => {
-        element.removeAttribute("data-list-mindmap-rendered");
-        element.removeAttribute("data-list-mindmap-editing");
+        element.removeAttribute("data-mindmap-view-rendered");
+        element.removeAttribute("data-mindmap-view-editing");
     });
     const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
     const markers: Comment[] = [];
     while (walker.nextNode()) {
-        if (walker.currentNode.nodeValue === "list-mindmap") {
+        if (["mindmap-view", "list-mindmap"].includes(walker.currentNode.nodeValue)) {
             markers.push(walker.currentNode as Comment);
         }
     }
@@ -251,7 +309,7 @@ const cleanListMindmapDOM = (root: Element | DocumentFragment) => {
 };
 
 export const cleanListMindmapHTML = (html: string): string => {
-    if (!html.includes("list-mindmap")) {
+    if (!html.includes("mindmap-view") && !html.includes("list-mindmap")) {
         return html;
     }
     const template = document.createElement("template");
@@ -260,20 +318,31 @@ export const cleanListMindmapHTML = (html: string): string => {
     return template.innerHTML;
 };
 
-// 转换列表类型时退出脑图显示，保留节点、连接元数据及原 DOM 供撤销使用。
-export const convertListMindmapToList = (element: Element, type: string, lute: Lute): string | undefined => {
-    if (element.getAttribute(Constants.CUSTOM_SY_LIST_MINDMAP) !== "1" ||
-        !["OL2UL", "UL2OL", "UL2TL", "OL2TL", "TL2UL", "TL2OL"].includes(type)) {
-        return;
-    }
+// 转换前将思维导图块还原为列表结构，并移除视图节点。
+export const listMindmapConversionSource = (element: Element): Element => {
     const template = document.createElement("template");
     template.innerHTML = cleanListMindmapHTML(element.outerHTML);
     const source = template.content.firstElementChild;
+    if (source.getAttribute("data-type") === "NodeMindmap") {
+        retagMindmapBranch(source, false);
+    }
     source.removeAttribute(Constants.CUSTOM_SY_LIST_MINDMAP);
+    return source;
+};
+
+// 转换列表类型时退出脑图显示，保留节点、连接元数据及原 DOM 供撤销使用。
+export const convertListMindmapToList = (element: Element, type: string, lute: Lute): string | undefined => {
+    if (element.getAttribute("data-type") !== "NodeMindmap" &&
+        element.getAttribute(Constants.CUSTOM_SY_LIST_MINDMAP) !== "1" ||
+        !["OL2UL", "UL2OL", "UL2TL", "OL2TL", "TL2UL", "TL2OL"].includes(type)) {
+        return;
+    }
+    const source = listMindmapConversionSource(element);
     const from = {o: "OL", t: "TL", u: "UL"}[source.getAttribute("data-subtype")] || "UL";
     const to = type.split("2")[1];
     if (from === to) {
-        return source.outerHTML;
+        // 同类型转换也规范化块 DOM，清除脑图遗留的块选中状态并保留正文光标。
+        return lute.SpinBlockDOM(source.outerHTML);
     }
     // @ts-expect-error Lute 的类型声明未包含列表转换方法。
     return lute[`${from}2${to}`](source.outerHTML);
@@ -286,6 +355,7 @@ export const layoutListMindmap = (root: ListMindmapLayoutNode, options: {
     padding?: number;
     horizontalGaps?: Map<string, number>;
     verticalGaps?: Map<string, number>;
+    summaries?: {nodeIds: string[], height: number}[];
 } = {}) => {
     const horizontalGap = options.horizontalGap ?? 40;
     const verticalGap = options.verticalGap ?? 24;
@@ -315,6 +385,20 @@ export const layoutListMindmap = (root: ListMindmapLayoutNode, options: {
     const heights = new Map<string, number>();
     [...ordered].reverse().forEach(({node}) => {
         const children = node.collapsed ? [] : node.children;
+        (options.summaries || []).forEach(summary => {
+            const start = children.findIndex(child => child.id === summary.nodeIds[0]);
+            if (start < 0 || !summary.nodeIds.every((id, index) => children[start + index]?.id === id)) {
+                return;
+            }
+            const total = summary.nodeIds.reduce((sum, id, index) => sum + heights.get(id) + (index ? gapBefore(id) : 0), 0);
+            if (summary.height + 16 > total) {
+                const extra = (summary.height + 16 - total) / 2;
+                const first = summary.nodeIds[0];
+                const last = summary.nodeIds[summary.nodeIds.length - 1];
+                heights.set(first, heights.get(first) + extra);
+                heights.set(last, heights.get(last) + extra);
+            }
+        });
         const childHeight = children.reduce((sum, child, index) => sum + heights.get(child.id) +
             (index ? gapBefore(child.id) : 0), 0);
         heights.set(node.id, Math.max(node.height, childHeight));
@@ -420,7 +504,7 @@ const getDestinationList = (model: ListMindmapModel, targetId: string, placement
     if (placement !== "child") {
         return target.parentElement;
     }
-    let childList = directBlocks(target).find(child => child.getAttribute("data-type") === "NodeList");
+    let childList = directBlocks(target).find(child => child.getAttribute("data-type") === branchType(model.list));
     if (!childList) {
         const id = createListId();
         if (!id || model.nodes.has(id) || id === model.list.getAttribute("data-node-id") ||
@@ -428,8 +512,8 @@ const getDestinationList = (model: ListMindmapModel, targetId: string, placement
             throw new Error("Invalid new list identity");
         }
         childList = model.list.ownerDocument.createElement("div");
-        childList.className = "list";
-        childList.setAttribute("data-type", "NodeList");
+        childList.className = branchType(model.list) === "NodeMindmap" ? "mindmap" : "list";
+        childList.setAttribute("data-type", branchType(model.list));
         childList.setAttribute("data-node-id", id);
         childList.setAttribute("data-subtype", target.getAttribute("data-subtype") || "u");
         const attr = model.list.ownerDocument.createElement("div");
@@ -475,14 +559,28 @@ export const moveListMindmapNode = (list: HTMLElement, sourceId: string, targetI
             normalizeList(oldList, oldStart);
         }
     }
+    normalizeListMindmapSummaryMetadata(list, getListMindmapSiblingIDs(model), new Set([sourceId]));
     return true;
+};
+
+export const normalizeListMindmapSummaryMetadata = (list: HTMLElement, previous: Map<string, string[]>,
+                                                   moved?: Set<string>) => {
+    const model = readListMindmap(list);
+    if (!model.metadata.summaries) {
+        return;
+    }
+    const summaries = normalizeListMindmapSummaries(model.metadata.summaries, getListMindmapSiblingIDs(model), previous, moved);
+    if (JSON.stringify(summaries) !== JSON.stringify(model.metadata.summaries)) {
+        model.metadata.summaries = summaries;
+        writeListMindmapMetadata(list, model.metadata);
+    }
 };
 
 export const addListMindmapNode = (list: HTMLElement, targetId: string, placement: ListMindmapPlacement,
                                    item: HTMLElement, createListId = () => Lute.NewNodeID()): boolean => {
     const model = readListMindmap(list);
     const id = item.getAttribute("data-node-id");
-    if (item.getAttribute("data-type") !== "NodeListItem" || !id || model.nodes.has(id) ||
+    if (item.getAttribute("data-type") !== itemType(list) || !id || model.nodes.has(id) ||
         id === list.getAttribute("data-node-id") || list.contains(item) || item.contains(list)) {
         return false;
     }
@@ -503,6 +601,7 @@ export const addListMindmapNode = (list: HTMLElement, targetId: string, placemen
     const start = getListStart(destination);
     insertItem(destination, item, model.nodes.get(targetId)?.element, placement);
     normalizeList(destination, start);
+    normalizeListMindmapSummaryMetadata(list, getListMindmapSiblingIDs(model));
     return true;
 };
 
@@ -529,6 +628,7 @@ export const deleteListMindmapNode = (list: HTMLElement, id: string): boolean =>
         !removedIds.has(relation.from) && !removedIds.has(relation.to));
     if (list.hasAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA)) {
         writeListMindmapMetadata(list, model.metadata);
+        normalizeListMindmapSummaryMetadata(list, getListMindmapSiblingIDs(model));
     }
     return true;
 };
@@ -557,8 +657,11 @@ export const replaceListMindmapContent = (list: HTMLElement, nodeId: string, blo
     template.innerHTML = cleanListMindmapHTML(blockHTML);
     template.content.querySelectorAll("wbr").forEach(element => element.remove());
     const incoming = Array.from(template.content.children) as HTMLElement[];
+    if (list.dataset.type === "NodeMindmap") {
+        incoming.filter(block => block.dataset.type === "NodeList").forEach(block => retagMindmapBranch(block, true));
+    }
     if (incoming.length === 0 || incoming.some(block => !block.hasAttribute("data-node-id") ||
-        !block.getAttribute("data-type") || block.getAttribute("data-type") === "NodeListItem")) {
+        !block.getAttribute("data-type") || ["NodeListItem", "NodeMindmapItem"].includes(block.getAttribute("data-type")))) {
         return false;
     }
     const originals = new Map<string, HTMLElement>();
@@ -584,7 +687,7 @@ export const replaceListMindmapContent = (list: HTMLElement, nodeId: string, blo
                     !["data-type", "data-subtype", "class", "updated", "contenteditable", "data-task", "data-marker", "fold",
                         Constants.CUSTOM_SY_CODE_TAB_SPACES]
                         .includes(attribute.name) &&
-                    !attribute.name.startsWith("data-list-mindmap-")) {
+                    !attribute.name.startsWith("data-mindmap-view-")) {
                     block.setAttribute(attribute.name, attribute.value);
                 }
             });

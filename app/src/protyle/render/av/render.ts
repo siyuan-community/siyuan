@@ -64,6 +64,7 @@ import {getAVColorStyle} from "./color";
 import {getContextFilterKeyID} from "./contextFilterState";
 import {isAVCellPanelForBlock} from "./panelTarget";
 import {replaceAVContainer} from "./container";
+import {updateFrozenColumns} from "./frozenColumns";
 
 interface IIds {
     groupId: string,
@@ -419,11 +420,13 @@ export const initUnfoldedGroupTables = (blockElement: HTMLElement, protyle: IPro
         totalLoadedRows > GROUP_TABLE_INITIAL_ROW_BUDGET || bodies.some(bodyElement =>
             bodyElement.querySelector(".av__spacer")));
     renderAVRichTextElements(blockElement);
+    updateFrozenColumns(blockElement);
     initVirtualScroll({protyle, blockElement, data, selectedItemPoints});
     restoreAVCellSelection(blockElement);
 };
 
 const afterRenderTable = (options: ITableOptions) => {
+    updateFrozenColumns(options.blockElement);
     setAVData(options.blockElement, options.data);
     renderAVRichTextElements(options.blockElement);
     if (!refreshAVCellSelection(options.blockElement, options.data)) {
@@ -566,7 +569,7 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
     }
     for (let i = 0; i < avElements.length; i++) {
         const e = avElements[i] as HTMLElement;
-        if (e.closest(".list-mindmap__preview-block")) {
+        if (e.closest(".mindmap-view__preview-block")) {
             continue;
         }
         e.removeAttribute("data-rendering");
@@ -676,10 +679,12 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
         const locateParams = getAVLocateParams(e, !created && !snapshot);
         let data: IAV;
         if (!avData) {
+            // 未引用数据库预览没有实际载体，不向内核传递临时块 ID。
+            const standalone = protyle.block.action?.includes(Constants.CB_GET_AV_NO_CREATE);
             const common = {
                 calendarRange: getCalendarRequestRange(e, locateParams?.viewID || undefined),
                 id: e.getAttribute("data-av-id"),
-                blockID: e.getAttribute("data-node-id"),
+                blockID: standalone ? "" : e.getAttribute("data-node-id"),
                 viewID: locateParams?.viewID || (window.siyuan.isPublish ? getPublishAVView(e) : ""),
             };
             const paging = {
@@ -695,7 +700,7 @@ export const avRender = async (element: Element, protyle: IProtyle, cb?: (data: 
             }, undefined, false) : fetchSyncPost("/api/av/renderAttributeView", {
                 ...common, ...paging,
                 initialLayout: e.getAttribute("data-av-type"),
-                createIfNotExist: !window.siyuan.isPublish && !protyle.block.action?.includes(Constants.CB_GET_AV_NO_CREATE),
+                createIfNotExist: !window.siyuan.isPublish && !standalone,
                 targetItemID: locateParams?.targetItemID || "",
                 targetGroupID: locateParams?.targetGroupID || "",
             }, undefined, false));
@@ -783,7 +788,7 @@ const refreshTimeouts: {
 
 const getAVElements = (protyle: IProtyle, avID: string, viewID?: string): HTMLElement[] => {
     const elements = Array.from(protyle.wysiwyg.element.querySelectorAll<HTMLElement>(`.av[data-av-id="${avID}"]`))
-        .filter(item => !item.closest(".list-mindmap__preview-block"));
+        .filter(item => !item.closest(".mindmap-view__preview-block"));
     if (viewID) {
         return elements.filter((item) => getViewIDByAVElement(item) === viewID);
     }
@@ -933,6 +938,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                     columnElement.style.width = operation.data;
                 }
             });
+            updateFrozenColumns(item);
         });
         return;
     }
@@ -946,6 +952,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
                     }
                 });
             });
+            updateFrozenColumns(item);
         });
         return;
     }
@@ -1102,7 +1109,7 @@ export const refreshAV = (protyle: IProtyle, operation: IOperation) => {
         getAVElements(protyle, avID).forEach((item) => {
             item.removeAttribute("data-render");
             if (["setAttrViewCardSize", "setAttrViewCardWidth", "setAttrViewCardAspectRatio",
-                "setAttrViewCalendar", "setAttrViewCardAspectRatioValue", "setAttrViewCardLayout", "setAttrViewColFullRow",
+                "setAttrViewConditionalColors", "setAttrViewCalendar", "setAttrViewCardAspectRatioValue", "setAttrViewCardLayout", "setAttrViewColFullRow",
                 "setAttrViewDisplayFieldName"].includes(operation.action) &&
                 (!operation.viewID || getViewIDByAVElement(item) === operation.viewID)) {
                 // 卡片尺寸或字段布局变化后原虚拟滚动占位高度已失效，重渲时从首项重新初始化。

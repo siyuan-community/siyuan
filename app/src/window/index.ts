@@ -1,3 +1,5 @@
+import {onWindowWorkspaceStorageChanged} from "./workspace";
+import {closeNotebookHistoryDialogs} from "../history/notebookDialogs";
 import {Constants} from "../constants";
 import {systemConfig} from "../config/systemConfig";
 import {Menus} from "../menus";
@@ -6,7 +8,7 @@ import "../assets/scss/base.scss";
 import {initBlockPopover} from "../block/popover";
 import {addScript, addScriptSync} from "../protyle/util/addScript";
 import {genUUID} from "../util/genID";
-import {fetchGet, fetchPost} from "../util/fetch";
+import {fetchPost} from "../util/fetch";
 import {addBaseURL, getDocDisplayName, redirectToCheckAuth, setNoteBook} from "../util/pathName";
 import {openFileById} from "../editor/util";
 import {
@@ -40,6 +42,7 @@ import {updateServerAddresses} from "../config/tabs/accessRuntime";
 import {applyCloudUserState} from "../config/tabs/accountUi";
 import {emitToPlugins} from "../plugin/EventBusCore";
 import {initializeEnglishCommandTranslations} from "../command/english";
+import {loadLanguages} from "../boot/loadLanguages";
 import {installPluginStorageFetchAppId} from "../util/fetchAppId";
 
 class App {
@@ -118,19 +121,23 @@ class App {
                             case "setLocalStorageVal":
                                 if (window.siyuan.storage) {
                                     window.siyuan.storage[data.data.key] = data.data.val;
+                                    onWindowWorkspaceStorageChanged(data.data.key);
                                 }
                                 break;
                             case "setLocalStorageVals":
                                 Object.keys(data.data.keyVals).forEach((k) => {
                                     window.siyuan.storage[k] = data.data.keyVals[k];
+                                    onWindowWorkspaceStorageChanged(k);
                                 });
                                 break;
                             case "removeLocalStorageVal":
                                 delete window.siyuan.storage[data.data.key];
+                                onWindowWorkspaceStorageChanged(data.data.key);
                                 break;
                             case "removeLocalStorageVals":
                                 data.data.keys.forEach((k: string) => {
                                     delete window.siyuan.storage[k];
+                                    onWindowWorkspaceStorageChanged(k);
                                 });
                                 break;
                             case "rename":
@@ -148,6 +155,7 @@ class App {
                                 break;
                             case "closeBox":
                             case "removeBox":
+                                closeNotebookHistoryDialogs(data.data.box);
                                 removeBlockPanelEditors({notebookId: data.data.box});
                                 getAllTabs().forEach((tab) => {
                                     if (tab.headElement) {
@@ -224,21 +232,22 @@ class App {
             await notebookPromise;
             await loadPlugins(this);
             getLocalStorage(() => {
-                fetchGet(`/appearance/langs/${window.siyuan.config.appearance.lang}.json?v=${Constants.SIYUAN_VERSION}`, (lauguages: IObject) => {
-                    window.siyuan.languages = lauguages;
+                void loadLanguages(window.siyuan.config.appearance.lang, Constants.SIYUAN_VERSION, (languages: IObject) => {
+                    window.siyuan.languages = languages;
                     void initializeEnglishCommandTranslations(
                         window.siyuan.config.appearance.lang,
-                        lauguages as Record<string, string>,
+                        languages as Record<string, string>,
                         Constants.SIYUAN_VERSION,
                     );
                     window.siyuan.menus = new Menus(this);
-                    fetchPost("/api/setting/getCloudUser", {}, async userResponse => {
+                    fetchPost("/api/setting/getCloudUser", {cached: true}, async userResponse => {
                         window.siyuan.user = userResponse.data && "userId" in userResponse.data ? userResponse.data : null;
                         await init(this);
                         setTitle("", true);
                         initMessage();
                         window.siyuan.isReady = true;
                         mainWs.flushMainMessages();
+                        fetchPost("/api/setting/getCloudUser", {});
                     });
                 });
             });

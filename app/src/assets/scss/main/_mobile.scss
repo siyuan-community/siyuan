@@ -162,6 +162,12 @@ body.mobile-keyboard--open {
   line-height: 24px;
   height: 24px;
   font-size: 16px;
+
+  &.counter--compact {
+    font-size: 12px;
+    height: 22px;
+    line-height: 22px;
+  }
 }
 
 .toolbar {
@@ -1229,7 +1235,7 @@ body.mobile-topbar--merged {
     font-weight: normal;
     line-height: 20px;
     margin: 0;
-    padding: 8px;
+    padding: 8px 16px;
   }
 
   .config-items {
@@ -1239,6 +1245,21 @@ body.mobile-topbar--merged {
       margin: 0 16px;
       padding: 16px 0;
     }
+  }
+
+  #syncProviderConfig .b3-label--inner,
+  .config-account__payment-status,
+  .config-account__payment-remaining,
+  .config-cloud-space {
+    font-size: 14px;
+  }
+
+  .config-cloud-space .b3-list-item__meta {
+    font-size: inherit;
+  }
+
+  .config-cloud-space__title {
+    font-size: 15px;
   }
 
   .config-assets {
@@ -1270,6 +1291,12 @@ body.mobile-topbar--merged {
   z-index: 7;
   top: 0;
   transform: translateX(100vw);
+
+  > .toolbar {
+    flex-shrink: 0;
+    padding-left: max(5px, env(safe-area-inset-left));
+    padding-right: max(5px, env(safe-area-inset-right));
+  }
 
   .mobile-main-menu {
     &__search {

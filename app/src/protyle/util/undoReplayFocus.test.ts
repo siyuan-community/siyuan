@@ -33,7 +33,7 @@ const browserCases = async (source: string) => {
     const transactions: {before: string, after: string, undoContext: Record<string, string>,
         context: Record<string, string>}[] = [];
     const dependencies = {
-        Constants: {ZWSP: "\u200b"},
+        Constants: {ZWSP: "\u200b", CUSTOM_SY_LIST_MINDMAP: "custom-sy-list-mindmap"},
         revealTabsForTarget: (): void => undefined,
         captureBlockSelectionModeState: noop,
         disposeCustomBlocksInElement: noop,
@@ -49,8 +49,14 @@ const browserCases = async (source: string) => {
                 api.focusByWbr(element, document.createRange());
             }
         },
-        loadRichCellEditor: async () => ({openTableCellRichEditor: (_owner: unknown, cell: HTMLTableCellElement,
-            _navigation: unknown, _point: unknown, saved: unknown) => openedCells.push({cell, saved})}),
+        loadRichCellEditor: async () => ({openTableCellRichEditor: async (_owner: unknown, cell: HTMLTableCellElement,
+            _navigation: unknown, _point: unknown, saved: unknown) => {
+            await Promise.resolve();
+            const range = getSelection().getRangeAt(0).cloneRange();
+            getSelection().removeAllRanges();
+            getSelection().addRange(range);
+            openedCells.push({cell, saved});
+        }}),
         updateTransaction: (_protyle: unknown, node: Element, before: string, undoContext: Record<string, string>,
                             operations?: {context: Record<string, string>}) => {
             if (node.outerHTML === before && !operations) {
@@ -61,13 +67,13 @@ const browserCases = async (source: string) => {
     };
     const api = new Function(...Object.keys(dependencies), source.replace('import("../render/tableCellRichEditor")',
         "loadRichCellEditor()") +
-        "return {TableCutControl, getUndoFocusContext, restoreUndoFocus, focusByRange, focusByWbr, updateBlock};")(...Object.values(dependencies));
+        "return {TableCutControl, getUndoFocusContext, restoreUndoFocus, focusByRange, focusByWbr, updateBlock, registerListMindmapRoot};")(...Object.values(dependencies));
     const editor = document.createElement("div");
     editor.className = "protyle-wysiwyg";
     editor.contentEditable = "true";
     document.body.append(editor);
     const protyle = {wysiwyg: {element: editor}, element: editor, contentElement: editor,
-        scroll: {lastScrollTop: 0}, toolbar: {}};
+        scroll: {lastScrollTop: 0}, toolbar: {range: document.createRange()}};
     const focus = (element: Element) => {
         const range = document.createRange();
         range.selectNodeContents(element);
@@ -144,15 +150,17 @@ const browserCases = async (source: string) => {
     const richContext = api.getUndoFocusContext(editor, focus(richCell), true);
     getSelection().removeAllRanges();
     check.equal(api.restoreUndoFocus(protyle, [{context: richContext}]), true);
-    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
     check.equal(openedCells[0].cell, richCell, "rich cells must reopen the cell editor");
     check.equal(openedCells[0].saved, undefined);
+    check.equal(protyle.toolbar.range, getSelection().getRangeAt(0), "toolbar range follows asynchronous cell focus");
     assertCaret(richCell, 11);
     const saved = {startIndex: 1, endIndex: 1, start: 2, end: 4, backward: true};
     check.equal(api.restoreUndoFocus(protyle, [{context: {...richContext,
         undoFocusTableSelection: JSON.stringify(saved)}}]), true);
-    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
     check.deepEqual(openedCells[1].saved, saved, "existing rich text selections must be preserved");
+    check.equal(protyle.toolbar.range, getSelection().getRangeAt(0));
     check.equal(api.restoreUndoFocus(protyle, [{context: {...richContext,
         undoFocusTableSelection: "null"}}]), false);
 
@@ -202,6 +210,26 @@ const browserCases = async (source: string) => {
     check.equal(highlightedCarets.length, 1);
     check.equal(highlightedCarets[0], editor.children[1]);
     assertCaret(editor.children[1].querySelector("[contenteditable]"), 2);
+    const pendingFocus: {listID: string, ids: string[]}[] = [];
+    const unregisterMindmap = api.registerListMindmapRoot(editor, noop, (listID: string, ids: string[]) => {
+        pendingFocus.push({listID, ids});
+    });
+    for (const type of ["NodeMindmap", "NodeList"]) {
+        editor.innerHTML = `<div data-node-id="map" data-type="${type}" custom-sy-list-mindmap="1">
+            <div data-node-id="child" data-type="${type === "NodeMindmap" ? "NodeMindmapItem" : "NodeListItem"}">
+                <div data-node-id="text" data-type="NodeParagraph"><div contenteditable="true">Child</div></div>
+            </div></div>`;
+        check.equal(api.restoreUndoFocus(protyle, [{context: {
+            undoFocusId: "child", undoFocusStart: "0", undoFocusEnd: "0",
+        }}]), true);
+        check.deepEqual(pendingFocus.pop(), {listID: "map", ids: ["child", "map"]},
+            "recorded node focus must reach the mind map before its view has mounted");
+        check.equal(api.restoreUndoFocus(protyle, [{context: {
+            undoFocusId: "text", undoFocusStart: "0", undoFocusEnd: "0",
+        }}]), true);
+        check.deepEqual(pendingFocus.pop(), {listID: "map", ids: ["text", "child", "map"]});
+    }
+    unregisterMindmap();
     editor.remove();
     return "Undo replay focus cases passed";
 };
@@ -227,6 +255,8 @@ test("undo replay restores recorded carets across paragraphs, table cells and em
             "getSemanticMarkerPrefixLengthForNode"]) +
         extract("tableCellRichValue.ts", ["TABLE_CELL_RICH_ATTRIBUTE"]) +
         extract("selectionFocus.ts", ["getUndoFocusElement"]) +
+        extract("../render/listMindmap/render.ts", ["editorRoots", "registerListMindmapRoot",
+            "restoreListMindmapFocus", "getListMindmapElements"]) +
         extract("../wysiwyg/getBlock.ts", ["getContenteditableElement", "isEndOfBlock", "hasNextSibling",
             "isNotEditBlock", "isContainerBlock", "hasPreviousSibling"]) +
         extract("../wysiwyg/transaction.ts", ["updateBlock"]) +

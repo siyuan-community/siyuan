@@ -164,7 +164,14 @@ var uploadCloudSnapshot = contractHandler(apicontract.UploadCloudSnapshot, func(
 })
 
 var getRepoSnapshots = contractHandler(apicontract.GetRepoSnapshots, func(c *gin.Context, request apicontract.GetRepoSnapshotsRequest) apicontract.Response[apicontract.RepoSnapshotsData] {
-	snapshots, pageCount, totalCount, err := model.GetRepoSnapshots(int(request.Page))
+	var snapshots []*model.Snapshot
+	var pageCount, totalCount int
+	var err error
+	if request.ID != "" || request.IncludeFiles {
+		snapshots, pageCount, totalCount, err = model.SearchRepoSnapshot(request.ID, request.IncludeFiles)
+	} else {
+		snapshots, pageCount, totalCount, err = model.GetRepoSnapshots(int(request.Page))
+	}
 	if err != nil {
 		return apicontract.Failure[apicontract.RepoSnapshotsData](-1, err.Error())
 	}
@@ -392,7 +399,13 @@ func repoDocHistories(values []*model.RepoDocHistory) []*apicontract.RepoDocHist
 	}
 	ret := make([]*apicontract.RepoDocHistory, len(values))
 	for i, value := range values {
-		ret[i] = (*apicontract.RepoDocHistory)(value)
+		if value == nil {
+			continue
+		}
+		ret[i] = &apicontract.RepoDocHistory{
+			FileID: value.FileID, IndexID: value.IndexID, Title: value.Title, HSize: value.HSize, Updated: value.Updated,
+			Snapshots: docHistorySnapshots(value.Snapshots),
+		}
 	}
 	return ret
 }
@@ -429,7 +442,7 @@ func repoSnapshots(values []*model.Snapshot) []*apicontract.RepoSnapshot {
 		if value == nil {
 			continue
 		}
-		snapshot := &apicontract.RepoSnapshot{RepoLog: *repoLog(value.Log), RequiresDownload: value.RequiresDownload}
+		snapshot := &apicontract.RepoSnapshot{RepoLog: *repoLog(value.Log), Tags: value.Tags, RequiresDownload: value.RequiresDownload}
 		if value.TypesCount != nil {
 			snapshot.TypesCount = make([]*apicontract.RepoTypeCount, len(value.TypesCount))
 			for j, count := range value.TypesCount {

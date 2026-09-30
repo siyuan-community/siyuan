@@ -22,7 +22,9 @@ import {
     getBlockRefAnchorText,
     getDocCreateTemplatePath,
     isConfiguredCreateTargetCurrentSubDoc,
+    newFileAtPath,
     newFileByRefHint,
+    newFileByRefHintAtPath,
     newFileBySelectRange,
     newFileInProtyle,
     newSubDocByRefHint
@@ -34,6 +36,7 @@ import {transaction, updateTransaction} from "../wysiwyg/transaction";
 import {insertHTML} from "../util/insertHTML";
 import {highlightRender} from "../render/highlightRender";
 import {spinListMindmapDOM} from "../render/listMindmap/create";
+import {mountNewListMindmap} from "../render/listMindmap";
 import {assetMenu, imgMenu} from "../../menus/protyle";
 import {hideElements} from "../ui/hideElements";
 import {fetchPost} from "../../util/fetch";
@@ -62,6 +65,7 @@ import {avRender} from "../render/av/render";
 import {genIconHTML} from "../render/util";
 import {updateAttrViewCellAnimation} from "../render/av/action";
 import {getAVBindingOperations} from "../render/av/binding";
+import {isRangeInEditor} from "../../util/newFileSelection";
 import {genCellValueByElement} from "../render/av/cell";
 import {setFold} from "../util/blockFold";
 import {getIconValueKind} from "../../emoji/iconValue";
@@ -339,7 +343,10 @@ export class Hint {
                         return true;
                     }
                 });
-            } else if (!isMobile()) {
+            } else {
+                if (isMobile()) {
+                    protyle.toolbar.range = protyle.toolbar.range.cloneRange();
+                }
                 const slashData = hintSlash(key, protyle);
                 if (slashData.length === 0) {
                     if (endsWithMultiCharHintPrefix(key, protyle.options.hint.extend.map((item) => item.key))) {
@@ -670,6 +677,9 @@ export class Hint {
                     const subDocRefText = `((newSubDoc "${oldValue}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))`;
                     searchHTML += `<button style="width: calc(100% - 16px)" class="b3-list-item b3-list-item--two${hideConfiguredCreate && response.data.blocks.length === 0 ? " b3-list-item--focus" : ""}" data-value="${encodeURIComponent(subDocRefText)}"><div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFile"></use></svg>
 <span class="b3-list-item__text">${window.siyuan.languages.newSubDoc} <mark>${response.data.k}</mark></span></div></button>`;
+                    const pathRefText = `((newFileAtPath "${oldValue}"${Constants.ZWSP}'${newFileName}${Lute.Caret}'))`;
+                    searchHTML += `<button style="width: calc(100% - 16px)" class="b3-list-item b3-list-item--two" data-value="${encodeURIComponent(pathRefText)}"><div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconFolder"></use></svg>
+<span class="b3-list-item__text">${window.siyuan.languages.newFileAtPath} <mark>${response.data.k}</mark></span></div></button>`;
                 }
                 response.data.blocks.forEach((item: IBlock, index: number) => {
                     let blockRefHTML;
@@ -809,6 +819,43 @@ ${genHintItemHTML(item)}
             const previousID = rowElement.dataset.id;
             const avID = nodeElement.getAttribute("data-av-id");
             const previousValue = genCellValueByElement("block", cellElement);
+            if (value.startsWith("((newFileAtPath ") && value.endsWith(`${Lute.Caret}'))`)) {
+                const fileNames = value.substring("((newFileAtPath \"".length, value.length - 4).split(`"${Constants.ZWSP}'`);
+                const name = fileNames.length === 1 ? fileNames[0] : fileNames[1];
+                const {notebookId, path, block: {rootID}} = protyle;
+                const blockID = nodeElement.dataset.nodeId;
+                const bindingCell = cellElement;
+                const savedValue = JSON.stringify(previousValue);
+                const savedRange = range.cloneRange();
+                // 选址期间条目可能被删除、换绑或重绘，始终校验原条目及其主键值。
+                const isValid = () => protyle.notebookId === notebookId && protyle.path === path &&
+                    protyle.block.rootID === rootID && nodeElement.isConnected && bindingCell.isConnected &&
+                    protyle.wysiwyg.element.contains(nodeElement) && nodeElement.contains(rowElement) &&
+                    rowElement.contains(bindingCell) && nodeElement.dataset.nodeId === blockID &&
+                    nodeElement.getAttribute("data-av-id") === avID && rowElement.dataset.id === previousID &&
+                    JSON.stringify(genCellValueByElement("block", bindingCell)) === savedValue;
+                newFileAtPath({
+                    notebookId,
+                    name,
+                    isValid,
+                    restoreFocus() {
+                        if (isRangeInEditor(protyle.wysiwyg.element, savedRange)) {
+                            focusByRange(savedRange);
+                        }
+                    },
+                    onCreated(id, title) {
+                        const operations = getAVBindingOperations(avID, previousID, id, blockID,
+                            previousValue, {protyleID: protyle.id});
+                        transaction(protyle, operations.doOperations, operations.undoOperations);
+                        updateAttrViewCellAnimation(bindingCell, {
+                            type: "block",
+                            isDetached: false,
+                            block: {content: title, id},
+                        });
+                    },
+                });
+                return;
+            }
             let tempElement = document.createElement("div");
             tempElement.innerHTML = value.replace(/<mark>/g, "").replace(/<\/mark>/g, "");
             tempElement = tempElement.firstElementChild as HTMLDivElement;
@@ -871,12 +918,14 @@ ${genHintItemHTML(item)}
             return;
         }
         // 新建文件
-        if (Constants.BLOCK_HINT_KEYS.includes(this.splitChar) && value.startsWith("((newFile ") && value.endsWith(`${Lute.Caret}'))`)) {
-            const fileNames = value.substring(11, value.length - 4).split(`"${Constants.ZWSP}'`);
+        const choosePath = value.startsWith("((newFileAtPath ");
+        if (Constants.BLOCK_HINT_KEYS.includes(this.splitChar) && (value.startsWith("((newFile ") || choosePath) && value.endsWith(`${Lute.Caret}'))`)) {
+            const prefix = choosePath ? "((newFileAtPath " : "((newFile ";
+            const fileNames = value.substring(prefix.length + 1, value.length - 4).split(`"${Constants.ZWSP}'`);
             const realFileName = fileNames.length === 1 ? fileNames[0] : fileNames[1];
-            newFileByRefHint(protyle, realFileName, (id) => {
+            const insertRef = (id: string, insertRange: Range) => {
                 // https://github.com/siyuan-note/siyuan/issues/10133
-                protyle.toolbar.range = range;
+                protyle.toolbar.range = insertRange;
                 const refElement = protyle.toolbar.setInlineMark(protyle, "block-ref", "range", {
                     type: "id",
                     color: `${id}${Constants.ZWSP}${refIsS ? "s" : "d"}${Constants.ZWSP}${getBlockRefAnchorText(refIsS ? fileNames[0] : realFileName)}`
@@ -885,7 +934,12 @@ ${genHintItemHTML(item)}
                     protyle.toolbar.range.setEnd(refElement[0].lastChild, refElement[0].lastChild.textContent.length);
                 }
                 protyle.toolbar.range.collapse(false);
-            });
+            };
+            if (choosePath) {
+                newFileByRefHintAtPath(protyle, realFileName, range, insertRef);
+            } else {
+                newFileByRefHint(protyle, realFileName, (id) => insertRef(id, range));
+            }
             return;
         }
         if (Constants.BLOCK_HINT_KEYS.includes(this.splitChar)) {
@@ -1269,6 +1323,9 @@ ${genHintItemHTML(item)}
                     });
                 } else {
                     focusByWbr(nodeElement, range);
+                    if (isMindmap && nodeElement.dataset.type === "NodeMindmap") {
+                        mountNewListMindmap(protyle, nodeElement);
+                    }
                 }
             }
         }

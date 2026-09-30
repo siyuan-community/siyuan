@@ -295,7 +295,7 @@ export const bindAgentMessageEvents = (container: HTMLElement, app?: App, onNavi
         container.addEventListener("dblclick", (event: MouseEvent) => {
             const target = event.target as HTMLElement;
             const img = target.closest("img:not(.emoji)") as HTMLImageElement;
-            if (!img || !container.contains(img)) {
+            if (!img || !container.contains(img) || img.closest('[data-subtype="plantuml"]')) {
                 const diagramElement = getDiagramBlock(target.closest("[data-subtype]") as HTMLElement);
                 if (diagramElement && container.contains(diagramElement)) {
                     previewDiagram(diagramElement);

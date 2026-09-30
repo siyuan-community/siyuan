@@ -30,6 +30,7 @@ import {
     stripSemanticMarkersFromRangeText
 } from "./inlineElementMarker";
 import {getSelectAllBlockAction, setBlockSelectionModeElement} from "../wysiwyg/blockSelection";
+import {restoreListMindmapFocus} from "../render/listMindmap/render";
 
 const selectIsEditor = (editor: Element, range?: Range) => {
     if (!range) {
@@ -718,6 +719,9 @@ export const restoreFocusContext = (protyle: IProtyle, context: Pick<IOperation[
         (!startEmbed || startEmbed.getAttribute("data-node-id") !== context.undoFocusEmbedId))) {
         return false;
     }
+    if (startBlockElement === endBlockElement && restoreListMindmapFocus(protyle.wysiwyg.element, startBlockElement)) {
+        return true;
+    }
     if (context.undoFocusTableCell !== undefined && startBlockElement.getAttribute("data-type") === "NodeTable") {
         const index = Number(context.undoFocusTableCell);
         const cell = Number.isInteger(index) && index >= 0 ?
@@ -749,9 +753,9 @@ export const restoreFocusContext = (protyle: IProtyle, context: Pick<IOperation[
             cell.tabIndex = -1;
             cell.focus({preventScroll: true});
             focusByRange(range);
-            void import("../render/tableCellRichEditor").then(module => {
+            void import("../render/tableCellRichEditor").then(async module => {
                 if (cell.isConnected && cell.contains(getSelection().focusNode)) {
-                    module.openTableCellRichEditor(protyle, cell, undefined, undefined, saved);
+                    await module.openTableCellRichEditor(protyle, cell, undefined, undefined, saved);
                     if (getSelection().rangeCount) {
                         protyle.toolbar.range = getSelection().getRangeAt(0);
                     }
