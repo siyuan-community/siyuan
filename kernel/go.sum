@@ -14,12 +14,6 @@ github.com/88250/go-sqlite3 v1.14.13-0.20260704101239-6ddb6e555a1e h1:1vyUvYI0Ca
 github.com/88250/go-sqlite3 v1.14.13-0.20260704101239-6ddb6e555a1e/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
 github.com/88250/gulu v1.2.3-0.20260831011033-1a37069fad34 h1:otJni0ngVaCRTzTZEbO7NtrUKREdqqTPMRighyl3q80=
 github.com/88250/gulu v1.2.3-0.20260831011033-1a37069fad34/go.mod h1:+ynqZu9Ep0aCc/wxiKIN2q0EXthGVNN94HlUNIZEVTY=
-github.com/88250/lute v1.7.8-0.20260918031327-f6d68251ce71 h1:EWQC7bzpW2p9kjO38vVr9eGRhgsjTITqOMYS9sszwY8=
-github.com/88250/lute v1.7.8-0.20260918031327-f6d68251ce71/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.8-0.20260923014848-713766a0a081 h1:QIACSIfiF5cOTBStQ9DOSyVrtZ2fC+3kA0CenpL7amQ=
-github.com/88250/lute v1.7.8-0.20260923014848-713766a0a081/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.8 h1:klMrTz1YbVymCsqQd8w/ByMZnCto6ic6GqBt68gMngE=
-github.com/88250/lute v1.7.8/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
 github.com/88250/lute v1.7.9-0.20260926021905-c8cee1b0c658 h1:XIRg+xW5qcd9t4+LYefDOLJmfn9vJlnfpUVDdU5V58E=
 github.com/88250/lute v1.7.9-0.20260926021905-c8cee1b0c658/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
 github.com/88250/pdfcpu v0.3.14-0.20250424122812-f10e8d9d8d46 h1:Bq1JsDfVbHKUxNL/B2JXd8cC/1h6aFjrlXpGycnh0Hk=
@@ -431,8 +425,6 @@ github.com/shurcooL/gofontwoff v0.0.0-20181114050219-180f79e6909d/go.mod h1:05Ut
 github.com/simplereach/timeutils v1.2.0/go.mod h1:VVbQDfN/FHRZa1LSqcwo4kNZ62OOyqLLGQKYB3pB0Q8=
 github.com/siyuan-note/dataparser v0.0.0-20260115084335-b57cb8bc7c17 h1:cZbH1QcW/LWYtaKBv2i0O96qVm6HXKeEE3Z74VYdUHM=
 github.com/siyuan-note/dataparser v0.0.0-20260115084335-b57cb8bc7c17/go.mod h1:zE2SJ4t+2lFAeLgmhi27YtfzdyOWh3l9DXXUr9m/xU0=
-github.com/siyuan-note/dejavu v0.0.0-20260918121655-fd4a6f8ff54c h1:Fd6XDq7vNFf6cN3ZVh/a+y3KGPzRIcHC1X8GljrsISY=
-github.com/siyuan-note/dejavu v0.0.0-20260918121655-fd4a6f8ff54c/go.mod h1:ixj6rxm+wkjoV8pBDGbuCyfMiPQh3MlxBwHG5OvtEQU=
 github.com/siyuan-note/dejavu v0.0.0-20260926070613-82251b475bd4 h1:3K09kphwpxZnZw1froqhQtNT2eZoUwFFYwoarvnMWnU=
 github.com/siyuan-note/dejavu v0.0.0-20260926070613-82251b475bd4/go.mod h1:ixj6rxm+wkjoV8pBDGbuCyfMiPQh3MlxBwHG5OvtEQU=
 github.com/siyuan-note/encryption v0.0.0-20260715062728-9cb8e9548044 h1:b1/Q4DSREDvGh1/NbzR9873EKrjakdoUtsNlghWxUOI=
