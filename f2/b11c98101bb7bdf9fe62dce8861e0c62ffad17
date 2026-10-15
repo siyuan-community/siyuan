@@ -1,0 +1,19 @@
+scripts/test-kernel.mjs
+  s_95775a22774d32::t_81eb2cecac9909 10-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "f2b11c98101bb7bdf9fe62dce8861e0c62ffad17",
+  "prompts": {},
+  "sessions": {
+    "s_95775a22774d32": {
+      "agent_id": {
+        "tool": "chengxiaobang",
+        "id": "s_eowjsv88unb5",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Yingyi / 颖逸 <49649786+Zuoqiu-Yingyi@users.noreply.github.com>"
+    }
+  }
+}
