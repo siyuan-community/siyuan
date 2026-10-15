@@ -14,16 +14,6 @@ github.com/88250/go-sqlite3 v1.14.13-0.20260704101239-6ddb6e555a1e h1:1vyUvYI0Ca
 github.com/88250/go-sqlite3 v1.14.13-0.20260704101239-6ddb6e555a1e/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
 github.com/88250/gulu v1.2.3-0.20260831011033-1a37069fad34 h1:otJni0ngVaCRTzTZEbO7NtrUKREdqqTPMRighyl3q80=
 github.com/88250/gulu v1.2.3-0.20260831011033-1a37069fad34/go.mod h1:+ynqZu9Ep0aCc/wxiKIN2q0EXthGVNN94HlUNIZEVTY=
-github.com/88250/lute v1.7.9-0.20260926021905-c8cee1b0c658 h1:XIRg+xW5qcd9t4+LYefDOLJmfn9vJlnfpUVDdU5V58E=
-github.com/88250/lute v1.7.9-0.20260926021905-c8cee1b0c658/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.9-0.20260929101738-dcbdb59203c1 h1:JmU8NAxSsUu9kxnEap2br3ES0CrcswAd6cdRZ7jOIlw=
-github.com/88250/lute v1.7.9-0.20260929101738-dcbdb59203c1/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.9-0.20261002140020-0b744c047833 h1:OMxItOHsxlzYxwNpR1YyHfHevbWsf9eKfgol+yOop+w=
-github.com/88250/lute v1.7.9-0.20261002140020-0b744c047833/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.9-0.20261010053458-8e7896b6b4b1 h1:Xw4L/z451zjdIbUK89SoVF8ZOOP5VFlxCabxJapUPdE=
-github.com/88250/lute v1.7.9-0.20261010053458-8e7896b6b4b1/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
-github.com/88250/lute v1.7.9-0.20261011114542-0cf6cf586e3d h1:Gad4z1iQ7JX2zX3Anv3Bpmw5uOHwdmLg97gcnsZC9fY=
-github.com/88250/lute v1.7.9-0.20261011114542-0cf6cf586e3d/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
 github.com/88250/lute v1.7.9-0.20261011125927-8bf47cd864f7 h1:wBl1Zt34QKHJYgfzjnRvvBbPCa7RkGYYbateVGbz8Vs=
 github.com/88250/lute v1.7.9-0.20261011125927-8bf47cd864f7/go.mod h1:h/ggQpM7i6cXwck2SUocUSfu12zW39vOgYETtt7pALA=
 github.com/88250/pdfcpu v0.3.14-0.20250424122812-f10e8d9d8d46 h1:Bq1JsDfVbHKUxNL/B2JXd8cC/1h6aFjrlXpGycnh0Hk=
@@ -342,8 +332,6 @@ github.com/mitchellh/go-ps v1.0.0 h1:i6ampVEEF4wQFF+bkYfwYgY+F/uYJDktmvLPf7qIgjc
 github.com/mitchellh/go-ps v1.0.0/go.mod h1:J4lOc8z8yJs6vUwklHw2XEIiT4z4C40KtWVN3nvg8Pg=
 github.com/mitchellh/reflectwalk v1.0.2 h1:G2LzWKi524PWgd3mLHV8Y5k7s6XUvT0Gef6zxSIeXaQ=
 github.com/mitchellh/reflectwalk v1.0.2/go.mod h1:mSTlrgnPZtwu0c4WaC2kGObEpuNDbx0jmZXqmk4esnw=
-github.com/modelcontextprotocol/go-sdk v1.7.0 h1:yqjY2dsbKAC0LSuWZVBMrHgiG8ukXv6NRo0JiALay44=
-github.com/modelcontextprotocol/go-sdk v1.7.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
 github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
@@ -437,10 +425,6 @@ github.com/shurcooL/gofontwoff v0.0.0-20181114050219-180f79e6909d/go.mod h1:05Ut
 github.com/simplereach/timeutils v1.2.0/go.mod h1:VVbQDfN/FHRZa1LSqcwo4kNZ62OOyqLLGQKYB3pB0Q8=
 github.com/siyuan-note/dataparser v0.0.0-20260115084335-b57cb8bc7c17 h1:cZbH1QcW/LWYtaKBv2i0O96qVm6HXKeEE3Z74VYdUHM=
 github.com/siyuan-note/dataparser v0.0.0-20260115084335-b57cb8bc7c17/go.mod h1:zE2SJ4t+2lFAeLgmhi27YtfzdyOWh3l9DXXUr9m/xU0=
-github.com/siyuan-note/dejavu v0.0.0-20260926070613-82251b475bd4 h1:3K09kphwpxZnZw1froqhQtNT2eZoUwFFYwoarvnMWnU=
-github.com/siyuan-note/dejavu v0.0.0-20260926070613-82251b475bd4/go.mod h1:ixj6rxm+wkjoV8pBDGbuCyfMiPQh3MlxBwHG5OvtEQU=
-github.com/siyuan-note/dejavu v0.0.0-20260929110133-2612bd536470 h1:67W6Rm2i+oAXy4SJdeN3JXdGSyu2g7FqREmJqF7Lm/E=
-github.com/siyuan-note/dejavu v0.0.0-20260929110133-2612bd536470/go.mod h1:ixj6rxm+wkjoV8pBDGbuCyfMiPQh3MlxBwHG5OvtEQU=
 github.com/siyuan-note/dejavu v0.0.0-20261011111741-4465ef631977 h1:GQW/X2467LNPzESWrmAnfM1YA7XtovkZRJOVi7x45eA=
 github.com/siyuan-note/dejavu v0.0.0-20261011111741-4465ef631977/go.mod h1:ixj6rxm+wkjoV8pBDGbuCyfMiPQh3MlxBwHG5OvtEQU=
 github.com/siyuan-note/encryption v0.0.0-20260715062728-9cb8e9548044 h1:b1/Q4DSREDvGh1/NbzR9873EKrjakdoUtsNlghWxUOI=
