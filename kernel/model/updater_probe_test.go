@@ -86,14 +86,14 @@ func installPkgProbeTestContent() []byte {
 func installPkgDownloadMetadata(content []byte) *installPackageMetadata {
 	return &installPackageMetadata{
 		FormatVersion: installPackageMetadataVersion,
-		Version:       "99.0.0", Channel: conf.UpdateChannelStable, FileName: "siyuan-99.0.0-win.exe",
+		Version:       "99.0.0", Channel: conf.UpdateChannelStable, FileName: "siyuan-CE-v99.0.0-win.exe",
 		Checksum: fmt.Sprintf("%x", sha256.Sum256(content)),
 	}
 }
 
 func assertInstallPkgDownloaded(t *testing.T, dir string, want []byte) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "siyuan-99.0.0-win.exe"))
+	data, err := os.ReadFile(filepath.Join(dir, "siyuan-CE-v99.0.0-win.exe"))
 	if err != nil {
 		t.Fatal(err)
 	}

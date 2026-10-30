@@ -175,7 +175,7 @@ func findReadyInstallPackage(installDir, currentVersion, channel, suffix, key st
 func readyInstallPackageMatches(metadata *installPackageMetadata, currentVersion, channel, suffix string) bool {
 	return validInstallPackageMetadata(metadata) && isValidUpdateChannel(channel) && suffix != "" &&
 		semver.IsValid(normalizeReleaseVersion(currentVersion)) &&
-		metadata.FileName == "siyuan-"+metadata.Version+"-"+suffix &&
+		metadata.FileName == installPackageNamePrefix+metadata.Version+"-"+suffix &&
 		isReleaseAllowed(channel, metadata.Version) &&
 		semver.Compare(normalizeReleaseVersion(metadata.Version), normalizeReleaseVersion(currentVersion)) > 0
 }

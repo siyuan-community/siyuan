@@ -16,12 +16,12 @@ import (
 
 // installPackageVersion 仅识别桌面端自动下载的安装包名称。
 func installPackageVersion(name string) string {
-	if !strings.HasPrefix(name, "siyuan-") {
+	if !strings.HasPrefix(name, installPackageNamePrefix) {
 		return ""
 	}
 	for _, suffix := range []string{"-win.exe", "-win-arm64.exe", "-mac.dmg", "-mac-arm64.dmg"} {
 		if strings.HasSuffix(name, suffix) {
-			version := "v" + strings.TrimSuffix(strings.TrimPrefix(name, "siyuan-"), suffix)
+			version := "v" + strings.TrimSuffix(strings.TrimPrefix(name, installPackageNamePrefix), suffix)
 			if semver.IsValid(version) {
 				return version
 			}

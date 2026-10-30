@@ -28,7 +28,7 @@ func installPackageFixture(t *testing.T, dir, version, channel, suffix string) *
 	metadata := &installPackageMetadata{
 		FormatVersion: installPackageMetadataVersion,
 		Version:       version, Channel: channel,
-		FileName: "siyuan-" + version + "-" + suffix,
+		FileName: "siyuan-CE-v" + version + "-" + suffix,
 		Checksum: fmt.Sprintf("%x", sha256.Sum256([]byte("complete package"))),
 	}
 	if err := os.WriteFile(filepath.Join(dir, metadata.FileName), []byte("complete package"), 0600); err != nil {

@@ -270,7 +270,7 @@ func TestSharedInstallPackageDownloadAcrossWorkspaces(t *testing.T) {
 	dir := prepareInstallPackageTest(t)
 	content := "complete package"
 	metadata := &installPackageMetadata{FormatVersion: installPackageMetadataVersion,
-		Version: "99.0.0", Channel: conf.UpdateChannelStable, FileName: "siyuan-99.0.0-win.exe",
+		Version: "99.0.0", Channel: conf.UpdateChannelStable, FileName: "siyuan-CE-v99.0.0-win.exe",
 		Checksum: fmt.Sprintf("%x", sha256.Sum256([]byte(content)))}
 	encoded, err := json.Marshal(metadata)
 	if err != nil {

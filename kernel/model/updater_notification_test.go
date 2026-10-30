@@ -94,7 +94,7 @@ func TestInstallPackageCheckNotifications(t *testing.T) {
 			Conf.System.Load().UpdateChannel = conf.UpdateChannelAlpha
 			metadata := &installPackageMetadata{FormatVersion: installPackageMetadataVersion,
 				Version: "99.0.0", Channel: conf.UpdateChannelAlpha,
-				FileName: "siyuan-99.0.0-" + currentInstallPackageSuffix(),
+				FileName: "siyuan-CE-v99.0.0-" + currentInstallPackageSuffix(),
 				Checksum: fmt.Sprintf("%x", sha256.Sum256([]byte("complete package")))}
 			githubReleasesLock.Lock()
 			originalReleases, originalCacheTime := cachedGitHubReleases, githubReleasesCacheTime
@@ -148,7 +148,7 @@ func TestInstallPackageDownloadStartNotification(t *testing.T) {
 	Conf.Lang = "en"
 	read := installPackageNotifications(t)
 	metadata := &installPackageMetadata{FormatVersion: installPackageMetadataVersion,
-		Version: "99.0.0", Channel: conf.UpdateChannelStable, FileName: "siyuan-99.0.0-win.exe",
+		Version: "99.0.0", Channel: conf.UpdateChannelStable, FileName: "siyuan-CE-v99.0.0-win.exe",
 		Checksum: fmt.Sprintf("%x", sha256.Sum256([]byte("complete package")))}
 	started, resume := make(chan struct{}), make(chan struct{})
 	var resumeOnce sync.Once

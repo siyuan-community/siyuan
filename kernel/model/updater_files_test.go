@@ -93,7 +93,7 @@ func TestFinalExitInstallPackageSurvivesNewerDownloadCleanup(t *testing.T) {
 	dir := prepareInstallPackageTest(t)
 	older := installPackageFixture(t, dir, "99.0.0", conf.UpdateChannelStable, "win.exe")
 	newer := *older
-	newer.Version, newer.FileName = "99.0.1", "siyuan-99.0.1-win.exe"
+	newer.Version, newer.FileName = "99.0.1", "siyuan-CE-v99.0.1-win.exe"
 	release, done := blockedInstallPackageDownload(t, &newer, "complete package", true)
 	util.IsExiting.Store(true)
 	clearOldInstallPackages("")
@@ -122,7 +122,7 @@ func TestInstallPackagePreviewDoesNotLeakExitPreservation(t *testing.T) {
 	dir := prepareInstallPackageTest(t)
 	older := installPackageFixture(t, dir, "99.0.0", conf.UpdateChannelStable, "win.exe")
 	newer := *older
-	newer.Version, newer.FileName = "99.0.1", "siyuan-99.0.1-win.exe"
+	newer.Version, newer.FileName = "99.0.1", "siyuan-CE-v99.0.1-win.exe"
 	release, done := blockedInstallPackageDownload(t, &newer, "complete package", true)
 	// 提示后取消时 IsExiting 可能仍为 true，但不应永久保护提示中的包。
 	util.IsExiting.Store(true)
@@ -221,14 +221,15 @@ func TestFinalExitInstallPackageRetryRechecksEligibility(t *testing.T) {
 
 func TestInstallPackageCleanupRemovesOnlyKnownInterruptedDownloads(t *testing.T) {
 	dir := prepareInstallPackageTest(t)
-	orphans := []string{"siyuan-99.0.0-win.exe.123.part", "siyuan-99.0.0-mac-arm64.dmg.456.part"}
-	unrelated := []string{"notes.part", "siyuan-99.0.0-win.exe.part", "siyuan-99.0.0-win.exe.custom.part", "siyuan-99.0.0-linux.AppImage.123.part"}
+	orphans := []string{"siyuan-CE-v99.0.0-win.exe.123.part", "siyuan-CE-v99.0.0-mac-arm64.dmg.456.part"}
+	unrelated := []string{"notes.part", "siyuan-CE-v99.0.0-win.exe.part", "siyuan-CE-v99.0.0-win.exe.custom.part",
+		"siyuan-CE-v99.0.0-linux.AppImage.123.part", "siyuan-99.0.0-win.exe.123.part"}
 	for _, name := range append(append([]string{}, orphans...), unrelated...) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("partial"), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	directory := filepath.Join(dir, "siyuan-99.0.0-win.exe.789.part")
+	directory := filepath.Join(dir, "siyuan-CE-v99.0.0-win.exe.789.part")
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}

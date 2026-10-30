@@ -15,14 +15,15 @@ import (
 
 func TestInstallPackageVersion(t *testing.T) {
 	for name, want := range map[string]string{
-		"siyuan-3.8.5-win.exe":                "v3.8.5",
-		"siyuan-3.8.5-alpha.10-win-arm64.exe": "v3.8.5-alpha.10",
-		"siyuan-3.8.5-beta.2-mac.dmg":         "v3.8.5-beta.2",
-		"siyuan-3.8.5-mac-arm64.dmg":          "v3.8.5",
-		"siyuan-test-win.exe":                 "",
-		"siyuan-3.8.5-linux.AppImage":         "",
-		"siyuan-3.8.5-win.exe.part":           "",
-		"other-3.8.5-win.exe":                 "",
+		"siyuan-CE-v3.8.5-win.exe":                "v3.8.5",
+		"siyuan-CE-v3.8.5-alpha.10-win-arm64.exe": "v3.8.5-alpha.10",
+		"siyuan-CE-v3.8.5-beta.2-mac.dmg":         "v3.8.5-beta.2",
+		"siyuan-CE-v3.8.5-mac-arm64.dmg":          "v3.8.5",
+		"siyuan-CE-vtest-win.exe":                 "",
+		"siyuan-CE-v3.8.5-linux.AppImage":         "",
+		"siyuan-CE-v3.8.5-win.exe.part":           "",
+		"siyuan-3.8.5-win.exe":                    "",
+		"other-3.8.5-win.exe":                     "",
 	} {
 		if got := installPackageVersion(name); got != want {
 			t.Errorf("%s: got %q, want %q", name, got, want)
@@ -42,17 +43,17 @@ func TestClearOldInstallPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := []string{
-		"siyuan-3.8.4-win.exe", "siyuan-3.8.5-alpha.1-win.exe",
-		"siyuan-3.8.5-alpha.2-win.exe", "siyuan-3.8.5-alpha.3-win.exe",
-		"siyuan-3.8.5-alpha.10-win.exe", "siyuan-3.8.5-beta.1-mac-arm64.dmg",
-		"siyuan-3.8.5-win.exe", "notes.txt",
+		"siyuan-CE-v3.8.4-win.exe", "siyuan-CE-v3.8.5-alpha.1-win.exe",
+		"siyuan-CE-v3.8.5-alpha.2-win.exe", "siyuan-CE-v3.8.5-alpha.3-win.exe",
+		"siyuan-CE-v3.8.5-alpha.10-win.exe", "siyuan-CE-v3.8.5-beta.1-mac-arm64.dmg",
+		"siyuan-CE-v3.8.5-win.exe", "notes.txt", "siyuan-3.8.4-win.exe",
 	}
 	for _, name := range names {
 		if err := os.WriteFile(filepath.Join(installDir, name), []byte("package"), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	directory := filepath.Join(installDir, "siyuan-3.8.3-win.exe")
+	directory := filepath.Join(installDir, "siyuan-CE-v3.8.3-win.exe")
 	if err := os.Mkdir(directory, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestClearOldInstallPackages(t *testing.T) {
 			t.Fatalf("%s: want existence %v, err %v", name, want, err)
 		}
 	}
-	// 启动清理保留当前版本、未来版本、未知文件及目录。
+	// 启动清理保留当前版本、未来版本、官方版安装包等未知文件及目录。
 	clearInstallPackagesBefore(installDir, currentVersion, currentVersion, "")
 	for i, name := range names {
 		assertExists(name, i >= 2)

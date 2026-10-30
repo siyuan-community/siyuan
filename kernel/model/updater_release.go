@@ -305,12 +305,16 @@ func normalizeReleaseVersion(version string) string {
 	return "v" + strings.TrimPrefix(strings.TrimSpace(version), "v")
 }
 
+// installPackageNamePrefix 是社区版安装包名称的前缀，与 cd.yml 上传到 Release 的资源名称一致。
+// 生成、解析和校验安装包名称都使用它，共用安装包目录中的官方版安装包不会被当作社区版的更新包。
+const installPackageNamePrefix = "siyuan-CE-v"
+
 func currentInstallPackageName(version string) string {
 	suffix := currentInstallPackageSuffix()
 	if "" == suffix {
 		return ""
 	}
-	return "siyuan-CE-v" + strings.TrimPrefix(version, "v") + "-" + suffix
+	return installPackageNamePrefix + strings.TrimPrefix(version, "v") + "-" + suffix
 }
 
 func currentInstallPackageSuffix() string {
