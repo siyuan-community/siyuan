@@ -56,7 +56,8 @@ func TestUploadAssetsNotificationScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = file.Truncate(3*1024*1024 + 1)
+	// 社区版的 IsSubscriber 恒为真，超限文件按订阅用户的 10 MiB 上限构造。
+	err = file.Truncate(10*1024*1024 + 1)
 	closeErr := file.Close()
 	if err != nil || closeErr != nil {
 		t.Fatalf("prepare oversized asset: %v, %v", err, closeErr)
@@ -171,7 +172,7 @@ func TestUploadAssetsNotificationScope(t *testing.T) {
 						failureEvent := events[errorIndex]
 						wantCode, wantTimeout, wantMessage := 0, 5000, "Sign in required"
 						if failure == "size" {
-							wantCode, wantTimeout, wantMessage = -1, 30000, "Asset oversized.dat exceeds 3.0 MiB"
+							wantCode, wantTimeout, wantMessage = -1, 30000, "Asset oversized.dat exceeds 10 MiB"
 						}
 						if failureEvent.Cmd != "msg" || failureEvent.Code != wantCode || failureEvent.Data.ID == "" || failureEvent.Data.CloseTimeout != wantTimeout || failureEvent.Msg != wantMessage {
 							t.Fatalf("unexpected failure notification: %+v", failureEvent)
