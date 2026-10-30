@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -51,7 +55,7 @@ func testAPIContractRemainingBlockQueries(t *testing.T, engine *gin.Engine, boxI
 		source, target int
 		children       bool
 	}{{0, 0, false}, {1, 3, false}, {1, 2, true}, {6, 1, true}} {
-		input := map[string]interface{}{"id": docID, "notebook": boxID, "source": entry.source, "target": entry.target, "withSubheadings": entry.children}
+		input := map[string]any{"id": docID, "notebook": boxID, "source": entry.source, "target": entry.target, "withSubheadings": entry.children}
 		body, _ := json.Marshal(input)
 		data := post("getDocHeadingLevelTransaction", string(body), 0)
 		want, err := model.GetDocHeadingLevelTransaction(docID, boxID, entry.source, entry.target, entry.children)
@@ -83,7 +87,7 @@ func testAPIContractRemainingBlockQueries(t *testing.T, engine *gin.Engine, boxI
 			t.Fatal(err)
 		}
 		got.Timestamp = want.Timestamp
-		actualJSON, _ := json.Marshal(got)
+		actualJSON, _ := json.Marshal(&got)
 		wantJSON, _ := json.Marshal(want)
 		if string(actualJSON) != string(wantJSON) {
 			t.Fatalf("heading JSON changed: %s != %s", actualJSON, wantJSON)

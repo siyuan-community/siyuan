@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package plugin
 
 import (
@@ -181,7 +185,7 @@ func pluginRPCReply(response *JsonRpcProcessingResponse) (apicontract.PluginRPCR
 	return apicontract.RPCFailureReply(result), nil
 }
 
-func pluginRPCID(value interface{}) (id apicontract.PluginRPCID, err error) {
+func pluginRPCID(value any) (id apicontract.PluginRPCID, err error) {
 	data, err := json.Marshal(value)
 	if err == nil {
 		err = json.Unmarshal(data, &id)

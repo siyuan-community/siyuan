@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -14,6 +18,7 @@ type SearchRefBlockRequest struct {
 	BeforeLen        float64   `json:"beforeLen" api:"optional"`
 	IsSquareBrackets bool      `json:"isSquareBrackets" api:"optional,nullable"`
 	IsDatabase       bool      `json:"isDatabase" api:"optional,nullable"`
+	ExactDocTitle    bool      `json:"exactDocTitle" api:"optional,nullable"`
 	Notebook         string    `json:"notebook" api:"optional,nullable,ignoretype"`
 	ReqID            JSONValue `json:"reqId" api:"optional,nullable"`
 	fields           map[string]json.RawMessage
@@ -22,6 +27,7 @@ type SearchRefBlockRequest struct {
 type SearchRefParameters struct {
 	IsSquareBrackets bool    `json:"isSquareBrackets" api:"optional,nullable"`
 	IsDatabase       bool    `json:"isDatabase" api:"optional,nullable"`
+	ExactDocTitle    bool    `json:"exactDocTitle" api:"optional,nullable"`
 	RootID           string  `json:"rootID"`
 	ID               string  `json:"id"`
 	K                string  `json:"k"`

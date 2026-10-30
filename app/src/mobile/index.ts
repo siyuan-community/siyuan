@@ -1,6 +1,9 @@
-import {addScript, addScriptSync} from "../protyle/util/addScript";
+import {addScript} from "../protyle/util/addScript";
+import {ensureLute} from "../protyle/util/lute";
+import {completeStartup, guardStartup, reportStartupError, setStartupLanguage, setStartupStage} from "../boot/startupError";
 import {Constants} from "../constants";
 import {systemConfig} from "../config/systemConfig";
+import {refreshSettingConfig} from "../config/setting/sync";
 import {openStandaloneDatabaseItemByURI} from "../protyle/render/av/openStandaloneDatabaseItem";
 import {onMessage} from "./util/onMessage";
 import {genUUID} from "../util/genID";
@@ -23,12 +26,13 @@ import {
     handleTouchSelectionChange,
     handleTouchStart,
     handleTouchUp,
+    handleTouchEditing,
+    handleTouchFocusOut,
 } from "./util/touch";
 import {fetchPost} from "../util/fetch";
 import {initFramework} from "./util/initFramework";
 import {finishMobileSystemUris, processMobileSystemUri} from "./util/systemUri";
 import {saveMobileLayout} from "./util/saveLayout";
-import {finishMobileStartup} from "./util/setEmpty";
 import {initAssets} from "../util/assets";
 import {bootSync, lockScreen} from "../dialog/processSystem";
 import {initMessage, showMessage} from "../dialog/message";
@@ -40,10 +44,10 @@ import {
     showKeyboardToolbar,
 } from "./util/keyboardToolbar";
 import {
+    applyPlatformClasses,
     getLocalStorage,
     initWindowOpenOverride,
     isChromeBrowser,
-    isInAndroid,
     isInIOS,
     isInMobileApp,
     isIOSDevice,
@@ -79,6 +83,9 @@ import {initializeEnglishCommandTranslations} from "../command/english";
 import {loadLanguages} from "../boot/loadLanguages";
 import {scrollInputIntoView} from "./util/visibleViewport";
 import {installPluginStorageFetchAppId} from "../util/fetchAppId";
+import {initMobileWithLoading} from "./util/startup";
+
+const startupRequestFailed = (response: IWebSocketData) => reportStartupError(new Error(response.msg || String(response.code)));
 
 class App {
     public plugins: import("../plugin").Plugin[] = [];
@@ -86,6 +93,7 @@ class App {
 
     constructor() {
         if (checkPublishServiceClosed()) {
+            completeStartup();
             return;
         }
         registerServiceWorker(`${Constants.SERVICE_WORKER_PATH}?v=${Constants.SIYUAN_VERSION}`);
@@ -97,6 +105,11 @@ class App {
         mainWs.connect({
             id: genUUID(),
             type: "main",
+            callback: () => {
+                if (window.siyuan.isReady) {
+                    void refreshSettingConfig().catch(error => console.error("Could not refresh settings", error));
+                }
+            },
             msgCallback: (data) => {
                 emitToPlugins("ws-main", data);
                 onMessage(this, data);
@@ -204,24 +217,23 @@ class App {
             showMobileBars();
             activeBlur();
         });
-        fetchPost("/api/system/getConf", {}, async (confResponse) => {
-            try {
-                // 现代 Android 壳先完成可信主文档握手，再开放保持同步语义的原生接口。
-                await window.JSAndroid?.ready;
-            } catch (_error) {
-                console.error("Android native bridge initialization failed");
-                finishMobileStartup();
-                return;
-            }
-            await addScriptSync(`${Constants.PROTYLE_CDN}/js/lute/lute.min.js?v=${Constants.SIYUAN_VERSION}`, "protyleLuteScript");
+        setStartupStage("configuration");
+        fetchPost("/api/system/getConf", {}, guardStartup<IWebSocketData>(async (confResponse) => {
+            setStartupLanguage(confResponse.data.conf.appearance.lang);
+            setStartupStage("engine");
+            await ensureLute({reloadOnFailure: false});
             addScript(`${Constants.PROTYLE_CDN}/js/protyle-html.js?v=${Constants.SIYUAN_VERSION}`, "protyleWcHtmlScript");
             window.siyuan.config = systemConfig(confResponse.data.conf);
             window.siyuan.isPublish = confResponse.data.isPublish;
-            document.body.classList.toggle("body--android", Boolean(isInAndroid()));
+            applyPlatformClasses();
             correctHotkey(siyuanApp);
+            setStartupStage("plugins");
             await loadPlugins(this);
-            getLocalStorage(() => {
-                void loadLanguages(window.siyuan.config.appearance.lang, Constants.SIYUAN_VERSION, (languages: IObject) => {
+            setStartupStage("storage");
+            getLocalStorage(guardStartup<void>(() => {
+                setStartupStage("language");
+                void loadLanguages(window.siyuan.config.appearance.lang, Constants.SIYUAN_VERSION, guardStartup<IObject>(async (languages) => {
+                    setStartupStage("interface");
                     window.siyuan.languages = languages;
                     void initializeEnglishCommandTranslations(
                         window.siyuan.config.appearance.lang,
@@ -231,10 +243,7 @@ class App {
                     window.siyuan.menus = new Menus(this);
                     initMobileSelect();
                     document.title = window.siyuan.languages.siyuanNote;
-                    bootSync();
-                    appearanceConfigApi.apply(window.siyuan.config.appearance);
                     initMessage();
-                    initAssets(true);
                     if (!isInMobileApp()) {
                         if (isChromeBrowser()) {
                             document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-content, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
@@ -248,35 +257,40 @@ class App {
                     } else if (!isInIOS()) {
                         document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, height=device-height, interactive-widget=resizes-visual, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
                     }
-                    fetchPost("/api/setting/getCloudUser", {cached: true}, async userResponse => {
+                    fetchPost("/api/setting/getCloudUser", {cached: true}, guardStartup<IWebSocketData>(async userResponse => {
                         window.siyuan.user = userResponse.data && "userId" in userResponse.data ? userResponse.data : null;
                         await ensureOnboarding();
-                        fetchPost("/api/system/getEmojiConf", {}, async emojiResponse => {
+                        fetchPost("/api/system/getEmojiConf", {}, guardStartup<IWebSocketData>(async emojiResponse => {
                             window.siyuan.emojis = emojiResponse.data as IEmoji[];
                             await setNoteBook();
-                            try {
+                            await initMobileWithLoading(async () => {
+                                await appearanceConfigApi.apply(window.siyuan.config.appearance);
+                                initAssets(true);
                                 await initFramework(this, confResponse.data.start);
                                 initRightMenu(this);
                                 openChangelog();
-                                window.siyuan.isReady = true;
-                                finishMobileSystemUris(this);
-                                mainWs.flushMainMessages();
-                                fetchPost("/api/setting/getCloudUser", {});
-                            } catch (error) {
-                                console.error("Failed to initialize mobile framework:", error);
-                                finishMobileStartup();
-                            }
-                        });
-                    });
-                });
-            });
+                            });
+                            window.siyuan.isReady = true;
+                            finishMobileSystemUris(this);
+                            mainWs.flushMainMessages();
+                            bootSync();
+                            completeStartup();
+                            fetchPost("/api/setting/getCloudUser", {});
+                        }), undefined, startupRequestFailed);
+                    }), undefined, startupRequestFailed);
+                }), reportStartupError);
+            }), reportStartupError);
             document.addEventListener("touchstart", handleTouchStart, false);
             document.addEventListener("touchmove", handleTouchMove, {passive: false});
             document.addEventListener("touchend", handleTouchEnd, false);
             document.addEventListener("touchcancel", handleTouchCancel, false);
             document.addEventListener("contextmenu", handleTouchContextMenu, true);
+            document.addEventListener("focusout", handleTouchFocusOut, true);
             document.addEventListener("selectionchange", handleTouchSelectionChange, true);
             window.addEventListener("nativePhysicalTouchUp", handleTouchUp, false);
+            window.addEventListener("nativeTextMenuWillPresent", handleTouchEditing, false);
+            document.addEventListener("beforeinput", handleTouchEditing, true);
+            document.addEventListener("paste", handleTouchEditing, true);
             window.addEventListener("keyup", () => {
                 window.siyuan.ctrlIsPressed = false;
                 window.siyuan.shiftIsPressed = false;
@@ -309,7 +323,7 @@ class App {
                 bindPanelTransitionGuard(document.getElementById(id));
             });
             initTouchDragBridge();
-        });
+        }), undefined, startupRequestFailed);
     }
 }
 

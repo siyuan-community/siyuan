@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -45,7 +33,7 @@ func TestAuthCodeEquals(t *testing.T) {
 func TestAuthThrottleThreshold(t *testing.T) {
 	key := "TestAuthThrottleThreshold"
 	resetAuthThrottleForTest(key)
-	for i := 0; i < authThrottleMaxFail; i++ {
+	for i := range authThrottleMaxFail {
 		if retryAfter := AuthThrottleCheck(key); 0 < retryAfter {
 			t.Fatalf("locked before reaching threshold at attempt %d", i+1)
 		}
@@ -61,11 +49,11 @@ func TestAuthThrottleThreshold(t *testing.T) {
 func TestAuthThrottleBackoff(t *testing.T) {
 	key := "TestAuthThrottleBackoff"
 	resetAuthThrottleForTest(key)
-	for i := 0; i < authThrottleMaxFail+1; i++ {
+	for range authThrottleMaxFail + 1 {
 		AuthThrottleFail(key)
 	}
 	firstLock := time.Until(authThrottles[key].LockUntil)
-	for i := 0; i < authThrottleMaxFail; i++ {
+	for range authThrottleMaxFail {
 		AuthThrottleFail(key)
 	}
 	extendedLock := time.Until(authThrottles[key].LockUntil)
@@ -119,7 +107,7 @@ func TestAuthThrottleWindowReset(t *testing.T) {
 func TestAuthThrottleReset(t *testing.T) {
 	key := "TestAuthThrottleReset"
 	resetAuthThrottleForTest(key)
-	for i := 0; i < authThrottleMaxFail+1; i++ {
+	for range authThrottleMaxFail + 1 {
 		AuthThrottleFail(key)
 	}
 	if retryAfter := AuthThrottleCheck(key); 0 >= retryAfter {
@@ -135,7 +123,7 @@ func TestAuthThrottleReset(t *testing.T) {
 func TestAuthThrottleExpiry(t *testing.T) {
 	key := "TestAuthThrottleExpiry"
 	resetAuthThrottleForTest(key)
-	for i := 0; i < authThrottleMaxFail+1; i++ {
+	for range authThrottleMaxFail + 1 {
 		AuthThrottleFail(key)
 	}
 	authThrottleLock.Lock()
@@ -155,7 +143,7 @@ func TestAuthThrottleExpiry(t *testing.T) {
 // TestAuthThrottleSweep 验证定期清扫会删除窗口期已过的失败记录，即使 key 不再被访问。
 func TestAuthThrottleSweep(t *testing.T) {
 	staleKeys := make([]string, 0, 64)
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		key := fmt.Sprintf("TestAuthThrottleSweep-stale-%d", i)
 		AuthThrottleFail(key)
 		defer resetAuthThrottleForTest(key)
@@ -186,7 +174,7 @@ func TestAuthThrottleSweepKeepsLocked(t *testing.T) {
 	key := "TestAuthThrottleSweepKeepsLocked"
 	resetAuthThrottleForTest(key)
 	defer resetAuthThrottleForTest(key)
-	for i := 0; i < authThrottleMaxFail+1; i++ {
+	for range authThrottleMaxFail + 1 {
 		AuthThrottleFail(key)
 	}
 	authThrottleLock.Lock()
@@ -213,7 +201,7 @@ func TestAuthThrottleMaxEntries(t *testing.T) {
 	}
 	authThrottleLock.Unlock()
 
-	for i := 0; i < authThrottleMaxEntries+50; i++ {
+	for i := range authThrottleMaxEntries + 50 {
 		AuthThrottleFail(fmt.Sprintf("TestAuthThrottleMaxEntries-%d", i))
 	}
 	authThrottleLock.Lock()

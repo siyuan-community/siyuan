@@ -1,23 +1,12 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sync"
@@ -32,7 +21,7 @@ import (
 )
 
 // UndoEntry 是撤销栈中的一条记录。跨文档操作（MutatedRootIDs 含多个 rootID）的 entry
-// 会以同一指针同时挂在这些 rootID 的栈上，撤销任一端时联动其它端移除引用。
+// 会以同一指针同时挂在这些 rootID 的栈上，撤销任一端时联动其他端移除引用。
 type UndoEntry struct {
 	id             string
 	doOperations   []*Operation
@@ -78,7 +67,7 @@ type UndoLog struct {
 // GlobalUndoLog 全局撤销日志单例。内存态，重启清空。
 var GlobalUndoLog = newUndoLog(64)
 
-var undoEntrySeq uint64
+var undoEntrySeq atomic.Uint64
 
 func newUndoLog(max int) *UndoLog {
 	return &UndoLog{
@@ -88,7 +77,7 @@ func newUndoLog(max int) *UndoLog {
 }
 
 func newUndoEntryID() string {
-	seq := atomic.AddUint64(&undoEntrySeq, 1)
+	seq := undoEntrySeq.Add(1)
 	return fmt.Sprintf("undo-%d-%d", time.Now().UnixNano(), seq)
 }
 
@@ -179,7 +168,7 @@ func (l *UndoLog) Undo(rootID string) *UndoEntry {
 	return entry
 }
 
-// UndoCommit 在逆操作成功执行后，联动从其它关联栈移除该 entry（按 id 匹配）。
+// UndoCommit 在逆操作成功执行后，联动从其他关联栈移除该 entry（按 id 匹配）。
 func (l *UndoLog) UndoCommit(entry *UndoEntry, rootID string) {
 	if nil == entry {
 		return
@@ -234,7 +223,7 @@ func (l *UndoLog) Redo(rootID string) *UndoEntry {
 	return entry
 }
 
-// RedoCommit 在重做成功执行后，联动把 entry 重新挂到其它关联栈顶。
+// RedoCommit 在重做成功执行后，联动把 entry 重新挂到其他关联栈顶。
 func (l *UndoLog) RedoCommit(entry *UndoEntry, rootID string) {
 	if nil == entry {
 		return
@@ -297,7 +286,7 @@ func (l *UndoLog) State(rootID string) (canUndo, canRedo bool, peekMutatedRootID
 	return
 }
 
-// Clear 清理撤销日志。rootID 非空时清该文档栈并联动移除其它栈中相关条目；为空时清空全部。
+// Clear 清理撤销日志。rootID 非空时清该文档栈并联动移除其他栈中相关条目；为空时清空全部。
 func (l *UndoLog) Clear(rootID string) {
 	l.clear(rootID)
 }
@@ -320,7 +309,7 @@ func (l *UndoLog) clear(rootID string) (rootIDs []string) {
 	if nil == s {
 		return
 	}
-	// 收集该栈中所有跨文档条目的 id，联动从其它栈移除
+	// 收集该栈中所有跨文档条目的 id，联动从其他栈移除
 	linkedIDs := map[string]bool{}
 	for _, e := range s.undoStack {
 		for _, r := range e.mutatedRootIDs {
@@ -433,9 +422,7 @@ func cloneOperations(ops []*Operation) []*Operation {
 		cloned.BlockIDs = cloneOperationBlockIDs(op.BlockIDs)
 		if nil != op.Context {
 			cloned.Context = make(map[string]any, len(op.Context))
-			for key, value := range op.Context {
-				cloned.Context[key] = value
-			}
+			maps.Copy(cloned.Context, op.Context)
 		}
 		ret[i] = &cloned
 	}

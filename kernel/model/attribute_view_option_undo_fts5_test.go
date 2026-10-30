@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -68,7 +72,7 @@ func TestAttributeViewOptionUndoRedo(t *testing.T) {
 				if action == "merge" && field.Key.GetOption("B").Desc != "Target description" {
 					t.Fatal("merge changed the target option definition")
 				}
-				for cycle := 0; cycle < 3; cycle++ {
+				for range 3 {
 					replayAttributeViewFieldsTest(t, entry.UndoOperationsForReplay())
 					assertAttributeViewFieldsTest(t, source, readAttributeViewItemsTest(t, source.ID))
 					assertAttributeViewFieldsTest(t, peer, readAttributeViewItemsTest(t, peer.ID))
@@ -105,7 +109,7 @@ func TestAttributeViewOptionDeleteLastUndo(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := GlobalUndoLog.Peek(fixture.sourceID)
-	for cycle := 0; cycle < 2; cycle++ {
+	for range 2 {
 		deleted := readAttributeViewItemsTest(t, source.ID)
 		key, _ := deleted.GetKey(field.Key.ID)
 		if len(key.Options) != 0 {
@@ -213,7 +217,7 @@ func TestAttributeViewOptionEncryptedReplay(t *testing.T) {
 			boxID := ast.NewNodeID()
 			dek := bytes.Repeat([]byte{0x64}, 32)
 			markRuntimeEncryptedBox(boxID)
-			setDEKForTest(boxID, dek)
+			prepareUnlockedEncryptedBoxTest(t, boxID, dek)
 			t.Cleanup(func() {
 				for _, view := range []*av.AttributeView{source, peer} {
 					av.SetAVBoxID(view.ID, "")

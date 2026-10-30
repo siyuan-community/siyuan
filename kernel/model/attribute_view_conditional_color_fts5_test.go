@@ -1,8 +1,8 @@
-//go:build fts5
-
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
 // SPDX-License-Identifier: AGPL-3.0-or-later
+
+//go:build fts5
 
 package model
 
@@ -36,7 +36,7 @@ func TestAttributeViewConditionalColorsUndoAndEncryptedReplay(t *testing.T) {
 			if encrypted {
 				boxID = ast.NewNodeID()
 				markRuntimeEncryptedBox(boxID)
-				setDEKForTest(boxID, bytes.Repeat([]byte{0x63}, 32))
+				prepareUnlockedEncryptedBoxTest(t, boxID, bytes.Repeat([]byte{0x63}, 32))
 				av.SetAVBoxID(original.ID, boxID)
 				t.Cleanup(func() {
 					av.SetAVBoxID(original.ID, "")

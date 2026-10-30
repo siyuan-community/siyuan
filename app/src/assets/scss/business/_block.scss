@@ -14,7 +14,7 @@
     min-height: 197px;
     z-index: -1;
     border: 1px solid var(--b3-theme-surface-lighter);
-    max-width: 1024px;
+    max-width: 640px;
 
     &--open {
       opacity: 1;
@@ -24,7 +24,7 @@
       border-radius: var(--b3-border-radius-b) var(--b3-border-radius-b) 0 0;
 
       & > .resize__move {
-        height: 42px;
+        height: var(--b3-ui-panel-height, 42px);
         touch-action: none;
       }
     }
@@ -78,7 +78,7 @@
     padding: 0 8px;
     display: flex;
     align-items: center;
-    min-height: 42px;
+    min-height: var(--b3-ui-panel-height, 42px);
     flex-shrink: 0;
 
     &--menu {

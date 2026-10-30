@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -17,15 +21,14 @@ func validateMultipartRequest(t reflect.Type) error {
 	if t == reflect.TypeFor[MultipartFields]() || t == reflect.TypeFor[ExtensionCopyRequest]() {
 		return nil
 	}
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		if !field.IsExported() || field.Anonymous || field.Tag.Get("json") == "" {
 			return fmt.Errorf("multipart fields must be named and exported: %s", field.Name)
 		}
 		if field.Type != reflect.TypeFor[string]() && field.Type != reflect.TypeFor[*string]() && field.Type != reflect.TypeFor[*multipart.FileHeader]() && field.Type != reflect.TypeFor[[]*multipart.FileHeader]() {
 			return fmt.Errorf("unsupported multipart field: %s", field.Name)
 		}
-		for _, option := range strings.Split(field.Tag.Get("api"), ",") {
+		for option := range strings.SplitSeq(field.Tag.Get("api"), ",") {
 			if option != "" && option != "optional" && option != "nonnullable" {
 				return fmt.Errorf("unsupported multipart option: %s", option)
 			}
@@ -63,7 +66,7 @@ func (e Endpoint[Request, Data]) DecodeMultipart(form *multipart.Form) (request 
 	}
 	for i := 0; i < value.NumField(); i++ {
 		field := value.Type().Field(i)
-		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		optional := strings.Contains(","+field.Tag.Get("api")+",", ",optional,")
 		switch field.Type {
 		case reflect.TypeFor[*multipart.FileHeader](), reflect.TypeFor[[]*multipart.FileHeader]():

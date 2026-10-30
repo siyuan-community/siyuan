@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -29,8 +33,7 @@ func readyInstallPackageFailureReason(err error) string {
 		// JSON 类型错误可能包含字段原文，诊断只记录固定分类。
 		return "invalid install package metadata JSON"
 	}
-	var pathError *os.PathError
-	if errors.As(err, &pathError) {
+	if pathError, ok := errors.AsType[*os.PathError](err); ok {
 		return fmt.Sprintf("%s failed: %s", pathError.Op, pathError.Err)
 	}
 	return err.Error()

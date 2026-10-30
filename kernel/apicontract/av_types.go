@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 type AVTable struct {
@@ -79,7 +83,8 @@ type AVValue struct {
 }
 
 type AVValueBlock struct {
-	ID string `json:"id,omitempty" api:"optional,nullable"`
+	CollectionRuleID string `json:"collectionRuleID,omitempty" api:"optional"`
+	ID               string `json:"id,omitempty" api:"optional,nullable"`
 	// 游离条目可独立设置图标；绑定条目与目标块共享图标，无图标的普通块在绑定时继承条目图标。
 	Icon       string `json:"icon,omitempty" api:"optional,nullable"`
 	Content    string `json:"content" api:"optional,nullable"`
@@ -448,6 +453,9 @@ type AVNewItemTemplate struct {
 	SaveLocation        *AVNewItemSaveLocation          `json:"saveLocation,omitempty" api:"optional,nullable"`
 	ContentTemplatePath string                          `json:"contentTemplatePath,omitempty" api:"optional,nullable"`
 	HideInFileTree      bool                            `json:"hideInFileTree,omitempty" api:"optional,nullable"`
+	// 创建后是否由交互客户端分屏打开绑定或游离条目。省略或 null 时仅日历条目自动打开；false 禁止自动打开。
+	// 该配置随模板保存，API 调用本身不会打开界面；移动端使用已有的页面或弹层。
+	OpenAfterCreate *bool `json:"openAfterCreate,omitempty" api:"optional,nullable"`
 }
 
 type AVNewItemFieldValue struct {
@@ -525,17 +533,13 @@ type AVView struct {
 type AVLayoutTable struct {
 	*AVBaseLayout
 	Columns []*AVViewTableColumn `json:"columns" api:"optional,nullable"`
-	RowIDs  []string             `json:"rowIds" api:"optional,nullable"`
 }
 
 type AVBaseLayout struct {
-	Spec      int             `json:"spec" api:"optional,nullable"`
-	ID        string          `json:"id" api:"optional,nullable"`
-	ShowIcon  bool            `json:"showIcon" api:"optional,nullable"`
-	WrapField bool            `json:"wrapField" api:"optional,nullable"`
-	Filters   []*AVViewFilter `json:"filters,omitempty" api:"optional,nullable"`
-	Sorts     []*AVViewSort   `json:"sorts,omitempty" api:"optional,nullable"`
-	PageSize  int             `json:"pageSize,omitempty" api:"optional,nullable"`
+	Spec      int    `json:"spec" api:"optional,nullable"`
+	ID        string `json:"id" api:"optional,nullable"`
+	ShowIcon  bool   `json:"showIcon" api:"optional,nullable"`
+	WrapField bool   `json:"wrapField" api:"optional,nullable"`
 }
 
 type AVViewTableColumn struct {
@@ -567,7 +571,6 @@ type AVLayoutGallery struct {
 	DisplayFieldName     bool                      `json:"displayFieldName" api:"optional,nullable"`
 	DisplayEmptyFields   bool                      `json:"displayEmptyFields" api:"optional,nullable"`
 	CardFields           []*AVViewGalleryCardField `json:"fields" api:"optional,nullable"`
-	CardIDs              []string                  `json:"cardIds" api:"optional,nullable"`
 }
 
 type AVViewGalleryCardField struct {
@@ -695,6 +698,8 @@ type AVCreateAttributeViewItemResult struct {
 	Content    string   `json:"content" api:"optional,nullable"`
 	IsDetached bool     `json:"isDetached" api:"optional,nullable"`
 	Warnings   []string `json:"warnings,omitempty" api:"optional,nullable"`
+	// 返回实际使用模板的自动打开偏好；省略时交互客户端按仅日历条目自动打开处理。此字段不会触发服务端界面操作。
+	OpenAfterCreate *bool `json:"openAfterCreate,omitempty" api:"optional,nullable"`
 }
 
 type AVCreateAttributeViewItemDocsResult struct {

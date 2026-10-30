@@ -1,9 +1,22 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import "mime/multipart"
 
+type SystemWallpaperUploadRequest struct {
+	File *multipart.FileHeader `json:"file"`
+}
+
 // SystemRuntimeInfoData 提供可复制的运行诊断文本，不包含工作空间路径或设备标识。
 type SystemRuntimeInfoData struct {
+	Text string `json:"text"`
+}
+
+// SystemFileTraversalData contains a bounded JSON-lines metadata diagnostic.
+type SystemFileTraversalData struct {
 	Text string `json:"text"`
 }
 
@@ -28,11 +41,15 @@ type SystemChangelogData struct {
 type SystemCheckUpdateRequest struct {
 	ShowMsg bool `json:"showMsg"`
 }
+
+type SystemDownloadUpdateRequest struct {
+	Version string `json:"version"`
+}
 type SystemZipData struct {
 	Zip string `json:"zip"`
 }
 
-// SystemExportConfData 返回设置导出文件名和压缩包路径。导出副本清空 AI 密钥（含决策模型）和 OIDC 客户端密钥，
+// SystemExportConfData 返回设置导出文件名和压缩包路径。导出副本清空 ChatGPT 本机账户引用、AI 密钥和 OIDC 客户端密钥，
 // 不修改当前工作空间配置；导出的设置文件不包含笔记本加密密钥及恢复材料。
 type SystemExportConfData struct {
 	Name string `json:"name"`
@@ -50,6 +67,8 @@ type SystemConfData struct {
 	IsPublish bool           `json:"isPublish"`
 	// SettingTasks 为当前仍执行的设置维护任务，前端初始化和重连时恢复任务阻塞。
 	SettingTasks *SettingTaskState `json:"settingTasks,omitempty"`
+	// Revision 是读取开始前的配置提交序号，客户端据此丢弃已包含在本次读取中的通知。
+	Revision uint64 `json:"revision"`
 }
 
 type SettingTask struct {
@@ -124,6 +143,7 @@ type SystemExitRequest struct {
 type SystemRecoverExit struct {
 	PID       int   `json:"pid"`
 	StartedAt int64 `json:"startedAt"`
+	Force     bool  `json:"force" api:"optional,nullable"`
 }
 type SystemExitData struct {
 	CloseTimeout   int    `json:"closeTimeout"`

@@ -1,23 +1,13 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package api
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"sort"
 
 	"github.com/88250/lute/ast"
@@ -27,10 +17,21 @@ import (
 )
 
 const requestBoxLeasesKey = "siyuan-request-box-leases"
+const requestBoxOperationScopeKey = "siyuan-request-box-operation-scope"
 
 func boxLeaseMiddleware(c *gin.Context) {
 	defer releaseRequestBoxLeases(c)
 	c.Next()
+}
+
+// encryptedBoxRequestScope 将模型层取得的单个租约保留到响应写入完成，避免同一请求重复计数。
+func encryptedBoxRequestScope(c *gin.Context) context.Context {
+	if _, exists := c.Get(requestBoxOperationScopeKey); !exists {
+		ctx, release := model.WithEncryptedBoxOperationScope(c.Request.Context())
+		c.Request = c.Request.WithContext(ctx)
+		c.Set(requestBoxOperationScopeKey, release)
+	}
+	return c.Request.Context()
 }
 
 func holdEncryptedBoxRequest(c *gin.Context, boxID string) error {
@@ -38,10 +39,8 @@ func holdEncryptedBoxRequest(c *gin.Context, boxID string) error {
 		return nil
 	}
 	leases := requestBoxLeases(c)
-	for _, heldBoxID := range leases {
-		if heldBoxID == boxID {
-			return nil
-		}
+	if slices.Contains(leases, boxID) {
+		return nil
 	}
 
 	if err := model.AcquireEncryptedBoxOperation(boxID); err != nil {
@@ -101,8 +100,8 @@ func requestBoxLeases(c *gin.Context) []string {
 
 func releaseEncryptedBoxRequest(c *gin.Context, boxID string) {
 	leases := requestBoxLeases(c)
-	for i := len(leases) - 1; i >= 0; i-- {
-		if leases[i] != boxID {
+	for i, lease := range slices.Backward(leases) {
+		if lease != boxID {
 			continue
 		}
 		leases = append(leases[:i], leases[i+1:]...)
@@ -113,9 +112,15 @@ func releaseEncryptedBoxRequest(c *gin.Context, boxID string) {
 }
 
 func releaseRequestBoxLeases(c *gin.Context) {
+	if value, exists := c.Get(requestBoxOperationScopeKey); exists {
+		if release, ok := value.(func()); ok {
+			release()
+			c.Set(requestBoxOperationScopeKey, nil)
+		}
+	}
 	leases := requestBoxLeases(c)
-	for i := len(leases) - 1; i >= 0; i-- {
-		model.ReleaseEncryptedBoxOperation(leases[i])
+	for _, lease := range slices.Backward(leases) {
+		model.ReleaseEncryptedBoxOperation(lease)
 	}
 	c.Set(requestBoxLeasesKey, []string{})
 }

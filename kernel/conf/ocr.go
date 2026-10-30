@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package conf
 
 // OCR 配置保存在设备配置中，模型文件和识别结果独立于提供商选择。
@@ -7,6 +11,9 @@ type OCR struct {
 	AIModelID       string        `json:"aiModelId"`
 	ReasoningEffort string        `json:"reasoningEffort"`
 	Auto            bool          `json:"auto"`
+	ShowText        *bool         `json:"showText"`
+	ShowEmpty       bool          `json:"showEmpty"`
+	ShowError       bool          `json:"showError"`
 	Thresholds      OCRThresholds `json:"thresholds"`
 }
 
@@ -18,5 +25,5 @@ type OCRThresholds struct {
 }
 
 func NewOCR() *OCR {
-	return &OCR{Provider: "paddleocr", Model: "tiny", Auto: false}
+	return &OCR{Provider: "paddleocr", Model: "tiny", Auto: false, ShowText: new(true)}
 }

@@ -47,7 +47,7 @@ import {insertHTML} from "./insertHTML";
 import {isBrowser} from "../../util/functions";
 import {hideElements} from "../ui/hideElements";
 import {insertAttrViewBlockAnimation} from "../render/av/row";
-import * as dayjs from "dayjs";
+import dayjs from "dayjs";
 import {zoomOut} from "../../menus/protyle";
 import {isFoldedHeading, shouldUnfoldMovedHeading} from "./foldHeadingMove";
 /// #if !BROWSER
@@ -471,7 +471,7 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
             let topSourceElement = getTopAloneElement(item);
             const oldSourceParentElement = getParentBlock(item);
             const sourceContainerSnapshots = new Map<Element, TDragSourceContainerSnapshot>();
-            if (topSourceElement !== item && item.getAttribute("data-type") === "NodeListItem") {
+            if (topSourceElement !== item) {
                 let sourceContainer = oldSourceParentElement;
                 while (sourceContainer) {
                     const sourceContainerID = sourceContainer.getAttribute("data-node-id");
@@ -479,10 +479,9 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
                         const sourceContainerClone = sourceContainer.cloneNode(true) as Element;
                         const movedItemClone = sourceContainerClone.querySelector(`[data-node-id="${id}"]`);
                         if (movedItemClone) {
-                            const placeholderElement = genDragListItemPlaceholder(
-                                protyle.lute,
-                                movedItemClone.getAttribute("data-subtype")
-                            );
+                            const placeholderElement = item.getAttribute("data-type") === "NodeListItem" ?
+                                genDragListItemPlaceholder(protyle.lute, movedItemClone.getAttribute("data-subtype")) :
+                                genEmptyElement(false, false, Lute.NewNodeID());
                             const placeholderID = placeholderElement?.getAttribute("data-node-id");
                             if (!placeholderElement || !placeholderID) {
                                 break;
@@ -553,7 +552,7 @@ const moveTo = async (protyle: IProtyle, sourceElements: Element[], targetElemen
                 });
                 const sourceContainerSnapshot = sourceContainerSnapshots.get(topSourceElement);
                 if (sourceContainerSnapshot && undoMoveOperation) {
-                    // 使用占位列表项保持容器快照有效，撤销时恢复容器、移回原列表项，再删除占位项。
+                    // 占位块保持容器快照有效，撤销时恢复容器、移回原块，再删除占位块。
                     replaceDragUndoOperation(undoOperations, undoMoveOperation, [
                         {
                             action: "delete",
@@ -1987,12 +1986,10 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
                         }
                     }
 
-                    // 列表块横向拖拽或在横排超级块内重排时，目标列表本身是列单元，需保留完整列表。
+                    // 完整列表的边界指示表示块间插入；列表项的同级、子级指示才表示合并到列表内。
                     const isColSbChildList = targetElement.parentElement?.getAttribute("data-type") === "NodeSuperBlock" &&
                         targetElement.parentElement?.getAttribute("data-sb-layout") === "col";
-                    const isHorizontalDrop = targetClass.includes("dragover__left") ||
-                        targetClass.includes("dragover__right");
-                    const keepListBlockTarget = shouldKeepListBlockDragTarget(gutterTypes[0], isHorizontalDrop,
+                    const keepListBlockTarget = shouldKeepListBlockDragTarget(gutterTypes[0], targetClass,
                         isColSbChildList);
                     if (isListItemSource && targetElement.classList.contains("list") &&
                         !keepListBlockTarget) {
@@ -2179,7 +2176,7 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
                             data: newUpdated,
                         }], [{
                             action: "removeAttrViewBlock",
-                            srcIDs: ids,
+                            srcIDs: srcs.map(src => src.itemID),
                             avID,
                         }, {
                             action: "doUpdateUpdated",
@@ -2254,7 +2251,9 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
             // https://github.com/siyuan-note/siyuan/issues/9544
             const avElement = hasClosestByClassName(event.target, "av");
             if (!avElement) {
-                focusByRange(getRangeByPoint(event.clientX, event.clientY));
+                const range = getRangeByPoint(event.clientX, event.clientY);
+                protyle.toolbar.range = range;
+                focusByRange(range);
                 if (event.dataTransfer.types.includes("Files") && !isBrowser() &&
                     getHostCapabilities().localFileSystem) {
                     const files = getLocalDropFiles(event.dataTransfer.files, file => webUtils.getPathForFile(file));
@@ -2504,7 +2503,7 @@ export const dropEvent = (protyle: IProtyle, editorElement: HTMLElement) => {
                 // 拖到数据库视图：绑定为记录
                 action = window.siyuan.languages.addToDatabase;
             } else if (event.altKey || (event.shiftKey && protyle.lite)) {
-                // Alt=引用；lite 模式 Shift 也为引用（原嵌入块改为引用）
+                // Alt=引用；lite 模式 Shift 也为引用
                 action = window.siyuan.languages.dragTipRef;
             } else if (event.shiftKey) {
                 action = window.siyuan.languages.dragTipEmbed;

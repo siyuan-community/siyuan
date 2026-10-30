@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -10,6 +14,23 @@ import (
 
 type AssetPathRequest struct {
 	Path string `json:"path"`
+}
+
+type UnusedAssetsRequest struct {
+	Keyword string `json:"keyword" api:"optional,nullable"`
+	All     bool   `json:"all" api:"optional,nullable"`
+}
+
+// EncryptedBoxAssetsRequest 只接受当前已解锁的加密笔记本，不回退到全局资源。
+type EncryptedBoxAssetsRequest struct {
+	Notebook string `json:"notebook"`
+}
+
+// RemoveEncryptedBoxAssetsRequest 仅删除用户确认的 assets 相对路径，空列表不删除任何资源。
+// 删除前完整重新扫描；新增引用或任意读取、认证、解析错误均中止整批操作。
+type RemoveEncryptedBoxAssetsRequest struct {
+	Notebook string   `json:"notebook"`
+	Paths    []string `json:"paths"`
 }
 
 type AssetOCRTextRequest struct {
@@ -39,8 +60,9 @@ type AssetDocumentAssetsRequest struct {
 }
 
 type SetAssetAnnotationRequest struct {
-	Path string `json:"path"`
-	Data string `json:"data"`
+	Path     string  `json:"path"`
+	Data     string  `json:"data"`
+	BaseData *string `json:"baseData,omitempty" api:"optional"`
 }
 
 type AssetCloudUploadRequest struct {
@@ -86,6 +108,11 @@ type AssetStatData struct {
 
 type AssetTextData struct {
 	Text string `json:"text"`
+}
+
+type ImageOCRTextData struct {
+	Text   string `json:"text"`
+	Failed bool   `json:"failed"`
 }
 
 // AssetOCRData 的列名沿用 Tesseract TSV 表头，所有提供商的单元格均为文本。

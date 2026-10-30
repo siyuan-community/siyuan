@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package sql
 
@@ -89,7 +77,7 @@ func queryBlockHashes(tx *sql.Tx, rootID string) (ret map[string]string) {
 
 func QueryRootBlockByCondition(condition, exactKeyword string, limit int, args ...any) (ret []*Block) {
 	exactCondition, exactArg := rootBlockExactMatchCondition(exactKeyword, caseSensitive.Load())
-	sqlStmt := "SELECT *, length(hpath) - length(replace(hpath, '/', '')) AS lv FROM blocks WHERE type = 'd' AND " + condition +
+	sqlStmt := "SELECT *, length(path) - length(replace(path, '/', '')) AS lv FROM blocks WHERE type = 'd' AND " + condition +
 		" ORDER BY CASE WHEN " + exactCondition + " THEN 0 ELSE 1 END ASC, box DESC, lv ASC LIMIT ?"
 	args = append(args, exactArg...)
 	args = append(args, limit)
@@ -113,7 +101,7 @@ func QueryRootBlockByCondition(condition, exactKeyword string, limit int, args .
 
 func QueryRootBlockByConditionInBox(condition, exactKeyword string, limit int, boxID string, args ...any) (ret []*Block) {
 	exactCondition, exactArg := rootBlockExactMatchCondition(exactKeyword, caseSensitive.Load())
-	sqlStmt := "SELECT *, length(hpath) - length(replace(hpath, '/', '')) AS lv FROM blocks WHERE type = 'd' AND " + condition +
+	sqlStmt := "SELECT *, length(path) - length(replace(path, '/', '')) AS lv FROM blocks WHERE type = 'd' AND " + condition +
 		" ORDER BY CASE WHEN " + exactCondition + " THEN 0 ELSE 1 END ASC, box DESC, lv ASC LIMIT ?"
 	args = append(args, exactArg...)
 	args = append(args, limit)
@@ -410,30 +398,28 @@ func queryWithLimitInfo(stmt string, limit int, info *QueryLimitInfo) (ret []map
 				return queryRawStmtWithLimitInfo(stmt, limit, info)
 			}
 
-			switch parsedStmt.(type) {
+			switch parsedStmt := parsedStmt.(type) {
 			case *sqlparser.Select:
-				slct := parsedStmt.(*sqlparser.Select)
-				if info != nil && slct.Limit != nil && slct.Limit.Rowcount != nil {
+				if info != nil && parsedStmt.Limit != nil && parsedStmt.Limit.Rowcount != nil {
 					info.Limit = 0
 				}
-				if nil == slct.Limit || nil == slct.Limit.Rowcount {
+				if nil == parsedStmt.Limit || nil == parsedStmt.Limit.Rowcount {
 					fallbackStmt += " LIMIT " + strconv.Itoa(limit)
 				}
 				limitClause := getLimitClause(parsedStmt, limit)
-				slct.Limit = limitClause
-				stmt = sqlparser.String(slct)
+				parsedStmt.Limit = limitClause
+				stmt = sqlparser.String(parsedStmt)
 			case *sqlparser.Union:
 				// Kernel API `/api/query/sql` support `UNION` statement https://github.com/siyuan-note/siyuan/issues/8226
-				union := parsedStmt.(*sqlparser.Union)
-				if info != nil && union.Limit != nil && union.Limit.Rowcount != nil {
+				if info != nil && parsedStmt.Limit != nil && parsedStmt.Limit.Rowcount != nil {
 					info.Limit = 0
 				}
-				if nil == union.Limit || nil == union.Limit.Rowcount {
+				if nil == parsedStmt.Limit || nil == parsedStmt.Limit.Rowcount {
 					fallbackStmt += " LIMIT " + strconv.Itoa(limit)
 				}
 				limitClause := getLimitClause(parsedStmt, limit)
-				union.Limit = limitClause
-				stmt = sqlparser.String(union)
+				parsedStmt.Limit = limitClause
+				stmt = sqlparser.String(parsedStmt)
 			default:
 				return queryRawStmtWithLimitInfo(stmt, limit, info)
 			}
@@ -441,16 +427,15 @@ func queryWithLimitInfo(stmt string, limit int, info *QueryLimitInfo) (ret []map
 			return queryRawStmtWithLimitInfo(stmt, limit, info)
 		}
 	} else {
-		switch parsedStmt2.(type) {
+		switch parsedStmt2 := parsedStmt2.(type) {
 		case *sqlparser2.SelectStatement:
-			slct := parsedStmt2.(*sqlparser2.SelectStatement)
-			if info != nil && slct.LimitExpr != nil {
+			if info != nil && parsedStmt2.LimitExpr != nil {
 				info.Limit = 0
 			}
-			if nil == slct.LimitExpr {
+			if nil == parsedStmt2.LimitExpr {
 				fallbackStmt += " LIMIT " + strconv.Itoa(limit)
-				slct.LimitExpr = &sqlparser2.NumberLit{Value: strconv.Itoa(limit)}
-				serialized, ok := stringifySelectStatement(slct)
+				parsedStmt2.LimitExpr = &sqlparser2.NumberLit{Value: strconv.Itoa(limit)}
+				serialized, ok := stringifySelectStatement(parsedStmt2)
 				if !ok {
 					return queryRawStmtWithLimitInfo(originalStmt, limit, info)
 				}
@@ -546,16 +531,14 @@ func ToBlocks(result []map[string]any) (ret []*Block) {
 }
 
 func getLimitClause(parsedStmt sqlparser.Statement, limit int) (ret *sqlparser.Limit) {
-	switch parsedStmt.(type) {
+	switch stmtNode := parsedStmt.(type) {
 	case *sqlparser.Select:
-		slct := parsedStmt.(*sqlparser.Select)
-		if nil != slct.Limit {
-			ret = slct.Limit
+		if nil != stmtNode.Limit {
+			ret = stmtNode.Limit
 		}
 	case *sqlparser.Union:
-		union := parsedStmt.(*sqlparser.Union)
-		if nil != union.Limit {
-			ret = union.Limit
+		if nil != stmtNode.Limit {
+			ret = stmtNode.Limit
 		}
 	}
 
@@ -589,10 +572,11 @@ func queryRawStmtRows(stmt string, limit int, info *QueryLimitInfo, enforceLimit
 	defer rows.Close()
 
 	cols, err := rows.Columns()
-	if err != nil || nil == cols {
+	if err != nil {
 		return
 	}
 
+	// 无结果列的语句也必须调用 Next，执行 SQLite 语句并读取执行错误。
 	noLimit := !containsLimitClause(stmt)
 	if info != nil {
 		noLimit = !containsOuterLimitClause(stmt)
@@ -637,7 +621,7 @@ func queryRawStmtArgs(stmt string, args []any, limit int) (ret []map[string]any,
 	defer rows.Close()
 
 	cols, err := rows.Columns()
-	if err != nil || nil == cols {
+	if err != nil {
 		return
 	}
 
@@ -662,10 +646,11 @@ func queryRawStmtArgs(stmt string, args []any, limit int) (ret []map[string]any,
 
 		ret = append(ret, m)
 		count++
-		if noLimit && limit < count {
+		if noLimit && count >= limit {
 			break
 		}
 	}
+	err = rows.Err()
 	return
 }
 
@@ -715,7 +700,7 @@ func SelectBlocksRawStmtArgs(stmt string, args []any, limit int) (ret []*Block) 
 			errCount++
 		}
 
-		if (noLimit && limit < count) || 0 < errCount {
+		if (noLimit && count >= limit) || 0 < errCount {
 			break
 		}
 	}
@@ -860,7 +845,7 @@ func selectBlocksRawStmtNoParseWithQuery(stmt string, limit int, boxID string, q
 			errCount++
 		}
 
-		if (noLimit && limit < count) || 0 < errCount {
+		if (noLimit && count >= limit) || 0 < errCount {
 			break
 		}
 	}
@@ -1052,19 +1037,30 @@ func GetBlocks(ids []string) (ret []*Block) {
 
 // queryBlocksInBatches 限制每批参数数量，并在读取下一批前关闭游标，保留笔记本查询边界。
 func queryBlocksInBatches(ids []string, boxID string, blocks map[string]*Block, populateCache bool) error {
+	return queryBlocksInBatchesContext(context.Background(), ids, boxID, blocks, populateCache)
+}
+
+func queryBlocksInBatchesContext(ctx context.Context, ids []string, boxID string, blocks map[string]*Block, populateCache bool) error {
 	const batchSize = 512
 	for start := 0; start < len(ids); start += batchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		batch := ids[start:min(start+batchSize, len(ids))]
 		statement := "SELECT * FROM blocks WHERE id IN (" + strings.Repeat("?,", len(batch)-1) + "?)"
 		args := make([]any, len(batch))
 		for i, id := range batch {
 			args[i] = id
 		}
-		rows, err := queryForBox(boxID, statement, args...)
+		rows, err := queryForBoxContext(ctx, boxID, statement, args...)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
+			if err = ctx.Err(); err != nil {
+				rows.Close()
+				return err
+			}
 			if block := scanBlockRows(rows); block != nil {
 				if populateCache {
 					putBlockCache(block)

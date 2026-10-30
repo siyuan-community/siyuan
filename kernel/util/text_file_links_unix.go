@@ -1,8 +1,8 @@
-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
-
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-// Licensed under the GNU Affero General Public License, version 3 or later.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
 
 package util
 
@@ -30,5 +30,5 @@ func textFileSingleLink(_ *os.File, info os.FileInfo) error {
 			}
 		}
 	}
-	return textFileError("invalid_path", "hard-linked files or unknown link counts are not supported")
+	return textFileError(TextFileInvalidPath, "hard-linked files or unknown link counts are not supported")
 }

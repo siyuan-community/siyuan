@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -48,8 +52,8 @@ func compareSyncDecode[Request, Data, Value any](t *testing.T, endpoint apicontr
 		context.Request = httptest.NewRequest("POST", endpoint.Definition().Path, strings.NewReader(body))
 		expected := gulu.Ret.NewResult()
 		var value Value
-		if args, ok := util.JsonArg(context, expected); ok {
-			util.ParseJsonArgs(args, expected, util.BindJsonArg(key, &value, required, rejectEmpty))
+		if args, ok := legacyJSONArg(context, expected); ok {
+			legacyParseArgs(args, expected, legacyBind(key, &value, required, rejectEmpty))
 		}
 		request, err := endpoint.Decode(strings.NewReader(body))
 		if expected.Code != 0 {
@@ -64,7 +68,7 @@ func compareSyncDecode[Request, Data, Value any](t *testing.T, endpoint apicontr
 
 func TestAPIContractSyncProviderConfigCompatibility(t *testing.T) {
 	for _, raw := range []string{`{}`, `{"ENDPOINT":" example ","timeout":1.0,"concurrentReqs":9007199254740993}`, `{"endpoint":false}`, `{"timeout":1.5}`, `{"pathStyle":null}`, `{"endpoint":"first","endpoint":"second"}`} {
-		var object map[string]interface{}
+		var object map[string]any
 		if err := json.Unmarshal([]byte(raw), &object); err != nil {
 			t.Fatal(err)
 		}
@@ -218,7 +222,7 @@ func TestAPIContractSyncProviderMultipart(t *testing.T) {
 		for _, count := range []int{0, 1, 2} {
 			var body bytes.Buffer
 			writer := multipart.NewWriter(&body)
-			for i := 0; i < count; i++ {
+			for range count {
 				part, err := writer.CreateFormFile("file", "config.txt")
 				if err != nil {
 					t.Fatal(err)

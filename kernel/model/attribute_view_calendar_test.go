@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -99,7 +103,7 @@ func TestAttributeViewCalendarRenderFilterSortAndExport(t *testing.T) {
 	dateValues, _ := attrView.GetKeyValues(date.ID)
 	primary := attrView.GetBlockKeyValues()
 	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		id := ast.NewNodeID()
 		view.ItemIDs = append(view.ItemIDs, id)
 		primary.Values = append(primary.Values, &av.Value{ID: ast.NewNodeID(), KeyID: primary.Key.ID, BlockID: id,

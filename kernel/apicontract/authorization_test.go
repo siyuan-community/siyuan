@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -65,7 +69,7 @@ func TestRouteAuthorizationCoverage(t *testing.T) {
 					mutation(&changed[index])
 				}
 			}
-			if err := CheckRoutes(changed, bindings, nil); err == nil {
+			if err := CheckRoutes(changed, bindings); err == nil {
 				t.Fatal("missing or mismatched authorization was accepted")
 			}
 		}

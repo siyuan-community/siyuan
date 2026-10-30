@@ -1,10 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -17,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -86,14 +83,6 @@ type oidcStartInput struct {
 	Flow       string `json:"flow"`
 	To         string `json:"to"`
 	RememberMe bool   `json:"rememberMe"`
-}
-
-type oidcMobileCallbackInput struct {
-	CallbackURL string `json:"callbackURL"`
-}
-
-type oidcPollInput struct {
-	PollToken string `json:"pollToken"`
 }
 
 func OIDCValidateStart(c *gin.Context, request apicontract.SystemOIDCRequest) (ret apicontract.Response[apicontract.SystemOIDCStartData]) {
@@ -483,10 +472,8 @@ func ValidateOIDCConfiguration(config *conf.OIDC) error {
 		if rule.Operator != conf.OIDCClaimOperatorEquals && rule.Operator != conf.OIDCClaimOperatorContains {
 			return errors.New("Unsupported OIDC claim rule operator")
 		}
-		for _, value := range rule.Values {
-			if value == "" {
-				return errors.New("OIDC claim rule values cannot be empty")
-			}
+		if slices.Contains(rule.Values, "") {
+			return errors.New("OIDC claim rule values cannot be empty")
 		}
 	}
 	return nil

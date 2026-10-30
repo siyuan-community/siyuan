@@ -1,23 +1,12 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package av
 
 import (
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -749,12 +738,7 @@ func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, itemID s
 					return true
 				}
 
-				for _, c := range value.Rollup.Contents {
-					if isRollupStoredValueEmpty(c) {
-						return true
-					}
-				}
-				return false
+				return slices.ContainsFunc(value.Rollup.Contents, isRollupStoredValueEmpty)
 			} else if FilterOperatorIsNotEmpty == filter.Operator {
 				if 1 > len(value.Rollup.Contents) {
 					return false
@@ -806,12 +790,7 @@ func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, itemID s
 					return false
 				}
 
-				for _, c := range value.Rollup.Contents {
-					if isRollupStoredValueEmpty(c) {
-						return false
-					}
-				}
-				return true
+				return !slices.ContainsFunc(value.Rollup.Contents, isRollupStoredValueEmpty)
 			}
 
 			if 1 > len(filter.Value.Rollup.Contents) {
@@ -838,12 +817,7 @@ func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, itemID s
 					return true
 				}
 
-				for _, c := range value.Rollup.Contents {
-					if isRollupStoredValueEmpty(c) {
-						return false
-					}
-				}
-				return true
+				return !slices.ContainsFunc(value.Rollup.Contents, isRollupStoredValueEmpty)
 			} else if FilterOperatorIsNotEmpty == filter.Operator {
 				if 1 > len(value.Rollup.Contents) {
 					return true
@@ -883,10 +857,8 @@ func (value *Value) Filter(filter *ViewFilter, attrView *AttributeView, itemID s
 
 		if nil != value.Relation {
 			for _, blockID := range value.Relation.BlockIDs {
-				for _, filterBlockID := range filter.Value.Relation.BlockIDs {
-					if blockID == filterBlockID {
-						return FilterOperatorContainsAnyItem == filter.Operator
-					}
+				if slices.Contains(filter.Value.Relation.BlockIDs, blockID) {
+					return FilterOperatorContainsAnyItem == filter.Operator
 				}
 			}
 		}
@@ -1354,8 +1326,7 @@ func (value *Value) filter(other *Value, relativeDate, relativeDate2 *RelativeDa
 	case KeyTypeRelation: // 过滤汇总字段，并且汇总目标是关联字段时才会进入该分支
 		if nil != value.Relation && 0 < len(value.Relation.Contents) && nil != value.Relation.Contents[0].Block &&
 			nil != other && nil != other.Relation && 0 < len(other.Relation.BlockIDs) {
-			filterValue := &Value{Type: KeyTypeBlock, Block: &ValueBlock{Content: other.Relation.BlockIDs[0]}}
-			return filterTextContent(operator, value.Relation.Contents[0].Block.Content, filterValue.Block.Content)
+			return filterTextContent(operator, value.Relation.Contents[0].Block.Content, other.Relation.BlockIDs[0])
 		}
 	}
 	return false

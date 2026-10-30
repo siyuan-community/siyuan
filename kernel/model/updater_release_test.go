@@ -1,29 +1,97 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/siyuan-community/siyuan/kernel/conf"
+	"github.com/siyuan-community/siyuan/kernel/util"
 )
+
+func TestGetUpdatePackageURLs(t *testing.T) {
+	originalRegion := util.CurrentCloudRegion
+	t.Cleanup(func() { util.CurrentCloudRegion = originalRegion })
+	for _, region := range []int{0, 1} {
+		util.CurrentCloudRegion = region
+		for _, version := range []string{"3.8.7", "3.8.7-rc.1", "3.8.7-beta.4", "3.8.7-alpha.9"} {
+			for _, suffix := range []string{"win.exe", "win-arm64.exe", "mac.dmg", "mac-arm64.dmg"} {
+				pkgName := "siyuan-CE-v" + version + "-" + suffix
+				githubURL := "https://github.com/siyuan-community/siyuan/releases/download/v" + version + "/" + pkgName
+				want := []string{githubURL}
+				if got := getUpdatePackageURLs(pkgName, githubURL); !slices.Equal(got, want) {
+					t.Fatalf("region [%d] version [%s] package [%s]: got %v, want %v", region, version, pkgName, got, want)
+				}
+			}
+		}
+	}
+}
+
+func TestGetUpdatePackageURLsPreservesReleaseAssetURL(t *testing.T) {
+	const pkgName = "siyuan-CE-v3.8.7-alpha.9-win.exe"
+	const githubURL = "https://github.com/siyuan-community/siyuan/releases/download/custom-tag/" + pkgName
+	want := []string{githubURL}
+	if got := getUpdatePackageURLs(pkgName, githubURL); !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// Beta 和 Alpha 通道与稳定版一致，只使用 GitHub Release 资源中的社区版安装包地址。
+func TestGitHubUpdateReleaseUsesReleaseAssetForBetaAndAlpha(t *testing.T) {
+	suffix := currentInstallPackageSuffix()
+	if "" == suffix {
+		t.Skip("automatic installation is desktop-only")
+	}
+	const checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	// 两个通道使用不同基础版本，保证各自选中自己的 Release
+	tests := map[string]string{
+		conf.UpdateChannelBeta:  "v99.0.0-beta.2",
+		conf.UpdateChannelAlpha: "v99.1.0-alpha.5",
+	}
+	releases := make([]*githubRelease, 0, len(tests))
+	for _, tag := range tests {
+		version := strings.TrimPrefix(tag, "v")
+		pkgName := "siyuan-CE-v" + version + "-" + suffix
+		releases = append(releases, &githubRelease{TagName: tag, HTMLURL: "https://example.invalid/" + version,
+			Assets: []*githubReleaseAsset{{
+				Name: pkgName, BrowserDownloadURL: "https://github.com/siyuan-community/siyuan/releases/download/" + tag + "/" + pkgName,
+				Digest: "sha256:" + checksum, State: "uploaded",
+			}}})
+	}
+	githubReleasesLock.Lock()
+	originalReleases, originalCacheTime := cachedGitHubReleases, githubReleasesCacheTime
+	cachedGitHubReleases, githubReleasesCacheTime = releases, time.Now().Unix()
+	githubReleasesLock.Unlock()
+	t.Cleanup(func() {
+		githubReleasesLock.Lock()
+		cachedGitHubReleases, githubReleasesCacheTime = originalReleases, originalCacheTime
+		githubReleasesLock.Unlock()
+	})
+
+	for channel, tag := range tests {
+		release, err := getGitHubUpdateRelease(channel, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		version := strings.TrimPrefix(tag, "v")
+		pkgName := "siyuan-CE-v" + version + "-" + suffix
+		pkg := release.Packages[pkgName]
+		if nil == pkg {
+			t.Fatalf("channel [%s] has no package [%s]", channel, pkgName)
+		}
+		want := []string{"https://github.com/siyuan-community/siyuan/releases/download/" + tag + "/" + pkgName}
+		if !slices.Equal(pkg.URLs, want) {
+			t.Fatalf("channel [%s]: got %v, want %v", channel, pkg.URLs, want)
+		}
+	}
+}
 
 func TestIsReleaseAllowed(t *testing.T) {
 	tests := []struct {

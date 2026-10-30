@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -11,6 +15,45 @@ import (
 
 type SyncEnabledRequest struct {
 	Enabled bool `json:"enabled"`
+}
+
+type CancelSyncCheckoutRequest struct {
+	TaskID string `json:"taskID" api:"trim"`
+}
+
+type CancelSyncCheckoutData struct {
+	Requested bool `json:"requested"`
+}
+
+type SyncCheckoutClientRequest struct {
+	AppID    string `json:"appID" api:"optional"`
+	ClientID string `json:"clientID" api:"optional"`
+}
+
+type ConfirmSyncCheckoutRequest struct {
+	TaskID string `json:"taskID" api:"trim"`
+	Token  string `json:"token" api:"trim"`
+	Saved  bool   `json:"saved"`
+}
+
+type SyncCheckoutState struct {
+	TaskID        string   `json:"taskID"`
+	Revision      int64    `json:"revision"`
+	Phase         string   `json:"phase"`
+	Blocking      bool     `json:"blocking"`
+	Canceling     bool     `json:"canceling"`
+	Current       int64    `json:"current"`
+	Total         int64    `json:"total"`
+	Message       string   `json:"message"`
+	Token         string   `json:"token"`
+	UpsertRootIDs []string `json:"upsertRootIDs" api:"nonnullable"`
+	RemoveRootIDs []string `json:"removeRootIDs" api:"nonnullable"`
+}
+
+type SyncCheckoutSnapshot struct {
+	KernelID string             `json:"kernelID"`
+	Revision int64              `json:"revision"`
+	Task     *SyncCheckoutState `json:"task"`
 }
 type SyncIntervalRequest struct {
 	Interval float64 `json:"interval"`
@@ -37,6 +80,24 @@ type SyncProviderConfigRulesRequest struct {
 type SyncProviderConfigRulesData struct {
 	RequiredFields        []string `json:"requiredFields" api:"nonnullable"`
 	EndpointBucketWarning bool     `json:"endpointBucketWarning"`
+}
+
+type TestSyncProviderS3Request struct {
+	S3 SyncS3 `json:"s3"`
+}
+
+type TestSyncProviderS3Data struct {
+	Kind string `json:"kind"`
+	Msg  string `json:"msg"`
+}
+
+type TestSyncProviderWebDAVRequest struct {
+	WebDAV    SyncWebDAV `json:"webdav"`
+	CloudName string     `json:"cloudName" api:"optional"`
+}
+
+type TestSyncProviderLocalRequest struct {
+	Local SyncLocal `json:"local"`
 }
 
 type ClearSyncProviderConfigData struct {

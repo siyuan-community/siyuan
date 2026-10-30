@@ -1,4 +1,4 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -122,10 +122,10 @@ func TestRenderAttributeViewConcurrentInitialization(t *testing.T) {
 		fields []string
 		err    error
 	}
-	for round := 0; round < 32; round++ {
+	for round := range 32 {
 		avID := ast.NewNodeID()
 		start, done := make(chan struct{}), make(chan result, 2)
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			go func() {
 				<-start
 				view, definition, _, err := RenderAttributeViewWithTarget("", avID, "", "", 1, -1, nil,

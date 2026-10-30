@@ -1,11 +1,7 @@
 import {describe, it} from "node:test";
 import * as assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
-import {resolve} from "node:path";
-import {runInNewContext} from "node:vm";
-import {ModuleKind, transpileModule} from "typescript";
+import {loadModule} from "../../testSupport/loadModule";
 import {bindMobileBarsScroll, clearMobileBarsScroll} from "./mobileBars";
-import {MOBILE_BARS_CONFIG_KEY} from "./mobileBarsConfig";
 import * as mobileBarsState from "./mobileBarsState";
 
 class TestClassList {
@@ -46,6 +42,7 @@ class TestBreadcrumbElement {
 class TestScrollElement {
     public scrollTop = 0;
     public onScroll: () => void;
+    public parent: HTMLElement;
 
     public addEventListener(_name: string, callback: () => void): void {
         this.onScroll = callback;
@@ -55,8 +52,8 @@ class TestScrollElement {
         // 测试无需触发滚动事件
     }
 
-    public closest(): undefined {
-        return undefined;
+    public closest(): HTMLElement {
+        return this.parent;
     }
 }
 
@@ -70,6 +67,11 @@ describe("mobile bars", () => {
             const breadcrumbElement = new TestBreadcrumbElement();
             const bottomBarElement = new TestBreadcrumbElement();
             const scrollElement = new TestScrollElement();
+            const selectionToolbars = [{hidden: true}, {hidden: true}];
+            const selectionObservers = new Map<object, () => void>();
+            scrollElement.parent = {querySelectorAll: (selector: string) => selector.includes("exitMultiSelectMode") ?
+                selectionToolbars.map(toolbar => ({closest: () => toolbar.hidden ? toolbar : null})) : selectionToolbars,
+            } as unknown as HTMLElement;
             let frame: FrameRequestCallback;
             let finishScroll: () => void;
             const mockDocument = {
@@ -90,10 +92,7 @@ describe("mobile bars", () => {
                 querySelector: () => breadcrumbElement,
                 addEventListener: (name: string, callback: () => void) => documentListeners.set(name, callback),
             };
-            const moduleExports: Partial<typeof import("./mobileBars")> = {};
-            const source = readFileSync(resolve(process.cwd(), "src/mobile/util/mobileBars.ts"), "utf8");
-            runInNewContext(transpileModule(source, {compilerOptions: {module: ModuleKind.CommonJS}}).outputText, {
-                exports: moduleExports,
+            const moduleExports = loadModule<Partial<typeof import("./mobileBars")>>("src/mobile/util/mobileBars.ts", {
                 require: (name: string) => name === "./mobileBarsState" ? mobileBarsState :
                     {isMobileBarsAutoHide: () => true},
                 document: mockDocument,
@@ -113,12 +112,28 @@ describe("mobile bars", () => {
                 cancelAnimationFrame: () => {},
                 getSelection: (): undefined => undefined,
                 MutationObserver: class {
-                    observe(): void {}
+                    constructor(private callback: () => void) {}
+                    observe(element: object): void {
+                        selectionObservers.set(element, this.callback);
+                    }
                     disconnect(): void {}
                 },
             });
             moduleExports.initMobileBars();
             moduleExports.bindMobileBarsScroll(scrollElement as unknown as HTMLElement);
+            for (const toolbar of selectionToolbars) {
+                assert.equal(selectionObservers.has(toolbar), true);
+                toolbar.hidden = false;
+                selectionObservers.get(toolbar)();
+                assert.equal(moduleExports.isMobileBlockSelecting(), true);
+                assert.equal(classes.has("mobile-selection--active"), true);
+                assert.equal(bottomBarElement.attributes.has("inert"), true);
+                toolbar.hidden = true;
+                selectionObservers.get(toolbar)();
+                assert.equal(moduleExports.isMobileBlockSelecting(), false);
+                assert.equal(classes.has("mobile-selection--active"), false);
+                assert.equal(bottomBarElement.attributes.has("inert"), false);
+            }
             const changeKeyboard = (open: boolean) => windowListeners.get("siyuan-mobile-keyboard-change")({detail: open});
             const assertTitleVisible = () => {
                 assert.equal(topbarElement.style.getPropertyValue("--mobile-bar-translate-y"),
@@ -176,8 +191,8 @@ describe("mobile bars", () => {
         const originalWindow = globalThis.window;
         const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
         let frame: FrameRequestCallback;
-        const storage = {[MOBILE_BARS_CONFIG_KEY]: {autoHide: true}};
-        Object.defineProperty(globalThis, "window", {configurable: true, value: {siyuan: {storage}}});
+        const appearance = {mobileBars: {autoHide: true}};
+        Object.defineProperty(globalThis, "window", {configurable: true, value: {siyuan: {config: {appearance}}}});
         Object.defineProperty(globalThis, "requestAnimationFrame", {
             configurable: true,
             value: (callback: FrameRequestCallback) => {
@@ -240,11 +255,11 @@ describe("mobile bars", () => {
             scrollTo(0);
             assertPosition(0);
             assert.equal(breadcrumbElement.attributes.has("inert"), false);
-            storage[MOBILE_BARS_CONFIG_KEY].autoHide = false;
+            appearance.mobileBars.autoHide = false;
             scrollTo(100);
             assertPosition(0);
             assert.equal(breadcrumbElement.attributes.get("aria-hidden"), "false");
-            storage[MOBILE_BARS_CONFIG_KEY].autoHide = true;
+            appearance.mobileBars.autoHide = true;
             scrollTo(148);
             assertPosition(1);
         } finally {

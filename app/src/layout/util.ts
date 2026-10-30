@@ -228,6 +228,8 @@ const layoutSaveRequests = new Set<Promise<void>>();
 
 // 切换布局前停止自动保存并等待在途请求，成功后保持暂停直到页面刷新，失败时由调用方恢复。
 export const suspendLayoutSaving = async () => {
+    const host = getSettingsWindowHost();
+    if (host) return host.suspendLayoutSaving();
     layoutSavingSuspended = true;
     window.clearTimeout(saveRetryTimeout);
     saveCount = 0;
@@ -978,7 +980,7 @@ export const resizeTopBar = () => {
 };
 
 // TODO: 需支持所有页签类型，避免其他类型页签没有使用到而加载
-export const newModelByInitData = (app: App, tab: Tab, json: any) => {
+export const newModelByInitData = (app: App, tab: Tab, json: any, afterInitProtyle?: () => void) => {
     let model: Model;
     if (json.instance === "Custom") {
         if (json.customModelType === "siyuan-card") {
@@ -1034,6 +1036,7 @@ export const newModelByInitData = (app: App, tab: Tab, json: any) => {
                     editor.protyle.databaseAttributePanel?.expand();
                     editor.protyle.contentElement.scrollTop = 0;
                 }
+                afterInitProtyle?.();
             },
         });
         if (json.databaseRowId) {

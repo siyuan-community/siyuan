@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -110,7 +98,7 @@ func TestGetCurrentAttributeViewImagesPublishAccess(t *testing.T) {
 		if err = SetPublishAccess(PublishAccess{{ID: carrierDocID, Disable: true}}); nil != err {
 			t.Fatal(err)
 		}
-		images, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", "", "")
+		images, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", "", "", "")
 		if !errors.Is(err, av.ErrAttributeViewNotFound) {
 			t.Fatalf("expected [%v], got [%v]", av.ErrAttributeViewNotFound, err)
 		}
@@ -130,7 +118,7 @@ func TestGetCurrentAttributeViewImagesPublishAccess(t *testing.T) {
 		}}); nil != err {
 			t.Fatal(err)
 		}
-		if _, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", "", ""); !errors.Is(err, av.ErrAttributeViewNotFound) {
+		if _, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", "", "", ""); !errors.Is(err, av.ErrAttributeViewNotFound) {
 			t.Fatalf("expected [%v], got [%v]", av.ErrAttributeViewNotFound, err)
 		}
 	})
@@ -141,7 +129,7 @@ func TestGetCurrentAttributeViewImagesPublishAccess(t *testing.T) {
 			Name:  "publish-auth-" + carrierDocID,
 			Value: util.SHA256Hash([]byte(carrierDocID + readerPass)),
 		})
-		images, err := GetCurrentAttributeViewImages(c, avID, "", "", "")
+		images, err := GetCurrentAttributeViewImages(c, avID, "", "", "", "")
 		if nil != err {
 			t.Fatalf("unexpected error: %s", err)
 		}
@@ -154,7 +142,7 @@ func TestGetCurrentAttributeViewImagesPublishAccess(t *testing.T) {
 		if err = SetPublishAccess(PublishAccess{}); nil != err {
 			t.Fatal(err)
 		}
-		images, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", "", "")
+		images, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", "", "", "")
 		if nil != err {
 			t.Fatalf("unexpected error: %s", err)
 		}
@@ -170,12 +158,34 @@ func TestGetCurrentAttributeViewImagesPublishAccess(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/av/getCurrentAttrViewImages", nil)
 		c.Set(RoleContextKey, RoleAdministrator)
-		images, err := GetCurrentAttributeViewImages(c, avID, "", "", "")
+		images, err := GetCurrentAttributeViewImages(c, avID, "", "", "", "")
 		if nil != err {
 			t.Fatalf("unexpected error: %s", err)
 		}
 		if 1 != len(images) || secretImage != images[0] {
 			t.Fatalf("unexpected images: %v", images)
+		}
+	})
+
+	t.Run("分组图片保留发布门禁", func(t *testing.T) {
+		view.Group = &av.ViewGroup{Field: attrView.KeyValues[1].Key.ID}
+		group := av.NewTableView()
+		group.GroupItemIDs = []string{detachedRowID}
+		view.Groups = []*av.View{group}
+		if err := av.SaveAttributeView(attrView); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetPublishAccess(PublishAccess{{ID: carrierDocID, Disable: true}}); err != nil {
+			t.Fatal(err)
+		}
+		if images, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", view.ID, "", group.ID); !errors.Is(err, av.ErrAttributeViewNotFound) || len(images) != 0 {
+			t.Fatalf("group leaked inaccessible images: %v, %v", images, err)
+		}
+		if err := SetPublishAccess(PublishAccess{}); err != nil {
+			t.Fatal(err)
+		}
+		if images, err := GetCurrentAttributeViewImages(newReaderContext(), avID, "", view.ID, "", group.ID); err != nil || len(images) != 1 || images[0] != secretImage {
+			t.Fatalf("unexpected accessible group images: %v, %v", images, err)
 		}
 	})
 }

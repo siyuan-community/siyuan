@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -126,6 +130,65 @@ func TestAVContractCalendarTemplateDate(t *testing.T) {
 	}
 }
 
+func TestAVContractCalendarFieldNames(t *testing.T) {
+	fixture := setupAttributeViewContextFilterAPITest(t)
+	database := fixture.attrView
+	view := database.Views[0]
+	view.LayoutType = av.LayoutTypeCalendar
+	view.Calendar = &av.LayoutCalendar{LayoutTable: view.Table, Settings: av.CalendarSettings{WeekStart: 1}}
+	view.Table = nil
+	for _, enabled := range []bool{false, true} {
+		view.Calendar.Settings.DisplayFieldName = enabled
+		if err := av.SaveAttributeView(database); err != nil {
+			t.Fatal(err)
+		}
+		assertAVContractJSONEqual(t, view.Calendar, toContractAVLayoutCalendar(view.Calendar))
+		path := "/api/av/renderAttributeView"
+		response := callAttributeViewContextFilterAPI(t, path, map[string]any{
+			"id": database.ID, "viewID": view.ID,
+		}, renderAttributeView)
+		requireAPIContract(t, http.MethodPost, path, response)
+		var result struct {
+			Code int
+			Data struct{ View *av.Table }
+		}
+		decodeAttributeViewContextFilterAPIResponse(t, response, &result)
+		if result.Code != 0 || result.Data.View == nil || result.Data.View.Calendar == nil ||
+			result.Data.View.Calendar.DisplayFieldName != enabled {
+			t.Fatalf("calendar field name setting lost: %s", response.Body.String())
+		}
+	}
+}
+
+func TestAVContractCalendarLegacyRowIDs(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		rows []string
+	}{
+		{name: "nil"},
+		{name: "empty", rows: []string{}},
+		{name: "legacy order", rows: []string{"second", "first"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			layout := &av.LayoutCalendar{LayoutTable: av.NewLayoutTable(), Settings: av.CalendarSettings{WeekStart: 1}}
+			layout.RowIDs = test.rows
+			converted := toContractAVLayoutCalendar(layout)
+			assertAVContractJSONEqual(t, layout, converted)
+			data, err := json.Marshal(converted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err = json.Unmarshal(data, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if _, present := fields["rowIds"]; present != (len(test.rows) > 0) {
+				t.Fatalf("unexpected legacy row order field: %s", data)
+			}
+		})
+	}
+}
+
 func TestAVContractCalendarLayoutAndRange(t *testing.T) {
 	fixture := setupAttributeViewContextFilterAPITest(t)
 	util.AttrViewLangs["en"]["calendar"] = "Calendar"
@@ -250,7 +313,7 @@ func TestAVContractCalendarPublishTarget(t *testing.T) {
 		return calendar
 	}
 	response := renderAttrView("", database.ID, view.ID, "", 1, 1, nil, av.LayoutTypeCalendar, false, false,
-		hiddenID, "", filter, true, &av.CalendarRange{Start: start, End: start + 42*86400000, TimeZone: "UTC"})
+		hiddenID, "", filter, true, model.AttributeViewRenderOptions{CalendarRange: &av.CalendarRange{Start: start, End: start + 42*86400000, TimeZone: "UTC"}})
 	body, err := json.Marshal(response)
 	if err != nil {
 		t.Fatal(err)

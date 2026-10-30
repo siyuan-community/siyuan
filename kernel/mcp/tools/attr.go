@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -73,9 +61,9 @@ func attrGet(args map[string]any) (CallToolResult, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Attributes for %s:\n\n", id))
+	fmt.Fprintf(&sb, "Attributes for %s:\n\n", id)
 	for k, v := range attrs {
-		sb.WriteString(fmt.Sprintf("- %s: %s\n", k, v))
+		fmt.Fprintf(&sb, "- %s: %s\n", k, v)
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 }
@@ -135,11 +123,11 @@ func attrBatchGet(args map[string]any) (CallToolResult, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Batch attributes (%d blocks):\n\n", len(attrs)))
+	fmt.Fprintf(&sb, "Batch attributes (%d blocks):\n\n", len(attrs))
 	for id, kv := range attrs {
-		sb.WriteString(fmt.Sprintf("--- %s ---\n", id))
+		fmt.Fprintf(&sb, "--- %s ---\n", id)
 		for k, v := range kv {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", k, v))
+			fmt.Fprintf(&sb, "- %s: %s\n", k, v)
 		}
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil

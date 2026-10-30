@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package conf
 
@@ -29,16 +17,10 @@ func TestNewFileTreeDefaults(t *testing.T) {
 	if 0 != fileTree.ParentDocTitleClickMode {
 		t.Fatal("clicking a parent document title should open the document by default")
 	}
-	if nil == fileTree.BoxDocEnabled {
-		t.Fatal("box document setting should be initialized")
-	}
-	if *fileTree.BoxDocEnabled {
+	if fileTree.BoxDocEnabled {
 		t.Fatal("box documents should be disabled for new users")
 	}
-	if nil == fileTree.UseSVGDefaultIcon {
-		t.Fatal("default icon setting should be initialized")
-	}
-	if !*fileTree.UseSVGDefaultIcon {
+	if !fileTree.UseSVGDefaultIcon {
 		t.Fatal("SVG default icons should be enabled for new users")
 	}
 }

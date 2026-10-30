@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package sql
 
@@ -127,6 +115,9 @@ func initDatabase(forceRebuild bool) {
 			}
 			if err := ensureDocumentPathIndexes(db, true); err != nil {
 				logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create document path indexes failed: %s", err)
+			}
+			if err := ensureAuxiliaryRootIndexes(db); err != nil {
+				logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create auxiliary root indexes failed: %s", err)
 			}
 			if err := ensureTagSpansIndex(db); err != nil {
 				logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create tag spans index failed: %s", err)
@@ -308,7 +299,7 @@ func initDBTables() {
 	if err != nil {
 		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "drop table [block_embeddings] failed: %s", err)
 	}
-	_, err = db.Exec("CREATE TABLE block_embeddings (id TEXT PRIMARY KEY, root_id TEXT, box TEXT, path TEXT, embedding BLOB, model TEXT, content_len INTEGER, updated TEXT, fail_count INTEGER NOT NULL DEFAULT 0, last_tried INTEGER NOT NULL DEFAULT 0, ignored_type INTEGER NOT NULL DEFAULT 0)")
+	_, err = db.Exec("CREATE TABLE block_embeddings (id TEXT PRIMARY KEY, root_id TEXT, box TEXT, path TEXT, embedding BLOB, model TEXT, space TEXT NOT NULL DEFAULT '', content_len INTEGER, updated TEXT, fail_count INTEGER NOT NULL DEFAULT 0, last_tried INTEGER NOT NULL DEFAULT 0, ignored_type INTEGER NOT NULL DEFAULT 0)")
 	if err != nil {
 		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create table [block_embeddings] failed: %s", err)
 	}
@@ -318,6 +309,9 @@ func initDBTables() {
 	}
 	if err = ensureDocumentPathIndexes(db, true); err != nil {
 		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create document path indexes failed: %s", err)
+	}
+	if err = ensureAuxiliaryRootIndexes(db); err != nil {
+		logging.LogFatalf(logging.ExitCodeUnavailableDatabase, "create auxiliary root indexes failed: %s", err)
 	}
 }
 
@@ -440,14 +434,16 @@ func initHistoryDBTables() {
 
 var initAssetContentDatabaseLock = sync.Mutex{}
 
-func InitAssetContentDatabase(forceRebuild bool) {
+func InitAssetContentDatabase(forceRebuild bool) error {
+	assetContentTxLock.Lock()
+	defer assetContentTxLock.Unlock()
 	initAssetContentDatabaseLock.Lock()
 	defer initAssetContentDatabaseLock.Unlock()
 
 	initAssetContentDBConnection()
 
 	if !forceRebuild && gulu.File.IsExist(util.AssetContentDBPath) {
-		return
+		return nil
 	}
 
 	assetContentDB.Close()
@@ -455,11 +451,12 @@ func InitAssetContentDatabase(forceRebuild bool) {
 	runtime.GC()
 	if err := os.RemoveAll(util.AssetContentDBPath); err != nil {
 		logging.LogErrorf("remove assets database file [%s] failed: %s", util.AssetContentDBPath, err)
-		return
+		return err
 	}
 
 	initAssetContentDBConnection()
 	initAssetContentDBTables()
+	return nil
 }
 
 func initAssetContentDBConnection() {
@@ -552,8 +549,15 @@ func SetIndexAssetPath(b bool) {
 	indexAssetPath.Store(b)
 }
 
+// TreeHasRefs uses the same extraction as normal indexing, including rich
+// inline titles, attribute views and embedded references.
+func TreeHasRefs(tree *parse.Tree) bool {
+	refs, annotations := refsFromTree(tree)
+	return len(refs) > 0 || len(annotations) > 0
+}
+
 func refsFromTree(tree *parse.Tree) (refs []*Ref, fileAnnotationRefs []*FileAnnotationRef) {
-	treenode.WalkWithTabTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithInlineTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if entering {
 			if ast.NodeCustomBlock == n.Type {
 				return ast.WalkSkipChildren
@@ -682,16 +686,20 @@ func getEmbedRef(embedNode *ast.Node) (queryBlockID string) {
 }
 
 func fromTree(node *ast.Node, tree *parse.Tree) (blocks []*Block, spans []*Span, assets []*Asset, attributes []*Attribute) {
+	return fromTreeWithChanges(node, tree, nil)
+}
+
+func projectTree(node *ast.Node, tree *parse.Tree, buildBlock indexBlockBuilder) (blocks []*Block, spans []*Span, assets []*Asset, attributes []*Attribute) {
 	rootID := tree.Root.ID
 	boxID := tree.Box
 	p := tree.Path
-	treenode.WalkWithTabTitles(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithInlineTitles(node, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
 		}
 
 		// 构造行级元素
-		spanBlocks, spanSpans, spanAssets, spanAttrs, walkStatus := buildSpanFromNode(n, tree, rootID, boxID, p)
+		spanBlocks, spanSpans, spanAssets, spanAttrs, walkStatus := buildSpanFromNode(n, tree, rootID, boxID, p, buildBlock)
 		if 0 < len(spanBlocks) {
 			blocks = append(blocks, spanBlocks...)
 		}
@@ -719,8 +727,10 @@ func fromTree(node *ast.Node, tree *parse.Tree) (blocks []*Block, spans []*Span,
 			return ast.WalkContinue
 		}
 
-		b, attrs := buildBlockFromNode(n, tree)
-		blocks = append(blocks, b)
+		b, attrs := buildBlock(n, tree)
+		if b != nil {
+			blocks = append(blocks, b)
+		}
 		if 0 < len(attrs) {
 			attributes = append(attributes, attrs...)
 		}
@@ -781,7 +791,7 @@ func isAttr(name string) bool {
 	return strings.HasPrefix(name, "custom-") || "name" == name || "alias" == name || "memo" == name || "bookmark" == name || "fold" == name || "heading-fold" == name || "style" == name
 }
 
-func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string) (blocks []*Block, spans []*Span, assets []*Asset, attributes []*Attribute, walkStatus ast.WalkStatus) {
+func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string, buildBlock indexBlockBuilder) (blocks []*Block, spans []*Span, assets []*Asset, attributes []*Attribute, walkStatus ast.WalkStatus) {
 	boxLocalPath := filepath.Join(util.DataDir, boxID)
 	docDirLocalPath := filepath.Join(boxLocalPath, p)
 	switch n.Type {
@@ -803,41 +813,39 @@ func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string) (
 		spans = append(spans, span)
 		walkStatus = ast.WalkSkipChildren
 
-		destNode := n.ChildByType(ast.NodeLinkDest)
-		if nil == destNode {
-			return
-		}
-
-		// assetsLinkDestsInTree
-
-		if !util.IsAssetLinkDest(destNode.Tokens, false) {
-			return
-		}
-
-		dest := gulu.Str.FromBytes(destNode.Tokens)
-		if idx := strings.Index(dest, "?"); idx > 0 {
-			dest = dest[:idx]
-		}
-
 		var title string
 		if titleNode := n.ChildByType(ast.NodeLinkTitle); nil != titleNode {
 			title = gulu.Str.FromBytes(titleNode.Tokens)
 		}
-
-		hash := assetHashByLocalPath(dest, boxLocalPath, docDirLocalPath)
-		name, _ := util.LastID(dest)
-		asset := &Asset{
-			ID:      ast.NewNodeID(),
-			BlockID: parentBlock.ID,
-			RootID:  rootID,
-			Box:     boxID,
-			DocPath: p,
-			Path:    dest,
-			Name:    name,
-			Title:   title,
-			Hash:    hash,
+		dests := []string{"", treenode.ImageLivePhotoVideo(n)}
+		if destNode := n.ChildByType(ast.NodeLinkDest); destNode != nil {
+			dests[0] = destNode.TokensStr()
 		}
-		assets = append(assets, asset)
+		for i, dest := range dests {
+			if !util.IsAssetLinkDest([]byte(dest), false) {
+				continue
+			}
+			if idx := strings.Index(dest, "?"); idx > 0 {
+				dest = dest[:idx]
+			}
+			assetTitle := title
+			if i > 0 {
+				assetTitle = ""
+			}
+			hash := assetHashByLocalPath(dest, boxLocalPath, docDirLocalPath)
+			name, _ := util.LastID(dest)
+			assets = append(assets, &Asset{
+				ID:      ast.NewNodeID(),
+				BlockID: parentBlock.ID,
+				RootID:  rootID,
+				Box:     boxID,
+				DocPath: p,
+				Path:    dest,
+				Name:    name,
+				Title:   assetTitle,
+				Hash:    hash,
+			})
+		}
 		return
 	case ast.NodeTextMark:
 		typ := treenode.TypeAbbr(n.Type.String()) + " " + n.TextMarkType
@@ -905,8 +913,10 @@ func buildSpanFromNode(n *ast.Node, tree *parse.Tree, rootID, boxID, p string) (
 		}
 
 		if ast.NodeHTMLBlock == n.Type || ast.NodeIFrame == n.Type || ast.NodeWidget == n.Type || ast.NodeAudio == n.Type || ast.NodeVideo == n.Type {
-			b, attrs := buildBlockFromNode(n, tree)
-			blocks = append(blocks, b)
+			b, attrs := buildBlock(n, tree)
+			if b != nil {
+				blocks = append(blocks, b)
+			}
 			attributes = append(attributes, attrs...)
 		}
 
@@ -978,6 +988,10 @@ func BuildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block) {
 }
 
 func buildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block, attributes []*Attribute) {
+	return buildBlockFromNodeWithHeadingParent(n, tree, treenode.HeadingParent(n))
+}
+
+func buildBlockFromNodeWithHeadingParent(n *ast.Node, tree *parse.Tree, headingParent *ast.Node) (block *Block, attributes []*Attribute) {
 	boxID := tree.Box
 	p := tree.Path
 	rootID := tree.Root.ID
@@ -989,10 +1003,10 @@ func buildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block, attributes
 
 	var content, fcontent, markdown, parentID string
 	ialContent := treenode.IALStr(n)
-	hash := treenode.NodeHash(n, tree, luteEngine)
+	hash := treenode.NodeHashWithHeadingParent(n, tree, luteEngine, headingParent)
 	var length int
 	if ast.NodeDocument == n.Type {
-		content = n.IALAttr("title")
+		content = treenode.ReadDocumentTitle(n).Text
 		fcontent = content
 		length = utf8.RuneCountInString(fcontent)
 	} else if n.IsContainerBlock() {
@@ -1009,8 +1023,8 @@ func buildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block, attributes
 		fcontent = nodeStaticContent(fc, nil, true, false, true, true)
 
 		parentID = n.Parent.ID
-		if h := treenode.HeadingParent(n); nil != h { // 如果在标题块下方，则将标题块作为父节点
-			parentID = h.ID
+		if headingParent != nil { // 如果在标题块下方，则将标题块作为父节点
+			parentID = headingParent.ID
 		}
 		length = utf8.RuneCountInString(fcontent)
 	} else {
@@ -1021,8 +1035,8 @@ func buildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block, attributes
 		content = nodeStaticContent(n, nil, true, indexAssetPath.Load(), true, true)
 
 		parentID = n.Parent.ID
-		if h := treenode.HeadingParent(n); nil != h {
-			parentID = h.ID
+		if headingParent != nil {
+			parentID = headingParent.ID
 		}
 		length = utf8.RuneCountInString(content)
 	}
@@ -1061,6 +1075,10 @@ func buildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block, attributes
 		Updated:  n.IALAttr("updated"),
 	}
 
+	return block, buildNodeAttributes(n, tree)
+}
+
+func buildNodeAttributes(n *ast.Node, tree *parse.Tree) (attributes []*Attribute) {
 	attrs := parse.IAL2Map(n.KramdownIAL)
 	for attrName, attrVal := range attrs {
 		if !isAttr(attrName) {
@@ -1073,9 +1091,9 @@ func buildBlockFromNode(n *ast.Node, tree *parse.Tree) (block *Block, attributes
 			Value:   attrVal,
 			Type:    "b",
 			BlockID: n.ID,
-			RootID:  rootID,
-			Box:     boxID,
-			Path:    p,
+			RootID:  tree.Root.ID,
+			Box:     tree.Box,
+			Path:    tree.Path,
 		}
 		attributes = append(attributes, attr)
 	}
@@ -1165,7 +1183,12 @@ func deleteBlocksByIDs(tx *sql.Tx, ids []string) (err error) {
 		}
 		rowIDs = append(rowIDs, strconv.FormatInt(rowID, 10))
 	}
+	iterErr := rows.Err()
 	rows.Close()
+	if err = iterErr; err != nil {
+		logging.LogErrorf("iterate block rowIDs failed: %s", err)
+		return
+	}
 
 	if 1 > len(rowIDs) {
 		return
@@ -1502,7 +1525,8 @@ func cleanupInvalidRefs(database *sql.DB) (err error) {
 }
 
 func CloseDatabase() {
-	diagnostic := util.WatchOperationWithTiming("close databases", "close index queue")
+	clearFTSCountCache()
+	diagnostic := util.WatchOperation("close databases", "close index queue")
 	defer diagnostic.Finish()
 	closeIndexQueue()
 	// 退出时删除所有已打开的加密 db 文件：加密索引可由 box.Index() 全量重建，
@@ -1662,6 +1686,10 @@ func migrateBlockEmbeddingsSchema() {
 		}
 		existing[name] = true
 	}
+	if err = rows.Err(); err != nil {
+		logging.LogErrorf("iterate block_embeddings columns failed: %s", err)
+		return
+	}
 
 	// 表不存在（首次启动还没建）时 existing 为空，跳过；待 initDBTables 建表
 	if 0 == len(existing) {
@@ -1685,6 +1713,9 @@ func migrateBlockEmbeddingsSchema() {
 	addColumn("fail_count", addColumns[0])
 	addColumn("last_tried", addColumns[1])
 	addColumn("ignored_type", addColumns[2])
+	// Existing vectors have unknown provenance; preserve them without guessing
+	// a space or scheduling paid re-embedding. Users can rebuild explicitly.
+	addColumn("space", "ALTER TABLE block_embeddings ADD COLUMN space TEXT NOT NULL DEFAULT ''")
 }
 
 func beginTx() (tx *sql.Tx, err error) {
@@ -1721,20 +1752,6 @@ func beginHistoryTx() (tx *sql.Tx, err error) {
 	return
 }
 
-func commitHistoryTx(tx *sql.Tx) (err error) {
-	if nil == tx {
-		logging.LogErrorf("tx is nil")
-		return errors.New("tx is nil")
-	}
-
-	if err = tx.Commit(); err != nil {
-		logging.LogErrorf("commit tx failed: %s\n  %s", err, logging.ShortStack())
-	}
-
-	closeTxPreparedStmts(tx)
-	return
-}
-
 func beginAssetContentTx() (tx *sql.Tx, err error) {
 	if tx, err = assetContentDB.Begin(); err != nil {
 		logging.LogErrorf("begin asset content tx failed: %s\n  %s", err, logging.ShortStack())
@@ -1742,20 +1759,6 @@ func beginAssetContentTx() (tx *sql.Tx, err error) {
 			os.Exit(logging.ExitCodeUnavailableDatabase)
 		}
 	}
-	return
-}
-
-func commitAssetContentTx(tx *sql.Tx) (err error) {
-	if nil == tx {
-		logging.LogErrorf("tx is nil")
-		return errors.New("tx is nil")
-	}
-
-	if err = tx.Commit(); err != nil {
-		logging.LogErrorf("commit tx failed: %s\n  %s", err, logging.ShortStack())
-	}
-
-	closeTxPreparedStmts(tx)
 	return
 }
 
@@ -1921,7 +1924,6 @@ func closeDatabase() {
 	debug.FreeOSMemory()
 	db = nil
 	runtime.GC()
-	return
 }
 
 func SQLTemplateFuncs(templateFuncMap *template.FuncMap, boxIDs ...string) {
@@ -2155,6 +2157,9 @@ func initEncryptedDBTables(boxDB *sql.DB) (err error) {
 		return
 	}
 	if err = ensureDocumentPathIndexes(boxDB, false); err != nil {
+		return
+	}
+	if err = ensureAuxiliaryRootIndexes(boxDB); err != nil {
 		return
 	}
 	if err = ensureTagSpansIndex(boxDB); err != nil {

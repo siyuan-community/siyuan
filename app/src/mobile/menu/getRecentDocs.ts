@@ -1,3 +1,4 @@
+import {fileConfigApi} from "../../config/tabs/fileRuntime";
 import {fetchPost} from "../../util/fetch";
 import {getFileTreeIconHTML} from "../../emoji/fileTreeIcon";
 import {Constants} from "../../constants";
@@ -6,7 +7,7 @@ import {hasClosestByClassName} from "../../protyle/util/hasClosest";
 import {openModel} from "./model";
 import {openMobileFileById} from "../editor";
 import type {App} from "../../index";
-import {setStorageVal} from "../../protyle/util/compatibility";
+import {bindClearRecentDocs, clearRecentDocsButtonHTML} from "../../business/clearRecentDocs";
 
 interface IRecentDoc {
     rootID: string;
@@ -28,12 +29,14 @@ ${getFileTreeIconHTML(item.icon, "file", "b3-list-item__graphic", true)}
 };
 
 export const getRecentDocs = (app: App) => {
-    const sortBy = window.siyuan.storage[Constants.LOCAL_RECENT_DOCS].type as TRecentDocsSort;
+    const sortBy = window.siyuan.config.fileTree.recentDocsSort as TRecentDocsSort;
     fetchPost("/api/storage/getRecentDocs", {sortBy}, (response) => {
         let recentDocs = response.data as IRecentDoc[];
+        let active = true;
         openModel({
             title: window.siyuan.languages.recentDocs,
             icon: "iconRecentDocs",
+            destroyCallback: () => { active = false; },
             html: `<div class="fn__flex-column" style="height: 100%">
     <div class="toolbar toolbar--border" style="padding: 8px">
         <input placeholder="${window.siyuan.languages.searchPlaceholder}" class="b3-text-field fn__flex-1" autocomplete="off" autocorrect="off" spellcheck="false">
@@ -45,6 +48,8 @@ export const getRecentDocs = (app: App) => {
             <option value="openAt">${window.siyuan.languages.recentOpened}</option>
             <option value="closedAt">${window.siyuan.languages.recentClosed}</option>
         </select>
+        <span class="fn__space"></span>
+        ${clearRecentDocsButtonHTML()}
     </div>
     <ul class="b3-list b3-list--mobile fn__flex-1"></ul>
 </div>`,
@@ -62,18 +67,33 @@ export const getRecentDocs = (app: App) => {
                     }
                 });
                 let sortRequestId = 0;
-                sortSelect.addEventListener("change", () => {
+                const isActive = () => active && listElement.isConnected;
+                const loadRecentDocs = () => {
                     const newSortBy = sortSelect.value as TRecentDocsSort;
                     const requestId = ++sortRequestId;
                     fetchPost("/api/storage/getRecentDocs", {sortBy: newSortBy}, (newResponse) => {
-                        if (requestId !== sortRequestId) {
+                        if (requestId !== sortRequestId || !isActive()) {
                             return;
                         }
                         recentDocs = newResponse.data as IRecentDoc[];
                         renderRecentDocs(recentDocs, listElement, searchElement.value);
                     });
-                    window.siyuan.storage[Constants.LOCAL_RECENT_DOCS].type = newSortBy;
-                    setStorageVal(Constants.LOCAL_RECENT_DOCS, window.siyuan.storage[Constants.LOCAL_RECENT_DOCS]);
+                };
+                const updateClearButton = bindClearRecentDocs(element.querySelector('[data-action="clear-recent-docs"]'),
+                    () => sortSelect.value, isActive, () => {
+                        if (!["created", "updated"].includes(sortSelect.value)) {
+                            recentDocs = [];
+                            renderRecentDocs(recentDocs, listElement, searchElement.value);
+                        }
+                        loadRecentDocs();
+                    });
+                sortSelect.addEventListener("change", () => {
+                    const newSortBy = sortSelect.value as TRecentDocsSort;
+                    updateClearButton();
+                    loadRecentDocs();
+                    if (!window.siyuan.config.readonly && !window.siyuan.isPublish) {
+                        void fileConfigApi.patch("recentDocsSort", newSortBy);
+                    }
                 });
                 listElement.addEventListener("click", (event) => {
                     const liElement = hasClosestByClassName(event.target as HTMLElement, "b3-list-item");

@@ -1,24 +1,14 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package abort
 
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/siyuan-community/siyuan/kernel/plugin/gojaext"
 
 	"github.com/dop251/goja"
 	"github.com/samber/lo"
@@ -37,12 +27,12 @@ func (c *controllerState) Keys() []string              { return nil }
 
 // controllerStateType 用于在 Object.Export() 前用 Object.ExportType() 做判定，原因见 signalStateType
 // 的注释：AbortController.prototype 本身作为 receiver 时，直接 Export() 会因 signal 访问器无限递归。
-var controllerStateType = reflect.TypeOf((*controllerState)(nil))
+var controllerStateType = reflect.TypeFor[*controllerState]()
 
 // Enable 把 AbortController 与 AbortSignal 挂到 runtime 的 globalThis，调用方式与
 // url、buffer、console、encoding 一致，失败时 panic。
 //
-// 与规范的已知差异（与本沙箱其它构造函数一致）：实例不是 AbortController/AbortSignal 的真正
+// 与规范的已知差异（与本沙箱其他构造函数一致）：实例不是 AbortController/AbortSignal 的真正
 // ECMAScript 类，不用 new 直接调用 AbortController 也不会抛错（goja 的原生构造函数无法区分两种调用）；
 // AbortSignal 与规范一致，无论是否使用 new 都抛出 TypeError: Illegal constructor。
 // addEventListener 的 options 只支持 {once}，capture/passive/signal 会被静默忽略。
@@ -107,10 +97,7 @@ func newSignalConstructor(rt *goja.Runtime, prototype *goja.Object) (*goja.Objec
 
 	// AbortSignal.timeout(milliseconds) -> 到时后以 TimeoutError 中止的新信号。
 	if err := ctor.Set("timeout", rt.ToValue(func(call goja.FunctionCall) goja.Value {
-		milliseconds := call.Argument(0).ToInteger()
-		if milliseconds < 0 {
-			milliseconds = 0
-		}
+		milliseconds := max(call.Argument(0).ToInteger(), 0)
 
 		state := &SignalState{}
 		object := newSignalObject(rt, prototype, state)
@@ -158,14 +145,14 @@ func newSignalConstructor(rt *goja.Runtime, prototype *goja.Object) (*goja.Objec
 
 // signalArrayOf 读取 AbortSignal.any() 的 signals 参数：接受数组，数组之外的可迭代对象未支持。
 func signalArrayOf(rt *goja.Runtime, value goja.Value) []*SignalState {
-	if !isJsArray(rt, value) {
+	if !gojaext.IsArray(rt, value) {
 		panic(rt.NewTypeError("signals must be an array of AbortSignal"))
 	}
 	object := value.ToObject(rt)
 	length := int64(object.Get("length").ToInteger())
 
 	states := make([]*SignalState, 0, length)
-	for i := int64(0); i < length; i++ {
+	for i := range length {
 		state, err := SignalOf(rt, object.Get(fmt.Sprint(i)), fmt.Sprintf("signals[%d]", i))
 		if err != nil {
 			panic(rt.NewTypeError(err.Error()))
@@ -244,12 +231,12 @@ func newSignalPrototype(rt *goja.Runtime) (*goja.Object, error) {
 			return goja.Undefined()
 		}
 		callback := call.Argument(1)
-		if !isJsValueNotNull(callback) {
+		if !gojaext.IsValueNotNull(callback) {
 			return goja.Undefined()
 		}
 
 		once := false
-		if options := call.Argument(2); isJsValueNotNull(options) {
+		if options := call.Argument(2); gojaext.IsValueNotNull(options) {
 			if optionsObj := options.ToObject(rt); optionsObj != nil {
 				if value := dictMember(optionsObj, "once"); value != nil {
 					once = value.ToBoolean()
@@ -290,7 +277,7 @@ func newSignalPrototype(rt *goja.Runtime) (*goja.Object, error) {
 	if err := prototype.Set("dispatchEvent", rt.ToValue(func(call goja.FunctionCall) goja.Value {
 		s := self(call, "dispatchEvent")
 		eventType := ""
-		if event := call.Argument(0); isJsValueNotNull(event) {
+		if event := call.Argument(0); gojaext.IsValueNotNull(event) {
 			if eventObj := event.ToObject(rt); eventObj != nil {
 				if value := dictMember(eventObj, "type"); value != nil {
 					eventType = value.String()
@@ -332,7 +319,7 @@ func newControllerConstructor(rt *goja.Runtime, prototype *goja.Object, signalCt
 }
 
 // newControllerPrototype 构造 AbortController.prototype：signal 访问器与 abort 方法。
-func newControllerPrototype(rt *goja.Runtime, signalCtor *goja.Object) (*goja.Object, error) {
+func newControllerPrototype(rt *goja.Runtime, _ *goja.Object) (*goja.Object, error) {
 	prototype := rt.NewObject()
 
 	self := func(call goja.FunctionCall, method string) *controllerState {

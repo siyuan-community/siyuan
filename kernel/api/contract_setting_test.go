@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -29,7 +33,7 @@ func compareSettingConfig[Request settingConfigInput, Data, Config any](t *testi
 			context, _ := gin.CreateTestContext(httptest.NewRecorder())
 			context.Request = httptest.NewRequest("POST", endpoint.Definition().Path, strings.NewReader(body))
 			result := gulu.Ret.NewResult()
-			fields, ok := util.JsonArg(context, result)
+			fields, ok := legacyJSONArg(context, result)
 			if !ok {
 				t.Fatal(result.Msg)
 			}
@@ -84,6 +88,22 @@ func TestAPIContractSettingConfigCompatibility(t *testing.T) {
 	compareSettingConfig(t, apicontract.SetAppearance, func() *conf.Appearance { return &conf.Appearance{} }, append(common, `{"bodyGradient":null}`, `{"BodyGradient":null,"globalFontFamilies":[]}`, `{"statusBar":false}`, `{"notifications":{"selectAllTip":null}}`))
 	compareSettingConfig(t, apicontract.SetEntryVisibility, func() *conf.EntryVisibility { return &conf.EntryVisibility{} }, append(common, `{"profiles":[null,{"orders":{"menu":[null,"id"]}}]}`))
 	compareSettingConfig(t, apicontract.SetPublish, func() *conf.Publish { return &conf.Publish{} }, append(common, `{"auth":null,"port":65535.0}`, `{"port":65536}`, `{"auth":{"accounts":[null]}}`))
+}
+
+func TestAPIContractSettingPreferencesCompatibility(t *testing.T) {
+	compareSettingConfig(t, apicontract.SetAI, func() *conf.AI { return &conf.AI{} }, []string{
+		`{}`, `{"agent":{"streamingMarkdown":true}}`, `{"agent":{"streamingMarkdown":false}}`,
+		`{"agent":{"streamingMarkdown":null}}`, `{"agent":{"streamingMarkdown":"true"}}`,
+	})
+	compareSettingConfig(t, apicontract.SetAppearance, conf.NewAppearance, []string{
+		`{}`, `{"compactMode":true,"menuMouseScroll":false,"outlineKeepCurrentExpand":true}`,
+		`{"pdfTheme":{"light":"dark","dark":"light","annoColor":"red"},"mobileBars":{"autoHide":false}}`,
+		`{"pdfTheme":null,"mobileBars":null}`, `{"mobileBars":{"sidebarSwipe":null,"sidebarButtons":false}}`,
+		`{"compactMode":"true"}`, `{"pdfTheme":{"light":false}}`, `{"mobileBars":{"autoHide":1}}`,
+	})
+	compareSettingConfig(t, apicontract.SetFiletree, conf.NewFileTree, []string{
+		`{}`, `{"recentDocsSort":"updated"}`, `{"recentDocsSort":null}`, `{"recentDocsSort":true}`,
+	})
 }
 
 func TestAPIContractSettingMindmapCompatibility(t *testing.T) {
@@ -170,7 +190,7 @@ func TestAPIContractSettingParserCompatibility(t *testing.T) {
 		context, _ := gin.CreateTestContext(httptest.NewRecorder())
 		context.Request = httptest.NewRequest("POST", "/api/setting/setEditor", strings.NewReader(body))
 		result := gulu.Ret.NewResult()
-		_, ok := util.JsonArg(context, result)
+		_, ok := legacyJSONArg(context, result)
 		_, err := apicontract.SetEditor.Decode(strings.NewReader(body))
 		if ok != (err == nil) || err != nil && err.Error() != result.Msg {
 			t.Fatalf("parser changed for %s: before=%s after=%v", body, result.Msg, err)
@@ -245,9 +265,9 @@ func fillSettingPayload(value reflect.Value) {
 		value.Set(reflect.New(value.Type().Elem()))
 		fillSettingPayload(value.Elem())
 	case reflect.Struct:
-		for i := 0; i < value.NumField(); i++ {
-			if value.Field(i).CanSet() {
-				fillSettingPayload(value.Field(i))
+		for _, field := range value.Fields() {
+			if field.CanSet() {
+				fillSettingPayload(field)
 			}
 		}
 		if value.Type() == reflect.TypeFor[conf.EntryVisibilityProfile]() {

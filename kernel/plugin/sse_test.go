@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package plugin
 
 import (
@@ -134,7 +138,7 @@ func TestSSESendBurstPreservesEvents(t *testing.T) {
 	sseTestWait(t, done, "SSE request completion")
 	sseTestWait(t, closed, "onclose")
 	var expected strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&expected, "id:%d\nevent:item\nretry:1000\ndata:value-%d\n\n", i, i)
 	}
 	if got := recorder.Body.String(); got != expected.String() {

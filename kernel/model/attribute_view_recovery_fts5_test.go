@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -18,6 +22,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/filelock"
 )
 
 func TestAttributeViewDocumentDeletionCleansRelations(t *testing.T) {
@@ -94,7 +99,7 @@ func TestAttributeViewMissingDatabaseHistoryRecovery(t *testing.T) {
 			if encrypted {
 				boxID = ast.NewNodeID()
 				markRuntimeEncryptedBox(boxID)
-				setDEKForTest(boxID, bytes.Repeat([]byte{0x73}, 32))
+				prepareUnlockedEncryptedBoxTest(t, boxID, bytes.Repeat([]byte{0x73}, 32))
 				av.SetAVBoxID(before.ID, boxID)
 				t.Cleanup(func() {
 					av.SetAVBoxID(before.ID, "")
@@ -160,11 +165,13 @@ func TestAttributeViewNotebookHistoryRestoresBindings(t *testing.T) {
 	for _, scenario := range []struct {
 		name            string
 		cleanup, oneWay bool
+		publishFailure  bool
 	}{
-		{"bound rows", false, false},
-		{"cleaned embedded database", true, false},
-		{"one-way relations", false, true},
-		{"cleaned embedded one-way relations", true, true},
+		{"bound rows", false, false, false},
+		{"cleaned embedded database", true, false, false},
+		{"one-way relations", false, true, false},
+		{"cleaned embedded one-way relations", true, true, false},
+		{"publication failure", false, true, true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			cleanup := scenario.cleanup
@@ -231,6 +238,25 @@ func TestAttributeViewNotebookHistoryRestoresBindings(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if scenario.publishFailure {
+				current := readAttributeViewItemsTest(t, before.ID)
+				currentDest := readAttributeViewItemsTest(t, dest.ID)
+				destination := filepath.Join(util.DataDir, fixture.box.ID)
+				err = rollbackNotebookHistory(relative, func(from, staging string) error {
+					if err := filelock.CopyNewtimes(from, staging); err != nil {
+						return err
+					}
+					return os.MkdirAll(destination, 0755)
+				})
+				if err == nil {
+					t.Fatal("notebook publication collision was accepted")
+				}
+				assertAttributeViewFieldsTest(t, current, readAttributeViewItemsTest(t, before.ID))
+				assertAttributeViewFieldsTest(t, currentDest, readAttributeViewItemsTest(t, dest.ID))
+				if err = os.Remove(destination); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err = RollbackNotebookHistory(relative); err != nil {
 				t.Fatal(err)
 			}
@@ -260,7 +286,7 @@ func TestDeletedFlashcardBlockReplayRetainsDeckAttribute(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := GlobalUndoLog.Peek(fixture.sourceID)
-	for cycle := 0; cycle < 2; cycle++ {
+	for range 2 {
 		replayAttributeViewFieldsTest(t, entry.UndoOperationsForReplay())
 		restored, err := LoadTreeByBlockID(fixture.sourceID)
 		if err != nil {
@@ -308,7 +334,7 @@ func TestFlashcardCopyRedoPreservesNormalizedAttributes(t *testing.T) {
 	}
 	check()
 	entry := GlobalUndoLog.Peek(fixture.sourceID)
-	for cycle := 0; cycle < 2; cycle++ {
+	for range 2 {
 		replayAttributeViewFieldsTest(t, entry.UndoOperationsForReplay())
 		replayAttributeViewFieldsTest(t, entry.DoOperationsForReplay())
 		check()
@@ -433,7 +459,7 @@ func TestAttributeViewBoundHistoryOneWayEncrypted(t *testing.T) {
 	dest, keyID, itemID := addDeletedBlockOneWayTestRelation(t, source)
 	boxID := ast.NewNodeID()
 	markRuntimeEncryptedBox(boxID)
-	setDEKForTest(boxID, bytes.Repeat([]byte{0x79}, 32))
+	prepareUnlockedEncryptedBoxTest(t, boxID, bytes.Repeat([]byte{0x79}, 32))
 	t.Cleanup(func() {
 		for _, view := range []*av.AttributeView{source, dest} {
 			av.SetAVBoxID(view.ID, "")

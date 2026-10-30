@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package task
 
 import (
@@ -99,7 +103,7 @@ func TestTimedOutTaskRemainsTrackedUntilHandlerCompletes(t *testing.T) {
 func TestConcurrentTaskAdmissionIsAtomic(t *testing.T) {
 	isolateTaskQueue(t)
 	var wait sync.WaitGroup
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		wait.Go(func() { AppendTask(OCRImage, func() {}) })
 	}
 	wait.Wait()

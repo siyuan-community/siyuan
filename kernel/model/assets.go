@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -107,7 +95,7 @@ func readAssetBytesInBox(boxID, relativePath string, download bool) ([]byte, err
 	var readErr error
 	if heif.IsPath(relativePath) {
 		limit := int64(heif.MaxInputBytes)
-		if effectiveBoxID := ExtractBoxIDFromAssetsPath(absPath); effectiveBoxID != "" && IsEncryptedBox(effectiveBoxID) {
+		if effectiveBoxID := util.BoxIDFromDataPath(absPath); effectiveBoxID != "" && IsEncryptedBox(effectiveBoxID) {
 			limit += 2 * 1024 * 1024
 		}
 		data, readErr = heif.ReadFileLimited(absPath, limit)
@@ -118,7 +106,7 @@ func readAssetBytesInBox(boxID, relativePath string, download bool) ([]byte, err
 		return nil, readErr
 	}
 	// 从解析到的绝对路径反推有效 boxID，不轻信传入参数（路径可能通过 ?box= 指定了不同 box）
-	effectiveBoxID := ExtractBoxIDFromAssetsPath(absPath)
+	effectiveBoxID := util.BoxIDFromDataPath(absPath)
 	if effectiveBoxID != "" && IsEncryptedBox(effectiveBoxID) {
 		HoldBoxReadLock(effectiveBoxID)
 		dek, dekErr := GetDEKIfUnlocked(effectiveBoxID)
@@ -161,14 +149,23 @@ func GetAssetPathByHash(hash, boxID string) string {
 }
 
 func HandleAssetsRemoveEvent(assetAbsPath string) {
-	if !filelock.IsExist(assetAbsPath) {
+	relativePath, err := filepath.Rel(util.DataDir, assetAbsPath)
+	if err != nil {
 		return
 	}
-	if gulu.File.IsDir(assetAbsPath) {
+	relativePath = filepath.ToSlash(relativePath)
+	if _, _, ok := AssetPathFromDataRelativePath(relativePath); !ok {
 		return
 	}
-	// 跳过隐藏文件，如 WPS 的临时文件、Mac 的 .DS_Store
-	if filelock.IsHidden(assetAbsPath) {
+	info, err := os.Stat(assetAbsPath)
+	if err != nil && !os.IsNotExist(err) {
+		return
+	}
+	if info != nil && (info.IsDir() || filelock.IsHidden(assetAbsPath)) {
+		return
+	}
+	// 删除后无法读取文件属性，仍按文件名过滤 WPS 临时文件和 .DS_Store 等隐藏文件。
+	if strings.HasPrefix(filepath.Base(assetAbsPath), ".") {
 		return
 	}
 	if util.IsOfficeTempFile(assetAbsPath) {
@@ -187,12 +184,7 @@ func HandleAssetsRemoveEvent(assetAbsPath string) {
 	removeIndexAssetContent(assetAbsPath)
 	removeAssetThumbnail(assetAbsPath)
 
-	hash, err := util.GetEtag(assetAbsPath)
-	if nil != err {
-		logging.LogErrorf("calc asset [%s] hash failed: %s", assetAbsPath, err)
-	} else {
-		cache.RemoveAssetHash(hash)
-	}
+	cache.RemoveAssetHashByPath(relativePath)
 }
 
 func HandleAssetsChangeEvent(assetAbsPath string) {
@@ -669,8 +661,8 @@ func NetAssets2LocalAssets(rootID string, onlyImg bool, originalURL string) (err
 }
 
 func netAssets2LocalAssets0(tree *parse.Tree, onlyImg bool, originalURL string, assetsDirPath string, needWriteTree bool) (err error) {
-	finishTabTitles := treenode.MaterializeTabTitles(tree.Root)
-	defer finishTabTitles()
+	finishInlineTitles := treenode.MaterializeInlineTitles(tree.Root)
+	defer finishInlineTitles()
 	var files int
 	var size int64
 	msgId := gulu.Rand.String(7)
@@ -758,9 +750,7 @@ func netAssets2LocalAssets0(tree *parse.Tree, onlyImg bool, originalURL string, 
 				u := dest
 				if strings.Contains(u, "qpic.cn") {
 					// 改进 `网络图片转换为本地图片` 微信图片拉取 https://github.com/siyuan-note/siyuan/issues/5052
-					if strings.Contains(u, "http://") {
-						u = strings.Replace(u, "http://", "https://", 1)
-					}
+					u = strings.Replace(u, "http://", "https://", 1)
 
 					// 改进 `网络图片转换为本地图片` 微信图片拉取 https://github.com/siyuan-note/siyuan/issues/6431
 					// 下面这部分需要注释掉，否则会导致响应 400
@@ -880,7 +870,7 @@ func netAssets2LocalAssets0(tree *parse.Tree, onlyImg bool, originalURL string, 
 
 	util.PushClearMsg(msgId)
 
-	finishTabTitles()
+	finishInlineTitles()
 	if needWriteTree {
 		if 0 < files {
 			msgId = util.PushMsg(Conf.Language(113), 7000)
@@ -1087,10 +1077,7 @@ func SearchAssetsByNamePage(keyword string, exts []string, match *AssetSearchMat
 	if start >= len(ret) {
 		return []*cache.Asset{}, nil
 	}
-	end := start + pageSize
-	if end > len(ret) {
-		end = len(ret)
-	}
+	end := min(start+pageSize, len(ret))
 	ret = ret[start:end]
 	// 仅处理当前页的高亮内容，避免对其他页重复渲染。
 	highlightKeyword := strings.Join(keywords, search.TermSep)
@@ -1172,8 +1159,8 @@ func ResolveDataAssetPath(assetPath string) (relativePath, absPath string, err e
 	}
 	if assetDirIndex > 0 {
 		notebookRoot := filepath.Join(util.DataDir, parts[0])
-		resolvedDataDir, dataEvalErr := ResolveRealPath(util.DataDir)
-		resolvedNotebookRoot, notebookEvalErr := ResolveRealPath(notebookRoot)
+		resolvedDataDir, dataEvalErr := util.ResolveRealPath(util.DataDir)
+		resolvedNotebookRoot, notebookEvalErr := util.ResolveRealPath(notebookRoot)
 		if dataEvalErr != nil || notebookEvalErr != nil ||
 			!gulu.File.IsSubPath(resolvedDataDir, resolvedNotebookRoot) ||
 			!gulu.File.IsSubPath(resolvedNotebookRoot, resolvedRoot) {
@@ -1625,6 +1612,11 @@ func uploadAssets2CloudWithApp(assetPaths []string, bizType string, ignorePushMs
 
 func RemoveUnusedAssets() (ret []string, err error) {
 	ret = []string{}
+	verify, release, err := beginOrdinaryAssetCleanup()
+	if err != nil {
+		return
+	}
+	defer release()
 	unusedAssets, err := UnusedAssets(false)
 	if err != nil {
 		return
@@ -1668,39 +1660,20 @@ func RemoveUnusedAssets() (ret []string, err error) {
 
 			hash, _ := util.GetEtag(p)
 			hashes = append(hashes, hash)
-			cache.RemoveAssetHash(hash)
 		}
 	}
 
+	ret, size, err = removeOrdinaryUnusedAssets(unusedAssets, historyDir, verify, filelock.RemoveWithoutFatal)
+	if err != nil {
+		return
+	}
 	sql.BatchRemoveAssetsQueue(hashes)
-
-	for _, unusedAsset := range unusedAssets {
-		p := unusedAsset.Item
-		absPath := filepath.Join(util.DataDir, p)
-		if filelock.IsExist(absPath) {
-			info, statErr := os.Stat(absPath)
-			if statErr == nil {
-				if info.IsDir() {
-					dirSize, _ := util.SizeOfDirectory(absPath)
-					size += dirSize
-				} else {
-					size += info.Size()
-				}
-			}
-
-			if util.IsMobileContainer() {
-				HandleAssetsRemoveEvent(absPath)
-			}
-
-			if removeErr := filelock.RemoveWithoutFatal(absPath); removeErr != nil {
-				logging.LogErrorf("remove unused asset [%s] failed: %s", absPath, removeErr)
-				err = removeErr
-				return
-			}
-
-			util.RemoveAssetText(p)
+	for _, item := range unusedAssets {
+		cache.RemoveAssetHashByPath(item.Item)
+		util.RemoveAssetText(item.Item)
+		if util.IsMobileContainer() {
+			HandleAssetsRemoveEvent(filepath.Join(util.DataDir, item.Item))
 		}
-		ret = append(ret, absPath)
 	}
 	if 0 < len(ret) {
 		IncSync()
@@ -1712,6 +1685,11 @@ func RemoveUnusedAssets() (ret []string, err error) {
 }
 
 func RemoveUnusedAsset(p string) (ret string, err error) {
+	verify, release, err := beginOrdinaryAssetCleanup()
+	if err != nil {
+		return
+	}
+	defer release()
 	relativePath, absPath, err := ResolveUnusedDataAssetPath(p)
 	if err != nil {
 		return
@@ -1732,20 +1710,18 @@ func RemoveUnusedAsset(p string) (ret string, err error) {
 	}
 
 	hash, _ := util.GetEtag(absPath)
-	sql.BatchRemoveAssetsQueue([]string{hash})
-	cache.RemoveAssetHash(hash)
-
-	if util.IsMobileContainer() {
-		HandleAssetsRemoveEvent(absPath)
-	}
-
-	if err = filelock.RemoveWithoutFatal(absPath); err != nil {
+	if _, _, err = removeOrdinaryUnusedAssets([]*UnusedItem{{Item: relativePath}}, historyDir, verify, filelock.RemoveWithoutFatal); err != nil {
 		logging.LogErrorf("remove unused asset [%s] failed: %s", absPath, err)
 		util.PushErrMsg(fmt.Sprintf("%s", err), 7000)
 		err = fmt.Errorf("remove unused asset [%s] failed: %w", absPath, err)
 		return
 	}
 	ret = absPath
+	sql.BatchRemoveAssetsQueue([]string{hash})
+	cache.RemoveAssetHashByPath(relativePath)
+	if util.IsMobileContainer() {
+		HandleAssetsRemoveEvent(absPath)
+	}
 
 	util.RemoveAssetText(relativePath)
 
@@ -1810,30 +1786,24 @@ func RenameAsset(oldPath, newName string) (newPath string, err error) {
 		return
 	}
 	newAbsPath := filepath.Join(filepath.Dir(oldAbsPath), newName)
-	filelock.Lock(oldAbsPath)
-	if err = os.Rename(oldAbsPath, newAbsPath); err != nil {
-		if err = gulu.File.Copy(oldAbsPath, newAbsPath); err != nil {
-			filelock.Unlock(oldAbsPath)
-			logging.LogErrorf("copy asset [%s] failed: %s", oldAbsPath, err)
-			return
-		}
+	// Keep both paths readable until all references have been rewritten. On a
+	// partial failure or restart, each committed reference still has its file.
+	if err = copyPromotedAsset(oldAbsPath, newAbsPath); err != nil {
+		return
 	}
-	filelock.Unlock(oldAbsPath)
 
 	oldSya := oldAbsPath + ".sya"
-	filelock.Lock(oldSya)
-	if gulu.File.IsExist(oldSya) {
+	hasSya := false
+	if _, statErr := os.Stat(oldSya); statErr == nil {
 		// Rename the .sya annotation file when renaming a PDF asset https://github.com/siyuan-note/siyuan/issues/9390
-		newSya := newAbsPath + ".sya"
-		if err = os.Rename(oldSya, newSya); err != nil {
-			if err = gulu.File.Copy(oldSya, newSya); err != nil {
-				filelock.Unlock(oldSya)
-				logging.LogErrorf("copy PDF annotation [%s] failed: %s", oldPath+".sya", err)
-				return
-			}
+		if err = copyPromotedAsset(oldSya, newAbsPath+".sya"); err != nil {
+			return
 		}
+		hasSya = true
+	} else if !os.IsNotExist(statErr) {
+		err = statErr
+		return
 	}
-	filelock.Unlock(oldSya)
 
 	oldName := path.Base(oldCleanPath)
 	oldNameBytes := []byte(oldName)
@@ -1890,7 +1860,7 @@ func RenameAsset(oldPath, newName string) (newPath string, err error) {
 				treenode.UpsertBlockTree(tree)
 				sql.UpsertTreeQueue(tree)
 
-				util.PushEndlessProgress(fmt.Sprintf(Conf.Language(111), util.EscapeHTML(tree.Root.IALAttr("title"))))
+				util.PushEndlessProgress(fmt.Sprintf(Conf.Language(111), util.EscapeHTML(treenode.ReadDocumentTitle(tree.Root).Text)))
 			}
 		}
 	}
@@ -1925,6 +1895,15 @@ func RenameAsset(oldPath, newName string) (newPath string, err error) {
 	if ocrText := util.GetAssetText(oldCleanPath); "" != ocrText {
 		// 图片重命名后 ocr-texts.json 需要更新 https://github.com/siyuan-note/siyuan/issues/12974
 		util.SetAssetText(newPath, ocrText)
+	}
+
+	if hasSya {
+		if err = filelock.RemoveWithoutFatal(oldSya); err != nil {
+			return
+		}
+	}
+	if err = filelock.RemoveWithoutFatal(oldAbsPath); err != nil {
+		return
 	}
 
 	IncSync()
@@ -2065,7 +2044,7 @@ func UnusedAssets(sorted bool) (ret []*UnusedItem, err error) {
 	// 排除加密笔记本的资源：加密笔记本锁定时 loadTree 失败会误判引用关系，
 	// 且加密笔记本是孤岛，资源不参与全局未引用清理
 	for dest, absPath := range assetsPathMap {
-		if boxID := ExtractBoxIDFromAssetsPath(absPath); boxID != "" && IsEncryptedBox(boxID) {
+		if boxID := util.BoxIDFromDataPath(absPath); boxID != "" && IsEncryptedBox(boxID) {
 			delete(assetsPathMap, dest)
 		}
 	}
@@ -2323,32 +2302,48 @@ func unusedAssetRelativePath(dataAssetsAbsPath, assetAbsPath string) (string, bo
 	return "", false
 }
 
-func MissingAssets() (ret []*UnusedItem) {
-	defer logging.Recover()
+func MissingAssets() (ret []*UnusedItem, err error) {
+	return missingAssets(allAssetAbsPaths, ListNotebooks)
+}
+
+func missingAssets(assetPaths func() (map[string]string, error), notebooks func() ([]*Box, error)) (ret []*UnusedItem, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			ret = nil
+			err = fmt.Errorf("scan missing asset references failed: %v", recovered)
+			logging.LogErrorf("%s", err)
+		}
+	}()
 	ret = []*UnusedItem{}
 
-	assetsPathMap, err := allAssetAbsPaths()
+	assetsPathMap, err := assetPaths()
 	if err != nil {
 		return
 	}
-	notebooks, err := ListNotebooks()
+	boxes, err := notebooks()
 	if err != nil {
 		return
 	}
 	luteEngine := util.NewLute()
 	referenceBlockIDs := map[missingAssetReference]map[string]bool{}
-	for _, notebook := range notebooks {
+	var skippedErr error
+	for _, notebook := range boxes {
 		if notebook.Closed {
 			continue
 		}
 		encrypted := IsEncryptedBox(notebook.ID)
 
-		pages := pagedPaths(filepath.Join(util.DataDir, notebook.ID), 32)
+		pages, walkErr := pagedPathsWithError(filepath.Join(util.DataDir, notebook.ID), 32)
+		if walkErr != nil {
+			return nil, fmt.Errorf("scan missing asset references failed: %w", walkErr)
+		}
 		for _, paths := range pages {
 			var trees []*parse.Tree
 			for _, localPath := range paths {
 				tree, loadTreeErr := loadTree(localPath, luteEngine)
 				if nil != loadTreeErr {
+					// 保留逐篇跳过的行为，但不能将不完整的扫描报告为成功。
+					skippedErr = errors.Join(skippedErr, fmt.Errorf("read asset references [%s] failed: %w", localPath, loadTreeErr))
 					continue
 				}
 				trees = append(trees, tree)
@@ -2378,7 +2373,10 @@ func MissingAssets() (ret []*UnusedItem) {
 		}
 	}
 
-	return missingAssetItems(referenceBlockIDs, assetsPathMap)
+	if skippedErr != nil {
+		return missingAssetItems(referenceBlockIDs, assetsPathMap), fmt.Errorf("missing asset scan incomplete: %w", skippedErr)
+	}
+	return missingAssetItems(referenceBlockIDs, assetsPathMap), nil
 }
 
 func missingAssetItems(referenceBlockIDs map[missingAssetReference]map[string]bool, assetsPathMap map[string]string) (ret []*UnusedItem) {
@@ -2531,7 +2529,7 @@ func assetLinkDestBlockID(node *ast.Node) string {
 }
 
 func getAssetLinkDestsByNode(node *ast.Node, includeServePath bool, normalize ...func(string) string) []string {
-	if !node.IsBlock() && ast.NodeLinkDest != node.Type && ast.NodeHTMLBlock != node.Type && ast.NodeInlineHTML != node.Type &&
+	if !node.IsBlock() && ast.NodeImage != node.Type && ast.NodeLinkDest != node.Type && ast.NodeHTMLBlock != node.Type && ast.NodeInlineHTML != node.Type &&
 		ast.NodeIFrame != node.Type && ast.NodeWidget != node.Type && ast.NodeAudio != node.Type && ast.NodeVideo != node.Type &&
 		ast.NodeAttributeView != node.Type && ast.NodeFileAnnotationRefID != node.Type && !node.IsTextMarkType("a") &&
 		!node.IsTextMarkType("file-annotation-ref") {
@@ -2555,7 +2553,7 @@ func emojisInTree(tree *parse.Tree) (ret []string) {
 		}
 	}
 
-	treenode.WalkWithTabTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithInlineTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
 		}
@@ -2619,19 +2617,33 @@ func getAssetsLinkDestsWithAttributeViewItemFilter(
 	itemFilter attributeViewItemFilter,
 	normalize ...func(string) string,
 ) (ret []string) {
+	return getAssetsLinkDestsWithOptions(node, includeServePath, itemFilter, assetLinkScanOptions{resolveAttributeViews: true}, normalize...)
+}
+
+type assetLinkScanOptions struct {
+	resolveAttributeViews bool
+	expandAssetLists      bool
+}
+
+// getAssetsLinkDestsWithOptions 控制数据库加载与资源列表展开；保守展开仅用于已有完整资源清单的扫描。
+func getAssetsLinkDestsWithOptions(
+	node *ast.Node, includeServePath bool, itemFilter attributeViewItemFilter, options assetLinkScanOptions,
+	normalize ...func(string) string,
+) (ret []string) {
 	ret = []string{}
-	treenode.WalkWithTabTitles(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithInlineTitles(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+		if entering {
+			if dest := normalizeScannedAsset(treenode.ImageLivePhotoVideo(n), normalize); dest != "" && util.IsAssetLinkDest([]byte(dest), includeServePath) {
+				ret = append(ret, dest)
+			}
+		}
 		if n.IsBlock() {
 			// 以 custom-data-assets 开头的块属性值可能是多个资源文件链接，需要计入
 			// Ignore assets associated with the `custom-data-assets` block attribute when cleaning unreferenced assets https://github.com/siyuan-note/siyuan/issues/12574
 			for _, kv := range n.KramdownIAL {
 				k := kv[0]
 				if strings.HasPrefix(k, "custom-data-assets") {
-					dest := normalizeScannedAsset(kv[1], normalize)
-					if "" == dest || !util.IsAssetLinkDest([]byte(dest), includeServePath) {
-						continue
-					}
-					ret = append(ret, dest)
+					ret = append(ret, assetListLinkDests(kv[1], includeServePath, options.expandAssetLists, normalize...)...)
 				}
 			}
 		}
@@ -2669,6 +2681,9 @@ func getAssetsLinkDestsWithAttributeViewItemFilter(
 				ret = append(ret, dest)
 			}
 		} else if ast.NodeAttributeView == n.Type {
+			if !options.resolveAttributeViews {
+				return ast.WalkContinue
+			}
 			attrView, _ := av.ParseAttributeView(n.AttributeViewID)
 			if nil == attrView {
 				return ast.WalkContinue
@@ -2682,13 +2697,9 @@ func getAssetsLinkDestsWithAttributeViewItemFilter(
 					// 兼容两种属性名 custom-data-assets 和 data-assets https://github.com/siyuan-note/siyuan/issues/4122#issuecomment-1154796568
 					dataAssets = n.IALAttr("data-assets")
 				}
-				dataAssets = normalizeScannedAsset(dataAssets, normalize)
-				if !util.IsAssetLinkDest([]byte(dataAssets), includeServePath) {
-					return ast.WalkContinue
-				}
-				ret = append(ret, dataAssets)
+				ret = append(ret, assetListLinkDests(dataAssets, includeServePath, options.expandAssetLists, normalize...)...)
 			} else { // HTMLBlock/InlineHTML/IFrame/Audio/Video
-				ret = append(ret, htmlAssetLinkDests(n.Tokens, includeServePath, normalize...)...)
+				ret = append(ret, htmlAssetLinkDestsWithOptions(n.Tokens, includeServePath, options.expandAssetLists, normalize...)...)
 			}
 		}
 		return ast.WalkContinue
@@ -2703,7 +2714,28 @@ func getAssetsLinkDestsWithAttributeViewItemFilter(
 	return
 }
 
+var assetListPattern = regexp.MustCompile(`[^\s,]+`)
+
+// assetListLinkDests 同时保留完整路径与列表项，兼容文件名中的空格、逗号和多值资源属性。
+func assetListLinkDests(raw string, includeServePath, expand bool, normalize ...func(string) string) (ret []string) {
+	values := []string{raw}
+	if expand {
+		values = append(values, assetListPattern.FindAllString(raw, -1)...)
+	}
+	for _, value := range values {
+		dest := normalizeScannedAsset(value, normalize)
+		if dest != "" && util.IsAssetLinkDest([]byte(dest), includeServePath) {
+			ret = append(ret, dest)
+		}
+	}
+	return
+}
+
 func htmlAssetLinkDests(tokens []byte, includeServePath bool, normalize ...func(string) string) (ret []string) {
+	return htmlAssetLinkDestsWithOptions(tokens, includeServePath, false, normalize...)
+}
+
+func htmlAssetLinkDestsWithOptions(tokens []byte, includeServePath, expandAssetLists bool, normalize ...func(string) string) (ret []string) {
 	// 逐个读取标签属性，兼容内联标签片段并只解码一层 HTML 实体。
 	tokenizer := html.NewTokenizer(bytes.NewReader(tokens))
 	for {
@@ -2712,6 +2744,10 @@ func htmlAssetLinkDests(tokens []byte, includeServePath bool, normalize ...func(
 			return
 		case html.StartTagToken, html.SelfClosingTagToken:
 			for _, attr := range tokenizer.Token().Attr {
+				if expandAssetLists && (attr.Key == "data-assets" || strings.HasPrefix(attr.Key, "custom-data-assets")) {
+					ret = append(ret, assetListLinkDests(attr.Val, includeServePath, true, normalize...)...)
+					continue
+				}
 				dest := normalizeScannedAsset(strings.TrimSpace(attr.Val), normalize)
 				if util.IsAssetLinkDest([]byte(dest), includeServePath) {
 					ret = append(ret, dest)
@@ -2824,7 +2860,11 @@ func getAssetsLinkDestsInTree(tree *parse.Tree, includeServePath bool) (nodes []
 }
 
 func setAssetsLinkDest(node *ast.Node, oldDest, dest string) {
-	if ast.NodeLinkDest == node.Type {
+	if ast.NodeImage == node.Type {
+		if video := treenode.ImageLivePhotoVideo(node); video != "" {
+			treenode.SetImageLivePhotoVideo(node, strings.ReplaceAll(video, oldDest, dest))
+		}
+	} else if ast.NodeLinkDest == node.Type {
 		if bytes.HasPrefix(node.Tokens, []byte("//")) {
 			node.Tokens = append([]byte("https:"), node.Tokens...)
 		}
@@ -3153,7 +3193,7 @@ func copyAssetsToDataAssets(rootPath string) error {
 
 	dataAssetsPath := filepath.Join(util.DataDir, "assets")
 	for _, assetsDirPath := range assetsDirPaths {
-		if err := filelock.Copy(assetsDirPath, dataAssetsPath); err != nil {
+		if err := promoteAssetDirectory(assetsDirPath, dataAssetsPath); err != nil {
 			logging.LogErrorf("copy tree assets from [%s] to [%s] failed: %s", assetsDirPaths, dataAssetsPath, err)
 			return err
 		}

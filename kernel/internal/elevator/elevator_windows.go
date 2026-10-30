@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // 包 elevator 执行 Windows 提权工具，并等待其返回最终结果。
 package elevator
 
@@ -41,7 +45,7 @@ type shellExecuteInfo struct {
 }
 
 func Run(executable, workingDir, arguments string) error {
-	return run(executable, workingDir, arguments, launch)
+	return runWithDiagnostics(executable, workingDir, arguments, launch)
 }
 
 func run(executable, workingDir, arguments string, start func(*shellExecuteInfo) error) error {

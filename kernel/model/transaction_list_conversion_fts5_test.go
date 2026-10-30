@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -108,7 +112,7 @@ func TestListConversionBindingReplay(t *testing.T) {
 				if strings.Contains(string(encoded), "Static primary") {
 					t.Fatal("private binding snapshot leaked")
 				}
-				for cycle := 0; cycle < 3; cycle++ {
+				for range 3 {
 					current := readAttributeViewItemsTest(t, view.ID)
 					assertListConversionFields(t, view, current)
 					for i, id := range targets {
@@ -368,7 +372,7 @@ func TestAttributeViewGroupRegenerationIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for cycle := 0; cycle < 10; cycle++ {
+			for range 10 {
 				regenAttrViewGroups(view)
 				for i, v := range view.Views {
 					for j, group := range v.Groups {

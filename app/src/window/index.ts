@@ -1,9 +1,9 @@
 import {onWindowWorkspaceStorageChanged} from "./workspace";
 import {closeNotebookHistoryDialogs} from "../history/notebookDialogs";
+import {clearDocumentCreationPlans} from "../util/configuredDocument";
+import {closeNotebookLivePhotos} from "../protyle/preview/livePhoto";
 import {Constants} from "../constants";
 import {refreshSettingConfig} from "../config/setting/sync";
-import {onAgentStreamingMarkdownStorageChanged} from "../config/tabs/ai/agentStreamingMarkdown";
-import {onPageScrollButtonsStorageChanged} from "../protyle/scroll/pageButtons";
 import {systemConfig} from "../config/systemConfig";
 import {Menus} from "../menus";
 import {Model} from "../layout/Model";
@@ -24,6 +24,7 @@ import {
     transactionError
 } from "../dialog/processSystem";
 import {progressLoading} from "../dialog/progress";
+import {syncCheckoutProgress} from "../sync/checkoutProgress";
 import {initMessage} from "../dialog/message";
 import {getAllTabs} from "../layout/getAll";
 import {getLocalStorage} from "../protyle/util/compatibility";
@@ -62,6 +63,11 @@ class App {
         mainWs.connect({
             id: genUUID(),
             type: "main",
+            callback: () => {
+                if (window.siyuan.isReady) {
+                    void refreshSettingConfig().catch(error => console.error("Could not refresh settings", error));
+                }
+            },
             msgCallback: (data) => {
                     emitToPlugins("ws-main", data);
                     if (data) {
@@ -73,7 +79,7 @@ class App {
                                 appearanceConfigApi.apply(data.data);
                                 break;
                             case "settingChanged":
-                                void refreshSettingConfig(data.data.namespace);
+                                void refreshSettingConfig(data.data.namespace, data.data.revision);
                                 break;
                             case "refreshAppearance":
                                 void refreshAppearance(data.data);
@@ -123,36 +129,31 @@ class App {
                             case "setServerAddrs":
                                 updateServerAddresses(data.data);
                                 break;
+                            case "syncProgress":
+                                syncCheckoutProgress(data);
+                                break;
                             case "progress":
                                 progressLoading(data);
                                 break;
                             case "setLocalStorageVal":
                                 if (window.siyuan.storage) {
                                     window.siyuan.storage[data.data.key] = data.data.val;
-                                    onAgentStreamingMarkdownStorageChanged(data.data.key);
-                                    onPageScrollButtonsStorageChanged(data.data.key);
                                     onWindowWorkspaceStorageChanged(data.data.key);
                                 }
                                 break;
                             case "setLocalStorageVals":
                                 Object.keys(data.data.keyVals).forEach((k) => {
                                     window.siyuan.storage[k] = data.data.keyVals[k];
-                                    onAgentStreamingMarkdownStorageChanged(k);
-                                    onPageScrollButtonsStorageChanged(k);
                                     onWindowWorkspaceStorageChanged(k);
                                 });
                                 break;
                             case "removeLocalStorageVal":
                                 delete window.siyuan.storage[data.data.key];
-                                onAgentStreamingMarkdownStorageChanged(data.data.key);
-                                onPageScrollButtonsStorageChanged(data.data.key);
                                 onWindowWorkspaceStorageChanged(data.data.key);
                                 break;
                             case "removeLocalStorageVals":
                                 data.data.keys.forEach((k: string) => {
                                     delete window.siyuan.storage[k];
-                                    onAgentStreamingMarkdownStorageChanged(k);
-                                    onPageScrollButtonsStorageChanged(k);
                                     onWindowWorkspaceStorageChanged(k);
                                 });
                                 break;
@@ -172,6 +173,8 @@ class App {
                             case "closeBox":
                             case "removeBox":
                                 closeNotebookHistoryDialogs(data.data.box);
+                                clearDocumentCreationPlans(data.data.box);
+                                closeNotebookLivePhotos(data.data.box);
                                 removeBlockPanelEditors({notebookId: data.data.box});
                                 getAllTabs().forEach((tab) => {
                                     if (tab.headElement) {

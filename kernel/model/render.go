@@ -1,23 +1,12 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
 	"bytes"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -43,7 +32,7 @@ func renderOutline(heading *ast.Node, luteEngine *lute.Lute) (ret string) {
 	}
 
 	if ast.NodeDocument == heading.Type {
-		return heading.IALAttr("title")
+		return treenode.ReadDocumentTitle(heading).Text
 	}
 
 	buf := bytes.Buffer{}
@@ -201,9 +190,7 @@ func cloneRenderNode(node *ast.Node) *ast.Node {
 	}
 	if nil != node.Properties {
 		cloned.Properties = make(map[string]string, len(node.Properties))
-		for name, value := range node.Properties {
-			cloned.Properties[name] = value
-		}
+		maps.Copy(cloned.Properties, node.Properties)
 	}
 
 	for child := node.FirstChild; nil != child; child = child.Next {
@@ -457,7 +444,8 @@ func resolveEmbedR(n *ast.Node, blockEmbedMode int, luteEngine *lute.Lute, resol
 					if 0 == blockEmbedMode { // 使用原始文本
 						buf.WriteString(line)
 					} else { // 使用引述块
-						buf.WriteString("> " + line)
+						buf.WriteString("> ")
+						buf.WriteString(line)
 					}
 					if i < len(lines)-1 {
 						buf.WriteString("\n")
@@ -505,7 +493,6 @@ func resolveEmbedR(n *ast.Node, blockEmbedMode int, luteEngine *lute.Lute, resol
 			unlink.Unlink()
 		}
 	}
-	return
 }
 
 func renderBlockMarkdownR(id string, rendered *[]string, boxIDs ...string) (ret []*ast.Node) {

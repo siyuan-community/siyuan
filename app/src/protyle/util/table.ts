@@ -1,5 +1,6 @@
 import {escapeHtmlTextAndAttr} from "../../util/escape";
 import {Constants} from "../../constants";
+import {getTableRowOpeningHTML} from "./tableRowHeight";
 import {openInputDialog} from "../../dialog/inputDialog";
 import {updateTransaction} from "../wysiwyg/transaction";
 import {
@@ -17,7 +18,7 @@ import {scrollCenter} from "../../util/highlightById";
 import {insertEmptyBlock} from "../../block/util";
 import {removeBlock} from "../wysiwyg/remove";
 import {hasNextSibling, hasPreviousSibling} from "../wysiwyg/getBlock";
-import * as dayjs from "dayjs";
+import dayjs from "dayjs";
 import {
     getProjectedTableHeadRowCount,
     getTableHeadRowCount,
@@ -1389,7 +1390,7 @@ export const getTableRangeHTML = (tableElement: HTMLElement, startCell: HTMLElem
             html += `<${section}>`;
             curSection = section;
         }
-        html += "<tr>";
+        html += getTableRowOpeningHTML((tableElement as HTMLTableElement).rows[selRowStart + r]);
         for (let c = 0; c <= maxOutCol; c++) {
             const slot = outGrid[r][c];
             if (slot) {

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -40,11 +28,12 @@ func TestSaveUsesEncryptedSnapshot(t *testing.T) {
 	app.System.Store(&appconf.System{SafeMode: true})
 	app.AI.Store(appconf.NewAI())
 	app.AI.Load().Providers = []*appconf.Provider{{APIKey: "plain-api-key"}}
+	app.AI.Load().Web.APIKey = "plain-web-key"
 	app.Secrets.Store(&appconf.Secrets{Items: []*appconf.Secret{{Name: "token", Value: "plain-secret"}}})
 	app.MCPOAuth = "encrypted-oauth-data"
 	app.Save()
 
-	if app.AI.Load().Providers[0].APIKey != "plain-api-key" || app.Secrets.Load().Items[0].Value != "plain-secret" || !app.System.Load().SafeMode {
+	if app.AI.Load().Web.APIKey != "plain-web-key" || app.AI.Load().Providers[0].APIKey != "plain-api-key" || app.Secrets.Load().Items[0].Value != "plain-secret" || !app.System.Load().SafeMode {
 		t.Fatalf("live configuration was mutated: %#v", app)
 	}
 	data, err := os.ReadFile(filepath.Join(util.ConfDir, "conf.json"))
@@ -55,7 +44,7 @@ func TestSaveUsesEncryptedSnapshot(t *testing.T) {
 	if err = gulu.JSON.UnmarshalJSON(data, stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored.AI.Load().Providers[0].APIKey == "plain-api-key" || stored.Secrets.Load().Items[0].Value == "plain-secret" || stored.System.Load().SafeMode {
+	if stored.AI.Load().Web.APIKey == "plain-web-key" || stored.AI.Load().Providers[0].APIKey == "plain-api-key" || stored.Secrets.Load().Items[0].Value == "plain-secret" || stored.System.Load().SafeMode {
 		t.Fatalf("stored configuration was not sanitized: %#v", stored)
 	}
 	if stored.MCPOAuth != app.MCPOAuth {

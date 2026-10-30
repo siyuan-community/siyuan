@@ -7,7 +7,7 @@
 		"id": "20240530101000-8m2dowc",
 		"title": "プラグイン",
 		"type": "doc",
-		"updated": "20260809232000"
+		"updated": "20261024160716"
 	},
 	"Children": [
 		{
@@ -17,7 +17,7 @@
 			"Properties": {
 				"ID": "20240530101000-snvin0o",
 				"id": "20240530101000-fgati7g",
-				"updated": "20240530101000"
+				"updated": "20261024160716"
 			},
 			"Children": [
 				{
@@ -32,12 +32,12 @@
 			"Properties": {
 				"ID": "20240530101000-k82nhnh",
 				"id": "20240530101000-m4hfer3",
-				"updated": "20240530101000"
+				"updated": "20261024160716"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "プラグインは SiYuan の全体的な機能を拡張します。"
+					"Data": "プラグインは、メニュー、パネル、エディタの操作など、SiYuan の機能を拡張します。カスタムブロックの描画にも対応できます。"
 				}
 			]
 		},
@@ -47,9 +47,13 @@
 			"Properties": {
 				"ID": "20240530101000-43z1vel",
 				"id": "20240530101000-ccujclu",
-				"updated": "20240530101000"
+				"updated": "20261024160716"
 			},
 			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "ドキュメントに独立したツールを埋め込む場合は"
+				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "block-ref",
@@ -59,7 +63,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "と比較してプラグインは主にプログラムの拡張機能であり、コンテンツブロックの拡張は対象としていません。"
+					"Data": "を使います。SiYuan の画面や操作と連携する機能には、対応するプラグインを選んでください。"
 				}
 			]
 		},
@@ -70,7 +74,7 @@
 			"Properties": {
 				"ID": "20240530101000-ofwsgnj",
 				"id": "20240530101000-qt554cl",
-				"updated": "20260803170332"
+				"updated": "20261016191345"
 			},
 			"Children": [
 				{
@@ -84,7 +88,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20240530101000-7g50y4t",
-				"updated": "20260803170332"
+				"updated": "20261016191345"
 			},
 			"Children": [
 				{
@@ -94,7 +98,7 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
-					"TextMarkTextContent": "workspace/plugins/"
+					"TextMarkTextContent": "workspace/data/plugins/"
 				},
 				{
 					"Type": "NodeText",
@@ -107,7 +111,11 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": "​"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -116,7 +124,11 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": "​"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -125,7 +137,11 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": "​"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -134,7 +150,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " ​ から行います。"
+					"Data": "​ から行います。"
 				}
 			]
 		},

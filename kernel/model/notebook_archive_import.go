@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -8,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -383,8 +388,8 @@ func stageNotebookArchiveImport(payload, install string, manifest *notebookArchi
 }
 
 func rollbackNotebookArchiveImport(directory string, operation *notebookArchiveOperation) error {
-	for i := len(operation.Roots) - 1; i >= 0; i-- {
-		root := operation.Roots[i]
+	for _, root := range slices.Backward(operation.Roots) {
+
 		destination, err := archiveSourcePath(root)
 		if err != nil {
 			return err

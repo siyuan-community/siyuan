@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -167,7 +171,7 @@ func validatePluginServiceStatus(mode PluginServiceMode, status int) error {
 	return nil
 }
 
-func (b *Bundle) validatePluginServiceHTTPResponse(endpoint EndpointSchema, status int, contentType string, payload []byte) error {
+func (b *Bundle) validatePluginServiceHTTPResponse(endpoint EndpointSchema, status int, _ string, payload []byte) error {
 	if status < 100 || status > 999 {
 		return fmt.Errorf("invalid plugin service HTTP status")
 	}

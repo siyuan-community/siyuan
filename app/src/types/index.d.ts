@@ -56,20 +56,6 @@ type TJsonRpcHandler<T = any> = (...args: TJsonRpcMethodParams) => Promise<T> | 
 
 declare module "blueimp-md5"
 
-declare class Highlight {
-    constructor(...range: Range[]);
-
-    add(range: Range): void
-
-    clear(): void
-
-    forEach(callbackfn: (value: Range, key: number) => void): void;
-}
-
-declare namespace CSS {
-    const highlights: Map<string, Highlight>;
-}
-
 interface CSSStyleDeclarationElectron extends CSSStyleDeclaration {
     WebkitAppRegion: string;
 }
@@ -179,6 +165,10 @@ interface Window {
         nativeCallbacks: { [key: string]: (id: number) => void },
         messageHandlers: {
             finishKeyboardComposition?: { postMessage: (data: string) => Promise<boolean> }
+            showTextMenu?: { postMessage: (data: string) => Promise<boolean> }
+            pickPhotos?: { postMessage: (data: string) => Promise<Array<{
+                name: string, mimeType: string, data: string, pair: string, kind: "photo" | "video"
+            }>> }
             saveExportFile: { postMessage: (url: string) => void }
             saveExportFileV2?: { postMessage: (data: {uri: string, requestID: string}) => void }
             openLink: { postMessage: (url: string) => void }
@@ -211,7 +201,6 @@ interface Window {
     };
     siyuan: ISiyuan;
     JSAndroid: {
-        ready?: Promise<void>
         openAuthURL(url: string): void
         returnDesktop(): void
         openExternal(url: string): void
@@ -572,6 +561,7 @@ interface INotebook {
 }
 
 interface ISiyuan {
+    /** 当前内核的只读文档标题能力，普通构建默认为 2，不持久化为用户设置。 */
     zIndex: number
     isReady?: boolean
     storage?: {
@@ -1059,6 +1049,11 @@ interface IBazaarRating {
     distribution: TBazaarRatingDistribution;
 }
 
+interface IBazaarPackageChoice {
+    packageType: string;
+    name: string;
+}
+
 interface IBazaarItem {
     preferredName: string;
     minAppVersion: string;
@@ -1073,7 +1068,7 @@ interface IBazaarItem {
     deprecated?: boolean;
     deprecatedReason?: Record<string, string>;
     preferredDeprecatedReason?: string;
-    alternatives?: string[];
+    choices?: IBazaarPackageChoice[];
     iconURL: string;
     stars: number;
     author: string;
@@ -1203,6 +1198,8 @@ interface IAVNewItemTemplate {
     saveLocation?: IAVNewItemSaveLocation;
     contentTemplatePath?: string;
     hideInFileTree?: boolean;
+    /** 创建后分屏打开条目；省略时保留旧行为（仅日历自动打开），false 表示不打开。 */
+    openAfterCreate?: boolean;
 }
 
 /** 单字段条件颜色规则按顺序匹配，默认背景同样占据优先级。 */
@@ -1273,6 +1270,8 @@ interface IAVCalendarSettings {
     weekStart: number;
     /** 月视图折叠前的条目行数：3、5、10 或 -1（全部）；省略或 0 使用 3，周视图显示全部，不影响查询范围。 */
     rowLimit?: number;
+    /** 在日历条目中显示非主键字段的名称，默认关闭；按视图保存，支持撤销和重做。 */
+    displayFieldName?: boolean;
 }
 
 /**

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package bazaar
 
@@ -20,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -208,19 +197,35 @@ func TestSetPreferredPackageDeprecationMetadata(t *testing.T) {
 			"default": "No longer maintained",
 			"zh-CN":   "已停止维护",
 		},
-		Alternatives: []string{"new-package", "new-package", "old-package", "插件"},
+		Choices: []PackageChoice{
+			{PackageType: "widgets", Name: "new-package"},
+			{PackageType: "widgets", Name: "new-package"},
+			{PackageType: "unknown", Name: "new-package"},
+			{PackageType: "plugins", Name: "插件"},
+			{PackageType: "plugins", Name: "new-package"},
+			{PackageType: "themes", Name: "invalid/name"},
+			{PackageType: "themes", Name: ""},
+		},
 	}
 	setPreferredPackageDeprecationMetadata(pkg)
 	if pkg.PreferredDeprecatedReason != "已停止维护" {
 		t.Fatalf("unexpected preferred deprecated reason %q", pkg.PreferredDeprecatedReason)
 	}
-	if len(pkg.Alternatives) != 2 || pkg.Alternatives[0] != "new-package" || pkg.Alternatives[1] != "插件" {
-		t.Fatalf("unexpected alternatives %#v", pkg.Alternatives)
+	// 替代包可跨类型：按「包类型 + 包名」判重，同名但类型不同不得合并；
+	// 包类型或包名不合法、重复的条目须被丢弃
+	wantChoices := []PackageChoice{
+		{PackageType: "widgets", Name: "new-package"},
+		{PackageType: "plugins", Name: "插件"},
+		{PackageType: "plugins", Name: "new-package"},
+	}
+	if !reflect.DeepEqual(pkg.Choices, wantChoices) {
+		t.Fatalf("unexpected choices %#v", pkg.Choices)
 	}
 
 	pkg.Deprecated = false
 	setPreferredPackageDeprecationMetadata(pkg)
-	if pkg.Deprecated || pkg.DeprecatedReason != nil || pkg.Alternatives != nil || pkg.PreferredDeprecatedReason != "" {
+	if pkg.Deprecated || pkg.DeprecatedReason != nil || pkg.Choices != nil ||
+		pkg.PreferredDeprecatedReason != "" {
 		t.Fatalf("active package retained deprecation metadata: %#v", pkg)
 	}
 }
@@ -236,14 +241,18 @@ func TestBuildBazaarPackageWithDeprecationMetadata(t *testing.T) {
 			Name:             "old-package",
 			Deprecated:       true,
 			DeprecatedReason: LocaleStrings{"default": "No longer maintained"},
-			Alternatives:     []string{"new-package"},
+			Choices: []PackageChoice{
+				{PackageType: "widgets", Name: "new-package"},
+				{PackageType: "plugins", Name: "new-plugin"},
+			},
 		},
 	}, map[string]*bazaarStats{}, map[string]*PackageRating{}, false, "widgets", "")
 	if pkg == nil || !pkg.Deprecated || pkg.PreferredDeprecatedReason != "No longer maintained" {
 		t.Fatalf("unexpected built package %#v", pkg)
 	}
-	if len(pkg.Alternatives) != 1 || pkg.Alternatives[0] != "new-package" {
-		t.Fatalf("unexpected built alternatives %#v", pkg.Alternatives)
+	wantChoices := []PackageChoice{{PackageType: "widgets", Name: "new-package"}, {PackageType: "plugins", Name: "new-plugin"}}
+	if !reflect.DeepEqual(pkg.Choices, wantChoices) {
+		t.Fatalf("unexpected built choices %#v", pkg.Choices)
 	}
 }
 
@@ -257,7 +266,8 @@ func TestUnescapePackageDeprecatedReason(t *testing.T) {
 
 func TestParsePackageJSONClearsGeneratedDeprecationMetadata(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "plugin.json")
-	data := []byte(`{"name":"local-package","deprecated":true,"deprecatedReason":{"default":"Untrusted"},"alternatives":["other-package"]}`)
+	// 旧索引残留的 alternatives 与本地清单自行声明的弃用元数据都不得保留
+	data := []byte(`{"name":"local-package","deprecated":true,"deprecatedReason":{"default":"Untrusted"},"alternatives":["other-package"],"choices":[{"packageType":"plugins","name":"other-package"}]}`)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +275,8 @@ func TestParsePackageJSONClearsGeneratedDeprecationMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pkg.Deprecated || pkg.DeprecatedReason != nil || pkg.Alternatives != nil || pkg.PreferredDeprecatedReason != "" {
+	if pkg.Deprecated || pkg.DeprecatedReason != nil || pkg.Choices != nil ||
+		pkg.PreferredDeprecatedReason != "" {
 		t.Fatalf("local manifest supplied generated deprecation metadata: %#v", pkg)
 	}
 }

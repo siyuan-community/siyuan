@@ -1,6 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-// Licensed under the GNU Affero General Public License, version 3 or later.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -58,7 +58,7 @@ func validateManagedSkillPath(p string) error {
 	if p == "" || !fs.ValidPath(p) || strings.ContainsAny(p, "\\:") {
 		return errors.New("invalid skill path")
 	}
-	for _, part := range strings.Split(p, "/") {
+	for part := range strings.SplitSeq(p, "/") {
 		if strings.TrimSpace(part) != part || strings.HasSuffix(part, ".") ||
 			strings.ContainsAny(part, "<>\"|?*~") || strings.ContainsFunc(part, unicode.IsControl) {
 			return errors.New("invalid skill path component")

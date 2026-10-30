@@ -161,7 +161,9 @@ export class Preview {
                         event.preventDefault();
                         return;
                     }
-                    previewDocImage((event.target as HTMLElement).getAttribute("src"), protyle.block.rootID);
+                    previewDocImage((event.target as HTMLElement).getAttribute("src"), protyle.block.rootID,
+                        target.getAttribute(Constants.CUSTOM_SY_LIVE_PHOTO) === "1" ?
+                            target.getAttribute(Constants.CUSTOM_SY_LIVE_PHOTO_VIDEO) || "" : "");
                     event.stopPropagation();
                     event.preventDefault();
                     break;
@@ -252,8 +254,9 @@ export class Preview {
         }
     }
 
-    public render(protyle: IProtyle) {
+    public render(protyle: IProtyle, callback?: () => void, onError?: () => void) {
         if (this.element.style.display === "none") {
+            callback?.();
             return;
         }
         this.updatePadding(getPadding(protyle));
@@ -261,14 +264,20 @@ export class Preview {
         let loadingElement = this.element.querySelector(".fn__loading");
         if (!loadingElement) {
             this.element.insertAdjacentHTML("beforeend", `<div style="flex-direction: column;" class="fn__loading">
-    <img width="48px" src="/stage/loading-pure.svg">
+    <span class="b3-loading b3-loading--large" aria-hidden="true"></span>
 </div>`);
             loadingElement = this.element.querySelector(".fn__loading");
         }
         this.mdTimeoutId = window.setTimeout(() => {
-            fetchPost("/api/export/preview", {
+            let handled = false;
+            void fetchPost("/api/export/preview", {
                 id: protyle.block.id || protyle.options.blockId || protyle.block.parentID,
             }, response => {
+                handled = true;
+                if (response.code !== 0 || !response.data) {
+                    onError?.();
+                    return;
+                }
                 const oldScrollTop = protyle.preview.previewElement.scrollTop;
                 protyle.preview.previewElement.innerHTML = getHostCapabilities().remoteKernel ?
                     window.DOMPurify.sanitize(response.data.html) : response.data.html;
@@ -281,11 +290,13 @@ export class Preview {
                 tabsRender(protyle.preview.previewElement, {label: window.siyuan.languages.tabItem,
                     shown: item => processRender(item)});
                 highlightRender(protyle.preview.previewElement);
-                avRender(protyle.preview.previewElement, protyle);
+                void avRender(protyle.preview.previewElement, protyle).then(() => callback?.(), () => onError?.());
                 speechRender(protyle.preview.previewElement, window.siyuan.config.appearance.lang);
                 protyle.preview.previewElement.scrollTop = oldScrollTop;
                 loadingElement.remove();
-            });
+            }, undefined, () => onError?.()).then(() => {
+                if (!handled) onError?.();
+            }, () => onError?.());
         }, protyle.options.preview.delay);
     }
 

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package agent
 
@@ -272,10 +260,10 @@ func estimateChatRequestTokens(model string, messages []openai.ChatCompletionMes
 func estimateProtocolRequestTokens(model, protocol string, messages []openai.ChatCompletionMessage,
 	checkpointMessages []AgentMessage, compaction *runtimeCompaction, tools []openai.Tool) int {
 	total := estimateChatRequestTokens(model, messages, tools)
-	if util.IsAnthropicMessagesProtocol(protocol) {
+	if util.IsAnthropicMessagesProtocol(protocol) || util.IsGeminiInteractionsProtocol(protocol) {
 		counter, _ := getTokenCounter(model)
 		for _, message := range checkpointMessages {
-			if message.NativeContent != nil && util.IsAnthropicMessagesProtocol(message.NativeContent.Protocol) {
+			if message.NativeContent != nil && strings.EqualFold(strings.TrimSpace(message.NativeContent.Protocol), strings.TrimSpace(protocol)) {
 				// 只补计原生签名及结构开销，避免重复计算可见文本和工具参数。
 				visible := counter.count(message.Content) + counter.count(message.ReasoningContent)
 				for _, call := range message.ToolCalls {

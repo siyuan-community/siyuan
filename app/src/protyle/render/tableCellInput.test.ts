@@ -8,11 +8,14 @@ import {promisify} from "node:util";
 import {createSourceFile, forEachChild, isCallExpression, isClassDeclaration, isVariableStatement, ScriptTarget, transpileModule} from "typescript";
 
 const browserCases = async (source: string, queueSource: string, editorSource: string, menuSource: string,
-                            transactionSource: string, copyPlainSource: string, gutterSource: string, mouseDownSource: string) => {
+                            transactionSource: string, copyPlainSource: string, gutterSource: string, mouseDownSource: string,
+                            commandSource: string) => {
     const check: typeof assert = require("node:assert/strict");
     const noop = () => {};
     const tick = () => new Promise(resolve => setTimeout(resolve, 0));
     const changes: {doOperations: IOperation[], undoOperations: IOperation[]}[] = [];
+    const fragmentOwners = new WeakSet<IProtyle>();
+    let mobile = true;
     const enteredCells: Element[] = [];
     let gutterHidden = false;
     const gutterRenderTarget = new Function("hideElements", gutterSource + "\nreturn render;")(
@@ -28,10 +31,13 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
     }});
     const dependencies = {
         Constants: {ZWSP: "\u200b", ATTRIBUTE_EDITING: "data-editing"},
-        dayjs: () => ({format: () => "20260924120000"}), isMobile: () => true,
+        dayjs: () => ({format: () => "20260924120000"}), isMobile: () => mobile, isIOSDevice: () => mobile,
         normalizeSemanticInlineElements: noop, removeEmptySemanticInlineElement: noop,
         getSemanticMarkerPrefixLengthForNode: () => 0, getTextWithoutSemanticMarkers: (node: Node) => node.textContent,
         turnIntoTaskList: () => false, headingTurnIntoList: () => false, isProtyleListItemFirstParagraph: () => false,
+        matchHotKey: (binding: {custom?: string}, event: KeyboardEvent) => !!binding?.custom &&
+            binding.custom === event.key && event.ctrlKey && !event.altKey && !event.shiftKey && !event.isComposing,
+        isNotCtrl: (event: KeyboardEvent) => !event.ctrlKey && !event.metaKey,
         mathRender: noop, hideElements: (names: string[]) => {
             if (names.includes("gutter")) {
                 gutterHidden = true;
@@ -41,6 +47,9 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
             changes.push({doOperations, undoOperations});
         },
         updateTransaction: (owner: IProtyle, block: Element, oldHTML: string) => {
+            if (fragmentOwners.has(owner)) {
+                return;
+            }
             changes.push({
                 doOperations: [{action: "update", id: block.getAttribute("data-node-id"), data: api.cleanTableCellRichHTML(block.outerHTML)}],
                 undoOperations: [{action: "update", id: block.getAttribute("data-node-id"), data: api.cleanTableCellRichHTML(oldHTML)}],
@@ -51,13 +60,16 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
     const api = new Function(...Object.keys(dependencies), source + "\nreturn {input, insertRow, insertRowAbove, insertColumn, " +
         "getAgentLute, configureAVRichTextLute, getTableCellEditorLute, getAVRichTextLute, " +
         "getTableCellRichBlockDOM, serializeTableCellRich, cleanTableCellRichHTML, renderTableCellRich, buildTableGrid, " +
-        "setTableCellRich, getTableCellInlineHTML, getTableCellPlainText, getSelectionOffset, focusByOffset, getTableBlockHTML, updateTableCellEditingValue, " +
+        "setTableCellRich, getTableCellInlineHTML, getTableCellPlainText, getSelectionOffset, focusByOffset, getTableBlockHTML, updateTableCellEditingValue, fixTable, isNativeTextSelectionHandleTouch, " +
         "updateTableCellContentLayout, captureRichCellSelection, captureRichCellSelectionAtPoint, restoreRichCellSelection, setTableCellRichEventTarget, " +
-        "LargeTableVirtualizer, getTableVirtualCellIndex, getTableVirtualRowIndex, restoreTableVirtualizationDOM};")(...Object.values(dependencies)) as
+        "LargeTableVirtualizer, getTableVirtualCellIndex, getTableVirtualRowIndex, restoreTableVirtualizationDOM, " +
+        "hasClosestBlock, hasClosestByClassName, hasClosestByTag, isInEmbedBlock, getEmbedChildOperationContext, setTaskListItemMarker, nextTaskListMarker};")(...Object.values(dependencies)) as
         typeof import("../wysiwyg/input") & typeof import("../util/table") & typeof import("./setLute") &
         typeof import("./av/richText") & typeof import("./av/richTextValue") & typeof import("../util/tableCellRichLute") &
         typeof import("../util/tableCellRich") & typeof import("../util/selection") & typeof import("../util/tableVirtualizationDOM") &
-        typeof import("../wysiwyg/tableVirtualization") & typeof import("../util/tableCellRichContext") & typeof import("../util/tableCellRichSelection");
+        typeof import("../wysiwyg/tableVirtualization") & typeof import("../util/tableCellRichContext") & typeof import("../util/tableCellRichSelection") &
+        typeof import("../util/hasClosest") & typeof import("../wysiwyg/getBlock") & typeof import("../wysiwyg/list") &
+        typeof import("../wysiwyg/taskListMarker") & typeof import("../wysiwyg/nativeTextMenu");
     const lute = api.configureAVRichTextLute(api.getAgentLute({emojiSite: "/emojis", emojis: {},
         headingAnchor: false, listStyle: false, paragraphBeginningSpace: true, sanitize: true}));
     const Queue = new Function(queueSource + "\nreturn InputQueue;")() as new () => {
@@ -102,13 +114,18 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
         return {owner, queue, element, wysiwyg, table, range};
     };
     let tableExitTarget: HTMLElement;
+    let serializations = 0;
     const editorDependencies = {
         ...dependencies, ...api, TABLE_CELL_INLINE_ATTRIBUTE: "data-sy-table-cell-inline",
+        serializeTableCellRich: (html: string) => {
+            serializations++;
+            return api.serializeTableCellRich(html);
+        },
         TABLE_CELL_RICH_ATTRIBUTE: "data-sy-table-cell-rich", TABLE_CELL_SLASH_IDS: new Set(),
         hintRef: noop, hintTag: noop, registerBuiltinSlashHint: (callback: unknown) => callback,
         getDefaultToolbar: (): string[] => [], updateOutlineCurrentBlock: noop,
         setMobileToolbarUndo: noop, setTableCellRichContext: noop, bindTableCellRichDrag: noop,
-        bindLiteCodeActions: noop, highlightRender: noop,
+        bindLiteCodeActions: noop, highlightRender: noop, renderTableCellRichElements: noop,
         isTableCellCaretAtBoundary: () => true,
         getAdjacentRichTableCell: (): undefined => undefined,
         getCaretGoalX: () => 80,
@@ -130,7 +147,6 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
             image.dispatchEvent(new Event("input", {bubbles: true}));
             imageMenus++;
         },
-        matchHotKey: () => false,
         getUndoFocusContext: (_element: Element, range: Range) => {
             const table = (range.startContainer as Element).closest('[data-type="NodeTable"]');
             return {undoFocusId: table.getAttribute("data-node-id"), undoFocusIndex: "0", undoFocusStart: "0", undoFocusEnd: "0"};
@@ -153,9 +169,12 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
             hidden.className = "fn__none";
             api.updateTableCellContentLayout(host, options.initialBlockHTML);
             wysiwyg.addEventListener("input", () => options.onChange());
+            const protyle = {block: {}, options: {action: []},
+                toolbar: {element: hidden, subElement: hidden}, undo: {clear: noop}} as unknown as IProtyle;
+            fragmentOwners.add(protyle);
             return {
                 wysiwyg, hintElement: hidden,
-                protyle: {block: {}, toolbar: {element: hidden, subElement: hidden}, undo: {clear: noop}},
+                protyle,
                 getBlockHTML: () => wysiwyg.innerHTML, destroy: noop,
                 focus: () => {
                     wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]').focus();
@@ -173,8 +192,8 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
         cleanListMindmapHTML: (html: string) => html, cleanHeadingNumberHTML: (html: string) => html,
         cleanBlockSelectionModeHTML: (html: string) => html,
         getVisibleFoldHeadingHTML: (html: string) => { snapshotParses++; return html; },
-        getEmbedChildOperationContext: noop,
-        isInEmbedBlock: (element: Element) => element.closest(".protyle-wysiwyg__embed"),
+        getEmbedChildOperationContext: api.getEmbedChildOperationContext,
+        isInEmbedBlock: api.isInEmbedBlock,
         captureBlockSelectionModeState: noop, restoreBlockSelectionModeState: noop,
         disposeCustomBlocksInElement: noop, processRender: noop, highlightRender: noop,
         focusRestoredBlockSelectionMode: noop, syncTrackedRanges: noop, queueTransactionBatch: noop,
@@ -196,6 +215,245 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
         element.remove();
         await tick();
     };
+
+    for (const platform of [false, true]) {
+        mobile = platform;
+        for (const rich of [false, true]) {
+            const {owner, element, table} = fixture();
+            const cells = Array.from(table.querySelectorAll<HTMLTableCellElement>("th, td"));
+            if (rich) {
+                cells.forEach(cell => api.setTableCellRich(cell, "**First**\n\nSecond"));
+            }
+            const before = api.cleanTableCellRichHTML(table.outerHTML);
+            serializations = 0;
+            for (const cell of cells) {
+                await open(owner, cell);
+            }
+            check.equal(serializations, 0, "entering and switching unchanged cells skips Markdown serialization");
+            check.equal(changes.length, 0, "navigation must not create document transactions");
+            check.equal(api.cleanTableCellRichHTML(table.outerHTML), before, "navigation preserves stored cell content");
+            const editable = cells[cells.length - 1].querySelector<HTMLElement>('[contenteditable="true"]');
+            editable.textContent = "Edited";
+            // A synchronous switch must save changes even before the MutationObserver callback runs.
+            await open(owner, cells[0]);
+            check.equal(changes.length, 1, "switching captures edits without depending on a dirty flag");
+            check.equal(serializations, 2, "only the original and changed content need serialization");
+            check.match(operationHTML(changes[0].doOperations[0]), /Edited/);
+            await finish(element);
+        }
+    }
+    mobile = true;
+
+    const generalKeymap = window.siyuan.config.keymap.editor.general;
+    window.siyuan.config.keymap.editor.general = {...generalKeymap,
+        alignLeft: {custom: "l"}, alignCenter: {custom: "e"}, alignRight: {custom: "r"},
+        undo: {custom: "z"}, redo: {custom: "y"},
+    };
+    for (const isMobile of [false, true]) {
+        mobile = isMobile;
+        for (const rich of [false, true]) {
+            for (const rowIndex of [0, 1]) {
+                for (const [key, alignment] of [["l", "left"], ["e", "center"], ["r", "right"]]) {
+                    const {owner, element, table} = fixture();
+                    const currentTable = table.querySelector("table");
+                    const cell = currentTable.rows[rowIndex].cells[1];
+                    if (rich) {
+                        api.setTableCellRich(cell, "first\n\nsecond");
+                    } else {
+                        cell.textContent = "second";
+                    }
+                    await open(owner, cell);
+                    let host = cell.querySelector<HTMLElement>(".table__cell-editor");
+                    const editables = host.querySelectorAll<HTMLElement>('[contenteditable="true"]');
+                    const editable = editables[editables.length - 1];
+                    api.focusByOffset(editable, 1, 4);
+                    const selection = api.captureRichCellSelection(host, getSelection());
+                    const errors: string[] = [];
+                    const onError = (error: ErrorEvent) => errors.push(error.error?.stack || error.message);
+                    window.addEventListener("error", onError);
+                    const event = new KeyboardEvent("keydown", {key, ctrlKey: true, bubbles: true, cancelable: true});
+                    editable.dispatchEvent(event);
+                    await tick();
+                    window.removeEventListener("error", onError);
+                    check.deepEqual(errors, []);
+                    check.equal(event.defaultPrevented, true, "alignment is consumed before the inner paragraph handles it");
+                    check.equal(changes.length, 1, "alignment creates one outer table transaction");
+                    host = cell.querySelector<HTMLElement>(".table__cell-editor");
+                    check.ok(host?.contains(getSelection().anchorNode), "alignment keeps the cell editor active");
+                    check.deepEqual(api.captureRichCellSelection(host, getSelection()), selection, "alignment preserves the text selection");
+                    const assertAlignment = (node: Element, expected: string) => {
+                        Array.from(node.querySelector("table").rows).forEach(row => {
+                            Array.from(row.cells).forEach((item, column) => {
+                                check.equal(item.style.textAlign, column === 1 ? expected : "", "only the current column is aligned");
+                            });
+                        });
+                    };
+                    assertAlignment(table, alignment);
+                    const change = changes[0];
+                    const replay = (operation: IOperation, expected: string) => {
+                        const saved = document.createElement("div");
+                        saved.innerHTML = lute.SpinBlockDOM(operationHTML(operation));
+                        assertAlignment(saved, expected);
+                        saved.querySelectorAll("wbr").forEach(marker => marker.remove());
+                        table.innerHTML = saved.firstElementChild.innerHTML;
+                    };
+                    owner.undo = {
+                        add: noop, clear: noop,
+                        undo: () => replay(change.undoOperations[0], ""),
+                        redo: () => replay(change.doOperations[0], alignment),
+                    };
+                    host.dispatchEvent(new KeyboardEvent("keydown", {key: "z", ctrlKey: true, bubbles: true, cancelable: true}));
+                    assertAlignment(table, "");
+                    await open(owner, table.querySelector("table").rows[rowIndex].cells[1]);
+                    host = table.querySelector<HTMLElement>(".table__cell-editor");
+                    host.dispatchEvent(new KeyboardEvent("keydown", {key: "y", ctrlKey: true, bubbles: true, cancelable: true}));
+                    assertAlignment(table, alignment);
+                    const restoredCell = table.querySelector("table").rows[rowIndex].cells[1];
+                    await open(owner, restoredCell);
+                    host = restoredCell.querySelector<HTMLElement>(".table__cell-editor");
+                    host.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+                    check.equal(restoredCell.querySelector(".table__cell-editor"), null);
+                    assertAlignment(table, alignment);
+                    check.equal(api.getTableCellRichBlockDOM(restoredCell).includes("second"), true, "leaving and reopening preserve the cell content");
+                    check.equal(changes.length, 1, "reopening and leaving do not add content transactions");
+                    await finish(element);
+                }
+            }
+        }
+        {
+            const {owner, element, table} = fixture();
+            const cell = table.querySelector("td");
+            await open(owner, cell);
+            const host = cell.querySelector<HTMLElement>(".table__cell-editor");
+            const editable = host.querySelector<HTMLElement>('[contenteditable="true"]');
+            editable.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+            editable.textContent = "pending composition";
+            const composing = new KeyboardEvent("keydown", {key: "e", ctrlKey: true, bubbles: true, cancelable: true});
+            editable.dispatchEvent(composing);
+            check.equal(composing.defaultPrevented, false, "unfinished composition is not handed to the outer table");
+            check.equal(cell.contains(host), true);
+            check.equal(changes.length, 0);
+            editable.dispatchEvent(new CompositionEvent("compositionend", {bubbles: true}));
+            await tick();
+            check.equal(changes.length, 1);
+            editable.textContent = "pending before alignment";
+            api.focusByOffset(editable, 4, 4);
+            editable.dispatchEvent(new KeyboardEvent("keydown", {key: "e", ctrlKey: true, bubbles: true, cancelable: true}));
+            await tick();
+            check.equal(changes.length, 3, "pending content is committed before the alignment transaction");
+            const saved = document.createElement("div");
+            saved.innerHTML = operationHTML(changes[2].doOperations[0]);
+            check.equal(saved.querySelector("td").textContent, "pending before alignment");
+            check.equal(saved.querySelector<HTMLElement>("td").style.textAlign, "center");
+            saved.innerHTML = operationHTML(changes[2].undoOperations[0]);
+            check.equal(saved.querySelector("td").textContent, "pending before alignment", "undoing alignment retains the latest content");
+            check.equal(saved.querySelector<HTMLElement>("td").style.textAlign, "");
+            await finish(element);
+        }
+    }
+    window.siyuan.config.keymap.editor.general = generalKeymap;
+    mobile = true;
+
+    for (const rich of [false, true]) {
+        const {owner, element, table} = fixture();
+        const cell = table.querySelector("th");
+        if (rich) {
+            api.setTableCellRich(cell, "first\n\nsecond");
+        }
+        await open(owner, cell);
+        const host = cell.querySelector<HTMLElement>(".table__cell-editor");
+        const blocks = Array.from(host.querySelectorAll<HTMLElement>("[data-node-id]"));
+        check.ok(blocks.length > 0);
+        const child = blocks[0];
+        const range = document.createRange();
+        range.selectNodeContents(child.querySelector('[contenteditable="true"]'));
+        focusByRange(range);
+        check.equal(api.hasClosestBlock(range.startContainer), child, "local editing retains the fragment identity");
+        check.equal(api.hasClosestBlock(range.startContainer, true), table, "document commands resolve the table identity");
+        const writes: {ids: string[], type: string}[] = [];
+        const duplicated: Element[][] = [];
+        const general = window.siyuan.config.keymap.editor.general;
+        const bindings = new Proxy({}, {get: (_target, key) => key});
+        window.siyuan.config.keymap.editor.general = bindings;
+        window.siyuan.config.keymap.general = bindings;
+        const commandDependencies = {...api,
+            matchHotKey: (binding: string, event: KeyboardEvent) => binding === event.key,
+            getEditorRange: () => getSelection().getRangeAt(0),
+            getBlockElementsByRange: () => blocks,
+            getAllEditor: () => [{protyle: owner}], getActiveTab: noop,
+            documentKeydown: () => false, handleDocumentBoundaryHotkey: () => false,
+            cloneCommandRange: (range: Range) => range?.cloneRange(),
+            getDockElement: noop, resolveCommandFocus: () => "editor", getFrontend: () => "desktop",
+            createCommandContextSnapshot: (value: unknown) => value,
+            copyTextByType: (ids: string[], type: string) => writes.push({ids, type}),
+            getContentByInlineHTML: (range: Range, callback: (text: string) => void) => callback(range.toString()),
+            writeText: (text: string) => writes.push({ids: [text], type: "text"}),
+            duplicateBlock: (elements: Element[]) => duplicated.push(elements),
+        };
+        const commands = new Function(...Object.keys(commandDependencies), commandSource +
+            "\nreturn {commonHotkey, editKeydown, captureCommandContext, hasCommandEditorTarget};")(...Object.values(commandDependencies));
+        const event = (key: string) => ({key, target: child, preventDefault: noop, stopPropagation: noop});
+        for (const [key, type] of [["copyID", "id"], ["copyProtocol", "protocol"],
+            ["copyProtocolInMd", "protocolMd"], ["copyBlockEmbed", "blockEmbed"]]) {
+            writes.length = 0;
+            commands.commonHotkey(owner, event(key), child);
+            check.deepEqual(writes, [{ids: [table.dataset.nodeId], type}]);
+        }
+        writes.length = 0;
+        check.equal(commands.editKeydown({}, event("copyBlockRef")), true);
+        check.deepEqual(writes, [{ids: [`((${table.dataset.nodeId} "${range.toString().trim()}"))`], type: "text"}]);
+        range.collapse(true);
+        writes.length = 0;
+        commands.editKeydown({}, event("copyBlockRef"));
+        check.deepEqual(writes, [{ids: [table.dataset.nodeId], type: "ref"}]);
+        blocks.forEach(block => block.classList.add("protyle-wysiwyg--select"));
+        writes.length = 0;
+        commands.editKeydown({}, event("copyBlockRef"));
+        check.deepEqual(writes, [{ids: [table.dataset.nodeId], type: "ref"}], "selected cell fragments are deduplicated");
+        commands.editKeydown({}, event("duplicate"));
+        check.deepEqual(duplicated, [[table]]);
+        const context = commands.captureCommandContext({app: {}, source: "commandPanel", protyle: owner, range});
+        check.equal(context.block.id, table.dataset.nodeId);
+        check.deepEqual(context.selectedBlocks.map((block: {id: string}) => block.id), [table.dataset.nodeId]);
+        check.equal(commands.hasCommandEditorTarget(context), true, "normalized cell selections retain a valid command target");
+        window.siyuan.config.keymap.editor.general = general;
+        await finish(element);
+    }
+
+    for (const isMobile of [false, true]) {
+        mobile = isMobile;
+        for (const marker of [" ", "X"]) {
+            for (const switchCell of [false, true]) {
+                const {owner, element, table} = fixture();
+                const cell = table.querySelectorAll("td")[1];
+                api.setTableCellRich(cell, `- [ ] First\n  - [${marker}] Nested\n- [ ] Last`);
+                cell.querySelector(".table__cell-rich").innerHTML = api.getTableCellRichBlockDOM(cell);
+                if (switchCell) {
+                    await open(owner, table.querySelector("th"));
+                }
+                const action = cell.querySelectorAll(".protyle-action--task")[1];
+                await open(owner, cell, undefined, {x: 10, y: 20, target: action.querySelector("use")});
+                const tasks = cell.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"]');
+                check.deepEqual(Array.from(tasks, task => task.getAttribute("data-task") ?? " "),
+                    [" ", marker === " " ? "X" : " ", " "], "the first click toggles only the nested task");
+                check.equal(changes.length, 1, "one click creates one outer table transaction");
+                const saved = document.createElement("div");
+                saved.innerHTML = operationHTML(changes[0].doOperations[0]);
+                const before = document.createElement("div");
+                before.innerHTML = operationHTML(changes[0].undoOperations[0]);
+                const completed = (table: Element) => {
+                    const content = document.createElement("div");
+                    content.innerHTML = api.getTableCellRichBlockDOM(table.querySelectorAll("td")[1]);
+                    return Array.from(content.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"]'),
+                        task => task.classList.contains("protyle-task--done"));
+                };
+                check.deepEqual(completed(saved), [false, marker === " ", false], "the saved table retains the toggled state");
+                check.deepEqual(completed(before), [false, marker === "X", false], "undo retains the original task state");
+                await finish(element);
+            }
+        }
+    }
+    mobile = true;
 
     for (const index of [0, 1]) {
         const {owner, element, table} = fixture();
@@ -222,6 +480,39 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
     }
 
     // 执行外层编辑器的完整鼠标监听器，区分单元格点击与真正的跨单元格拖选。
+    for (const editEmbedded of [false, true]) {
+        const {owner, element, wysiwyg, table} = fixture();
+        const embed = document.createElement("div");
+        embed.className = "protyle-wysiwyg__embed";
+        embed.dataset.id = table.dataset.nodeId;
+        embed.dataset.allowChildOperation = "true";
+        embed.innerHTML = table.outerHTML;
+        const embedBlock = document.createElement("div");
+        embedBlock.dataset.type = "NodeBlockQueryEmbed";
+        embedBlock.dataset.nodeId = "embed";
+        embedBlock.appendChild(embed);
+        wysiwyg.appendChild(embedBlock);
+        const embedded = embed.querySelector<HTMLElement>('[data-type="NodeTable"]');
+        const source = editEmbedded ? embedded : table;
+        const other = editEmbedded ? table : embedded;
+        const range = document.createRange();
+        range.selectNodeContents(other.querySelector("th"));
+        range.collapse(true);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        source.querySelector<HTMLElement>("col").style.width = "180px";
+        source.setAttribute("data-editing", "true");
+        transactionAPI.promiseTransaction({protyle: owner, doOperations: [{
+            action: "update", id: source.dataset.nodeId, data: api.getTableBlockHTML(source),
+        }]});
+        check.ok(source.isConnected, "column resizing preserves the explicitly edited occurrence");
+        check.equal(source.querySelector<HTMLElement>("col").style.width, "180px");
+        check.equal(other.isConnected, false, "a stale text selection must not prevent the other occurrence from refreshing");
+        check.equal(wysiwyg.querySelectorAll('[data-type="NodeTable"] col[style*="180px"]').length, 2,
+            "source and embedded column widths synchronize in both directions");
+        element.remove();
+    }
+
     for (const mobile of [false, true]) {
         const {owner, element, wysiwyg, table} = fixture();
         const absent = () => false;
@@ -233,6 +524,12 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
             isOnlyMeta: absent, repairHiddenTabSelection: noop, clearSelect: noop,
             countBlockWord: noop, hideAllElements: noop, globalClickHideMenu: noop,
             dragOverScroll: noop, stopScrollAnimation: noop,
+            updateTransaction: (protyle: IProtyle, node: Element, oldHTML: string) => {
+                const before = changes.length;
+                transactionAPI.updateTransaction(protyle, node, oldHTML);
+                check.equal(changes.length, before + 1, "resizing submits the changed table snapshot");
+                transactionAPI.promiseTransaction({protyle, doOperations: changes.at(-1).doOperations});
+            },
         };
         element.style.cssText = "width:640px;height:480px";
         wysiwyg.style.cssText = "padding:20px 64px;box-sizing:border-box";
@@ -243,7 +540,7 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
         owner.selectElement = document.createElement("div");
         owner.toolbar.isMultiSelectMode = absent;
         const selectedRanges: HTMLTableCellElement[][] = [];
-        owner.wysiwyg.tableControl = {setHidden: noop, clear: noop, selectCellRange: (...cells: HTMLTableCellElement[]) => {
+        owner.wysiwyg.tableControl = {setHidden: noop, clear: noop, hasTouchSelection: absent, selectCellRange: (...cells: HTMLTableCellElement[]) => {
             selectedRanges.push(cells);
             return true;
         }} as unknown as IProtyle["wysiwyg"]["tableControl"];
@@ -279,6 +576,36 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
         mouse(cells[4], "mouseup");
         check.deepEqual(selectedRanges, [[cells[1], cells[4]]]);
         check.equal(wysiwyg.classList.contains("fn__pointer-none"), false);
+        for (const [embeddedSource, allowChildOperation] of [[false, false], [true, false], [false, true], [true, true]]) {
+            const sourceTable = wysiwyg.querySelector<HTMLElement>('[data-type="NodeTable"]');
+            sourceTable.querySelectorAll("th, td").forEach(cell => {cell.textContent = "";});
+            sourceTable.setAttribute("colgroup", Array.from(sourceTable.querySelectorAll("col"))
+                .map(column => column.getAttribute("style") || "").join("|"));
+            const embedBlock = document.createElement("div");
+            embedBlock.dataset.type = "NodeBlockQueryEmbed";
+            embedBlock.dataset.nodeId = "embed";
+            embedBlock.innerHTML = `<div class="protyle-wysiwyg__embed" data-id="${sourceTable.dataset.nodeId}" data-allow-child-operation="${allowChildOperation}">${sourceTable.outerHTML}</div>`;
+            wysiwyg.appendChild(embedBlock);
+            const embeddedTable = embedBlock.querySelector<HTMLElement>('[data-type="NodeTable"]');
+            const source = embeddedSource ? embeddedTable : sourceTable;
+            // 在原块旁插入嵌入块后，未修改的副本可能带有上一笔事务遗留的编辑标记。
+            (embeddedSource ? sourceTable : embeddedTable).setAttribute("data-editing", "true");
+            const handle = source.querySelector<HTMLElement>(".table__resize");
+            const beforeResizeChanges = changes.length;
+            const beforeWidth = source.querySelector<HTMLElement>("col").style.width;
+            const resizeX = handle.getBoundingClientRect().left + handle.getBoundingClientRect().width / 2 + 80;
+            handle.dataset.colIndex = "0";
+            mouse(handle, "mousedown");
+            document.dispatchEvent(new MouseEvent("mousemove", {bubbles: true, clientX: resizeX, clientY: 120}));
+            document.dispatchEvent(new MouseEvent("mouseup", {bubbles: true, clientX: resizeX, clientY: 120}));
+            check.deepEqual(errors, []);
+            check.equal(changes.length, beforeResizeChanges + 1, "the complete mouse gesture submits one resize transaction");
+            const copies = Array.from(wysiwyg.querySelectorAll<HTMLElement>('[data-type="NodeTable"] col:first-child'));
+            check.equal(copies.length, 2);
+            check.notEqual(copies[0].style.width, beforeWidth, "the gesture changes the rendered column width");
+            check.equal(copies[0].style.width, copies[1].style.width, "full mouse resize synchronizes source and embed widths");
+            embedBlock.remove();
+        }
         window.removeEventListener("error", collectError);
         await finish(element);
     }
@@ -328,6 +655,31 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
         releases[1]();
         await switching;
         check.equal(enteredCells.length, 0, "a cancelled Enter must not edit another cell");
+        await finish(element);
+    }
+
+    // 系统选区手柄可落在内嵌编辑器外的单元格留白中，按下时不能关闭编辑器。
+    for (const endpoint of ["start", "end"]) {
+        const {owner, element, table} = fixture();
+        const cell = table.querySelector("th");
+        await open(owner, cell);
+        const host = cell.querySelector(".table__cell-editor");
+        const editable = host.querySelector('[contenteditable="true"]');
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        focusByRange(range);
+        const rects = Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0);
+        const rect = endpoint === "start" ? rects[0] : rects[rects.length - 1];
+        const pointer = new PointerEvent("pointerdown", {bubbles: true, cancelable: true, pointerType: "touch",
+            clientX: endpoint === "start" ? rect.left : rect.right,
+            clientY: endpoint === "start" ? rect.top - 5 : rect.bottom + 5});
+        cell.dispatchEvent(pointer);
+        check.equal(host.isConnected, true, `${endpoint} handle outside the inner editor retains its host`);
+        check.equal(pointer.defaultPrevented, false, "the native handle gesture remains available");
+        check.equal(getSelection().toString(), "Hello");
+        element.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, pointerType: "touch",
+            clientX: rect.right + 100, clientY: rect.bottom + 100}));
+        check.equal(host.isConnected, false, "an ordinary outside tap still closes the cell editor");
         await finish(element);
     }
 
@@ -403,6 +755,7 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
 
     {
         const {owner, element, wysiwyg, table} = fixture();
+        snapshotParses = 0;
         await open(owner, table.querySelector("th"));
         const host = table.querySelector(".table__cell-editor");
         const operation = {action: "update", id: table.dataset.nodeId, data: api.getTableBlockHTML(table)};
@@ -700,7 +1053,7 @@ const browserCases = async (source: string, queueSource: string, editorSource: s
     return "Table cell input handoff cases passed";
 };
 
-test("table cell editors wait for outer input and table menu Enter is consumed", {
+test("table cell editors preserve input and alignment, and consume table menu Enter", {
     skip: process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY,
     timeout: 45000,
 }, async () => {
@@ -714,12 +1067,17 @@ test("table cell editors wait for outer input and table menu Enter is consumed",
             ["focusByWbr", "focusByOffset", "getSelectionOffset", "selectIsEditor", "searchNode", "setLastNodeRange", "getDOMOffset", "createRangeByOffsets"]
                 .includes(declaration.name.getText(selection))))
         .map(statement => statement.getText(selection)).join("\n");
+    const list = createSourceFile("list.ts", read("../wysiwyg/list.ts"), ScriptTarget.Latest, true);
+    const taskSource = list.statements.filter(isVariableStatement).filter(statement =>
+        statement.declarationList.declarations.some(declaration =>
+            declaration.name.getText(list) === "setTaskListItemMarker"))
+        .map(statement => statement.getText(list)).join("\n");
     const source = ["../util/longTextWrap.ts", "../util/inlineElementBoundary.ts", "../toolbar/fontFamilyCore.ts",
         "../../util/escape.ts", "../util/tableVirtualizationDOM.ts", "setLute.ts", "../wysiwyg/codeBlockUtil.ts", "av/richTextValue.ts", "av/richText.ts",
         "../wysiwyg/taskListMarker.ts", "../util/tableCellRichLute.ts", "../util/tableCellRichValue.ts", "../util/tableCellRich.ts",
         "../util/tableCellRichContext.ts", "../util/tableCellRichSelection.ts", "../wysiwyg/tableVirtualization.ts",
-        "../util/hasClosest.ts", "../wysiwyg/getBlock.ts", "../util/table.ts", "../wysiwyg/input.ts"]
-        .map(file => compile(read(file))).join("\n") + "\n" + compile(selectionSource);
+        "../util/hasClosest.ts", "../wysiwyg/getBlock.ts", "../util/table.ts", "../wysiwyg/input.ts", "../wysiwyg/nativeTextMenu.ts"]
+        .map(file => compile(read(file))).join("\n") + "\n" + compile(selectionSource) + "\n" + compile(taskSource);
     const wysiwyg = createSourceFile("wysiwyg.ts", read("../wysiwyg/index.ts"), ScriptTarget.Latest, true);
     const members = wysiwyg.statements.find(isClassDeclaration).members.filter(member =>
         ["inputTimeout", "pendingInputTimeouts", "runningInputTasks", "scheduleInput", "runInput", "flushPendingInput"]
@@ -733,6 +1091,15 @@ test("table cell editors wait for outer input and table menu Enter is consumed",
         statement.declarationList.declarations.some(declaration =>
             ["updateTransaction", "promiseTransaction"].includes(declaration.name.getText(transactionFile))))
         .map(statement => statement.getText(transactionFile)).join("\n"));
+    const commandSource = [["../wysiwyg/commonHotkey.ts", "commonHotkey"],
+        ["../../boot/globalEvent/keydown.ts", "editKeydown"], ["../../command/context.ts", "getBlockContext"],
+        ["../../command/context.ts", "captureCommandContext"], ["../../command/contextTargets.ts", "getCommandBlocks"],
+        ["../../command/contextTargets.ts", "hasCommandEditorTarget"]].map(([file, name]) => {
+        const parsed = createSourceFile(file, read(file), ScriptTarget.Latest, true);
+        return compile(parsed.statements.filter(isVariableStatement).filter(statement =>
+            statement.declarationList.declarations.some(declaration => declaration.name.getText(parsed) === name))
+            .map(statement => statement.getText(parsed)).join("\n"));
+    }).join("\n");
     const wysiwygSource = read("../wysiwyg/index.ts");
     const copyEnd = wysiwygSource.indexOf("copyPlainText(textPlain.slice(0, -1));") + "copyPlainText(textPlain.slice(0, -1));".length;
     const copyStart = wysiwygSource.lastIndexOf('let textPlain = "";', copyEnd);
@@ -777,7 +1144,7 @@ app.whenReady().then(async () => {
         await win.loadURL("data:text/html,<html><body></body></html>");
         await win.webContents.executeJavaScript(require("node:fs").readFileSync(${JSON.stringify(lutePath)}, "utf8"));
         console.log(await win.webContents.executeJavaScript(${JSON.stringify("const __name = value => value; (" +
-        browserCases.toString() + ")(" + [source, queue, compile(read("tableCellRichEditor.ts")), menuSource, transactionSource, copyPlainSource, gutterSource, mouseDownSource]
+        browserCases.toString() + ")(" + [source, queue, compile(read("tableCellRichEditor.ts")), menuSource, transactionSource, copyPlainSource, gutterSource, mouseDownSource, commandSource]
             .map(value => JSON.stringify(value)).join(",") + ")")}));
         win.destroy();
         app.exit(0);

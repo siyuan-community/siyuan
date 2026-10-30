@@ -1,6 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-// Licensed under the GNU Affero General Public License, version 3 or later.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -21,7 +21,7 @@ func textFileSingleLink(file *os.File, _ os.FileInfo) error {
 		return err
 	}
 	if info.NumberOfLinks != 1 {
-		return textFileError("invalid_path", "hard-linked files are not supported")
+		return textFileError(TextFileInvalidPath, "hard-linked files are not supported")
 	}
 	return nil
 }

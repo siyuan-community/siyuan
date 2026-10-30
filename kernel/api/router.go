@@ -1,27 +1,13 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package api
 
 import (
-	"fmt"
 	"github.com/siyuan-community/siyuan/kernel/apicontract"
 
 	"github.com/gin-gonic/gin"
-	"github.com/siyuan-note/logging"
 )
 
 func ServeAPI(ginServer *gin.Engine) {
@@ -75,23 +61,6 @@ func ServeAPI(ginServer *gin.Engine) {
 	registerUiRoutes(ginServer)
 }
 
-func deprecatedResponse(c *gin.Context, request apicontract.EmptyRequest) apicontract.Response[apicontract.Null] {
-
-	msg := fmt.Sprintf("[%s] is deprecated, visit [https://github.com/siyuan-note/siyuan/issues/15727] for details",
-		c.Request.RequestURI)
-	logging.LogWarn(msg)
-
-	return apicontract.Failure[apicontract.Null](-1, msg)
-}
-
-var resetBlockAttrs = contractHandler(apicontract.ResetBlockAttrs, deprecatedResponse)
-
-var searchAttributeViewNonRelationKey = contractHandler(apicontract.SearchAttributeViewNonRelationKey, deprecatedResponse)
-
-var setLocalStorage = contractHandler(apicontract.SetLocalStorage, deprecatedResponse)
-
-var deprecatedReloadUI = contractHandler(apicontract.DeprecatedReloadUI, deprecatedResponse)
-
 // registerOauthRoutes 注册本域的契约路由。
 func registerOauthRoutes(ginServer *gin.Engine) {
 	ginServer.GET("/.well-known/oauth-protected-resource/mcp", contractRouteHandlers(apicontract.MCPOAuthResource, mcpOAuthResource)...)
@@ -121,6 +90,9 @@ func registerSystemRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/system/version", contractRouteHandlers(apicontract.Version, version)...)
 	ginServer.Handle("POST", "/api/system/currentTime", contractRouteHandlers(apicontract.CurrentTime, currentTime)...)
 	ginServer.Handle("POST", "/api/system/loginAuth", contractRouteHandlers(apicontract.SystemLoginAuth, loginAuth)...)
+	ginServer.Handle("POST", "/api/system/uploadLockScreenWallpaper", contractRouteHandlers(apicontract.SystemUploadLockScreenWallpaper, uploadLockScreenWallpaper)...)
+	ginServer.Handle("POST", "/api/system/removeLockScreenWallpaper", contractRouteHandlers(apicontract.SystemRemoveLockScreenWallpaper, removeLockScreenWallpaper)...)
+	ginServer.Handle("GET", "/api/system/getLockScreenWallpaper", contractRouteHandlers(apicontract.SystemGetLockScreenWallpaper, getLockScreenWallpaper)...)
 	ginServer.Handle("POST", "/api/system/logoutAuth", contractRouteHandlers(apicontract.SystemLogoutAuth, logoutAuth)...)
 	ginServer.Handle("GET", "/api/system/getCaptcha", contractRouteHandlers(apicontract.SystemGetCaptcha, getCaptcha)...)
 	ginServer.Handle("POST", "/api/system/oidc/start", contractRouteHandlers(apicontract.SystemOIDCStart, oidcStart)...)
@@ -166,6 +138,7 @@ func registerSystemRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/system/ensureOnboarding", contractRouteHandlers(apicontract.SystemEnsureOnboarding, ensureOnboarding)...)
 	ginServer.Handle("POST", "/api/system/dismissOnboarding", contractRouteHandlers(apicontract.SystemDismissOnboarding, dismissOnboarding)...)
 	ginServer.Handle("POST", "/api/system/checkUpdate", contractRouteHandlers(apicontract.SystemCheckUpdate, checkUpdate)...)
+	ginServer.Handle("POST", "/api/system/downloadUpdate", contractRouteHandlers(apicontract.SystemDownloadUpdate, downloadUpdate)...)
 	ginServer.Handle("POST", "/api/system/exportLog", contractRouteHandlers(apicontract.SystemExportLog, exportLog)...)
 	ginServer.Handle("POST", "/api/system/getChangelog", contractRouteHandlers(apicontract.SystemGetChangelog, getChangelog)...)
 	ginServer.Handle("POST", "/api/system/getNetwork", contractRouteHandlers(apicontract.GetNetwork, getNetwork)...)
@@ -174,7 +147,7 @@ func registerSystemRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/system/getWorkspaceInfo", contractRouteHandlers(apicontract.GetWorkspaceInfo, getWorkspaceInfo)...)
 	ginServer.Handle("POST", "/api/system/getWorkspaceStorage", contractRouteHandlers(apicontract.GetWorkspaceStorage, getWorkspaceStorage)...)
 	ginServer.Handle("POST", "/api/system/getRuntimeInfo", contractRouteHandlers(apicontract.GetRuntimeInfo, getRuntimeInfo)...)
-	ginServer.Handle("POST", "/api/system/reloadUI", contractRouteHandlers(apicontract.DeprecatedReloadUI, deprecatedReloadUI)...)
+	ginServer.Handle("POST", "/api/system/checkFileTraversal", contractRouteHandlers(apicontract.CheckFileTraversal, checkFileTraversal)...)
 	ginServer.Handle("POST", "/api/system/addMicrosoftDefenderExclusion", contractRouteHandlers(apicontract.AddMicrosoftDefenderExclusion, addMicrosoftDefenderExclusion)...)
 	ginServer.Handle("POST", "/api/system/ignoreAddMicrosoftDefenderExclusion", contractRouteHandlers(apicontract.IgnoreAddMicrosoftDefenderExclusion, ignoreAddMicrosoftDefenderExclusion)...)
 	ginServer.Handle("POST", "/api/system/vacuumDataIndex", contractRouteHandlers(apicontract.VacuumDataIndex, vacuumDataIndex)...)
@@ -215,6 +188,7 @@ func registerAiRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/ai/agent/chat", contractRouteHandlers(apicontract.AIAgentChat, agentChat)...)
 	ginServer.Handle("POST", "/api/ai/agent/confirm", contractRouteHandlers(apicontract.AIAgentConfirm, agentChatConfirm)...)
 	ginServer.Handle("POST", "/api/ai/agent/setPermission", contractRouteHandlers(apicontract.AIAgentSetPermission, setAgentSessionPermission)...)
+	ginServer.Handle("POST", "/api/ai/agent/setPinned", contractRouteHandlers(apicontract.AISetSessionPinned, setAgentSessionPinned)...)
 	ginServer.Handle("POST", "/api/ai/agent/question", contractRouteHandlers(apicontract.AIAgentQuestion, agentChatQuestion)...)
 	ginServer.Handle("POST", "/api/ai/agent/browserCapabilityResult", contractRouteHandlers(apicontract.AIAgentBrowserCapabilityResult, agentChatBrowserCapabilityResult)...)
 	ginServer.Handle("POST", "/api/ai/lsCapabilities", contractRouteHandlers(apicontract.AIListCapabilities, lsCapabilities)...)
@@ -245,7 +219,6 @@ func registerStorageRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/storage/getLocalStorage", contractRouteHandlers(apicontract.GetLocalStorage, getLocalStorage)...)
 	ginServer.Handle("POST", "/api/storage/getLocalStorageVal", contractRouteHandlers(apicontract.GetLocalStorageVal, getLocalStorageVal)...)
 	ginServer.Handle("POST", "/api/storage/getLocalStorageVals", contractRouteHandlers(apicontract.GetLocalStorageVals, getLocalStorageVals)...)
-	ginServer.Handle("POST", "/api/storage/setLocalStorage", contractRouteHandlers(apicontract.SetLocalStorage, setLocalStorage)...)
 	ginServer.Handle("POST", "/api/storage/setLocalStorageVal", contractRouteHandlers(apicontract.SetLocalStorageVal, setLocalStorageVal)...)
 	ginServer.Handle("POST", "/api/storage/setLocalStorageVals", contractRouteHandlers(apicontract.SetLocalStorageVals, setLocalStorageVals)...)
 	ginServer.Handle("POST", "/api/storage/removeLocalStorageVal", contractRouteHandlers(apicontract.RemoveLocalStorageVal, removeLocalStorageVal)...)
@@ -257,6 +230,7 @@ func registerStorageRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/storage/setCriterion", contractRouteHandlers(apicontract.SetCriterion, setCriterion)...)
 	ginServer.Handle("POST", "/api/storage/removeCriterion", contractRouteHandlers(apicontract.RemoveCriterion, removeCriterion)...)
 	ginServer.Handle("POST", "/api/storage/getRecentDocs", contractRouteHandlers(apicontract.GetRecentDocs, getRecentDocs)...)
+	ginServer.Handle("POST", "/api/storage/clearRecentDocs", contractRouteHandlers(apicontract.ClearRecentDocs, clearRecentDocs)...)
 	ginServer.Handle("POST", "/api/storage/updateRecentDocOpenTime", contractRouteHandlers(apicontract.UpdateRecentDocOpenTime, updateRecentDocOpenTime)...)
 	ginServer.Handle("POST", "/api/storage/updateRecentDocViewTime", contractRouteHandlers(apicontract.UpdateRecentDocViewTime, updateRecentDocViewTime)...)
 	ginServer.Handle("POST", "/api/storage/updateRecentDocCloseTime", contractRouteHandlers(apicontract.UpdateRecentDocCloseTime, updateRecentDocCloseTime)...)
@@ -327,6 +301,11 @@ func registerFiletreeRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/filetree/setSort", contractRouteHandlers(apicontract.SetSort, setSort)...)
 	ginServer.Handle("POST", "/api/filetree/setDocSortMode", contractRouteHandlers(apicontract.SetDocSortMode, setDocSortMode)...)
 	ginServer.Handle("POST", "/api/filetree/createDocWithMd", contractRouteHandlers(apicontract.CreateDocWithMd, createDocWithMd)...)
+	ginServer.Handle("POST", "/api/filetree/getDocPaths", contractRouteHandlers(apicontract.GetDocPaths, getDocPaths)...)
+	ginServer.Handle("POST", "/api/filetree/resolveDocPath", contractRouteHandlers(apicontract.ResolveDocPath, resolveDocPath)...)
+	ginServer.Handle("POST", "/api/filetree/createDocByParent", contractRouteHandlers(apicontract.CreateDocByParent, createDocByParent)...)
+	ginServer.Handle("POST", "/api/filetree/getDocCreateTarget", contractRouteHandlers(apicontract.GetDocCreateTarget, getDocCreateTarget)...)
+	ginServer.Handle("POST", "/api/filetree/planDocCreate", contractRouteHandlers(apicontract.PlanDocCreate, planDocCreate)...)
 	ginServer.Handle("POST", "/api/filetree/createDailyNote", contractRouteHandlers(apicontract.CreateDailyNote, createDailyNote)...)
 	ginServer.Handle("POST", "/api/filetree/getDailyNoteInfo", contractRouteHandlers(apicontract.GetDailyNoteInfo, getDailyNoteInfo)...)
 	ginServer.Handle("POST", "/api/filetree/createDoc", contractRouteHandlers(apicontract.CreateDoc, createDoc)...)
@@ -525,6 +504,7 @@ func registerFileRoutes(ginServer *gin.Engine) {
 func registerRefRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/ref/refreshBacklink", contractRouteHandlers(apicontract.RefreshBacklink, refreshBacklink)...)
 	ginServer.Handle("POST", "/api/ref/getBacklink2", contractRouteHandlers(apicontract.GetBacklink2, getBacklink2)...)
+	ginServer.Handle("POST", "/api/ref/getBacklinkDatabases", contractRouteHandlers(apicontract.GetBacklinkDatabases, getBacklinkDatabases)...)
 	ginServer.Handle("POST", "/api/ref/getGlobalBacklinks", contractRouteHandlers(apicontract.GetGlobalBacklinks, getGlobalBacklinks)...)
 	ginServer.Handle("POST", "/api/ref/getGlobalBacklinkContexts", contractRouteHandlers(apicontract.GetGlobalBacklinkContexts, getGlobalBacklinkContexts)...)
 	ginServer.Handle("POST", "/api/ref/getBacklinkDoc", contractRouteHandlers(apicontract.GetBacklinkDoc, getBacklinkDoc)...)
@@ -534,7 +514,6 @@ func registerRefRoutes(ginServer *gin.Engine) {
 // registerAttrRoutes 注册本域的契约路由。
 func registerAttrRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/attr/getBookmarkLabels", contractRouteHandlers(apicontract.GetBookmarkLabels, getBookmarkLabels)...)
-	ginServer.Handle("POST", "/api/attr/resetBlockAttrs", contractRouteHandlers(apicontract.ResetBlockAttrs, resetBlockAttrs)...)
 	ginServer.Handle("POST", "/api/attr/setBlockAttrs", contractRouteHandlers(apicontract.SetBlockAttrs, setBlockAttrs)...)
 	ginServer.Handle("POST", "/api/attr/batchSetBlockAttrs", contractRouteHandlers(apicontract.BatchSetBlockAttrs, batchSetBlockAttrs)...)
 	ginServer.Handle("POST", "/api/attr/getBlockAttrs", contractRouteHandlers(apicontract.GetBlockAttrs, getBlockAttrs)...)
@@ -562,12 +541,18 @@ func registerSyncRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/sync/setSyncProviderLocal", contractRouteHandlers(apicontract.SetSyncProviderLocal, setSyncProviderLocal)...)
 	ginServer.Handle("POST", "/api/sync/clearSyncProviderConfig", contractRouteHandlers(apicontract.ClearSyncProviderConfig, clearSyncProviderConfig)...)
 	ginServer.Handle("POST", "/api/sync/getSyncProviderConfigRules", contractRouteHandlers(apicontract.GetSyncProviderConfigRules, getSyncProviderConfigRules)...)
+	ginServer.Handle("POST", "/api/sync/testSyncProviderS3", contractRouteHandlers(apicontract.TestSyncProviderS3, testSyncProviderS3)...)
+	ginServer.Handle("POST", "/api/sync/testSyncProviderWebDAV", contractRouteHandlers(apicontract.TestSyncProviderWebDAV, testSyncProviderWebDAV)...)
+	ginServer.Handle("POST", "/api/sync/testSyncProviderLocal", contractRouteHandlers(apicontract.TestSyncProviderLocal, testSyncProviderLocal)...)
 	ginServer.Handle("POST", "/api/sync/setCloudSyncDir", contractRouteHandlers(apicontract.SetCloudSyncDir, setCloudSyncDir)...)
 	ginServer.Handle("POST", "/api/sync/setSyncAssetDownloadMode", contractRouteHandlers(apicontract.SetSyncAssetDownloadMode, setSyncAssetDownloadMode)...)
 	ginServer.Handle("POST", "/api/sync/createCloudSyncDir", contractRouteHandlers(apicontract.CreateCloudSyncDir, createCloudSyncDir)...)
 	ginServer.Handle("POST", "/api/sync/removeCloudSyncDir", contractRouteHandlers(apicontract.RemoveCloudSyncDir, removeCloudSyncDir)...)
 	ginServer.Handle("POST", "/api/sync/listCloudSyncDir", contractRouteHandlers(apicontract.ListCloudSyncDir, listCloudSyncDir)...)
 	ginServer.Handle("POST", "/api/sync/performSync", contractRouteHandlers(apicontract.PerformSync, performSync)...)
+	ginServer.Handle("POST", "/api/sync/cancelSyncCheckout", contractRouteHandlers(apicontract.CancelSyncCheckout, cancelSyncCheckout)...)
+	ginServer.Handle("POST", "/api/sync/getSyncCheckout", contractRouteHandlers(apicontract.GetSyncCheckout, getSyncCheckout)...)
+	ginServer.Handle("POST", "/api/sync/confirmSyncCheckout", contractRouteHandlers(apicontract.ConfirmSyncCheckout, confirmSyncCheckout)...)
 	ginServer.Handle("POST", "/api/sync/performBootSync", contractRouteHandlers(apicontract.PerformBootSync, performBootSync)...)
 	ginServer.Handle("POST", "/api/sync/getBootSync", contractRouteHandlers(apicontract.GetBootSync, getBootSync)...)
 	ginServer.Handle("POST", "/api/sync/getSyncInfo", contractRouteHandlers(apicontract.GetSyncInfo, getSyncInfo)...)
@@ -609,10 +594,18 @@ func registerAssetRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/asset/setFileAnnotation", contractRouteHandlers(apicontract.SetFileAnnotation, setFileAnnotation)...)
 	ginServer.Handle("POST", "/api/asset/getFileAnnotation", contractRouteHandlers(apicontract.GetFileAnnotation, getFileAnnotation)...)
 	ginServer.Handle("POST", "/api/asset/getUnusedAssets", contractRouteHandlers(apicontract.GetUnusedAssets, getUnusedAssets)...)
+	ginServer.Handle("POST", "/api/asset/getUnusedEncryptedBoxAssets", contractRouteHandlers(apicontract.GetUnusedEncryptedBoxAssets, getUnusedEncryptedBoxAssets)...)
+	ginServer.Handle("POST", "/api/asset/removeUnusedEncryptedBoxAssets", contractRouteHandlers(apicontract.RemoveUnusedEncryptedBoxAssets, removeUnusedEncryptedBoxAssets)...)
 	ginServer.Handle("POST", "/api/asset/getMissingAssets", contractRouteHandlers(apicontract.GetMissingAssets, getMissingAssets)...)
 	ginServer.Handle("POST", "/api/asset/removeUnusedAsset", contractRouteHandlers(apicontract.RemoveUnusedAsset, removeUnusedAsset)...)
 	ginServer.Handle("POST", "/api/asset/removeUnusedAssets", contractRouteHandlers(apicontract.RemoveUnusedAssets, removeUnusedAssets)...)
 	ginServer.Handle("POST", "/api/asset/getDocImageAssets", contractRouteHandlers(apicontract.GetDocImageAssets, getDocImageAssets)...)
+	ginServer.Handle("POST", "/api/asset/getDocPreviewImages", contractRouteHandlers(apicontract.GetDocPreviewImages, getDocPreviewImages)...)
+	ginServer.Handle("POST", "/api/asset/startLivePhotoPreview", contractRouteHandlers(apicontract.StartLivePhotoPreview, startLivePhotoPreview)...)
+	ginServer.Handle("POST", "/api/asset/getLivePhotoFrame", contractRouteHandlers(apicontract.GetLivePhotoFrame, getLivePhotoFrame)...)
+	ginServer.Handle("POST", "/api/asset/finishLivePhotoPreview", contractRouteHandlers(apicontract.FinishLivePhotoPreview, finishLivePhotoPreview)...)
+	ginServer.Handle("POST", "/api/asset/getLivePhotoPreview", contractRouteHandlers(apicontract.GetLivePhotoPreview, getLivePhotoPreview)...)
+	ginServer.Handle("POST", "/api/asset/cancelLivePhotoPreview", contractRouteHandlers(apicontract.CancelLivePhotoPreview, cancelLivePhotoPreview)...)
 	ginServer.Handle("POST", "/api/asset/getDocAssets", contractRouteHandlers(apicontract.GetDocAssets, getDocAssets)...)
 	ginServer.Handle("POST", "/api/asset/renameAsset", contractRouteHandlers(apicontract.RenameAsset, renameAsset)...)
 	ginServer.Handle("POST", "/api/asset/findAssetReferences", contractRouteHandlers(apicontract.FindAssetReferences, findAssetReferences)...)
@@ -670,6 +663,9 @@ func registerImportRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/import/importStdMd", contractRouteHandlers(apicontract.ImportStdMd, importStdMd)...)
 	ginServer.Handle("POST", "/api/import/importZipMd", contractRouteHandlers(apicontract.ImportZipMd, importZipMd)...)
 	ginServer.Handle("POST", "/api/import/importData", contractRouteHandlers(apicontract.ImportData, importData)...)
+	ginServer.Handle("POST", "/api/import/prepareDataImport", contractRouteHandlers(apicontract.PrepareDataImport, prepareDataImport)...)
+	ginServer.Handle("POST", "/api/import/commitDataImport", contractRouteHandlers(apicontract.CommitDataImport, commitDataImport)...)
+	ginServer.Handle("POST", "/api/import/cancelDataImport", contractRouteHandlers(apicontract.CancelDataImport, cancelDataImport)...)
 	ginServer.Handle("POST", "/api/import/importSY", contractRouteHandlers(apicontract.ImportSY, importSY)...)
 	ginServer.Handle("POST", "/api/import/importSYNotebook", contractRouteHandlers(apicontract.ImportSYNotebook, importSYNotebook)...)
 	ginServer.Handle("POST", "/api/import/importSYAuto", contractRouteHandlers(apicontract.ImportSYAuto, importSYAuto)...)
@@ -707,6 +703,7 @@ func registerTransactionsRoutes(ginServer *gin.Engine) {
 // registerSettingRoutes 注册本域的契约路由。
 func registerSettingRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/setting/patch", contractRouteHandlers(apicontract.PatchSetting, patchSetting)...)
+	ginServer.Handle("POST", "/api/setting/getSection", contractRouteHandlers(apicontract.GetSettingSection, getSettingSection)...)
 	ginServer.Handle("POST", "/api/setting/resetSettings", contractRouteHandlers(apicontract.ResetSettings, resetSettings)...)
 	ginServer.Handle("POST", "/api/setting/confirmSettingsReset", contractRouteHandlers(apicontract.ConfirmSettingsReset, confirmSettingsReset)...)
 	ginServer.Handle("POST", "/api/setting/setEditor", contractRouteHandlers(apicontract.SetEditor, setEditor)...)
@@ -865,9 +862,11 @@ func registerAvRoutes(ginServer *gin.Engine) {
 	ginServer.Handle("POST", "/api/av/batchSetAttributeViewBlockAttrs", contractRouteHandlers(apicontract.BatchSetAttributeViewBlockAttrs, batchSetAttributeViewBlockAttrs)...)
 	ginServer.Handle("POST", "/api/av/searchAttributeView", contractRouteHandlers(apicontract.SearchAttributeView, searchAttributeView)...)
 	ginServer.Handle("POST", "/api/av/getAttributeView", contractRouteHandlers(apicontract.GetAttributeView, getAttributeView)...)
+	ginServer.Handle("POST", "/api/av/previewAttributeViewCollection", contractRouteHandlers(apicontract.PreviewAttributeViewCollection, previewAttributeViewCollection)...)
+	ginServer.Handle("POST", "/api/av/reviewAttributeViewCollection", contractRouteHandlers(apicontract.ReviewAttributeViewCollection, reviewAttributeViewCollection)...)
+	ginServer.Handle("POST", "/api/av/previewAttributeViewTemplate", contractRouteHandlers(apicontract.PreviewAttributeViewTemplate, previewAttributeViewTemplate)...)
 	ginServer.Handle("POST", "/api/av/getAttributeViewPasteRows", contractRouteHandlers(apicontract.GetAttributeViewPasteRows, getAttributeViewPasteRows)...)
 	ginServer.Handle("POST", "/api/av/searchAttributeViewRelationKey", contractRouteHandlers(apicontract.SearchAttributeViewRelationKey, searchAttributeViewRelationKey)...)
-	ginServer.Handle("POST", "/api/av/searchAttributeViewNonRelationKey", contractRouteHandlers(apicontract.SearchAttributeViewNonRelationKey, searchAttributeViewNonRelationKey)...)
 	ginServer.Handle("POST", "/api/av/searchAttributeViewRollupDestKeys", contractRouteHandlers(apicontract.SearchAttributeViewRollupDestKeys, searchAttributeViewRollupDestKeys)...)
 	ginServer.Handle("POST", "/api/av/getAttributeViewFilterSort", contractRouteHandlers(apicontract.GetAttributeViewFilterSort, getAttributeViewFilterSort)...)
 	ginServer.Handle("POST", "/api/av/setAttrViewFilters", contractRouteHandlers(apicontract.SetAttrViewFilters, setAttrViewFilters)...)

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package crypto
 
@@ -25,7 +13,7 @@ import (
 
 func TestGenerateAESKeyLengths(t *testing.T) {
 	for _, length := range []int{128, 192, 256} {
-		alg := Algorithm{Name: AlgAESGCM, Length: intPtr(length)}
+		alg := Algorithm{Name: AlgAESGCM, Length: new(length)}
 		pair, err := GenerateKey(alg, true, []KeyUsage{UsageEncrypt, UsageDecrypt})
 		if err != nil {
 			t.Fatalf("length %d: %v", length, err)
@@ -36,7 +24,7 @@ func TestGenerateAESKeyLengths(t *testing.T) {
 	}
 
 	// 非法长度返回 OperationError，缺少 length 返回 TypeError。
-	bad := Algorithm{Name: AlgAESGCM, Length: intPtr(100)}
+	bad := Algorithm{Name: AlgAESGCM, Length: new(100)}
 	if _, err := GenerateKey(bad, true, []KeyUsage{UsageEncrypt}); errorName(t, err) != ErrNameOperation {
 		t.Fatalf("error = %v, want OperationError", err)
 	}
@@ -67,7 +55,7 @@ func TestGenerateHMACKeyDefaultLength(t *testing.T) {
 	if _, err := GenerateKey(Algorithm{Name: AlgHMAC}, true, []KeyUsage{UsageSign}); errorName(t, err) != ErrNameType {
 		t.Fatalf("error = %v, want TypeError", err)
 	}
-	zero := Algorithm{Name: AlgHMAC, Hash: AlgSHA256, Length: intPtr(0)}
+	zero := Algorithm{Name: AlgHMAC, Hash: AlgSHA256, Length: new(0)}
 	if _, err := GenerateKey(zero, true, []KeyUsage{UsageSign}); errorName(t, err) != ErrNameOperation {
 		t.Fatalf("error = %v, want OperationError", err)
 	}
@@ -75,7 +63,7 @@ func TestGenerateHMACKeyDefaultLength(t *testing.T) {
 
 func TestCheckUsagesRejectsDisallowedAndEmpty(t *testing.T) {
 	// AES 密钥不能用于签名。
-	alg := Algorithm{Name: AlgAESGCM, Length: intPtr(128)}
+	alg := Algorithm{Name: AlgAESGCM, Length: new(128)}
 	if _, err := GenerateKey(alg, true, []KeyUsage{UsageSign}); errorName(t, err) != ErrNameSyntax {
 		t.Fatalf("error = %v, want SyntaxError", err)
 	}
@@ -134,8 +122,8 @@ func TestImportExportRawAES(t *testing.T) {
 
 	// 规范的 AES 导入参数只有 name，参数中的 length 不参与导入，位长取自密钥数据。
 	for _, other := range []Algorithm{
-		{Name: AlgAESGCM, Length: intPtr(128)},
-		{Name: AlgAESCTR, Counter: make([]byte, 16), Length: intPtr(64)},
+		{Name: AlgAESGCM, Length: new(128)},
+		{Name: AlgAESCTR, Counter: make([]byte, 16), Length: new(64)},
 	} {
 		imported, importErr := ImportKey(FormatRaw, KeyData{Raw: secret}, other, true, []KeyUsage{UsageEncrypt})
 		if importErr != nil {
@@ -153,7 +141,7 @@ func TestImportHMACKeyLength(t *testing.T) {
 	raw := make([]byte, 8)
 	cases := map[int]bool{64: true, 63: true, 57: true, 56: false, 65: false, 0: false}
 	for length, ok := range cases {
-		alg := Algorithm{Name: AlgHMAC, Hash: AlgSHA256, Length: intPtr(length)}
+		alg := Algorithm{Name: AlgHMAC, Hash: AlgSHA256, Length: new(length)}
 		key, err := ImportKey(FormatRaw, KeyData{Raw: raw}, alg, true, []KeyUsage{UsageSign})
 		if ok {
 			if err != nil {
@@ -325,7 +313,7 @@ func TestJWKImportValidation(t *testing.T) {
 
 func TestJWKUseFollowsAlgorithm(t *testing.T) {
 	rsa := func(name string) Algorithm {
-		return Algorithm{Name: name, Hash: AlgSHA256, ModulusLength: intPtr(2048), PublicExponent: []byte{1, 0, 1}}
+		return Algorithm{Name: name, Hash: AlgSHA256, ModulusLength: new(2048), PublicExponent: []byte{1, 0, 1}}
 	}
 
 	// use 的取值由算法决定，与请求的用法无关。
@@ -335,9 +323,9 @@ func TestJWKUseFollowsAlgorithm(t *testing.T) {
 		usages   []KeyUsage
 		want     string
 	}{
-		{Algorithm{Name: AlgAESGCM, Length: intPtr(128)}, []KeyUsage{UsageEncrypt}, []KeyUsage{UsageEncrypt}, "enc"},
-		{Algorithm{Name: AlgAESKW, Length: intPtr(128)}, []KeyUsage{UsageWrapKey}, []KeyUsage{UsageWrapKey}, "enc"},
-		{Algorithm{Name: AlgAESECB, Length: intPtr(128)}, []KeyUsage{UsageEncrypt}, []KeyUsage{UsageEncrypt}, "enc"},
+		{Algorithm{Name: AlgAESGCM, Length: new(128)}, []KeyUsage{UsageEncrypt}, []KeyUsage{UsageEncrypt}, "enc"},
+		{Algorithm{Name: AlgAESKW, Length: new(128)}, []KeyUsage{UsageWrapKey}, []KeyUsage{UsageWrapKey}, "enc"},
+		{Algorithm{Name: AlgAESECB, Length: new(128)}, []KeyUsage{UsageEncrypt}, []KeyUsage{UsageEncrypt}, "enc"},
 		{Algorithm{Name: AlgHMAC, Hash: AlgSHA256}, []KeyUsage{UsageSign}, []KeyUsage{UsageSign}, "sig"},
 		{rsa(AlgRSASSAPKCS1), []KeyUsage{UsageSign, UsageVerify}, []KeyUsage{UsageSign}, "sig"},
 		{rsa(AlgRSAOAEP), []KeyUsage{UsageEncrypt, UsageDecrypt}, []KeyUsage{UsageDecrypt}, "enc"},

@@ -1,3 +1,4 @@
+import {patchAppearancePreference} from "../../config/tabs/appearancePreferences";
 import {saveOutlineState} from "../../config/util/resourceConfig";
 import {toggleMenu} from "../../menus/menuToggle";
 import {bindPanelSearch} from "../../layout/dock/panelSearch";
@@ -6,7 +7,7 @@ import {Tree} from "../../util/Tree";
 import {fetchPost} from "../../util/fetch";
 import {confirmBlockRef} from "../../util/checkBlockRef";
 import {hasClosestBlock, hasClosestByClassName} from "../../protyle/util/hasClosest";
-import {setStorageVal, writeBlockDOMClipboard} from "../../protyle/util/compatibility";
+import {writeBlockDOMClipboard} from "../../protyle/util/compatibility";
 import {Constants} from "../../constants";
 import {MenuItem} from "../../menus/Menu";
 import {getPreviousBlock} from "../../protyle/wysiwyg/getBlock";
@@ -27,6 +28,7 @@ import {syncDocTitleIAL} from "../../protyle/util/docTitleIAL";
 import {canBatchConvertHeadings, showHeadingBatchDialog} from "../../protyle/util/headingBatch";
 import {bindMousePointerTouchBridge, isMousePointerTouchEvent} from "../util/mousePointerTouchBridge";
 import {waitForPendingTransactions} from "../../protyle/util/transactionQueue";
+import {getHeadingLevel} from "../../block/headingLevel";
 import {
     operationsMayChangeOutline,
     transactionsMayChangeRootHeadingNumberSetting
@@ -37,6 +39,7 @@ export class MobileOutline extends Model {
     public tree: Tree;
     public element: HTMLElement;
     public blockId: string;
+    private notebookId: string;
     public isPreview: boolean;
     private preFilterExpandIds: string[] | null = null;
     private reloadId = 0;
@@ -74,7 +77,7 @@ export class MobileOutline extends Model {
     <div class="fn__space"></div>
     <input spellcheck="false" class="b3-text-field search__label fn__none fn__size200" placeholder="${window.siyuan.languages.searchPlaceholder}" />
     <svg data-type="search" class="toolbar__icon"><use xlink:href='#iconSearch'></use></svg>
-    <svg data-type="keepCurrentExpand" class="toolbar__icon${window.siyuan.storage[Constants.LOCAL_OUTLINE].keepCurrentExpand ? " toolbar__icon--active" : ""}"><use xlink:href="#iconFocus"></use></svg>
+    <svg data-type="keepCurrentExpand" class="toolbar__icon${window.siyuan.config.appearance.outlineKeepCurrentExpand ? " toolbar__icon--active" : ""}"><use xlink:href="#iconFocus"></use></svg>
     <svg data-type="expandLevel" class="toolbar__icon"><use xlink:href="#iconExpandLevel"></use></svg>
 </div>
 <div class="b3-list-item fn__none" data-type="doc-title"></div>
@@ -135,19 +138,19 @@ export class MobileOutline extends Model {
             topExtHTML: window.siyuan.config.readonly ? undefined : '<span class="b3-list-item__action"><svg><use xlink:href="#iconMore"></use></svg></span>',
         });
         // 保持当前标题展开功能
-        this.element.querySelector('[data-type="keepCurrentExpand"]').addEventListener("click", (event: MouseEvent & {
+        this.element.querySelector('[data-type="keepCurrentExpand"]').addEventListener("click", async (event: MouseEvent & {
             target: Element
         }) => {
             const iconElement = hasClosestByClassName(event.target, "toolbar__icon");
             if (!iconElement) {
                 return;
             }
-            if (iconElement.classList.contains("toolbar__icon--active")) {
+            if (window.siyuan.config.readonly || window.siyuan.isPublish) return;
+            await patchAppearancePreference("outlineKeepCurrentExpand", !window.siyuan.config.appearance.outlineKeepCurrentExpand);
+            if (!window.siyuan.config.appearance.outlineKeepCurrentExpand) {
                 iconElement.classList.remove("toolbar__icon--active");
-                window.siyuan.storage[Constants.LOCAL_OUTLINE].keepCurrentExpand = false;
             } else {
                 iconElement.classList.add("toolbar__icon--active");
-                window.siyuan.storage[Constants.LOCAL_OUTLINE].keepCurrentExpand = true;
                 let focusElement;
                 const blockElement = hasClosestBlock(window.siyuan.mobile.editor.protyle.toolbar.range?.startContainer);
                 if (blockElement) {
@@ -157,8 +160,6 @@ export class MobileOutline extends Model {
                     this.setCurrent(focusElement);
                 }
             }
-            // 保存keepCurrentExpand状态到localStorage
-            setStorageVal(Constants.LOCAL_OUTLINE, window.siyuan.storage[Constants.LOCAL_OUTLINE]);
         });
         this.element.addEventListener("click", (event: MouseEvent & { target: HTMLElement }) => {
             let target = event.target as HTMLElement;
@@ -424,6 +425,17 @@ export class MobileOutline extends Model {
                         }, data.data.title, data.data.empty, Constants.CUSTOM_SY_TITLE_EMPTY), -1);
                     }
                     break;
+                case "closeBox":
+                case "removeBox":
+                    if (this.notebookId === data.data.box) {
+                        this.clear();
+                    }
+                    break;
+                case "removeDoc":
+                    if (data.data.ids.includes(this.blockId)) {
+                        this.clear();
+                    }
+                    break;
             }
         }
     }
@@ -510,7 +522,7 @@ export class MobileOutline extends Model {
         if (!currentElement) {
             return;
         }
-        if (window.siyuan.storage[Constants.LOCAL_OUTLINE].keepCurrentExpand) {
+        if (window.siyuan.config.appearance.outlineKeepCurrentExpand) {
             let ulElement = currentElement.parentElement;
             while (ulElement && !ulElement.classList.contains("b3-list") && ulElement.tagName === "UL") {
                 ulElement.classList.remove("fn__none");
@@ -526,22 +538,29 @@ export class MobileOutline extends Model {
         if (currentElement) {
             currentElement.classList.add("b3-list-item--focus");
             const elementRect = this.tree.element.getBoundingClientRect();
-            this.tree.element.scrollTop += currentElement.getBoundingClientRect().top -
+            const currentRect = currentElement.getBoundingClientRect();
+            this.tree.element.scrollTop += currentRect.bottom -
                 (elementRect.top + elementRect.height / 2);
         }
     }
 
+    private clear() {
+        // 关闭后清除隐藏面板的内容，并使在途响应失效。
+        this.reloadId++;
+        this.currentRequestID++;
+        this.blockId = "";
+        this.notebookId = "";
+        this.isPreview = false;
+        this.preFilterExpandIds = null;
+        this.tree.updateData(null);
+        this.tree.element.scrollTop = 0;
+        this.updateDocTitle();
+        this.element.removeAttribute("data-loading");
+    }
+
     public reload(callback?: () => void) {
         if (document.getElementById("editor").classList.contains("fn__none")) {
-            this.reloadId++;
-            this.currentRequestID++;
-            this.blockId = "";
-            this.isPreview = false;
-            this.preFilterExpandIds = null;
-            this.tree.updateData(null);
-            this.tree.element.scrollTop = 0;
-            this.updateDocTitle();
-            this.element.removeAttribute("data-loading");
+            this.clear();
             return;
         }
         const protyle = window.siyuan.mobile.editor?.protyle;
@@ -556,6 +575,7 @@ export class MobileOutline extends Model {
             this.tree.element.scrollTop = 0;
         }
         this.blockId = blockId;
+        this.notebookId = protyle?.notebookId || "";
         this.isPreview = isPreview;
         const reloadId = ++this.reloadId;
         const outlineParam: IObject = {
@@ -607,6 +627,8 @@ export class MobileOutline extends Model {
     private updateDocTitle(ial?: Record<string, string>, count?: number) {
         const docTitleElement = this.element.querySelector('[data-type="doc-title"]') as HTMLElement;
         if (this.isPreview || !ial) {
+            docTitleElement.innerHTML = "";
+            docTitleElement.removeAttribute("title");
             docTitleElement.classList.add("fn__none");
             return;
         }
@@ -725,15 +747,6 @@ export class MobileOutline extends Model {
     }
 
     /**
-     * 获取标题元素的实际标题级别（H1=1, H2=2, 等等）
-     * @param element li元素
-     * @returns 标题级别（1-6）
-     */
-    private getHeadingLevel(element: HTMLElement) {
-        return parseInt(element.getAttribute("data-subtype")?.replace("h", "") || "0");
-    }
-
-    /**
      * 展开到指定标题级别
      * @param targetLevel 目标标题级别，1-6级（H1-H6），6级表示全部展开
      */
@@ -744,7 +757,7 @@ export class MobileOutline extends Model {
         } else {
             // 展开到指定标题级别
             this.element.querySelectorAll("li.b3-list-item").forEach(item => {
-                const headingLevel = this.getHeadingLevel(item as HTMLElement);
+                const headingLevel = getHeadingLevel(item);
                 const arrowElement = item.querySelector(".b3-list-item__arrow");
                 if (item.nextElementSibling && item.nextElementSibling.tagName === "UL" && arrowElement) {
                     if (headingLevel > 0 && headingLevel < targetLevel) {
@@ -760,8 +773,6 @@ export class MobileOutline extends Model {
             });
         }
         this.saveExpendIds();
-        window.siyuan.storage[Constants.LOCAL_OUTLINE].expandLevel = targetLevel;
-        setStorageVal(Constants.LOCAL_OUTLINE, window.siyuan.storage[Constants.LOCAL_OUTLINE]);
     }
 
     private setAllExpanded(expanded: boolean) {
@@ -896,7 +907,7 @@ export class MobileOutline extends Model {
                 if (this.isPreview) {
                     return; // 预览模式下不显示右键菜单
                 }
-                const currentLevel = this.getHeadingLevel(element);
+                const currentLevel = getHeadingLevel(element);
 
                 window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_OUTLINE_CONTEXT);
                 const id = element.getAttribute("data-node-id");

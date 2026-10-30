@@ -1,22 +1,11 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package sql
 
 import (
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -88,6 +77,7 @@ func blockCacheKey(id, boxID string) string {
 }
 
 func ClearCache() {
+	clearFTSCountCache()
 	blockCache.Clear()
 	blockCacheKeysMu.Lock()
 	blockCacheKeys = map[string]map[string]*blockCacheEntry{}
@@ -255,9 +245,7 @@ func getRefsCacheByDefIDInBox(defID, boxID string,
 			cacheable = append(cacheable, ref)
 		}
 	}
-	for blockID, ref := range partial {
-		merged[blockID] = ref
-	}
+	maps.Copy(merged, partial)
 	ret = ret[:0]
 	for _, ref := range merged {
 		ret = append(ret, ref)
@@ -301,9 +289,7 @@ func putRefCacheIfGeneration(defID, boxID string, generation refCacheGeneration,
 	key := refCacheKey(defID, boxID)
 	if cached, ok := defIDRefsCache.Get(key); ok {
 		if entry, valid := cached.(*refCacheEntry); valid {
-			for blockID, ref := range entry.refs {
-				complete[blockID] = ref
-			}
+			maps.Copy(complete, entry.refs)
 		}
 	}
 	defIDRefsCache.SetDefault(key, &refCacheEntry{refs: complete, complete: true})

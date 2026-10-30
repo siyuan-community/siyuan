@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -103,8 +107,7 @@ func avEmbeddedPayloadSchema(b *schemaBuilder, t reflect.Type, input bool) (*Sch
 	b.definitions[name] = result
 	var base reflect.Type
 	var own []reflect.StructField
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		if field.Anonymous && field.Type.Kind() == reflect.Pointer {
 			base = field.Type.Elem()
 		} else {
@@ -117,8 +120,7 @@ func avEmbeddedPayloadSchema(b *schemaBuilder, t reflect.Type, input bool) (*Sch
 	for _, present := range []bool{true, false} {
 		fields := append([]reflect.StructField{}, own...)
 		if present {
-			for i := 0; i < base.NumField(); i++ {
-				field := base.Field(i)
+			for field := range base.Fields() {
 				shadowed := false
 				for _, child := range own {
 					if child.Name == field.Name {

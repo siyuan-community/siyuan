@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -171,9 +175,10 @@ func TestMindmapSummaryTransactionsAndListRoundTrip(t *testing.T) {
 			// 转换块类型和折叠不改变成员或概要文字。
 			ast.Walk(list, func(node *ast.Node, entering bool) ast.WalkStatus {
 				if entering {
-					if node.Type == ast.NodeList {
+					switch node.Type {
+					case ast.NodeList:
 						node.Type = ast.NodeMindmap
-					} else if node.Type == ast.NodeListItem {
+					case ast.NodeListItem:
 						node.Type = ast.NodeMindmapItem
 						node.SetIALAttr("fold", "1")
 					}

@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tools
 
 import (
@@ -7,7 +11,6 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/bazaar"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
-	"strings"
 )
 
 func isPluginProjectAction(action string) bool {
@@ -34,7 +37,7 @@ func bazaarProjectError(err error, partial any) (CallToolResult, error) {
 	if err == nil {
 		return bazaarProjectJSON(partial)
 	}
-	unknown := strings.Contains(err.Error(), "result_unknown")
+	unknown := util.IsTextFileError(err, util.TextFileResultUnknown)
 	if partial == nil && !unknown {
 		return blockToolError(err.Error())
 	}

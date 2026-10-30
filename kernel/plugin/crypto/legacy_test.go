@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package crypto
 
@@ -103,7 +91,7 @@ func TestMD5WorksWithKeyDerivation(t *testing.T) {
 	// HKDF 与 PBKDF2 把摘要算法当作伪随机函数使用，因此接受 MD5。
 	for _, alg := range []Algorithm{
 		{Name: AlgHKDF, Hash: AlgMD5, Salt: []byte("salt"), Info: []byte("info")},
-		{Name: AlgPBKDF2, Hash: AlgMD5, Salt: []byte("salt"), Iterations: intPtr(16)},
+		{Name: AlgPBKDF2, Hash: AlgMD5, Salt: []byte("salt"), Iterations: new(16)},
 	} {
 		key, err := ImportKey(FormatRaw, KeyData{Raw: []byte("password")},
 			Algorithm{Name: alg.Name}, false, []KeyUsage{UsageDeriveBits})
@@ -111,7 +99,7 @@ func TestMD5WorksWithKeyDerivation(t *testing.T) {
 			t.Fatalf("%s: %v", alg.Name, err)
 		}
 
-		bits, err := DeriveBits(alg, key, intPtr(128))
+		bits, err := DeriveBits(alg, key, new(128))
 		if err != nil {
 			t.Fatalf("%s: %v", alg.Name, err)
 		}
@@ -119,7 +107,7 @@ func TestMD5WorksWithKeyDerivation(t *testing.T) {
 			t.Fatalf("%s: derived %d bytes, want 16", alg.Name, len(bits))
 		}
 		// 派生结果必须可复现。
-		again, err := DeriveBits(alg, key, intPtr(128))
+		again, err := DeriveBits(alg, key, new(128))
 		if err != nil {
 			t.Fatalf("%s: %v", alg.Name, err)
 		}
@@ -139,7 +127,7 @@ func TestMD5RejectedBySignatureAlgorithms(t *testing.T) {
 		}
 
 		alg := Algorithm{Name: algName, Hash: AlgMD5,
-			ModulusLength: intPtr(2048), PublicExponent: []byte{1, 0, 1}}
+			ModulusLength: new(2048), PublicExponent: []byte{1, 0, 1}}
 		if _, err := GenerateKey(alg, true, usages); errorName(t, err) != ErrNameNotSupported {
 			t.Errorf("%s generateKey: error = %v, want NotSupportedError", algName, err)
 		}
@@ -161,7 +149,7 @@ func TestMD5RejectedBySignatureAlgorithms(t *testing.T) {
 
 	// 导入 RSA 密钥时同样拒绝，避免绕过生成时的检查。
 	sha256Alg := Algorithm{Name: AlgRSASSAPKCS1, Hash: AlgSHA256,
-		ModulusLength: intPtr(2048), PublicExponent: []byte{1, 0, 1}}
+		ModulusLength: new(2048), PublicExponent: []byte{1, 0, 1}}
 	valid, err := GenerateKey(sha256Alg, true, []KeyUsage{UsageSign, UsageVerify})
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +231,7 @@ func TestAESECBNISTVectors(t *testing.T) {
 
 func TestAESECBIsDeterministic(t *testing.T) {
 	// ECB 对相同明文分组产生相同密文分组，这正是它泄漏明文结构的原因。
-	key, err := GenerateKey(Algorithm{Name: AlgAESECB, Length: intPtr(256)},
+	key, err := GenerateKey(Algorithm{Name: AlgAESECB, Length: new(256)},
 		true, []KeyUsage{UsageEncrypt, UsageDecrypt})
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +298,7 @@ func TestAESECBPaddingAndLengthChecks(t *testing.T) {
 
 func TestAESECBRejectsKeyWrapping(t *testing.T) {
 	// AES-ECB 不支持包装密钥，因此连带 wrapKey 用法一起被拒绝。
-	alg := Algorithm{Name: AlgAESECB, Length: intPtr(256)}
+	alg := Algorithm{Name: AlgAESECB, Length: new(256)}
 	for _, usages := range [][]KeyUsage{
 		{UsageWrapKey},
 		{UsageUnwrapKey},
@@ -326,7 +314,7 @@ func TestAESECBRejectsKeyWrapping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := GenerateKey(Algorithm{Name: AlgAESGCM, Length: intPtr(128)},
+	target, err := GenerateKey(Algorithm{Name: AlgAESGCM, Length: new(128)},
 		true, []KeyUsage{UsageEncrypt})
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +326,7 @@ func TestAESECBRejectsKeyWrapping(t *testing.T) {
 }
 
 func TestAESECBKeyFormats(t *testing.T) {
-	key, err := GenerateKey(Algorithm{Name: AlgAESECB, Length: intPtr(192)},
+	key, err := GenerateKey(Algorithm{Name: AlgAESECB, Length: new(192)},
 		true, []KeyUsage{UsageEncrypt, UsageDecrypt})
 	if err != nil {
 		t.Fatal(err)
@@ -412,7 +400,7 @@ func TestAESECBDerivedKey(t *testing.T) {
 	}
 	hkdf := Algorithm{Name: AlgHKDF, Hash: AlgSHA256, Salt: []byte("salt"), Info: []byte("info")}
 
-	derived, err := DeriveKey(hkdf, base, Algorithm{Name: AlgAESECB, Length: intPtr(256)},
+	derived, err := DeriveKey(hkdf, base, Algorithm{Name: AlgAESECB, Length: new(256)},
 		true, []KeyUsage{UsageEncrypt, UsageDecrypt})
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +409,7 @@ func TestAESECBDerivedKey(t *testing.T) {
 		t.Fatalf("derived key length = %v", derived.Algorithm.Length)
 	}
 
-	if _, err = DeriveKey(hkdf, base, Algorithm{Name: AlgAESECB, Length: intPtr(200)},
+	if _, err = DeriveKey(hkdf, base, Algorithm{Name: AlgAESECB, Length: new(200)},
 		true, []KeyUsage{UsageEncrypt}); errorName(t, err) != ErrNameOperation {
 		t.Fatalf("error = %v, want OperationError", err)
 	}

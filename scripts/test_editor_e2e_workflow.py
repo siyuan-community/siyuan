@@ -1,11 +1,14 @@
 """编辑器分组工作流的发布门禁和运行时快照回归测试。"""
 
+import hashlib
 import itertools
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -27,6 +30,110 @@ def snapshot_command():
 
 
 class EditorWorkflowTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix" and all(shutil.which(tool) for tool in ["bash", "tar", "sha256sum"]),
+                         "musl download verification requires Bash, tar and sha256sum")
+    def test_musl_download_is_pinned_and_verified_before_extraction(self):
+        step = DESKTOP.split("      - name: Set up Linux musl compiler\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("shell: bash", step)
+        self.assertNotIn("continue-on-error", step)
+        command = step.split("        run: |\n", 1)[1]
+        command = "\n".join(line[10:] for line in command.splitlines())
+        hashes = {
+            "amd64": ("x86_64-linux-musl", "c5d410d9f82a4f24c549fe5d24f988f85b2679b452413a9f7e5f7b956f2fe7ea"),
+            "arm64": ("aarch64-linux-musl", "c909817856d6ceda86aa510894fa3527eac7989f0ef6e87b5721c58737a06c38"),
+        }
+        for arch, (prefix, digest) in hashes.items():
+            with self.subTest(arch=arch), tempfile.TemporaryDirectory(prefix="musl test ") as temporary:
+                root = Path(temporary)
+                tools = root / "bin"
+                tools.mkdir()
+                curl = tools / "curl"
+                curl.write_text(
+                    '#!/bin/bash\nset -eu\nprintf "%s\\n" "$@" > "$CURL_LOG"\n'
+                    'if [[ "$DOWNLOAD_FAIL" == 1 ]]; then exit 22; fi\n'
+                    'cp "$FIXTURE" "${@: -1}"\n', encoding="utf-8")
+                curl.chmod(0o755)
+                marker = root / "marker"
+                marker.write_text("synthetic toolchain archive", encoding="utf-8")
+                fixture = root / "fixture.tgz"
+                with tarfile.open(fixture, "w:gz") as archive:
+                    archive.add(marker, arcname=f"{prefix}-cross/marker")
+                fixture_hash = hashlib.sha256(fixture.read_bytes()).hexdigest()
+                self.assertIn(digest, command)
+                for scenario in ["success", "checksum-mismatch", "download-failure", "unknown-arch"]:
+                    with self.subTest(scenario=scenario):
+                        runner = root / scenario
+                        runner.mkdir()
+                        output = runner / "output"
+                        curl_log = runner / "curl.log"
+                        # 只替换当前架构的已核验哈希，使用合成包验证流程，不执行工具链。
+                        script = command if scenario == "checksum-mismatch" else command.replace(digest, fixture_hash)
+                        result = subprocess.run(
+                            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                            env={**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
+                                 "GOARCH": "unsupported" if scenario == "unknown-arch" else arch,
+                                 "RUNNER_TEMP": str(runner), "GITHUB_OUTPUT": str(output),
+                                 "FIXTURE": str(fixture), "CURL_LOG": str(curl_log),
+                                 "DOWNLOAD_FAIL": "1" if scenario == "download-failure" else "0"},
+                            capture_output=True, text=True)
+                        if scenario == "success":
+                            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                            self.assertEqual((runner / f"{prefix}-cross/marker").read_text(), marker.read_text())
+                            self.assertEqual(output.read_text(), f"cc={runner}/{prefix}-cross/bin/{prefix}-gcc\n")
+                        else:
+                            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                            self.assertFalse((runner / f"{prefix}-cross").exists())
+                            self.assertFalse(output.exists())
+                        if scenario == "unknown-arch":
+                            self.assertFalse(curl_log.exists())
+                            self.assertIn("Unsupported Linux architecture", result.stdout)
+                        else:
+                            self.assertEqual(curl_log.read_text().splitlines(), [
+                                "--fail", "--location", "--retry", "3",
+                                f"https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/{prefix}-cross.tgz",
+                                "-o", str(runner / "musl-cross.tgz"),
+                            ])
+
+    @unittest.skipUnless(sys.platform == "linux" and all(shutil.which(tool) for tool in ["bash", "gcc", "readelf"]),
+                         "Linux ELF verification requires native compiler and binutils")
+    def test_linux_kernel_verification_rejects_dynamic_and_unusable_binaries(self):
+        step = DESKTOP.split("      - name: Verify static Linux Kernel\n", 1)[1].split("      - ", 1)[0]
+        command = step.split("        run: |\n", 1)[1]
+        command = "\n".join(line[10:] for line in command.splitlines())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "fixture.c"
+            source.write_text(
+                '#include <stdio.h>\n#include <string.h>\n'
+                '#ifndef EXIT_CODE\n#define EXIT_CODE 0\n#endif\n'
+                'int main(int argc, char **argv) {\n'
+                '    if (argc != 2 || strcmp(argv[1], "--version")) return 3;\n'
+                '    puts("Linux kernel fixture");\n'
+                '    return EXIT_CODE;\n}\n', encoding="utf-8")
+            for name, flags, expected in [
+                ("static-pie", ["-static-pie"], 0),
+                ("dynamic", [], 1),
+                ("shared", ["-shared", "-fPIC"], 1),
+                ("broken-startup", ["-static-pie", "-DEXIT_CODE=7"], 7),
+            ]:
+                with self.subTest(name=name):
+                    binary = root / name
+                    subprocess.run(["gcc", *flags, str(source), "-o", str(binary)], check=True, capture_output=True)
+                    result = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
+                                            env={**os.environ, "KERNEL_PATH": str(binary), "LC_ALL": "C"},
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                    if expected == 1:
+                        self.assertIn("Linux kernel must be statically linked", result.stdout)
+                    else:
+                        self.assertIn("Linux kernel fixture", result.stdout)
+            invalid = root / "invalid"
+            invalid.write_text("not an ELF binary", encoding="utf-8")
+            result = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
+                                    env={**os.environ, "KERNEL_PATH": str(invalid), "LC_ALL": "C"},
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+
     def test_windows_kernel_tests_cover_all_packages_with_cgo(self):
         kernel = job("kernel-tests-windows")
         compiler = kernel.split("- name: Set up Windows kernel test compiler\n", 1)[1].split("      - ", 1)[0]
@@ -100,14 +207,16 @@ class EditorWorkflowTests(unittest.TestCase):
             check = job(name)
             self.assertRegex(check, r"(?m)^    needs: prepare$")
             self.assertIn("contents: read", check)
-            self.assertIn("uses: actions/checkout@v6", check)
-            self.assertIn("uses: actions/setup-node@v6", check)
+            self.assertIn("uses: actions/checkout@v7", check)
+            self.assertIn("uses: actions/setup-node@v7", check)
             self.assertNotRegex(check, r"(?m)^    continue-on-error:")
         for name in ["kernel-tests-linux", "kernel-tests-windows"]:
             check = job(name)
-            self.assertIn("uses: actions/setup-go@v6", check)
+            self.assertIn("uses: actions/setup-go@v7", check)
             self.assertIn("go-version-file: kernel/go.mod", check)
-            self.assertIn("cache-dependency-path: kernel/go.sum", check)
+            self.assertIn("cache: false", check)
+            self.assertIn("uses: actions/cache/restore@v6", check)
+            self.assertIn("run: node scripts/go-cache.mjs", check)
         linux = job("kernel-tests-linux")
         self.assertIn("runs-on: ubuntu-24.04", linux)
         self.assertIn("sudo apt-get install -y strace", linux)
@@ -143,11 +252,72 @@ class EditorWorkflowTests(unittest.TestCase):
             header, steps = build.split("    steps:\n", 1)
             self.assertIn("      GOPATH: ${{ github.workspace }}/go", header)
             self.assertNotIn("GOPATH:", steps)
-            setup = steps.split("uses: actions/setup-go@v6", 1)[1].split("      - ", 1)[0]
-            self.assertIn("cache: true", setup)
-            self.assertIn("cache-dependency-path:", setup)
+            setup = steps.split("uses: actions/setup-go@v7", 1)[1].split("      - ", 1)[0]
+            self.assertIn("cache: false", setup)
+            self.assertNotIn("cache-dependency-path:", setup)
+            self.assertIn("run: node scripts/go-cache.mjs", steps)
+            self.assertIn("${{ steps.go-cache.outputs.modules }}", steps)
+            self.assertIn("${{ steps.go-cache.outputs.build }}", steps)
+        self.assertIn("  GOMODCACHE: ${{ github.workspace }}/go/pkg/mod", CD.split("jobs:", 1)[0])
+        self.assertIn("      GOMODCACHE: ${{ github.workspace }}/go/pkg/mod", DESKTOP)
         self.assertIn('"$GOPATH/bin/gomobile" init', job("build_android"))
         self.assertIn("${{ github.workspace }}\\go\\${{ fromJSON(inputs.config).gobin }}\\goversioninfo", DESKTOP)
+
+    def test_parallel_jobs_have_one_writer_per_shared_cache(self):
+        desktop_configs = []
+        for section in job("build").split("          - os: ")[1:]:
+            desktop_configs.append({key: re.search(rf"^            {key}: (\S+)", section, re.M)[1].strip('"')
+                                    for key in ["goos", "goarch"]})
+        desktop_configs.append(json.loads(re.search(r"config: >-\n\s*(\{[^\n]+\})", job("build_macos_arm64"))[1]))
+
+        def saves(workflow, name, config, hit):
+            matches = re.findall(rf"- name: {name}\n(.*?)(?=      - |\Z)", workflow, re.S)
+            if not matches:
+                return False
+            self.assertEqual(len(matches), 1)
+            step = matches[0]
+            self.assertIn("uses: actions/cache/save@v6", step)
+            expression = re.search(r"if: \$\{\{ (.*?) \}\}", step)[1]
+            expression = re.sub(r"steps\.[\w-]+\.outputs\.cache-hit", repr(str(hit).lower()), expression)
+            expression = expression.replace("fromJSON(inputs.config).goos", repr(config.get("goos")))
+            expression = expression.replace("fromJSON(inputs.config).goarch", repr(config.get("goarch")))
+            expression = expression.replace("&&", " and ").replace("||", " or ")
+            expression = re.sub(r"!(?!=)", "not ", expression)
+            return eval(expression, {"__builtins__": {}}, {})
+
+        readers = [("linux", job("contracts"), {}), ("linux", job("kernel-tests-linux"), {}),
+                   ("windows", job("kernel-tests-windows"), {}), ("linux", job("build_android"), {})]
+        readers += [(config["goos"], DESKTOP, config) for config in desktop_configs]
+        for cache in ["Go cache", "pnpm store"]:
+            for host in ["linux", "windows", "darwin"]:
+                with self.subTest(cache=cache, host=host):
+                    candidates = [(workflow, config) for os_name, workflow, config in readers if os_name == host]
+                    self.assertEqual(sum(saves(workflow, "Save " + cache, config, False)
+                                         for workflow, config in candidates), 1)
+                    self.assertFalse(any(saves(workflow, "Save " + cache, config, True)
+                                         for workflow, config in candidates))
+        for workflow, config in [(workflow, config) for _, workflow, config in readers]:
+            self.assertNotIn("uses: actions/cache@", workflow)
+            if "uses: actions/cache/save@v6" in workflow:
+                self.assertIn("uses: actions/cache/restore@v6", workflow)
+
+    def test_global_pnpm_installations_allow_only_the_pnpm_script(self):
+        for workflow in [CD, DESKTOP]:
+            installs = re.findall(r"\bnpm install[^\n]+", workflow)
+            self.assertTrue(installs)
+            for command in installs:
+                self.assertIn("--global --allow-scripts=pnpm", command)
+                self.assertNotIn("dangerously-allow-all-scripts", command)
+                self.assertIn("packageManager", command)
+        self.assertIn("scripts/go-cache.test.mjs", CD)
+
+    def test_android_build_verification_preserves_pinned_legacy_checkouts(self):
+        build = job("build_android")
+        step = build.split("- name: Building Android App\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if [ -f scripts/verify-build.gradle ]; then", step)
+        self.assertIn("./gradlew --init-script scripts/verify-build.gradle :app:verifyBuildConfiguration", step)
+        self.assertLess(step.index(":app:verifyBuildConfiguration"), step.index("./gradlew assembleOfficialRelease"))
+        self.assertIn("mv siyuan-*-official-release.apk siyuan-${{ needs.prepare.outputs.version }}.apk", step)
 
     def test_independent_editor_runners_and_serial_workers(self):
         editor = job("editor_e2e")

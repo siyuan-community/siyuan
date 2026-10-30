@@ -158,7 +158,7 @@ const genStackLeft = (left: StackLeft, hasRight: boolean): string => {
     if (!hasRight) {
         return left.kind === "title" ? genConfigItemName(left.text) : `<div class="b3-label__text">${left.text}</div>`;
     }
-    return `<div class="fn__flex-center fn__flex-1 config-item__main${left.kind === "title" ? " config-name" : ""}">${left.text}</div>`;
+    return `<div class="fn__flex-center fn__flex-1 config-item__main ${left.kind === "title" ? "config-name" : "b3-label__text"}">${left.text}</div>`;
 };
 
 /** 纵向堆叠行 */
@@ -271,7 +271,10 @@ export const genConfigGroup = (itemsHtml: string, title?: string, attrs?: Record
     const attrsHtml = attrs
         ? Object.entries(attrs).map(([key, value]) => ` ${key}="${escapeAttr(value)}"`).join("")
         : "";
-    return `<div class="config-group"${attrsHtml}>${title ? `<div class="config-title">${title}</div>` : ""}<div class="config-items">${itemsHtml}</div></div>`;
+    const titleHtml = title
+        ? `<div class="config-title">${title}</div>`
+        : "";
+    return `<div class="config-group"${attrsHtml}>${titleHtml}<div class="config-items">${itemsHtml}</div></div>`;
 };
 
 type GroupedItemsView = {

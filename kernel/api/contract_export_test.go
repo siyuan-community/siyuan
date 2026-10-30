@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -113,7 +117,7 @@ func TestAPIContractExportMarkdownOptions(t *testing.T) {
 	if err != nil || request.Validate() != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
-	var fields map[string]interface{}
+	var fields map[string]any
 	if err = json.Unmarshal([]byte(input), &fields); err != nil {
 		t.Fatal(err)
 	}

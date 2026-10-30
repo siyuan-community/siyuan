@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -17,8 +21,8 @@ import (
 // 仅清理内置偏好；保存的布局、插件数据、最近记录和未知键保持不变。
 var resetSettingsStorageKeys = []string{
 	"local-zoom", "local-searchdata", "local-searchasset", "local-searchunref",
-	"local-exportpdf", "local-exportword", "local-exportimg", "local-pdftheme", "local-flashcard",
-	"local-mobile-bars", "local-mobile-bottom-bar", "local-mobile-side-panel", "local-outline",
+	"local-exportpdf", "local-exportword", "local-exportimg", "local-flashcard",
+	"local-mobile-bottom-bar", "local-mobile-side-panel",
 	"local-fileposition", "local-dialogposition",
 }
 
@@ -87,6 +91,8 @@ func ResetSettings() error {
 	if util.ReadOnly {
 		return errors.New("read-only mode")
 	}
+	unlockTarget := lockDocumentTargetConfiguration()
+	defer unlockTarget()
 	Conf.m.Lock()
 	localStorageLock.Lock()
 	bootAppearanceConfLock.Lock()

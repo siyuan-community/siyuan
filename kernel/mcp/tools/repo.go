@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -106,9 +94,9 @@ func repoList(args map[string]any) (CallToolResult, error) {
 			return CallToolResult{Content: []ContentItem{{Type: "text", Text: "no tagged snapshots found"}}}, nil
 		}
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Tagged snapshots (%d):\n\n", len(snapshots)))
+		fmt.Fprintf(&sb, "Tagged snapshots (%d):\n\n", len(snapshots))
 		for _, s := range snapshots {
-			sb.WriteString(fmt.Sprintf("- %s (memo: %s)\n", s.ID, s.Memo))
+			fmt.Fprintf(&sb, "- %s (memo: %s)\n", s.ID, s.Memo)
 		}
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 	}
@@ -121,9 +109,9 @@ func repoList(args map[string]any) (CallToolResult, error) {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "no snapshots found"}}}, nil
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Snapshots (page %d/%d, %d total):\n\n", page, pageCount, totalCount))
+	fmt.Fprintf(&sb, "Snapshots (page %d/%d, %d total):\n\n", page, pageCount, totalCount)
 	for _, s := range snapshots {
-		sb.WriteString(fmt.Sprintf("- %s (memo: %s)\n", s.ID, s.Memo))
+		fmt.Fprintf(&sb, "- %s (memo: %s)\n", s.ID, s.Memo)
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 }
@@ -188,23 +176,23 @@ func repoDiff(args map[string]any) (CallToolResult, error) {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "diff failed: " + err.Error()}}, IsError: true}, nil
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Diff between %s and %s:\n\n", left, right))
+	fmt.Fprintf(&sb, "Diff between %s and %s:\n\n", left, right)
 	if len(diff.AddsLeft) > 0 {
-		sb.WriteString(fmt.Sprintf("Adds (%d):\n", len(diff.AddsLeft)))
+		fmt.Fprintf(&sb, "Adds (%d):\n", len(diff.AddsLeft))
 		for _, f := range diff.AddsLeft {
-			sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", f.FileID, f.Title, f.Path))
+			fmt.Fprintf(&sb, "- [%s] %s (%s)\n", f.FileID, f.Title, f.Path)
 		}
 	}
 	if len(diff.UpdatesLeft) > 0 {
-		sb.WriteString(fmt.Sprintf("\nUpdates (%d):\n", len(diff.UpdatesLeft)))
+		fmt.Fprintf(&sb, "\nUpdates (%d):\n", len(diff.UpdatesLeft))
 		for _, f := range diff.UpdatesLeft {
-			sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", f.FileID, f.Title, f.Path))
+			fmt.Fprintf(&sb, "- [%s] %s (%s)\n", f.FileID, f.Title, f.Path)
 		}
 	}
 	if len(diff.RemovesRight) > 0 {
-		sb.WriteString(fmt.Sprintf("\nRemoves (%d):\n", len(diff.RemovesRight)))
+		fmt.Fprintf(&sb, "\nRemoves (%d):\n", len(diff.RemovesRight))
 		for _, f := range diff.RemovesRight {
-			sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", f.FileID, f.Title, f.Path))
+			fmt.Fprintf(&sb, "- [%s] %s (%s)\n", f.FileID, f.Title, f.Path)
 		}
 	}
 	if len(diff.AddsLeft) == 0 && len(diff.UpdatesLeft) == 0 && len(diff.RemovesRight) == 0 {
@@ -233,14 +221,14 @@ func repoSearch(args map[string]any) (CallToolResult, error) {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "no files found"}}}, nil
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Files matching '%s' (page %d/%d, %d total):\n\n", keyword, page, pageCount, totalCount))
+	fmt.Fprintf(&sb, "Files matching '%s' (page %d/%d, %d total):\n\n", keyword, page, pageCount, totalCount)
 	for _, f := range files {
-		sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", f.FileID, f.Title, f.Path))
+		fmt.Fprintf(&sb, "- [%s] %s (%s)\n", f.FileID, f.Title, f.Path)
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 }
 
-func repoPurge(args map[string]any) (CallToolResult, error) {
+func repoPurge(_ map[string]any) (CallToolResult, error) {
 	if err := model.PurgeRepo(); err != nil {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "purge failed: " + err.Error()}}, IsError: true}, nil
 	}

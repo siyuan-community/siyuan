@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package sql
 
@@ -57,12 +45,18 @@ func QueryRefIDsByAnnotationIDInBox(annotationID, boxID string) (refIDs []string
 		return
 	}
 	defer rows.Close()
+	// 同一块中的多个格式片段可以引用同一标注，按首次出现顺序返回引用块。
+	seen := map[string]bool{}
 	for rows.Next() {
 		var id string
 		if err = rows.Scan(&id); err != nil {
 			logging.LogErrorf("query scan field failed: %s", err)
 			return
 		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		refIDs = append(refIDs, id)
 	}
 	return

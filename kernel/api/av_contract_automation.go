@@ -1,9 +1,51 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
+	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/apicontract"
 	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/model"
 )
+
+var previewAttributeViewCollection = contractHandler(apicontract.PreviewAttributeViewCollection,
+	func(c *gin.Context, request apicontract.AVBlockCollectionPreviewRequest) apicontract.Response[*apicontract.AVBlockCollectionPreview] {
+		if err := holdAttributeViewRequest(c, "", request.AvID); err != nil {
+			return apicontract.Failure[*apicontract.AVBlockCollectionPreview](-1, err.Error())
+		}
+		data, err := model.PreviewAttributeViewCollection(request.AvID, request.RuleID, request.Page)
+		if err != nil {
+			return apicontract.Failure[*apicontract.AVBlockCollectionPreview](-1, err.Error())
+		}
+		return apicontract.Success(data)
+	})
+
+var reviewAttributeViewCollection = contractHandler(apicontract.ReviewAttributeViewCollection,
+	func(c *gin.Context, request apicontract.AVCollectionReviewRequest) apicontract.Response[*apicontract.AVCollectionReview] {
+		if err := holdAttributeViewRequest(c, "", request.AvID); err != nil {
+			return apicontract.Failure[*apicontract.AVCollectionReview](-1, err.Error())
+		}
+		data, err := model.ReviewAttributeViewCollection(request.AvID, request.Page, request.Status)
+		if err != nil {
+			return apicontract.Failure[*apicontract.AVCollectionReview](-1, err.Error())
+		}
+		return apicontract.Success(data)
+	})
+
+var previewAttributeViewTemplate = contractHandler(apicontract.PreviewAttributeViewTemplate,
+	func(c *gin.Context, request apicontract.AVAutomationTemplatePreviewRequest) apicontract.Response[*apicontract.AVValue] {
+		if err := holdAttributeViewRequest(c, "", request.AvID); err != nil {
+			return apicontract.Failure[*apicontract.AVValue](-1, err.Error())
+		}
+		value, err := model.PreviewAttributeViewTemplate(request)
+		if err != nil {
+			return apicontract.Failure[*apicontract.AVValue](-1, err.Error())
+		}
+		return apicontract.Success(toContractAVValue(value))
+	})
 
 func toContractAVAutomationConfig(value *av.AutomationConfig) *apicontract.AVAutomationConfig {
 	if value == nil {
@@ -14,7 +56,9 @@ func toContractAVAutomationConfig(value *av.AutomationConfig) *apicontract.AVAut
 			return nil
 		}
 		return &apicontract.AVAutomationRule{ID: rule.ID, Name: rule.Name, Enabled: rule.Enabled, Trigger: rule.Trigger,
-			KeyID: rule.KeyID, Conditions: avContractSlice(rule.Conditions, toContractAVViewFilter),
+			TimeZone: rule.TimeZone, NotifyOnSuccess: rule.NotifyOnSuccess,
+			BlockSource: toContractAVAutomationBlockSource(rule.BlockSource),
+			KeyID:       rule.KeyID, Conditions: avContractSlice(rule.Conditions, toContractAVViewFilter),
 			Actions: avContractSlice(rule.Actions, func(action *av.AutomationAction) *apicontract.AVAutomationAction {
 				if action == nil {
 					return nil
@@ -25,8 +69,26 @@ func toContractAVAutomationConfig(value *av.AutomationConfig) *apicontract.AVAut
 						if field == nil {
 							return nil
 						}
-						return &apicontract.AVAutomationValue{Mode: field.Mode, KeyID: field.KeyID, Value: toContractAVValue(field.Value)}
+						return &apicontract.AVAutomationValue{Mode: field.Mode, KeyID: field.KeyID, Value: toContractAVValue(field.Value), Template: field.Template}
 					})}
 			})}
 	})}
+}
+
+func toContractAVAutomationBlockSource(source *av.AutomationBlockSource) *apicontract.AVAutomationBlockSource {
+	if source == nil {
+		return nil
+	}
+	return &apicontract.AVAutomationBlockSource{NotebookIDs: source.NotebookIDs, DocumentIDs: source.DocumentIDs,
+		DocumentDepth:            source.DocumentDepth,
+		IncludeSelectedDocuments: source.IncludeSelectedDocuments,
+		ReferenceID:              source.ReferenceID,
+		TagMatch:                 source.TagMatch, TagTarget: source.TagTarget, AttributeMatch: source.AttributeMatch,
+		Types: source.Types, Tags: source.Tags, Attributes: avContractSlice(source.Attributes, func(attr *av.AutomationBlockAttribute) *apicontract.AVAutomationBlockAttribute {
+			if attr == nil {
+				return nil
+			}
+			return &apicontract.AVAutomationBlockAttribute{Name: attr.Name, NameOperator: attr.NameOperator,
+				Operator: attr.Operator, Value: attr.Value}
+		})}
 }

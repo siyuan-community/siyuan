@@ -1,23 +1,21 @@
 import * as assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
 import {test} from "node:test";
-import {runInNewContext} from "node:vm";
-import {ModuleKind, ScriptTarget, transpileModule} from "typescript";
+import {ScriptTarget} from "typescript";
+import {loadModule} from "../../../testSupport/loadModule";
 import type {IDatabaseRowOpenData} from "./openDatabaseRow";
 
 const data: IDatabaseRowOpenData = {
     avID: "database", databaseBlockID: "carrier", notebookID: "notebook", itemID: "current",
     valueID: "current-value", title: "Current", isDetached: true,
-    navigation: {viewID: "view", query: "filter", groupID: "group", calendarRange: {start: 1, end: 10, timeZone: "UTC"}},
+    navigation: {viewID: "view", query: "filter", groupID: "group", calendarRange: {start: 1, end: 10, timeZone: "UTC"},
+        temporarySort: {column: "created", order: "DESC"}},
 };
 const row = (id: string, detached = true) => ({id, cells: [{id: id + "-value", valueType: "block",
     value: {type: "block", isDetached: detached, block: {id: detached ? undefined : id + "-block", content: id}}}]});
 
-const load = (fetch: (request: Record<string, any>) => unknown, stored?: IAV) => {
-    const exports = {} as typeof import("./databaseRowNavigation");
-    runInNewContext(transpileModule(readFileSync("src/protyle/render/av/databaseRowNavigation.ts", "utf8"), {
-        compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2021},
-    }).outputText, {exports, require: (name: string) => {
+const load = (fetch: (request: Record<string, any>) => unknown, stored?: IAV) =>
+    loadModule<typeof import("./databaseRowNavigation")>("src/protyle/render/av/databaseRowNavigation.ts", {
+        require: (name: string) => {
         if (name === "../../../util/fetch") {
             return {fetchSyncPost: async (url: string, request: Record<string, any>) => {
                 assert.equal(url, "/api/av/renderAttributeView");
@@ -26,15 +24,16 @@ const load = (fetch: (request: Record<string, any>) => unknown, stored?: IAV) =>
                 assert.equal(request.query, "filter");
                 assert.equal(request.createIfNotExist, false);
                 assert.equal(request.calendarRange.timeZone, "UTC");
+                assert.equal(request.temporarySort.column, "created");
+                assert.equal(request.temporarySort.order, "DESC");
                 return fetch(request);
             }};
         }
         if (name === "./renderData") { return {isAVRenderData: (value: IAV) => !!value?.view}; }
         if (name === "./virtualScroll") { return {getAVData: () => stored}; }
+        if (name === "./readonlyState") { return {getReadonlyAVSort: () => data.navigation.temporarySort}; }
         return {};
-    }});
-    return exports;
-};
+    }}, ScriptTarget.ES2021);
 
 test("row navigation uses the located window beyond the source page and preserves bound row identity", async () => {
     const api = load(request => {
@@ -97,6 +96,9 @@ test("navigation context captures the source view and search without enabling li
     assert.equal(context.viewID, "view");
     assert.equal(context.query, "filter");
     assert.equal(context.groupID, "group");
+    assert.equal(context.temporarySort, undefined);
+    source.disabled = true;
+    assert.equal(api.getDatabaseRowNavigation(source, data).temporarySort, data.navigation.temporarySort);
     source.options.history = {created: "archive"};
     assert.equal(api.getDatabaseRowNavigation(source, data), undefined);
 });

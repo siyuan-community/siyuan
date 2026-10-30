@@ -1,4 +1,4 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -53,8 +53,6 @@ func prepareMarkdownExportReferences(docPaths []string, defBlockIDs []string, co
 }
 
 func collectMarkdownExportReferences(tree *parse.Tree, refs *markdownExportReferences) {
-	finishTabTitles := treenode.MaterializeTabTitles(tree.Root)
-	defer finishTabTitles()
 	var order []string
 	footnotes := map[string]*refAsFootnotes{}
 	depth := 0

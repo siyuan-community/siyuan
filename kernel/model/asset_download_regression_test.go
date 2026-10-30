@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -26,7 +30,7 @@ func prepareAssetDownloadDocumentTest(t *testing.T) (*fileOperationTestFixture, 
 	}
 	Conf.FileTree.Store(conf.NewFileTree())
 	Conf.NotebookCrypto = conf.NewNotebookCrypto()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		writeAssetDownloadDocumentTest(t, treenode.NewTree(fixture.box.ID, "/"+ast.NewNodeID()+".sy", "/Seed", "Seed"))
 	}
 	if err := fixture.box.SaveConf(conf.NewBoxConf()); err != nil {

@@ -11,7 +11,7 @@
 <a title="Docker Görüntü Boyutu" target="_blank" href="https://hub.docker.com/r/b3log/siyuan"><img src="https://img.shields.io/docker/image-size/b3log/siyuan.svg?style=flat-square&color=ff96b4"></a>
 <a title="Görüntülenme Sayısı" target="_blank" href="https://github.com/siyuan-note/siyuan"><img src="https://hits.b3log.org/siyuan-note/siyuan.svg"></a>
 <br>
-<a title="AGPLv3" target="_blank" href="https://www.gnu.org/licenses/agpl-3.0.txt"><img src="http://img.shields.io/badge/license-AGPLv3-orange.svg?style=flat-square"></a>
+<a title="AGPLv3" target="_blank" href="https://www.gnu.org/licenses/agpl-3.0.txt"><img src="https://img.shields.io/badge/license-AGPLv3-orange.svg?style=flat-square"></a>
 <a title="Kod Boyutu" target="_blank" href="https://github.com/siyuan-note/siyuan"><img src="https://img.shields.io/github/languages/code-size/siyuan-note/siyuan.svg?style=flat-square&color=yellow"></a>
 <a title="GitHub Pull İstekleri" target="_blank" href="https://github.com/siyuan-note/siyuan/pulls"><img src="https://img.shields.io/github/issues-pr-closed/siyuan-note/siyuan.svg?style=flat-square&color=FF9966"></a>
 <br>
@@ -28,6 +28,7 @@
 | <a href="README.zh-CN.md">中文</a>
 | <a href="README.ja.md">日本語</a>
 | <b>Türkçe</b>
+| <a href="README.pt-BR.md">Português</a>
 </p>
 
 ---
@@ -198,6 +199,8 @@ Docker görüntüsü oluşturulurken giriş noktası şu şekilde ayarlanır: `E
 
 Tüm parametreleri görmek için `--help` komutunu kullanabilirsin. Yeni ortam değişkenleriyle bir örnek başlatma komutu aşağıdadır:
 
+Önce `AuthCode` değişkenini kendi güçlü parolanla ayarla (Bash için `export AuthCode='kendi-güçlü-parolan'` kullan; Compose aynı dizindeki `.env` dosyasını da okuyabilir). Değer ayarlanmamışsa veya boşsa örnek hata vererek durur.
+
 ```bash
 docker run -d \
   -v workspace_dir_host:workspace_dir_container \
@@ -207,7 +210,7 @@ docker run -d \
   b3log/siyuan \
   serve \
   --workspace=workspace_dir_container \
-  --accessAuthCode=xxx
+  --accessAuthCode="${AuthCode:?Set AuthCode}"
 ```
 
 - `PUID`: Özel kullanıcı kimliği (isteğe bağlı, belirtilmezse varsayılan değer `1000` olarak kullanılır)  
@@ -217,11 +220,21 @@ docker run -d \
   - Alternatif olarak, bu yol `SIYUAN_WORKSPACE_PATH` ortam değişkeniyle de ayarlanabilir. Eğer her iki yöntem de kullanılırsa, **komut satırı önceliklidir**.  
 - `accessAuthCode`: Ekran kilidi şifresi (**kesinlikle değiştir**, aksi halde herkes verilerine erişebilir)  
   - Alternatif olarak, ekran kilidi şifresi `SIYUAN_ACCESS_AUTH_CODE` ortam değişkeniyle de ayarlanabilir. Yine, hem komut satırı hem ortam değişkeni kullanılırsa, **komut satırı önceliklidir**.  
-  - Ekran kilidi şifresini devre dışı bırakmak için şu ortam değişkenini ayarla: `SIYUAN_ACCESS_AUTH_CODE_BYPASS=true`  
+  - Ekran kilidi şifresini devre dışı bırakmak için şu ortam değişkenini ayarla: `SIYUAN_ACCESS_AUTH_CODE_BYPASS=true`
+- OIDC, gerekli Docker erişim kimlik doğrulaması için ekran kilidi şifresinin yerini alabilir. `SIYUAN_OIDC_ENABLED=true`, `SIYUAN_OIDC_PROVIDER` (`custom`, `google`, `microsoft` veya `github`), `SIYUAN_OIDC_CLIENT_ID` ve aşağıdaki sağlayıcıya özgü değerleri ayarlayın. GitHub, OAuth 2.0 kullanıcı API bağdaştırıcısını kullanır; diğer sağlayıcılar OpenID Connect discovery ve ID Token doğrulaması kullanır. Kullanılabilir bir ekran kilidi şifresi yokken geçersiz bir etkin yapılandırma, Docker'ın başlangıcını durdurur
+  - `SIYUAN_OIDC_ISSUER_URL`: `custom` ve `microsoft` sağlayıcıları için gereken Issuer URL'si; Microsoft, `https://login.microsoftonline.com/<tenant-id>/v2.0` gibi kiracıya özgü bir issuer kullanmalıdır
+  - `SIYUAN_OIDC_CLIENT_SECRET`: OpenID Connect sağlayıcıları için isteğe bağlı istemci sırrı; GitHub OAuth bağdaştırıcısı için gereklidir. Her yetkilendirme kodu akışı PKCE kullanır
+  - `SIYUAN_OIDC_SCOPES`: Virgül veya boşlukla ayrılmış kapsamlar; `openid` her zaman dahildir
+  - `SIYUAN_OIDC_REDIRECT_URL`: `/api/system/oidc/callback` ile biten genel HTTPS geri çağırma URL'si; uzak tarayıcı erişimi için gereklidir
+  - `SIYUAN_OIDC_ALLOW_ALL`: Sağlayıcı tarafından kimliği doğrulanan her kimliğe SiYuan yönetici erişimini açıkça verir
+  - `SIYUAN_OIDC_CLAIM_RULES`: allow-all devre dışı bırakıldığında kullanılan talep kuralları JSON dizisi, örneğin `[{"claim":"email","operator":"equals","values":["user@example.com"]},{"claim":"email_verified","operator":"equals","values":["true"]}]`; bir kural içindeki değerler VEYA (OR), kurallar arasında VE (AND) olarak değerlendirilir
+  - Yerel mobil uygulamalar sabit geri çağırma URI'si `siyuan:/oidc-callback` kullanır; tam olarak yazıldığı gibi kaydedin. Mobil yapılandırma doğrulaması, kaydetmeden önce bu geri çağırmayı kullanır. Özel sağlayıcılar, Microsoft ve GitHub yalnızca uygulama kayıtları bu geri çağırma URI'sini kabul ediyorsa kullanılabilir. Google, Android istemci türü için bu özel URI'yi kabul etmez; bu nedenle Google girişi tarayıcı ve masaüstü akışlarıyla sınırlıdır  
 - `SIYUAN_LANG`: Arayüz dili (isteğe bağlı, Docker'da ayarlanmazsa varsayılan `en`). BCP 47 etiketlerini (`zh-CN`/`zh-TW`/`en`/`ja`/`pt-BR` vb.) kabul eder; eski alt çizgi biçimi (`zh_CN`/`en_US` vb.) de geriye dönük uyumluluk için kabul edilir. **Ayarlar**'da seçtiğin dilin yeniden başlatma sonrası da geçerli kalmasını istiyorsan dağıtımda bu değişkeni ekleme; ayarlanırsa her başlatmada uygulanır ve kaydedilmiş dil ayarının üzerine yazar
   - Alternatif olarak `--lang` komut satırı parametresiyle de ayarlanabilir. Her ikisi de ayarlanırsa komut satırı öncelikli olur
 
 Kurulumu basitleştirmek için, host ve konteyner üzerindeki çalışma alanı yollarını aynı şekilde ayarlaman önerilir. Örneğin her ikisini de `/siyuan/workspace` olarak tanımlayabilirsin. Buna karşılık gelen başlatma komutu şu şekildedir:
+
+Önce `AuthCode` değişkenini kendi güçlü parolanla ayarla (Bash için `export AuthCode='kendi-güçlü-parolan'` kullan; Compose aynı dizindeki `.env` dosyasını da okuyabilir). Değer ayarlanmamışsa veya boşsa örnek hata vererek durur.
 
 ```bash
 docker run -d \
@@ -232,19 +245,21 @@ docker run -d \
   b3log/siyuan \
   serve \
   --workspace=/siyuan/workspace/ \
-  --accessAuthCode=xxx
+  --accessAuthCode="${AuthCode:?Set AuthCode}"
 ```
 
 #### Docker Compose
 
 SiYuan’ı Docker Compose ile çalıştıran kullanıcılar için, `PUID` ve `PGID` ortam değişkenleri kullanılarak kullanıcı ve grup kimlikleri özelleştirilebilir. Aşağıda örnek bir Docker Compose yapılandırması bulunmaktadır:
 
+Önce `AuthCode` değişkenini kendi güçlü parolanla ayarla (Bash için `export AuthCode='kendi-güçlü-parolan'` kullan; Compose aynı dizindeki `.env` dosyasını da okuyabilir). Değer ayarlanmamışsa veya boşsa örnek hata vererek durur.
+
 ```yaml
 version: "3.9"
 services:
   main:
     image: b3log/siyuan
-    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=${AuthCode}']
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=${AuthCode:?Set AuthCode}']
     ports:
       - 6806:6806
     volumes:
@@ -336,7 +351,7 @@ Not: Terminalde önce şu komutu çalıştır: `chown -R 1000:1000 /mnt/user/app
 ```
 Web UI: 6806
 Container Port: 6806
-Container Path: /home/siyuan
+Container Path: /siyuan/workspace
 Host path: /mnt/user/appdata/siyuan
 PUID: 1000
 PGID: 1000
@@ -363,18 +378,21 @@ Apps --> DiscoverApps --> More Options (sağ üst, Custom App hariç) --> YAML i
 
 Şablon örneği:
 
+Dağıtımdan önce aşağıdaki `SIYUAN_ACCESS_AUTH_CODE=` ifadesinden sonra kendi güçlü parolanı gir; boş bırakma.
+
 ```yaml
 services:
   siyuan:
     image: b3log/siyuan
     container_name: siyuan
-    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=2222']
+    command: ['serve', '--workspace=/siyuan/workspace/']
     ports:
       - 6806:6806
     volumes:
       - /mnt/Pool_1/Apps_Data/siyuan:/siyuan/workspace  # Veri kümesi yolunuza göre ayarlayın
     restart: unless-stopped
     environment:
+      - SIYUAN_ACCESS_AUTH_CODE=
       - TZ=Europe/Istanbul  # Gerekirse kendi saat diliminizle değiştirin
       - PUID=1001
       - PGID=1002
@@ -390,6 +408,8 @@ services:
 ## ⌨️ Komut Satırı Arayüzü
 
 Yerleşik CLI ile sunucu başlatmadan çalışma alanı verilerine doğrudan erişin.
+
+CLI, şifreli not defterleri üzerinde işlem yapmayı desteklemez. Kilitlerini açmak ve içeriklerine erişmek için uygulama içindeki özel işlemleri kullan.
 
 ### Hızlı Başlangıç
 
@@ -463,7 +483,7 @@ Veriler, çalışma alanı klasöründeki `data` klasöründe saklanır:
 - `widgets`: bileşenlerin kaydedildiği klasör  
 - `plugins`: eklentilerin kaydedildiği klasör  
 - `public`: genel verilerin saklandığı klasör  
-- Diğer klasörler, kullanıcının oluşturduğu not defteri (notebook) klasörleridir. `.sy` uzantılı dosyalar belge verilerini saklar ve JSON formatındadır.
+- Not defteri klasörleri belge verilerini saklar. Normal not defterlerinde `.sy` belgeleri JSON olarak, şifreli not defterlerinde ise şifreli veri olarak saklanır.
 
 ### Üçüncü taraf senkronizasyon diskiyle veri senkronizasyonu destekleniyor mu?
 
@@ -491,22 +511,28 @@ Daha fazla bilgi için [Geliştirme Rehberi](https://github.com/siyuan-note/siyu
 
 Ayrıca, <kbd>Ayarlar</kbd> → <kbd>Hakkında</kbd> → <kbd>Geçerli Sürüm</kbd> sekmesinden <kbd>Güncellemeyi kontrol et</kbd> seçeneğini kullanabilir veya [Resmî İndirme Sayfası](https://b3log.org/siyuan/en/download.html) ya da [GitHub Sürümleri](https://github.com/siyuan-note/siyuan/releases) sayfalarını takip edebilirsiniz.
 
+**Not:** Çalışma alanını kurulum dizininin dışında tut; SiYuan güncellenirken kurulum dizinindeki dosyalar silinir.
+
 ### Bazı bloklar (örneğin liste öğelerindeki paragraflar) blok simgesini bulamıyorsa ne yapmalıyım?
 
 Liste öğesinin altındaki ilk alt blok, blok simgesi görünmeyen bloktur. İmleci bu bloğa getirip <kbd>Ctrl+/</kbd> tuş kombinasyonuyla blok menüsünü açabilirsin.
 
 ### Veri deposu anahtarı (data repo key) kaybolursa ne yapmalıyım?
 
+Veri deposu anahtarı, anlık görüntüleri ve senkronizasyon verilerini korur; şifreli not defterlerinin ana parolasından ve anahtar yedeklerinden ayrıdır. Veri deposunu sıfırlamak, kayıp ana parolayı kurtarmaz ve eşleşen şifreleme anahtarı yedeklerinin yerini tutmaz.
+
+Sıfırlamadan önce SiYuan’ı normal şekilde kapat ve çalışma alanının tamamını yedekle. Şifreli not defterlerin varsa eşleşen şifreleme anahtarı yedeklerini ayrıca sakla ve ana parolanın çalıştığını doğrula. Eski bulut senkronizasyon dizinlerini ve anlık görüntüleri ancak yeni senkronizasyon tamamlandıktan, verilerin eksiksiz olduğu doğrulandıktan ve kurtarma bilgileri güvenle saklandıktan sonra gerektiğinde sil.
+
 - Eğer daha önce birden fazla cihazda doğru şekilde başlatıldıysa, tüm cihazlarda aynı anahtar kullanılır. Bu durumda anahtarı şu adımlarla kopyalayabilirsin:
-  <kbd>Ayarlar</kbd> → <kbd>Hesap ve Senkronizasyon</kbd> → <kbd>Yerel Veri Deposu</kbd> → <kbd>Veri deposu anahtarı</kbd> → <kbd>Anahtar dizgesini kopyala</kbd>
+  <kbd>Ayarlar</kbd> → <kbd>Hesap ve Senkronizasyon</kbd> → <kbd>Veri deposu</kbd> → <kbd>Veri deposu anahtarı</kbd> → <kbd>Anahtar dizgesini kopyala</kbd>
 
 - Eğer cihazlar arasında farklı anahtarlar kullanılmışsa veya hiçbiri erişilebilir değilse, aşağıdaki adımlarla yeni bir anahtar oluşturabilirsin:
 
-  1. Verilerini manuel olarak yedekle (<kbd>Verileri Dışa Aktar</kbd> seçeneğiyle veya dosya sisteminde `workspace/data/` klasörünü kopyalayarak).  
-  2. <kbd>Ayarlar</kbd> → <kbd>Hesap ve Senkronizasyon</kbd> → <kbd>Yerel Veri Deposu</kbd> → <kbd>Veri deposu anahtarı</kbd> → <kbd>Veri deposunu sıfırla</kbd>.
+  1. SiYuan’ı normal şekilde kapat ve çalışma alanının tamamını yedekle; şifreli not defterleri için eşleşen şifreleme anahtarı yedeklerini ve ana parolayı da sakla
+  2. <kbd>Ayarlar</kbd> → <kbd>Hesap ve Senkronizasyon</kbd> → <kbd>Veri deposu</kbd> → <kbd>Veri deposu anahtarı</kbd> → <kbd>Veri deposunu sıfırla</kbd>.
   3. Anahtarı yeniden başlat. Bir cihazda oluşturduktan sonra diğer cihazlara bu anahtarı aktar.  
-  4. Bulutta yeni senkronizasyon dizinini kullan; eski dizin artık erişilemez ve silinebilir.  
-  5. Mevcut bulut anlık görüntüleri (snapshot) artık geçerli değildir, bunlar da silinebilir.
+  4. Bulutta yeni bir senkronizasyon dizini kullan; eski dizini ancak yeni senkronizasyon tamamlanıp veriler doğrulandıktan ve kurtarma bilgileri güvenle saklandıktan sonra gerektiğinde sil
+  5. Eski bulut anlık görüntülerini ancak yeni senkronizasyon tamamlanıp veriler doğrulandıktan ve kurtarma bilgileri güvenle saklandıktan sonra gerektiğinde sil
 
 ### Ücretli mi?
 

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -58,6 +46,9 @@ func (tx *Transaction) readAttributeViewForMutation(avID, blockID, boxID string)
 	current, err := av.ParseAttributeViewForIndexInBox(avID, boxID)
 	if err == nil && current == nil {
 		err = av.ErrViewNotFound
+	}
+	if err == nil {
+		tx.watchSourceDatabase(current)
 	}
 	return current, err
 }
@@ -126,8 +117,29 @@ func (tx *Transaction) invalidateAttributeViewHistory(avID string) {
 func (tx *Transaction) finishAttributeViewMutation(rollback bool) {
 	if !rollback {
 		if automation := tx.attributeViewAutomations; automation != nil {
+			var attrs []*Operation
+			for _, operation := range tx.DoOperations {
+				if operation == automation.blockAttrs[operation.ID] {
+					attrs = append(attrs, operation)
+				}
+			}
+			if len(attrs) > 0 {
+				// 块 API 不广播完整事务，提交后仍需独立同步属性。
+				event := util.NewCmdResult("transactions", 0, util.PushModeBroadcast)
+				event.Data = []*Transaction{{DoOperations: attrs, UndoOperations: []*Operation{}}}
+				util.PushEvent(event)
+			}
 			for _, paused := range automation.paused {
 				util.PushMsg(paused.message(), 7000)
+			}
+			if !tx.isReplay && tx.state.Load() == 2 {
+				if message := automation.successMessage(); message != "" {
+					notify := tx.pushAutomationMessage
+					if notify == nil {
+						notify = util.PushMsg
+					}
+					notify(message, 5000)
+				}
 			}
 		}
 		for avID := range tx.invalidatedAvHistory {
@@ -146,6 +158,10 @@ func (tx *Transaction) finishAttributeViewMutation(rollback bool) {
 			}
 			boxID, _, _ := strings.Cut(key, "/")
 			current, _ := av.ParseAttributeViewForIndexInBox(original.ID, boxID)
+			if tx.sourceDatabase(original.ID, boxID) != nil {
+				syncAttributeViewRelationIndexes(current, original)
+				continue
+			}
 			av.SetAVBoxID(original.ID, boxID)
 			if err := av.SaveAttributeView(original); err != nil {
 				logging.LogErrorf("restore database [%s] after transaction failure: %s", original.ID, err)
@@ -170,6 +186,9 @@ func (tx *Transaction) finishAttributeViewMutation(rollback bool) {
 			}
 		}
 		for _, tree := range state.trees {
+			if tx.documentSource(tree) != nil {
+				continue
+			}
 			if err := restoreCreatedDocTreeSnapshot(tree); err != nil {
 				logging.LogErrorf("restore database document [%s]: %s", tree.ID, err)
 			}

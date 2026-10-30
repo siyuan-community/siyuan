@@ -1,7 +1,13 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package av
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/88250/lute/ast"
 )
@@ -13,17 +19,142 @@ type AutomationConfig struct {
 }
 
 type AutomationRule struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Enabled    bool                `json:"enabled"`
-	Trigger    string              `json:"trigger"` // added 或 changed
-	KeyID      string              `json:"keyID,omitempty"`
-	Conditions []*ViewFilter       `json:"conditions,omitempty"`
-	Actions    []*AutomationAction `json:"actions"`
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Enabled         bool                   `json:"enabled"`
+	Trigger         string                 `json:"trigger"` // added、changed 或 block
+	KeyID           string                 `json:"keyID,omitempty"`
+	Conditions      []*ViewFilter          `json:"conditions,omitempty"`
+	Actions         []*AutomationAction    `json:"actions"`
+	BlockSource     *AutomationBlockSource `json:"blockSource,omitempty"`
+	TimeZone        string                 `json:"timeZone,omitempty"`
+	NotifyOnSuccess *bool                  `json:"notifyOnSuccess,omitempty"`
+}
+
+// AutomationBlockSource 的范围取并集，各类条件取交集；文档深度缺省不限，0 仅自身。
+// 所选文档自身缺省包含；显式关闭时跳过该文档及内部块，子文档仍按深度匹配。
+type AutomationBlockSource struct {
+	NotebookIDs              []string                    `json:"notebookIDs,omitempty"`
+	DocumentIDs              []string                    `json:"documentIDs,omitempty"`
+	DocumentDepth            *int                        `json:"documentDepth,omitempty"`
+	IncludeSelectedDocuments *bool                       `json:"includeSelectedDocuments,omitempty"`
+	Types                    []string                    `json:"types,omitempty"`
+	Tags                     []string                    `json:"tags,omitempty"`
+	ReferenceID              string                      `json:"referenceID,omitempty"`
+	Attributes               []*AutomationBlockAttribute `json:"attributes,omitempty"`
+	TagMatch                 string                      `json:"tagMatch,omitempty"`
+	TagTarget                string                      `json:"tagTarget,omitempty"`
+	AttributeMatch           string                      `json:"attributeMatch,omitempty"`
+}
+
+type AutomationBlockAttribute struct {
+	Name         string `json:"name"`
+	NameOperator string `json:"nameOperator,omitempty"`
+	Operator     string `json:"operator"`
+	Value        string `json:"value,omitempty"`
+}
+
+func (source *AutomationBlockSource) MatchesDocument(notebookID, documentID, documentPath string) bool {
+	if source == nil {
+		return false
+	}
+	if slices.Contains(source.NotebookIDs, notebookID) {
+		return true
+	}
+	for _, id := range source.DocumentIDs {
+		if documentID == id {
+			if source.IncludeSelectedDocuments == nil || *source.IncludeSelectedDocuments {
+				return true
+			}
+			continue
+		}
+		if _, suffix, found := strings.Cut(documentPath, "/"+id+"/"); found &&
+			(source.DocumentDepth == nil || strings.Count(suffix, "/")+1 <= *source.DocumentDepth) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsAutomationBlockType 校验主类型或主类型与子类型的组合，提示块允许自定义类型名称。
+func IsAutomationBlockType(value string) bool {
+	typ, sub, qualified := strings.Cut(value, ":")
+	if !qualified {
+		return slices.Contains([]string{"d", "h", "l", "i", "c", "m", "t", "b", "s", "p", "html",
+			"query_embed", "av", "iframe", "widget", "tb", "video", "audio", "custom", "callout", "tabs", "tab",
+			"mindmap", "mindmap_item"}, typ)
+	}
+	switch typ {
+	case "h":
+		return slices.Contains([]string{"h1", "h2", "h3", "h4", "h5", "h6"}, sub)
+	case "l", "i":
+		return slices.Contains([]string{"u", "o", "t"}, sub)
+	case "callout":
+		return sub != "" && sub == strings.TrimSpace(sub) && len(sub) <= 256 && !strings.ContainsAny(sub, "\r\n\t")
+	}
+	return false
+}
+
+// RequiredSpec 保留普通规则的版本，仅在使用新增语义时要求支持该语义的读取器。
+func (rule *AutomationRule) RequiredSpec() int {
+	ret := 1
+	if rule.BlockSource != nil {
+		if rule.BlockSource.ReferenceID != "" {
+			return 8
+		}
+		if rule.BlockSource.IncludeSelectedDocuments != nil && !*rule.BlockSource.IncludeSelectedDocuments {
+			return 7
+		}
+		for _, attr := range rule.BlockSource.Attributes {
+			if attr != nil && attr.NameOperator != "" && attr.NameOperator != "equals" {
+				return 6
+			}
+		}
+		if rule.BlockSource.DocumentDepth != nil {
+			return 5
+		}
+		if rule.BlockSource.TagTarget != "" {
+			return 4
+		}
+		if rule.BlockSource.TagMatch == "or" || rule.BlockSource.AttributeMatch == "or" {
+			return 3
+		}
+		for _, typ := range rule.BlockSource.Types {
+			if strings.Contains(typ, ":") {
+				return 3
+			}
+		}
+	}
+	for _, action := range rule.Actions {
+		if action == nil {
+			continue
+		}
+		for _, value := range action.Fields {
+			if value != nil && value.Mode == "template" {
+				ret = 2
+			}
+		}
+	}
+	return ret
+}
+
+func (config *AutomationConfig) ValidateSpec() error {
+	if config == nil {
+		return nil
+	}
+	if config.Spec < 1 || config.Spec > 8 {
+		return fmt.Errorf("unsupported database automation specification [%d]", config.Spec)
+	}
+	for _, rule := range config.Rules {
+		if rule != nil && rule.RequiredSpec() > config.Spec {
+			return fmt.Errorf("automation rule requires specification [%d]", rule.RequiredSpec())
+		}
+	}
+	return nil
 }
 
 type AutomationAction struct {
-	Type          string                      `json:"type"`   // edit 或 add
+	Type          string                      `json:"type"`   // edit、add 或 collect
 	Target        string                      `json:"target"` // current、related 或 filtered
 	AvID          string                      `json:"avID,omitempty"`
 	RelationKeyID string                      `json:"relationKeyID,omitempty"`
@@ -32,9 +163,10 @@ type AutomationAction struct {
 }
 
 type AutomationValue struct {
-	Mode  string `json:"mode"` // static、source、currentTime 或 triggerItem
-	KeyID string `json:"keyID,omitempty"`
-	Value *Value `json:"value,omitempty"`
+	Mode     string `json:"mode"` // static、source、currentTime、triggerItem 或 template
+	KeyID    string `json:"keyID,omitempty"`
+	Value    *Value `json:"value,omitempty"`
+	Template string `json:"template,omitempty"`
 }
 
 // visitAutomationValues 将规则中的条件及固定值纳入资源、颜色和富文本的持久化遍历。
@@ -219,6 +351,11 @@ func NormalizeAutomationValue(value *Value) *Value {
 
 // 复制数据库时保留规则供用户调整，并暂停执行，避免副本继续修改原数据库的关联记录。
 func (view *AttributeView) remapAutomationKeys(originalID string, keyIDs map[string]string) {
+	for _, row := range view.GetBlockKeyValues().Values {
+		if row.Block != nil {
+			row.Block.CollectionRuleID = ""
+		}
+	}
 	if view.Automations == nil {
 		return
 	}
@@ -246,12 +383,18 @@ func (view *AttributeView) remapAutomationKeys(originalID string, keyIDs map[str
 			}
 			action.RelationKeyID = keyIDs[action.RelationKeyID]
 			for _, value := range action.Fields {
+				if value != nil && value.Mode == "template" {
+					value.Template = RemapAutomationTemplate(value.Template, keyIDs)
+				}
 				if value != nil && value.Mode == "source" {
 					value.KeyID = keyIDs[value.KeyID]
 				}
 			}
 			if action.Target == "current" || action.Target == "filtered" && action.AvID == originalID {
 				action.AvID = view.ID
+				if action.Type == "collect" {
+					action.AvID = ""
+				}
 				remapFilters(action.Filters)
 				fields := map[string]*AutomationValue{}
 				for id, value := range action.Fields {

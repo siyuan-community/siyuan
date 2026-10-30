@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -24,14 +28,12 @@ func TestClosedBoxNotification(t *testing.T) {
 	})
 	var count atomic.Int32
 	var group sync.WaitGroup
-	for i := 0; i < 32; i++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
+	for range 32 {
+		group.Go(func() {
 			if markClosedBoxNotification("first") {
 				count.Add(1)
 			}
-		}()
+		})
 	}
 	group.Wait()
 	if count.Load() != 1 {

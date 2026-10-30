@@ -21,10 +21,10 @@ Do not mix this method with pnpm's standalone installation scripts (`@pnpm/exe`)
 
 Set the Electron mirror environment variable and install Electron:
 
-* macOS/Linux: `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install electron@44.7.0 -D`
+* macOS/Linux: `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install electron@44.10.0 -D`
 * Windows:
   * `SET ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
-  * `pnpm install electron@44.7.0 -D`
+  * `pnpm install electron@44.10.0 -D`
 
 NPM mirror:
 
@@ -34,7 +34,7 @@ NPM mirror:
 
 Enter the app folder and execute:
 
-* `pnpm install electron@44.7.0 -D`
+* `pnpm install electron@44.10.0 -D`
 * `pnpm run install:electron`
 * `pnpm run dev`
 * `pnpm run start`
@@ -70,7 +70,7 @@ Use `--workspace` for notebook data and `--wd` for application resources indepen
 Desktop packaging runs `scripts/prepare-ocr.py` to prepare the pinned models and native runtime. Run `python scripts/prepare-ocr.py --runtime windows-amd64 --check-only` or `python3 scripts/prepare-ocr.py --runtime linux-arm64 --build-worker --check-only` to check native prerequisites without downloading assets or compiling anything.
 
 * Windows: the release builder must have redistribution rights under its Visual Studio license and the matching x64/ARM64 **release** CRT files from `VC/Redist/MSVC`. The script discovers installed Visual Studio through `vswhere` or `VCToolsRedistDir`. Set `SIYUAN_OCR_VC_REDIST_DIR` to `VC/Redist/MSVC/<version>` (containing `x64` and/or `arm64`) or the target's `Microsoft.VC*.CRT` directory for a custom location or cross-host packaging. Use official Visual Studio redist files, not DLLs copied from `System32`, debug runtimes, or third-party DLL download sites. The preparation step checks architecture and required exports, bundles the transitive CRT dependencies beside ONNX Runtime, and records their SHA-256 digests and licensing notice. Keep this app-local runtime updated when preparing releases. See Microsoft's [redistribution terms](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution#visual-c-runtime-files). It does not install system-wide runtimes or require elevation on end-user machines
-* Linux: the OCR worker needs a **glibc** compiler even when the kernel uses a musl toolchain. Install native `gcc` and the appropriate cross compiler before running `scripts/linux-build.sh`. On Debian/Ubuntu, AMD64-to-ARM64 builds need `gcc-aarch64-linux-gnu`; ARM64-to-AMD64 builds need `gcc-x86-64-linux-gnu`. Both can be installed with `sudo apt-get install gcc gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu`. Optional `SIYUAN_OCR_CC_AMD64` and `SIYUAN_OCR_CC_ARM64` overrides select target-specific compiler commands; the script verifies their target triples and does not reuse the kernel's musl `CC`
+* Linux: the desktop OCR worker targets **glibc 2.28** on both AMD64 and ARM64, independently of the kernel's musl toolchain. The preparation script downloads the pinned Zig compiler from `scripts/ocr-assets.json`, verifies its checksum, and caches it in `.cache/ocr/`; the compiler is not distributed in the application. Install `binutils` for the `readelf` compatibility check. Optional `SIYUAN_OCR_CC_AMD64` and `SIYUAN_OCR_CC_ARM64` overrides select compiler commands with a glibc 2.28 or older sysroot; newer headers and artifacts requiring newer glibc symbols are rejected. `--check-only` validates the default toolchain selection without downloading it. Docker uses its separate Alpine/musl OCR build and is unchanged
 
 ### iOS
 
@@ -85,6 +85,10 @@ Desktop packaging runs `scripts/prepare-ocr.py` to prepare the pinned models and
 * `gomobile bind -tags "fts5 sqlcipher" -ldflags "-s -w"  -v -o kernel.aar -target android/arm64 -androidapi 26 ./mobile/`
 * https://github.com/siyuan-note/siyuan-android
 
+On Windows, run `node scripts/android-dev-run.mjs` from the SiYuan repository root to build the mobile frontend, package resources, build `kernel.aar` and the debug APK, then install and launch the separate debug app through ADB. The default flavor is `official`. Prepare Node.js, pnpm, Go, gomobile, a JDK, the Android SDK and NDK, and ZIP-capable bsdtar (the bundled Windows `tar`). Configure `sdk.dir` in the Android project's `local.properties`, or set `ANDROID_HOME`; the script selects the highest NDK version under the SDK directory. Enable debugging on the device and authorize the connection.
+
+The Android project defaults to a sibling of the SiYuan repository; override it with `--android-dir=<path>` or `SIYUAN_ANDROID_DIR`. Use `--device=<serial>` to select an ADB connection. `--skip-ui` reuses existing frontend output (mobile, desktop, and export are required), `--skip-kernel` reuses and copies existing `kernel/kernel.aar`, and `--skip-gradle` only skips APK compilation while still performing resource packaging and kernel processing. Pass all three flags to reinstall an existing APK without rebuilding; the SDK and NDK must still be available. See `node scripts/android-dev-run.mjs --help` for more options.
+
 ### Harmony
 
 Only support compilation under Linux, need to install Harmony SDK, and need to modify Go source code.
@@ -93,7 +97,15 @@ Only support compilation under Linux, need to install Harmony SDK, and need to m
 * `./build.sh` (`./build-win.sh` for Windows Emulator)
 * https://github.com/siyuan-note/siyuan-harmony
 
-Modify Go source code:
+For ARM64 devices, run `node scripts/harmony-dev-run.mjs` from the SiYuan repository root to build the mobile frontend, package resources, build the kernel and signed debug HAP, then install and launch the separate debug app through HDC. First configure the Harmony project's `debug` signing profile for your device in DevEco Studio and prepare the native OCR runtime and models (see the Harmony repository README). On Windows, WSL builds the kernel against the current checkout; the Harmony SDK, Go, and Python 3.10+ must be available inside WSL. The script requires ZIP-capable bsdtar (the bundled Windows `tar`) and never automatically uninstalls the app.
+
+Use `--deveco=<path>`, `--harmony-dir=<path>`, and `--device=<connect-key>` to select tools, project, and device. `--skip-ui` reuses existing frontend output (mobile, desktop, and export are required), `--skip-kernel` copies existing `kernel/harmony/libkernel.so` and `libkernel.h`, and `--skip-hvigor` only reinstalls and launches the existing debug HAP, skipping all builds and resource copies. See `node scripts/harmony-dev-run.mjs --help` for more options. Run script tests with `node --test app/scripts/harmony-dev-run.test.js`.
+
+On Windows, the deployment script translates active `go.work` module paths and local replacements into WSL paths in a temporary workspace. Local dependency overrides remain active; the original workspace files are not changed. If workspace mode is disabled, the WSL build also uses `GOWORK=off`.
+
+The deployment script uses `scripts/prepare-harmony-go.py` to copy the selected Go toolchain into the Linux user cache (default: `~/.cache/siyuan-harmony/go`), applies the three Harmony adaptations below to that copy, and pins it with `GOTOOLCHAIN=local`. The system installation and shared downloaded toolchains remain unchanged. Toolchain version or patch input changes produce another cache entry; unsupported sources and corrupted caches cause an error. Run preparation tests with `python3 -m unittest scripts/test_prepare_harmony_go.py`; on Linux, these also check toolchain selection in the build wrapper without compiling the kernel.
+
+When running `kernel/harmony/build.sh` directly, modify the Go sources actually used by the build:
 
 1. go/src/runtime/vim tls_arm64.s
 

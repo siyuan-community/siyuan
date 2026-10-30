@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -128,7 +116,7 @@ func TestPatchViewStateConcurrently(t *testing.T) {
 	const count = 32
 	errs := make(chan error, count)
 	var waitGroup sync.WaitGroup
-	for i := 0; i < count; i++ {
+	for i := range count {
 		waitGroup.Add(1)
 		go func(index int) {
 			defer waitGroup.Done()
@@ -210,7 +198,7 @@ func TestLoadViewStateAppliesLimits(t *testing.T) {
 	})
 
 	views := map[string]*ViewState{}
-	for i := 0; i < maxViewStateCount+2; i++ {
+	for i := range maxViewStateCount + 2 {
 		views[fmt.Sprintf("view-%04d", i)] = &ViewState{
 			Updated: int64(i),
 			Data:    map[string]any{"value": i},
@@ -219,7 +207,7 @@ func TestLoadViewStateAppliesLimits(t *testing.T) {
 	latest := views[fmt.Sprintf("view-%04d", maxViewStateCount+1)]
 	latest.Data = map[string]any{}
 	latest.Order = []string{}
-	for i := 0; i < maxViewStateDataCount+2; i++ {
+	for i := range maxViewStateDataCount + 2 {
 		key := fmt.Sprintf("field-%05d", i)
 		latest.Data[key] = i
 		latest.Order = append(latest.Order, key)
@@ -328,7 +316,7 @@ func oversizedViewStateStorage() *viewStateStorage {
 
 func TestPruneViewStates(t *testing.T) {
 	views := map[string]*ViewState{}
-	for i := 0; i < maxViewStateCount+2; i++ {
+	for i := range maxViewStateCount + 2 {
 		views[fmt.Sprintf("view-%04d", i)] = &ViewState{Updated: int64(i), Data: map[string]any{"value": i}}
 	}
 	pruneViewStates(views)
@@ -353,7 +341,7 @@ func TestNextViewStateUpdatedRebasesOverflow(t *testing.T) {
 
 func TestPruneViewStateFieldsUsesFieldOrder(t *testing.T) {
 	state := &ViewState{Data: map[string]any{}, Order: []string{}}
-	for i := 0; i < maxViewStateDataCount+2; i++ {
+	for i := range maxViewStateDataCount + 2 {
 		key := fmt.Sprintf("field-%05d", i)
 		state.Data[key] = i
 		state.Order = append(state.Order, key)

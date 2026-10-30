@@ -13,6 +13,7 @@ import {confirmDialog} from "../dialog/confirmDialog";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {ContractFormData} from "../util/contractFormData";
 import {onGetnotebookconf} from "./onGetnotebookconf";
+import {canCleanEncryptedNotebookAssets, openEncryptedAssetsCleanup} from "../config/encryptedAssets";
 /// #if !MOBILE
 import {openSearch} from "../search/spread";
 /// #else
@@ -218,7 +219,7 @@ const initMultiMenu = (selectItemElements: NodeListOf<HTMLElement>, app: App) =>
                 id: "export",
                 label: window.siyuan.languages.export,
                 type: "submenu",
-                icon: "iconUpload",
+                icon: "iconDownload",
                 ignore: ignoreExport,
                 submenu: [{
                     id: "exportSiYuanZip",
@@ -397,7 +398,7 @@ const initMultiMenu = (selectItemElements: NodeListOf<HTMLElement>, app: App) =>
             id: "export",
             label: window.siyuan.languages.export,
             type: "submenu",
-            icon: "iconUpload",
+            icon: "iconDownload",
             submenu: [{
                 id: "exportSiYuanZip",
                 label: "SiYuan .sy.zip",
@@ -643,6 +644,19 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
         }).element);
     }
     if (!window.siyuan.config.readonly) {
+        if (isEncryptedBox(notebookId) && canCleanEncryptedNotebookAssets(notebookId)) {
+            window.siyuan.menus.menu.append(new MenuItem({
+                id: "cleanUnusedAssets",
+                label: window.siyuan.languages.cleanUnusedAssets,
+                icon: "iconTrashcan",
+                click: () => {
+                    openEncryptedAssetsCleanup(notebookId);
+                    /// #if MOBILE
+                    closePanel();
+                    /// #endif
+                },
+            }).element);
+        }
         window.siyuan.menus.menu.append(new MenuItem({id: "separator_1", type: "separator"}).element);
         if (!Object.values(Constants.HELP_PATH).includes(notebookId)) {
             window.siyuan.menus.menu.append(new MenuItem({
@@ -688,7 +702,7 @@ export const initNavigationMenu = (app: App, liElement: HTMLElement) => {
             id: "export",
             label: window.siyuan.languages.export,
             type: "submenu",
-            icon: "iconUpload",
+            icon: "iconDownload",
             submenu: [{
                 id: "exportSiYuanZip",
                 label: "SiYuan .sy.zip",
@@ -1123,7 +1137,7 @@ export const genImportMenu = (notebookId: string, pathString: string) => {
     /// #endif
     window.siyuan.menus.menu.append(new MenuItem({
         id: "import",
-        icon: "iconDownload",
+        icon: "iconUpload",
         label: window.siyuan.languages.import,
         submenu: [
             {

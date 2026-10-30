@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -121,7 +125,7 @@ func GetDocHistorySnapshots(ctx context.Context, id string, histories []*DocHist
 				if path.Base(file.Path) != id+".sy" {
 					continue
 				}
-				boxID := strings.Split(strings.TrimPrefix(file.Path, "/"), "/")[0]
+				boxID, _, _ := strings.Cut(strings.TrimPrefix(file.Path, "/"), "/")
 				if !IsEncryptedBox(boxID) {
 					boxID = ""
 				}

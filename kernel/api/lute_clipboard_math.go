@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package api
 
@@ -240,12 +228,22 @@ func normalizeOfficeHTMLOMML(fragment string) (normalized string, ok bool) {
 				builder.WriteString("<w:p>")
 			}
 			mathStack = append(mathStack, value.Name.Local)
-			builder.WriteString("<m:" + value.Name.Local)
+			builder.WriteString("<m:")
+			builder.WriteString(value.Name.Local)
 			for _, attr := range value.Attr {
-				if attr.Name.Space == officeHTMLOMMLNamespace || attr.Name.Space == docxOMMLNamespace {
-					builder.WriteString(` m:` + attr.Name.Local + `="` + html.EscapeString(attr.Value) + `"`)
-				} else if attr.Name.Space == "http://www.w3.org/XML/1998/namespace" {
-					builder.WriteString(` xml:` + attr.Name.Local + `="` + html.EscapeString(attr.Value) + `"`)
+				switch attr.Name.Space {
+				case officeHTMLOMMLNamespace, docxOMMLNamespace:
+					builder.WriteString(` m:`)
+					builder.WriteString(attr.Name.Local)
+					builder.WriteString(`="`)
+					builder.WriteString(html.EscapeString(attr.Value))
+					builder.WriteString(`"`)
+				case "http://www.w3.org/XML/1998/namespace":
+					builder.WriteString(` xml:`)
+					builder.WriteString(attr.Name.Local)
+					builder.WriteString(`="`)
+					builder.WriteString(html.EscapeString(attr.Value))
+					builder.WriteString(`"`)
 				}
 			}
 			builder.WriteByte('>')
@@ -257,7 +255,9 @@ func normalizeOfficeHTMLOMML(fragment string) (normalized string, ok bool) {
 			if localName != value.Name.Local {
 				return "", false
 			}
-			builder.WriteString("</m:" + localName + ">")
+			builder.WriteString("</m:")
+			builder.WriteString(localName)
+			builder.WriteString(">")
 			mathStack = mathStack[:len(mathStack)-1]
 			if len(mathStack) == 0 {
 				builder.WriteString("</w:p>")
@@ -270,7 +270,9 @@ func normalizeOfficeHTMLOMML(fragment string) (normalized string, ok bool) {
 			if mathStack[len(mathStack)-1] == "t" {
 				builder.WriteString(html.EscapeString(content))
 			} else if mathStack[len(mathStack)-1] == "r" && strings.TrimSpace(content) != "" {
-				builder.WriteString(`<m:t xml:space="preserve">` + html.EscapeString(content) + `</m:t>`)
+				builder.WriteString(`<m:t xml:space="preserve">`)
+				builder.WriteString(html.EscapeString(content))
+				builder.WriteString(`</m:t>`)
 			}
 		}
 	}

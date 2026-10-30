@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -44,7 +32,7 @@ type fontconfigLocalizedName struct {
 }
 
 func parseFontconfigFonts(data []byte, lang string) (ret []*Font) {
-	for _, record := range bytes.Split(data, []byte(fontconfigRecordSeparator)) {
+	for record := range bytes.SplitSeq(data, []byte(fontconfigRecordSeparator)) {
 		if 0 == len(record) {
 			continue
 		}
@@ -100,7 +88,7 @@ func parseFontconfigFonts(data []byte, lang string) (ret []*Font) {
 }
 
 func parseFontconfigLocalizedNames(value string) (ret []fontconfigLocalizedName) {
-	for _, item := range strings.Split(value, fontconfigValueSeparator) {
+	for item := range strings.SplitSeq(value, fontconfigValueSeparator) {
 		item = strings.TrimSpace(item)
 		if "" == item {
 			continue
@@ -120,7 +108,7 @@ func parseFontconfigLocalizedNames(value string) (ret []fontconfigLocalizedName)
 }
 
 func parseFontconfigValues(value string) (ret []string) {
-	for _, item := range strings.Split(value, fontconfigValueSeparator) {
+	for item := range strings.SplitSeq(value, fontconfigValueSeparator) {
 		if item = strings.TrimSpace(item); "" != item {
 			ret = append(ret, item)
 		}
@@ -152,8 +140,8 @@ func fontconfigLanguagesMatch(left, right string) bool {
 	if "" == left || "" == right {
 		return false
 	}
-	leftPrimary := strings.SplitN(left, "-", 2)[0]
-	rightPrimary := strings.SplitN(right, "-", 2)[0]
+	leftPrimary, _, _ := strings.Cut(left, "-")
+	rightPrimary, _, _ := strings.Cut(right, "-")
 	if leftPrimary != rightPrimary {
 		return false
 	}

@@ -41,9 +41,9 @@ const createChat = (load: (id: string) => Promise<AgentSession>) => {
         messagesContainer: {
             classList,
             scrollTop: 0,
-            addEventListener: () => undefined,
-            removeEventListener: () => undefined,
-            querySelectorAll: () => [],
+            addEventListener: (): undefined => undefined,
+            removeEventListener: (): undefined => undefined,
+            querySelectorAll: (): Element[] => [],
         },
         titleElement: {},
         sendBtn: {
@@ -77,6 +77,19 @@ const session = (overrides: Partial<AgentSession> = {}): AgentSession => ({
     createdAt: 1,
     updatedAt: 2,
     ...overrides,
+});
+
+test("session pin notifications refresh the list without disturbing conversations or drafts", () => {
+    const {chat} = createChat(async () => { throw new Error("pinning must not reload the conversation"); });
+    let refreshes = 0;
+    chat.sessionPanel = {refresh: () => { refreshes++; }};
+    chat.reloadFromDisk = () => { throw new Error("pinning must not redraw the conversation"); };
+    for (const streaming of [false, true]) {
+        chat.isStreaming = streaming;
+        chat.onWsMessage({cmd: "agentSessionChanged", data: {sessionID: "second", action: "pin"}});
+        chat.onWsMessage({cmd: "agentSessionChanged", data: {sessionID: "first", action: "pin"}});
+    }
+    assert.equal(refreshes, 4);
 });
 
 test("a background turn ending during a session switch releases the stale mirror lock after recovery", async () => {

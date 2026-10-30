@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -47,8 +51,7 @@ func init() {
 			return request, nil
 		}
 		endpoint.decodeFailure = func(err error) Response[*LoadedPlugin] {
-			var nameError *pluginNameError
-			if errors.As(err, &nameError) {
+			if nameError, ok := errors.AsType[*pluginNameError](err); ok {
 				return Failure[*LoadedPlugin](nameError.code, nameError.message)
 			}
 			return Failure[*LoadedPlugin](-1, err.Error())

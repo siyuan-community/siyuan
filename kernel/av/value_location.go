@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package av
 
 import (
@@ -5,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -104,17 +109,10 @@ func (view *AttributeView) HasLocation() bool {
 		if nil != current.GroupKey && KeyTypeLocation == current.GroupKey.Type {
 			return true
 		}
-		for _, group := range current.Groups {
-			if hasLocationKey(group) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(current.Groups, hasLocationKey)
 	}
-	for _, current := range view.Views {
-		if hasLocationKey(current) {
-			return true
-		}
+	if slices.ContainsFunc(view.Views, hasLocationKey) {
+		return true
 	}
 	found := false
 	view.visitPersistedValues(func(value *Value) {

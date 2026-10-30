@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -38,13 +26,6 @@ func touchSkillMd(t *testing.T, parts ...string) {
 	if err := os.WriteFile(skillMd, []byte("---\nname: x\n---\nbody"), 0644); err != nil {
 		t.Fatalf("write %s: %v", skillMd, err)
 	}
-}
-
-// sorted 把 findSkillDirs 的返回结果排序后比较，避免遍历顺序影响断言。
-func sorted(ss []string) []string {
-	out := append([]string(nil), ss...)
-	sort.Strings(out)
-	return out
 }
 
 // toSlashSet 把路径分隔符统一为 /，便于跨平台断言。
@@ -306,7 +287,7 @@ func TestLoadSkillCapsManifestTraversal(t *testing.T) {
 	workspaceRoot, _ := setSkillTestRoots(t)
 	writeSkill(t, workspaceRoot, "many-dirs", "many-dirs", "description", "body")
 	skillDir := filepath.Join(workspaceRoot, "many-dirs")
-	for i := 0; i < maxSkillResourceVisited; i++ {
+	for i := range maxSkillResourceVisited {
 		if err := os.Mkdir(filepath.Join(skillDir, fmt.Sprintf("empty-%04d", i)), 0755); err != nil {
 			t.Fatal(err)
 		}

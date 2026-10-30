@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -210,7 +214,7 @@ func TestAPIContractNotebookSystemLockNotifications(t *testing.T) {
 	engine := gin.New()
 	path := "/api/notebook/setEncryptedNotebookFollowSystemLock"
 	engine.POST(path, setEncryptedNotebookFollowSystemLock)
-	connection := connectOCRNotifications(t, engine)
+	connection := connectSettingNotifications(t, engine)
 	for _, enabled := range []bool{true, false} {
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, httptest.NewRequest("POST", path, strings.NewReader(fmt.Sprintf(`{"enabled":%t}`, enabled))))

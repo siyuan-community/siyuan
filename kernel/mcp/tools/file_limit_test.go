@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tools
 
 import (
@@ -9,7 +13,7 @@ import (
 
 func TestFileQueryLimits(t *testing.T) {
 	workspace := setupProbeWorkspace(t)
-	for i := 0; i < 205; i++ {
+	for i := range 205 {
 		writeProbeFile(t, filepath.Join(workspace, "data", "query", fmt.Sprintf("%03d.txt", i)), "match\n")
 	}
 	writeProbeFile(t, filepath.Join(workspace, "data", "lines.txt"), strings.Repeat("match\n", 205))

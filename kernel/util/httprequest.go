@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -29,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -47,15 +36,17 @@ const (
 // 防止智能体被诱导发起 SSRF 攻击。web_fetch 与 http_request 共用此校验。
 // https://github.com/siyuan-note/siyuan/security/advisories/GHSA-rg26-cg95-gq6p
 func CheckHostSSRF(host string) error {
-	ips, err := net.LookupIP(host)
+	return checkHostSSRFContext(context.Background(), host)
+}
+
+func checkHostSSRFContext(ctx context.Context, host string) error {
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {
 		return errors.New("failed to resolve host: " + err.Error())
 	}
-	for _, ip := range ips {
-		// 与 SSRFSafeDialer 共用 isPrivateIP，覆盖 NAT64、6to4、Teredo 等 IPv6 过渡地址。
-		if isPrivateIP(ip) {
-			return errors.New("access to private/internal IP is prohibited")
-		}
+	// 与 SSRFSafeDialer 共用 isPrivateIP，覆盖 NAT64、6to4、Teredo 等 IPv6 过渡地址。
+	if slices.ContainsFunc(ips, isPrivateIP) {
+		return errors.New("access to private/internal IP is prohibited")
 	}
 	return nil
 }

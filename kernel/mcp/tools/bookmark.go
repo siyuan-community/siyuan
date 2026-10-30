@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -61,25 +49,25 @@ func bookmarkHandler(args map[string]any) (CallToolResult, error) {
 	}, nil
 }
 
-func bookmarkList(args map[string]any) (CallToolResult, error) {
+func bookmarkList(_ map[string]any) (CallToolResult, error) {
 	bookmarks := model.BuildBookmark()
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Bookmarks (%d):\n\n", len(*bookmarks)))
+	fmt.Fprintf(&sb, "Bookmarks (%d):\n\n", len(*bookmarks))
 	for _, b := range *bookmarks {
-		sb.WriteString(fmt.Sprintf("- %s: %d blocks\n", b.Name, b.Count))
+		fmt.Fprintf(&sb, "- %s: %d blocks\n", b.Name, b.Count)
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 }
 
-func bookmarkLabels(args map[string]any) (CallToolResult, error) {
+func bookmarkLabels(_ map[string]any) (CallToolResult, error) {
 	labels := model.BookmarkLabels()
 	if len(labels) == 0 {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "no bookmark labels found"}}}, nil
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Bookmark labels (%d):\n\n", len(labels)))
+	fmt.Fprintf(&sb, "Bookmark labels (%d):\n\n", len(labels))
 	for _, l := range labels {
-		sb.WriteString(fmt.Sprintf("- %s\n", l))
+		fmt.Fprintf(&sb, "- %s\n", l)
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 }

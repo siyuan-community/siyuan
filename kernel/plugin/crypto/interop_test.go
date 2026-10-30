@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package crypto
 
@@ -110,7 +98,7 @@ func signAlgorithmOf(c interopCase) Algorithm {
 	case c.NamedCurve != "":
 		return Algorithm{Name: AlgECDSA, Hash: c.Hash, NamedCurve: c.NamedCurve}
 	case bytes.Contains([]byte(c.Label), []byte("RSA-PSS")):
-		return Algorithm{Name: AlgRSAPSS, Hash: c.Hash, SaltLength: intPtr(32)}
+		return Algorithm{Name: AlgRSAPSS, Hash: c.Hash, SaltLength: new(32)}
 	default:
 		return Algorithm{Name: AlgRSASSAPKCS1, Hash: c.Hash}
 	}
@@ -272,13 +260,13 @@ func runInteropAESCase(t *testing.T, c interopCase, message []byte) {
 	var alg Algorithm
 	switch {
 	case c.Counter != "":
-		alg = Algorithm{Name: AlgAESCTR, Counter: decodeB64(t, c.Counter), Length: intPtr(c.CounterLength)}
+		alg = Algorithm{Name: AlgAESCTR, Counter: decodeB64(t, c.Counter), Length: new(c.CounterLength)}
 	case len(decodeB64(t, c.IV)) == 16 && c.TagLength == 0 && c.AAD == "":
 		alg = Algorithm{Name: AlgAESCBC, IV: decodeB64(t, c.IV)}
 	default:
 		alg = Algorithm{Name: AlgAESGCM, IV: decodeB64(t, c.IV), AAD: decodeB64(t, c.AAD)}
 		if c.TagLength != 0 {
-			alg.TagLength = intPtr(c.TagLength)
+			alg.TagLength = new(c.TagLength)
 		}
 	}
 
@@ -391,10 +379,10 @@ func runInteropKDFCase(t *testing.T, c interopCase) {
 	if c.Kind == "hkdf" {
 		alg.Info = decodeB64(t, c.Info)
 	} else {
-		alg.Iterations = intPtr(c.Iterations)
+		alg.Iterations = new(c.Iterations)
 	}
 
-	bits, err := DeriveBits(alg, key, intPtr(c.Length))
+	bits, err := DeriveBits(alg, key, new(c.Length))
 	if err != nil {
 		t.Fatalf("deriveBits: %v", err)
 	}
@@ -423,7 +411,7 @@ func runInteropECDHCase(t *testing.T, c interopCase) {
 
 	derive := alg
 	derive.Public = publicKey
-	bits, err := DeriveBits(derive, privateKey, intPtr(c.Length))
+	bits, err := DeriveBits(derive, privateKey, new(c.Length))
 	if err != nil {
 		t.Fatalf("deriveBits: %v", err)
 	}

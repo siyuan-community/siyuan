@@ -6,7 +6,7 @@
 		"id": "20200924101225-k254i8g",
 		"title": "Content Block Type",
 		"type": "doc",
-		"updated": "20261012014930"
+		"updated": "20261024164212"
 	},
 	"Children": [
 		{
@@ -15,7 +15,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210104091538-4b3n4al",
-				"updated": "20260921215916"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -64,7 +64,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20210104091538-le8t1ci",
-				"updated": "20260923221935"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -993,6 +993,75 @@
 							"Children": [
 								{
 									"Type": "NodeText",
+									"Data": "Mind map item block"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Container block"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "​​"
+								},
+								{
+									"Type": "NodeImage",
+									"Data": "span",
+									"Children": [
+										{
+											"Type": "NodeBang"
+										},
+										{
+											"Type": "NodeOpenBracket"
+										},
+										{
+											"Type": "NodeLinkText",
+											"Data": "list-item"
+										},
+										{
+											"Type": "NodeCloseBracket"
+										},
+										{
+											"Type": "NodeOpenParen"
+										},
+										{
+											"Type": "NodeLinkDest",
+											"Data": "assets/listitem-block-20260425175517-4uac18s.png"
+										},
+										{
+											"Type": "NodeCloseParen"
+										}
+									]
+								},
+								{
+									"Type": "NodeText",
+									"Data": "​"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
 									"Data": "List Item block"
 								}
 							]
@@ -1405,7 +1474,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210104091538-a55chyw",
-				"updated": "20261012014930"
+				"updated": "20261024164212"
 			},
 			"Children": [
 				{
@@ -1494,7 +1563,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20210104091538-d5t39y5",
-				"updated": "20260803171606"
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
@@ -1545,7 +1614,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20240513101855-sh0lm1f",
-				"updated": "20260803171606"
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
@@ -1559,7 +1628,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1568,7 +1637,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1577,7 +1646,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​, the overall heading hierarchy will comply with normal logic when exported."
+					"Data": ", the overall heading hierarchy will comply with normal logic when exported."
 				}
 			]
 		},
@@ -1677,7 +1746,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20210104091538-38bsz5r",
-				"updated": "20260222162325"
+				"updated": "20261024164212"
 			},
 			"Children": [
 				{
@@ -1860,12 +1929,68 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260222162028-4qi1oj4",
-				"updated": "20260222162325"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "If the table contains merged cells or headers, it will be copied as HTML or exported as Markdown."
+					"Data": "When a table contains merged cells or multiple header rows, copied and exported Markdown uses an HTML table to preserve that structure."
+				}
+			]
+		},
+		{
+			"ID": "20261017142635-7s38p0k",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261017142635-7s38p0k",
+				"updated": "20261017170001"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "On mobile, tap a cell to edit its text. Long-press a cell that is not being edited to select a cell range, or use the block menu in the keyboard toolbar. Drag either corner handle to expand or shrink the selection; dragging near the viewport edge scrolls the table. Swiping cell content still scrolls. While editing text, holding text still selects text."
+				}
+			]
+		},
+		{
+			"ID": "20261017142635-d2uc99x",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261017142635-d2uc99x",
+				"updated": "20261017174053"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Tapping a cell shows blue dotted handles on the borders of its row and column. Tap a handle above a column or beside a row to select that column or row. Enable Multi-select in the top toolbar to add or remove nonadjacent cells, rows, or columns. Use More to merge cells, set styles and alignment, or operate on selected rows and columns. Tap Close to leave selection mode."
+				}
+			]
+		},
+		{
+			"ID": "20261017142635-wrzqg7l",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261017142635-wrzqg7l",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Tap a column divider in any row to highlight it, then drag the highlighted line horizontally to change the width. Vertical swipes still scroll the table. Tap outside the line to leave width adjustment. Select columns and use More to auto-fit their widths or distribute them evenly."
+				}
+			]
+		},
+		{
+			"ID": "20261024164212-opy4eoa",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024164212-opy4eoa",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Tap the plus controls at the table edges to add rows or columns, or drag the edge controls to add several at once or remove trailing empty rows and columns. Shrinking preserves nonempty content and merged cells."
 				}
 			]
 		},
@@ -1875,7 +2000,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20250330191912-6gqtj5b",
-				"updated": "20250330192550"
+				"updated": "20261024163828"
 			},
 			"Children": [
 				{
@@ -1889,7 +2014,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20250330191921-575c2st",
-				"updated": "20250330192006"
+				"updated": "20261024163828"
 			},
 			"Children": [
 				{
@@ -1901,7 +2026,7 @@
 					"TextMarkType": "block-ref",
 					"TextMarkBlockRefID": "20201117112518-dott91x",
 					"TextMarkBlockRefSubtype": "s",
-					"TextMarkTextContent": "Embed Content Block"
+					"TextMarkTextContent": "Embed content blocks"
 				},
 				{
 					"Type": "NodeText",
@@ -1915,7 +2040,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20220429115218-ydwuros",
-				"updated": "20260803171606"
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
@@ -1962,7 +2087,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20240427231112-lcwev4m",
-				"updated": "20260803171606"
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
@@ -1974,7 +2099,7 @@
 					},
 					"Properties": {
 						"id": "20240427231112-q60pwo8",
-						"updated": "20260803171606"
+						"updated": "20261024163013"
 					},
 					"Children": [
 						{
@@ -1982,7 +2107,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20240427231112-e7j3mqt",
-								"updated": "20260803171606"
+								"updated": "20261024163013"
 							},
 							"Children": [
 								{
@@ -1996,7 +2121,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ - "
+									"Data": " - "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -2005,7 +2130,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ - "
+									"Data": " - "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -2014,7 +2139,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​, but please confirm that the code is safe before opening it to avoid cross-site scripting attacks (XSS)."
+									"Data": ", but please confirm that the code is safe before opening it to avoid cross-site scripting attacks (XSS)"
 								}
 							]
 						}
@@ -2029,7 +2154,7 @@
 					},
 					"Properties": {
 						"id": "20240427231112-o1imtjo",
-						"updated": "20240427231112"
+						"updated": "20261016202856"
 					},
 					"Children": [
 						{
@@ -2037,7 +2162,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20240427231112-3txbq9w",
-								"updated": "20240427231112"
+								"updated": "20261016202856"
 							},
 							"Children": [
 								{
@@ -2051,7 +2176,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ to wrap HTML code and remove blank lines."
+									"Data": "​ to wrap HTML code and remove blank lines"
 								}
 							]
 						}
@@ -2533,7 +2658,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260921215916-r1kfene",
-				"updated": "20261012014930"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -2553,6 +2678,20 @@
 				{
 					"Type": "NodeText",
 					"Data": "A mind map block is a dedicated block type. You can convert an unordered, ordered, or task list into a mind map block and convert it back to a list. Conversion preserves item content, numbering, and task states. Existing mind maps stored as lists are upgraded when their documents are opened for editing."
+				}
+			]
+		},
+		{
+			"ID": "20261016111305-yf97d7e",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261016111305-yf97d7e",
+				"updated": "20261016111305"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "A mind map block contains only mind map item blocks. Each mind map item has its own block ID and may contain ordinary content blocks and nested mind maps; it cannot directly contain a list block, list item block, or another mind map item block."
 				}
 			]
 		},
@@ -3173,7 +3312,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20210104091538-clx67q4",
-				"updated": "20251021230320"
+				"updated": "20261024161816"
 			},
 			"Children": [
 				{
@@ -3207,12 +3346,122 @@
 			]
 		},
 		{
+			"ID": "20261023112115-ewf6xvh",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261023112115-ewf6xvh",
+				"updated": "20261023133001"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Document titles allow ASCII / by default, without a setting to enable it. For example, A/B can be one document title and is different from a document B inside A. Existing titles and document links stay unchanged; ／ and %2F remain literal text."
+				}
+			]
+		},
+		{
+			"ID": "20261023112115-ntigpv2",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261023112115-ntigpv2",
+				"updated": "20261023112115"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "A displayed path is for reading. Use document links or block references to navigate to the intended document. Plugins that locate documents by splitting title paths need to support structured addressing."
+				}
+			]
+		},
+		{
+			"ID": "20261023112115-9dsprn2",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261023112115-9dsprn2",
+				"updated": "20261024161816"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Before opening the workspace with the new version, quit older SiYuan versions on every device, upgrade every device that accesses this workspace or syncs its data to a version that supports the new title format, and check plugin compatibility. Do not open the workspace or resume syncing until all devices have been upgraded."
+				}
+			]
+		},
+		{
+			"ID": "20261024161816-y5ag66f",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024161816-y5ag66f",
+				"updated": "20261024161816"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Devices that are temporarily offline must also be upgraded before accessing or syncing this data. Migration runs automatically and resumes after interruption. After upgrading, do not use older versions to open, edit, restore, or sync the same data. An older version may reject documents using the new title format (Spec 6) but still read and write documents that retain an earlier format."
+				}
+			]
+		},
+		{
+			"ID": "20261024161816-s0b7spt",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024161816-s0b7spt",
+				"updated": "20261024161816"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "It may also write back a stale editor copy from an open page, overwriting newer titles or content and syncing the overwritten data to other devices. Some documents being blocked does not mean the data is protected."
+				}
+			]
+		},
+		{
+			"ID": "20261024163013-esgjt1w",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20261024163013-esgjt1w",
+				"updated": "20261024163013"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Custom blocks"
+				}
+			],
+			"HeadingLevel": 3
+		},
+		{
+			"ID": "20261024163013-ohw7upm",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024163013-ohw7upm",
+				"updated": "20261024163013"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Plugins can provide custom block displays and interactions. Install and enable the corresponding "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20230506205948-yah52eb",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "plugin"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " to use them. When the plugin is unavailable or the current environment cannot render it, the saved source content is shown. Disabling the plugin does not automatically delete that content."
+				}
+			]
+		},
+		{
 			"ID": "20200925102736-x94e40g",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20200925102736-x94e40g",
-				"updated": "20260906003122"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -3244,7 +3493,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20210104091538-3pi7fbf",
-				"updated": "20260906003122"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -3466,6 +3715,62 @@
 								{
 									"Type": "NodeText",
 									"Data": "Tab item block: contains ordinary content blocks and nested tabbed containers"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20261016111305-81kzz6v",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20261016111305-81kzz6v",
+						"updated": "20261016111305"
+					},
+					"Children": [
+						{
+							"ID": "20261016111305-i4u9mr0",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20261016111305-i4u9mr0",
+								"updated": "20261016111305"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Mind map block: contains only mind map item blocks"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20261016111305-yd1uvto",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20261016111305-yd1uvto",
+						"updated": "20261016111305"
+					},
+					"Children": [
+						{
+							"ID": "20261016111305-wglnd0s",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20261016111305-wglnd0s",
+								"updated": "20261016111305"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Mind map item block: contains ordinary content blocks and nested mind maps; no direct list blocks, list item blocks, or mind map item blocks"
 								}
 							]
 						}

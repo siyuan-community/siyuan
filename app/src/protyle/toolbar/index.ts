@@ -55,7 +55,7 @@ import {blockRender} from "../render/blockRender";
 /// #endif
 import {fetchPost} from "../../util/fetch";
 import {isMobile} from "../../util/functions";
-import * as dayjs from "dayjs";
+import dayjs from "dayjs";
 import {insertEmptyBlock} from "../../block/util";
 import {matchHotKey} from "../util/hotKey";
 import {hideElements} from "../ui/hideElements";
@@ -66,6 +66,7 @@ import {hideMessage, showMessage} from "../../dialog/message";
 import {getPlantumlImageBlob} from "../render/plantumlImage";
 import {InlineMath} from "./InlineMath";
 import {InlineMemo} from "./InlineMemo";
+import {decodeInlineMemoContent, encodeInlineMemoContent} from "../util/inlineMemo";
 import {mathRender} from "../render/mathRender";
 import {linkMenu} from "../../menus/protyle";
 import {addScript} from "../util/addScript";
@@ -102,7 +103,8 @@ import {
     canExpandInlineRangeToParent,
     canRemoveEmptyInlineElement,
     getInlineRangeElement,
-    normalizeCalloutTitleRange
+    normalizeCalloutTitleRange,
+    normalizeInlineMarkRange
 } from "./inlineRangeBoundary";
 import {resolvePluginToolbar} from "../../plugin/toolbarItem";
 import {FontControl, updateFontControls} from "./fontControls";
@@ -846,6 +848,7 @@ export class Toolbar {
         }
         const editableElement = normalizeCalloutTitleRange(this.range, nodeElement,
             getContenteditableElement(nodeElement, this.range.startContainer));
+        normalizeInlineMarkRange(this.range, editableElement);
         const isBatch = remove !== undefined;
         // 在提取选区内容之前确定格式操作，空选区继续使用光标处的输入格式。
         const removeFormat = !isBatch && !this.range.collapsed && INLINE_FORMAT_TYPES.includes(type) && !textObj ?
@@ -1573,7 +1576,7 @@ export class Toolbar {
     <span class="fn__space${protyle.disabled ? " fn__none" : ""}"></span>
     <button data-type="after" class="block__icon block__icon--show b3-tooltips b3-tooltips__n${protyle.disabled ? " fn__none" : ""}" aria-label="${window.siyuan.languages.insertAfter}"><svg><use xlink:href="#iconAfter"></use></svg></button>
     <span class="fn__space${protyle.disabled ? " fn__none" : ""}"></span>
-    <button data-type="export" class="block__icon block__icon--show b3-tooltips b3-tooltips__n${getHostCapabilities().documentImportExport ? "" : " fn__none"}" aria-label="${window.siyuan.languages.export} ${window.siyuan.languages.image}"><svg><use xlink:href="#iconImage"></use></svg></button>
+    <button data-type="export" class="block__icon block__icon--show b3-tooltips b3-tooltips__n${getHostCapabilities().documentImportExport ? "" : " fn__none"}" aria-label="${window.siyuan.languages.export} ${window.siyuan.languages.image}"><svg><use xlink:href="#iconDownload"></use></svg></button>
     <span class="fn__space${getHostCapabilities().documentImportExport ? "" : " fn__none"}"></span>
     <button data-type="pin" class="block__icon block__icon--show b3-tooltips b3-tooltips__n" aria-label="${window.siyuan.languages.pin}"><svg><use xlink:href="#iconPin"></use></svg></button>
     <span class="fn__space"></span>
@@ -1729,7 +1732,7 @@ export class Toolbar {
         if (types.includes("NodeHTMLBlock")) {
             textElement.value = renderElement.querySelector("protyle-html").getAttribute("data-content") || "";
         } else if (isInlineMemo) {
-            textElement.value = Lute.UnEscapeHTMLStr(renderElement.getAttribute("data-inline-memo-content") || "");
+            textElement.value = decodeInlineMemoContent(renderElement.getAttribute("data-inline-memo-content") || "");
         } else {
             textElement.value = Lute.UnEscapeHTMLStr(renderElement.getAttribute("data-content") || "");
         }
@@ -1754,7 +1757,7 @@ export class Toolbar {
                 }
                 inlineMemoElements.forEach((item) => {
                     if (item.nodeType !== 3) {
-                        item.setAttribute("data-inline-memo-content", window.DOMPurify.sanitize(textElement.value));
+                        item.setAttribute("data-inline-memo-content", encodeInlineMemoContent(textElement.value));
                     }
                 });
             } else {
@@ -1842,8 +1845,7 @@ export class Toolbar {
                             inlineLastNode = item;
                         }
                     } else if (item.nodeType !== 3) {
-                        // 行级备注自动移除换行  https://ld246.com/article/1664205917326
-                        item.setAttribute("data-inline-memo-content", window.DOMPurify.sanitize(textElement.value));
+                        item.setAttribute("data-inline-memo-content", encodeInlineMemoContent(textElement.value));
                     }
                 });
             } else if (types.includes("inline-math") && !noChange) {
@@ -2154,7 +2156,7 @@ export class Toolbar {
         <span class="fn__space"></span>
         <span data-type="next" class="block__icon block__icon--show"><svg><use xlink:href="#iconRight"></use></svg></span>
     </div>
-    <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><img style="margin: 0 auto;display: block;width: 64px;height: 64px" src="/stage/loading-pure.svg"></div>
+    <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><div class="fn__flex" style="height:64px;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div></div>
 </div>
 <div class="toolbarResize" style="    cursor: col-resize;
     box-shadow: 2px 0 0 0 var(--b3-theme-surface) inset, 3px 0 0 0 var(--b3-border-color) inset;
@@ -2316,7 +2318,7 @@ export class Toolbar {
         window.siyuan.menus.menu.remove();
         this.subElement.innerHTML = `<div class="fn__flex-column" style="max-height:50vh">
     <input spellcheck="false" style="margin: 0 8px 4px 8px" class="b3-text-field"/>
-    <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><img style="margin: 0 auto;display: block;width: 64px;height:64px" src="/stage/loading-pure.svg"></div>
+    <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><div class="fn__flex" style="height:64px;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div></div>
 </div>`;
         const listElement = this.subElement.lastElementChild.lastElementChild as HTMLElement;
         const inputElement = this.subElement.querySelector("input");

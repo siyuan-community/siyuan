@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package av
 
 import (
@@ -185,9 +189,9 @@ func TestDecimalSumNonFinite(t *testing.T) {
 }
 
 func BenchmarkDecimalSum(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var sum decimalSum
-		for j := 0; j < 10000; j++ {
+		for range 10000 {
 			sum.add(0.1)
 		}
 		if 1000 != sum.float64() {

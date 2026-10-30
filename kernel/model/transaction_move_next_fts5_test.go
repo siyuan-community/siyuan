@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -60,12 +64,13 @@ func TestMoveNextIDOrderAndReplay(t *testing.T) {
 				{Action: "move", ID: first, NextID: end},
 				{Action: "move", ID: second, NextID: end},
 			}}
-			for step := 0; step < 3; step++ {
+			for step := range 3 {
 				tx := forward
-				if step == 1 {
+				switch step {
+				case 1:
 					tx = &Transaction{DoOperations: cloneOperations(forward.UndoOperations)}
 					tx.MarkReplay()
-				} else if step == 2 {
+				case 2:
 					tx = &Transaction{DoOperations: cloneOperations(forward.DoOperations)}
 					tx.MarkReplay()
 				}

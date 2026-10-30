@@ -1,7 +1,12 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
 	"errors"
+
 	"github.com/88250/gulu"
 	"github.com/siyuan-community/siyuan/kernel/bazaar"
 	"github.com/siyuan-community/siyuan/kernel/model"
@@ -11,12 +16,6 @@ func bazaarPackageRatingsResponseData(ratings map[string]*bazaar.PackageRating,
 	eligiblePackageNames []string) map[string]any {
 	return map[string]any{
 		"ratings":              ratings,
-		"eligiblePackageNames": eligiblePackageNames,
-	}
-}
-func bazaarPackageUserRatingsResponseData(userRatings map[string]int, eligiblePackageNames []string) map[string]any {
-	return map[string]any{
-		"userRatings":          userRatings,
 		"eligiblePackageNames": eligiblePackageNames,
 	}
 }

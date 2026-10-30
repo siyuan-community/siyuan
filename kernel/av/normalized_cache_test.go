@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package av
 
 import (
@@ -21,7 +25,7 @@ func normalizedRichCacheFixture(t testing.TB) (string, []byte) {
 	view := &AttributeView{ID: id, Spec: RichTextSpec, Name: "Original", KeyValues: []*KeyValues{{
 		Key: &Key{ID: "text", Type: KeyTypeText},
 	}}}
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		view.KeyValues[0].Values = append(view.KeyValues[0].Values, &Value{Type: KeyTypeText, Text: &ValueText{
 			Content: "incorrect projection",
 			Rich:    &ValueTextRich{Spec: ValueTextRichSpec, Format: ValueTextRichFormatKramdown, Content: "**bold**\n"},

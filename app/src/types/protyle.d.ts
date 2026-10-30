@@ -121,6 +121,7 @@ interface ILuteRender {
 interface IBreadcrumb {
     id: string,
     name: string,
+    documentTitle?: string,
     type: string,
     subType: string,
     children: IBreadcrumb[],
@@ -251,6 +252,7 @@ declare class Lute {
     public SetTag(enable: boolean): void;
 
     public SetInlineMath(enable: boolean): void;
+    public SetLatexMath(enable: boolean): void;
 
     public SetGFMStrikethrough(enable: boolean): void;
 
@@ -614,7 +616,7 @@ interface IProtyle {
     gutter?: import("../protyle/gutter").Gutter,
     breadcrumb?: import("../protyle/breadcrumb").Breadcrumb,
     title?: import("../protyle/header/Title").Title,
-    background?: import("../protyle/header/background").Background,
+    background?: import("../protyle/header/Background").Background,
     databaseAttributePanel?: import("../protyle/render/av/attributePanel").AVAttributePanel,
     contentElement?: HTMLElement,
     options: IProtyleOptions;

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -703,7 +691,7 @@ func validateTemplateAttributeViewNode(node *ast.Node, attrView *av.AttributeVie
 		return
 	}
 	visibleViewCount := 0
-	for _, visibleViewID := range strings.Split(visibleViewIDs, ",") {
+	for visibleViewID := range strings.SplitSeq(visibleViewIDs, ",") {
 		visibleViewID = strings.TrimSpace(visibleViewID)
 		if "" == visibleViewID {
 			continue
@@ -826,7 +814,7 @@ func prepareTemplateAttributeViews(tree *parse.Tree, preview bool) (plans map[*a
 	return
 }
 
-func saveTemplateAttributeViewCopies(copies []*templateAttributeViewCopy, boxID string) {
+func saveTemplateAttributeViewCopies(copies []*templateAttributeViewCopy, boxID string) error {
 	for _, copied := range copies {
 		if "" != boxID {
 			av.SetAVBoxID(copied.target.ID, boxID)
@@ -836,9 +824,10 @@ func saveTemplateAttributeViewCopies(copies []*templateAttributeViewCopy, boxID 
 			av.SetAVBoxID(copied.target.ID, "")
 		}
 		if nil != err {
-			logging.LogErrorf("save attribute view [%s] failed: %s", copied.target.ID, err)
+			return fmt.Errorf("save attribute view [%s] failed: %w", copied.target.ID, err)
 		}
 	}
+	return nil
 }
 
 func applyTemplateAttributeViewPlan(node *ast.Node, plan *templateAttributeViewPlan) (*av.View, error) {
@@ -866,7 +855,7 @@ func applyTemplateAttributeViewPlan(node *ast.Node, plan *templateAttributeViewP
 		}
 		if visibleViewIDs := strings.TrimSpace(node.IALAttr(av.NodeAttrVisibleViewIDs)); "" != visibleViewIDs {
 			var copiedVisibleViewIDs []string
-			for _, sourceViewID := range strings.Split(visibleViewIDs, ",") {
+			for sourceViewID := range strings.SplitSeq(visibleViewIDs, ",") {
 				sourceViewID = strings.TrimSpace(sourceViewID)
 				if copiedViewID := plan.copiedViewIDs[sourceViewID]; "" != copiedViewID {
 					copiedVisibleViewIDs = append(copiedVisibleViewIDs, copiedViewID)
@@ -1038,6 +1027,12 @@ func renderTemplateSourceAt(p, id string, mode TemplateRenderMode, content *stri
 		if err = validateTemplateCallGraph(tpl, tpl.Name()); nil != err {
 			return
 		}
+		var location *treenode.DocumentPath
+		location, err = getDocumentPath(sourceTree.Box, sourceTree.ID)
+		if err != nil {
+			return
+		}
+		collector.rootRevision = location.Revision
 	}
 
 	buf := &bytes.Buffer{}
@@ -1138,13 +1133,15 @@ func renderTemplateSourceAt(p, id string, mode TemplateRenderMode, content *stri
 		return
 	}
 	if !preview {
-		saveTemplateAttributeViewCopies(attributeViewCopies, templateAttributeViewBoxID(tree))
+		if err = saveTemplateAttributeViewCopies(attributeViewCopies, templateAttributeViewBoxID(tree)); nil != err {
+			return
+		}
 	}
 
 	restoreTabsSelection()
 	// 用映射成套改写模板内部的自引用，并补全指向外部块的引用锚文本
 	// 仅命中 blockIDs 的引用（模板内部块）才会改写 ID；未命中的（外部块）保持不变
-	treenode.WalkWithTabTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+	treenode.WalkWithInlineTitles(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
 		}
@@ -1206,6 +1203,10 @@ func renderTemplateSourceAt(p, id string, mode TemplateRenderMode, content *stri
 		}
 		return ast.WalkContinue
 	})
+	// 富文本单元格由源内容生成 DOM，先将引用投影中的改写同步回源。
+	if err = treenode.SyncTableCellRichInlineChanges(tree.Root); nil != err {
+		return
+	}
 	for _, n := range nodesNeedAppendChild {
 		if ast.NodeBlockquote == n.Type {
 			n.FirstChild.InsertAfter(treenode.NewParagraph(""))
@@ -1322,12 +1323,23 @@ func applyDocContentTemplateAt(templatePath, docID string, now *time.Time) error
 	if "" == templateDOM {
 		return nil
 	}
-	tree, err := LoadTreeByBlockID(docID)
+	FlushTxQueue()
+	flushLock.Lock()
+	defer flushLock.Unlock()
+	for _, queued := range takeQueuedTransactions() {
+		flushTx(queued)
+	}
+	bt, err := lookupBlockTreeInBox(docID, "", true)
+	if err != nil {
+		return err
+	}
+	tree, original, err := filesys.LoadTreeSnapshot(bt.BoxID, bt.Path, util.NewLute())
 	if nil != err {
 		return err
 	}
-	if nil != tree.Root.FirstChild {
-		tree.Root.FirstChild.Unlink()
+	// 只移除新建文档的空占位段落，保留模板渲染期间已经提交的首块编辑。
+	if first := tree.Root.FirstChild; isDocContentTemplatePlaceholder(first) {
+		first.Unlink()
 	}
 	newTree := util.NewLute().BlockDOM2Tree(templateDOM)
 	var children []*ast.Node
@@ -1345,11 +1357,41 @@ func applyDocContentTemplateAt(templatePath, docID string, now *time.Time) error
 		}
 	}
 	tree.Root.SetIALAttr("updated", util.CurrentTimeSecondsStr())
-	if err = indexWriteTreeUpsertQueue(tree); nil != err {
+	write := func(changed *parse.Tree) error {
+		size, writeErr := filesys.WriteTreeIfUnchanged(changed, original)
+		if writeErr != nil {
+			return writeErr
+		}
+		treenode.UpsertBlockTree(changed)
+		sql.UpsertTreeQueue(changed)
+		refreshDocInfoWithSize(changed, size)
+		return nil
+	}
+	handled, err := writeDocumentWithCollections(tree, write)
+	if err != nil {
 		return err
 	}
+	if !handled {
+		if err = write(tree); err != nil {
+			return err
+		}
+		IncSync()
+	}
+	invalidateDocumentHistory(tree.ID)
 	av.BatchUpsertBlockRel(tree.Root.ChildrenByType(ast.NodeAttributeView))
 	return nil
+}
+
+func isDocContentTemplatePlaceholder(node *ast.Node) bool {
+	if node == nil || node.Type != ast.NodeParagraph || node.FirstChild != nil || len(node.Tokens) != 0 {
+		return false
+	}
+	for _, attr := range node.KramdownIAL {
+		if attr[0] != "id" && attr[0] != "updated" {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveDocContentTemplatePath(templatePath string) (string, error) {
@@ -1367,11 +1409,11 @@ func resolveDocContentTemplatePath(templatePath string) (string, error) {
 	if !filelock.IsExist(absPath) {
 		return "", fmt.Errorf("content template [%s] not found", templatePath)
 	}
-	realRoot, err := filepath.EvalSymlinks(templateRoot)
+	realRoot, err := util.ResolveRealPath(templateRoot)
 	if nil != err {
 		return "", err
 	}
-	realPath, err := filepath.EvalSymlinks(absPath)
+	realPath, err := util.ResolveRealPath(absPath)
 	if nil != err {
 		return "", err
 	}

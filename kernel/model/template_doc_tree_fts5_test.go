@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 //go:build fts5
 
@@ -24,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -75,7 +64,6 @@ Child: .action{renderDocRef "path" "/资料"}`)
 		t.Fatalf("unexpected document tree plan: %+v", summary)
 	}
 	for _, node := range summary.Nodes {
-		node := node
 		t.Cleanup(func() {
 			cache.RemoveTreeData(node.ID)
 			cache.RemoveDocIAL(node.path)
@@ -177,7 +165,6 @@ func TestTemplateDocTreeTransactionFailureCleansCreatedDocuments(t *testing.T) {
 	plan := value.(*templateDocTreePlan)
 	plan.trees[len(plan.trees)-1].Path = "/\x00/invalid.sy"
 	for _, node := range summary.Nodes {
-		node := node
 		t.Cleanup(func() {
 			cache.RemoveTreeData(node.ID)
 			cache.RemoveDocIAL(node.path)
@@ -416,7 +403,6 @@ func cleanupTemplateDocTreeTestNodes(t *testing.T, fixture *fileOperationTestFix
 	summary *TemplateDocTreePlanSummary) {
 	t.Helper()
 	for _, node := range summary.Nodes {
-		node := node
 		t.Cleanup(func() {
 			cache.RemoveTreeData(node.ID)
 			cache.RemoveDocIAL(node.path)
@@ -529,10 +515,8 @@ func assertTemplateDocTreeApplied(t *testing.T, fixture *fileOperationTestFixtur
 
 func assertTemplateDocTreeRef(t *testing.T, tree *parse.Tree, defID, source string) {
 	t.Helper()
-	for _, id := range getRefDefIDs(tree.Root) {
-		if defID == id {
-			return
-		}
+	if slices.Contains(getRefDefIDs(tree.Root), defID) {
+		return
 	}
 	t.Fatalf("%s block reference to planned document [%s] was degraded", source, defID)
 }

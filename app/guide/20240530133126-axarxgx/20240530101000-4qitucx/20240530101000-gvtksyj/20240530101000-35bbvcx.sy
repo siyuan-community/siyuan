@@ -7,7 +7,7 @@
 		"id": "20240530101000-35bbvcx",
 		"title": "コンテンツブロックの種類",
 		"type": "doc",
-		"updated": "20261012014930"
+		"updated": "20261024164212"
 	},
 	"Children": [
 		{
@@ -17,7 +17,7 @@
 			"Properties": {
 				"ID": "20240530101000-6nam42g",
 				"id": "20240530101000-n0tipvh",
-				"updated": "20260921215916"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -73,7 +73,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20240530101000-7ed5u6l",
-				"updated": "20260923221935"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -1054,6 +1054,79 @@
 							"Children": [
 								{
 									"Type": "NodeText",
+									"Data": "マインドマップ項目ブロック"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "コンテナブロック"
+								},
+								{
+									"Type": "NodeBr",
+									"Data": "br"
+								}
+							]
+						}
+					]
+				},
+				{
+					"Type": "NodeTableRow",
+					"Data": "tr",
+					"Children": [
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "​​"
+								},
+								{
+									"Type": "NodeImage",
+									"Data": "span",
+									"Children": [
+										{
+											"Type": "NodeBang"
+										},
+										{
+											"Type": "NodeOpenBracket"
+										},
+										{
+											"Type": "NodeLinkText",
+											"Data": "list-item"
+										},
+										{
+											"Type": "NodeCloseBracket"
+										},
+										{
+											"Type": "NodeOpenParen"
+										},
+										{
+											"Type": "NodeLinkDest",
+											"Data": "assets/listitem-block-20260425175517-4uac18s.png"
+										},
+										{
+											"Type": "NodeCloseParen"
+										}
+									]
+								},
+								{
+									"Type": "NodeText",
+									"Data": "​"
+								}
+							]
+						},
+						{
+							"Type": "NodeTableCell",
+							"Data": "td",
+							"Children": [
+								{
+									"Type": "NodeText",
 									"Data": "リスト項目ブロック"
 								}
 							]
@@ -1491,7 +1564,7 @@
 			"Properties": {
 				"ID": "20240530101000-rjjxxn8",
 				"id": "20240530101000-p035stn",
-				"updated": "20261012014930"
+				"updated": "20261024164212"
 			},
 			"Children": [
 				{
@@ -1606,7 +1679,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20240530101000-03pf2kg",
-				"updated": "20250330192658"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -1627,6 +1700,47 @@
 				{
 					"Type": "NodeText",
 					"Data": "見出しブロックはレベル 1 から 6 までサポートしています。"
+				}
+			]
+		},
+		{
+			"ID": "20261024162311-btgqk1b",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024162311-btgqk1b",
+				"updated": "20261024162311"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "本文の最上位にはレベル 2 の見出しを使うことをお勧めします。"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "設定"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "エクスポート"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "ドキュメントタイトルを追加"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " を有効にすると、ドキュメントのタイトルをその上位に置いた階層でエクスポートできます。"
 				}
 			]
 		},
@@ -1715,7 +1829,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20240530101000-riwihza",
-				"updated": "20260222162348"
+				"updated": "20261024164212"
 			},
 			"Children": [
 				{
@@ -1914,12 +2028,68 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260222161957-z5l9kwc",
-				"updated": "20260222161957"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "表に結合されたセルまたは見出しが含まれている場合、MarkdownとしてではなくHTML形式でコピーまたはエクスポートされます。"
+					"Data": "結合セルや複数行のヘッダーを含むテーブルは、構造を保持するため、コピーやエクスポートした Markdown 内で HTML テーブルとして表現されます。"
+				}
+			]
+		},
+		{
+			"ID": "20261017142635-kll3m6b",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261017142635-kll3m6b",
+				"updated": "20261017170001"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "モバイル端末ではセルをタップして文字を編集できます。編集中ではないセルを長押しするか、キーボードツールバーのブロックメニューを使うと、セル範囲の選択に入ります。選択範囲の両端のハンドルをドラッグして範囲を変更でき、画面の端までドラッグすると表が自動的にスクロールします。セル内をスワイプするとスクロールします。文字の編集中は、長押しで文字を選択できます。"
+				}
+			]
+		},
+		{
+			"ID": "20261017142635-udb0p1z",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261017142635-udb0p1z",
+				"updated": "20261017174053"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "セルをタップすると、その行と列の枠線上に青いドットのハンドルが表示されます。列の上または行の左にあるハンドルをタップすると、列全体または行全体を選択できます。上部ツールバーで複数選択を有効にすると、離れたセル、行、列をタップして選択に追加したり、選択から外したりできます。「詳細」からセルの結合、スタイルや配置の設定、選択した行や列の一括操作を行えます。「閉じる」をタップすると選択を終了します。"
+				}
+			]
+		},
+		{
+			"ID": "20261017142635-99sm3ym",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261017142635-99sm3ym",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "任意の行にある列の区切り線をタップすると強調表示されます。強調表示された線を横にドラッグして列幅を変更できます。縦にスワイプすると表がスクロールし、線の外をタップすると調整を終了します。列を選択して「詳細」を開くと、内容に合わせて列幅を自動調整したり、均等に配分したりできます。"
+				}
+			]
+		},
+		{
+			"ID": "20261024164212-c08x4vc",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024164212-c08x4vc",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "表の端のプラスボタンをタップすると行や列を追加できます。端のコントロールをドラッグすると複数の行や列を追加したり、末尾の空の行や列を削除したりできます。表を縮めても、内容のあるセルや結合セルは保持されます。"
 				}
 			]
 		},
@@ -1969,7 +2139,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20240530101000-3b4bvhu",
-				"updated": "20260803170332"
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
@@ -2027,7 +2197,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20240530101000-jplysif",
-				"updated": "20260803170332"
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
@@ -2039,7 +2209,7 @@
 					},
 					"Properties": {
 						"id": "20240530101000-veodkk2",
-						"updated": "20260803170332"
+						"updated": "20261024163013"
 					},
 					"Children": [
 						{
@@ -2047,7 +2217,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20240530101000-u4lkzdu",
-								"updated": "20260803170332"
+								"updated": "20261024163013"
 							},
 							"Children": [
 								{
@@ -2061,7 +2231,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ - "
+									"Data": " - "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -2070,7 +2240,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ - "
+									"Data": " - "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -2079,7 +2249,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": " ​ を有効にします。この場合、クロスサイトスクリプティング攻撃 (XSS) を避けるため、コードが十分に安全であることを確認してください。"
+									"Data": " を有効にします。この場合、クロスサイトスクリプティング攻撃 (XSS) を避けるため、コードが十分に安全であることを確認してください"
 								}
 							]
 						}
@@ -2094,7 +2264,7 @@
 					},
 					"Properties": {
 						"id": "20240530101000-af3aq09",
-						"updated": "20240530101000"
+						"updated": "20261016202856"
 					},
 					"Children": [
 						{
@@ -2102,7 +2272,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20240530101000-znnyg92",
-								"updated": "20240530101000"
+								"updated": "20261016202856"
 							},
 							"Children": [
 								{
@@ -2116,7 +2286,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ で囲み、空の行は削除することを推奨します。"
+									"Data": "​ で囲み、空の行は削除することを推奨します"
 								}
 							]
 						}
@@ -2699,7 +2869,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260921215916-odykie5",
-				"updated": "20261012014930"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -2719,6 +2889,20 @@
 				{
 					"Type": "NodeText",
 					"Data": "マインドマップブロックは独立したブロックタイプです。箇条書き、番号付きリスト、タスクリストから変換でき、リストに戻すこともできます。変換時には項目の内容、番号、タスクの状態が保持されます。リストとして保存された以前のマインドマップは、文書を編集用に開いたときに更新されます。"
+				}
+			]
+		},
+		{
+			"ID": "20261016111305-5075456",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261016111305-5075456",
+				"updated": "20261016111305"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "マインドマップブロックには、マインドマップ項目ブロックのみを格納できます。各項目は独自のブロック ID を持ち、通常のコンテンツブロックや入れ子のマインドマップを格納できますが、リストブロック、リスト項目ブロック、別のマインドマップ項目ブロックを直接格納することはできません。"
 				}
 			]
 		},
@@ -3388,7 +3572,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20240530101000-gtx9sbs",
-				"updated": "20250330192734"
+				"updated": "20261024161816"
 			},
 			"Children": [
 				{
@@ -3451,13 +3635,123 @@
 			]
 		},
 		{
+			"ID": "20261023112115-4rumyue",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261023112115-4rumyue",
+				"updated": "20261023133001"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "ドキュメントタイトルでは、設定の切り替えなしに半角スラッシュ / を使用できます。例えば A/B は 1 つのドキュメントのタイトルにでき、A の中にある子ドキュメント B とは別です。既存のタイトルとドキュメントリンクは変わらず、／ と %2F も元の文字のまま扱われます。"
+				}
+			]
+		},
+		{
+			"ID": "20261023112115-31enzcv",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261023112115-31enzcv",
+				"updated": "20261023112115"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "表示パスは閲覧用です。特定のドキュメントに移動するには、ドキュメントリンクまたはブロック参照を使用してください。タイトルのパスを分割してドキュメントを探すプラグインは、構造化されたアドレス指定に対応する必要があります。"
+				}
+			]
+		},
+		{
+			"ID": "20261023112115-sb4a5iu",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261023112115-sb4a5iu",
+				"updated": "20261024161816"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "新しいバージョンでワークスペースを開く前に、すべての端末で古いバージョンの SiYuan を終了し、同じワークスペースにアクセスする端末やそのデータを同期する端末をすべて、新しいタイトル形式に対応したバージョンに更新してください。プラグインの互換性も確認し、全端末の更新が完了するまでワークスペースを開いたり同期を再開したりしないでください。"
+				}
+			]
+		},
+		{
+			"ID": "20261024161816-m6s4xpz",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024161816-m6s4xpz",
+				"updated": "20261024161816"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "一時的にオフラインになっている端末も、これらのデータへのアクセスや同期の前に更新が必要です。移行は自動で行われ、中断後も復旧を継続します。更新後は、古いバージョンで同じデータを開いたり、編集・復元・同期したりしないでください。古いバージョンは新しいタイトル形式（Spec 6）のドキュメントを開けなくても、旧形式のままのドキュメントを読み書きできる場合があります。"
+				}
+			]
+		},
+		{
+			"ID": "20261024161816-3e18e9a",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024161816-3e18e9a",
+				"updated": "20261024161816"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "また、すでに開いていた画面に残る古い編集内容を書き戻し、新しいタイトルや内容を上書きして、その結果をほかの端末へ同期するおそれがあります。一部のドキュメントが開けないことは、データが保護されているという意味ではありません。"
+				}
+			]
+		},
+		{
+			"ID": "20261024163013-ah0zz8v",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20261024163013-ah0zz8v",
+				"updated": "20261024163013"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "カスタムブロック"
+				}
+			],
+			"HeadingLevel": 3
+		},
+		{
+			"ID": "20261024163013-zhe5fk6",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024163013-zhe5fk6",
+				"updated": "20261024163013"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "カスタムブロックの表示や操作は、対応する"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20240530101000-8m2dowc",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "プラグイン"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "が提供します。利用するにはインストールして有効にしてください。プラグインが利用できない場合や、その環境で描画できない場合は、保存済みの元の内容が表示されます。プラグインを無効にしても、その内容は自動では削除されません。"
+				}
+			]
+		},
+		{
 			"ID": "20240530101000-yy3nfa8",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"ID": "20240530101000-f8xitg4",
 				"id": "20240530101000-yy3nfa8",
-				"updated": "20260906003122"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -3497,7 +3791,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20240530101000-jcermop",
-				"updated": "20260906003122"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -3768,6 +4062,62 @@
 								{
 									"Type": "NodeText",
 									"Data": "タブ項目ブロック：通常のコンテンツブロックや入れ子のタブブロックを格納できます"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20261016111305-185rt07",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20261016111305-185rt07",
+						"updated": "20261016111305"
+					},
+					"Children": [
+						{
+							"ID": "20261016111305-542n4gi",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20261016111305-542n4gi",
+								"updated": "20261016111305"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "マインドマップブロック：マインドマップ項目ブロックのみを格納できます"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20261016111305-nzg0rz2",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20261016111305-nzg0rz2",
+						"updated": "20261016111305"
+					},
+					"Children": [
+						{
+							"ID": "20261016111305-ml76y5v",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20261016111305-ml76y5v",
+								"updated": "20261016111305"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "マインドマップ項目ブロック：通常のコンテンツブロックや入れ子のマインドマップを格納でき、リスト、リスト項目、マインドマップ項目ブロックを直接格納することはできません"
 								}
 							]
 						}

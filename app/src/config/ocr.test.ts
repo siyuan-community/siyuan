@@ -3,6 +3,7 @@ import {readFileSync} from "node:fs";
 import {test} from "node:test";
 import {runInNewContext} from "node:vm";
 import {ModuleKind, ScriptTarget, transpileModule} from "typescript";
+import {loadModule} from "../testSupport/loadModule";
 import type {OCRThresholds, SettingOCR} from "../types/api";
 import {getReasoningEffortOptions} from "../ai/reasoningEffort";
 import type {SettingBuilder} from "./setting/builder";
@@ -10,6 +11,7 @@ import type {applySettingTabSearchVisibility, clearSettingTabSearch} from "./set
 
 const generalRowNames = ["ocrAuto", "ocrProvider", "ocrModel", "ocrImport", "ocrAIModel", "ocrReasoningEffort"];
 const advancedRowNames = ["ocrThreshold_detection", "ocrThreshold_box", "ocrThreshold_recognition"];
+const tooltipRowNames = ["ocr_showText", "ocr_showEmpty", "ocr_showError"];
 
 test("OCR settings register separate searchable rows in shared desktop and mobile groups", () => {
     const compiled = transpileModule(readFileSync("src/config/ocr.ts", "utf8"), {
@@ -59,6 +61,9 @@ test("OCR settings register separate searchable rows in shared desktop and mobil
     assert.equal(groupTitles.get("advanced"), "ocrThresholdSettings");
     assert.deepEqual(thresholds.map(row => row.key), ["ocrThreshold_detection", "ocrThreshold_box", "ocrThreshold_recognition"]);
     thresholds.forEach(row => assert.match(row.html(), /type="number"/));
+    assert.equal(groupTitles.get("tooltip"), "ocrTooltipSettings");
+    assert.deepEqual(rows.filter(row => row.group === "tooltip").map(row => row.key), tooltipRowNames);
+    rows.filter(row => row.group === "tooltip").forEach(row => assert.ok(row.keywords.length === 2));
     assert.doesNotMatch(readFileSync("src/config/ocr.ts", "utf8"), /openOCRThresholds/);
     const tabs = readFileSync("src/config/setting/tabs.ts", "utf8");
     assert.match(tabs, /ocr: setting\.tab\([\s\S]*?afterMount: mountOCRTab,[\s\S]*?registerOCRTab/);
@@ -70,11 +75,17 @@ test("OCR settings register separate searchable rows in shared desktop and mobil
     assert.match(readFileSync("src/mobile/menu/settingPanel.ts", "utf8"), /tabId === "ocr"[\s\S]*?unmountOCRTab\(root\)/);
 });
 
-const createOCRPanel = async (initial?: {config?: SettingOCR}) => {
+const defaultOCRConfig = (value: Partial<SettingOCR> = {}): SettingOCR => ({
+    provider: "paddleocr", model: "tiny", auto: false, aiModelId: "", reasoningEffort: "",
+    showText: true, showEmpty: false, showError: false,
+    thresholds: {detection: null, box: null, recognition: null}, ...value,
+});
+
+const createOCRPanel = async (initial?: {config?: Partial<SettingOCR>}) => {
     const compiled = transpileModule(readFileSync("src/config/ocr.ts", "utf8"), {
         compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2021},
     }).outputText;
-    const config: {ocr: SettingOCR} = {ocr: initial?.config ?? {provider: "paddleocr", model: "tiny", auto: false}};
+    const config: {ocr: SettingOCR} = {ocr: defaultOCRConfig(initial?.config)};
     let serverConfig = {...config.ocr};
     let models = [{id: "tiny", name: "Tiny", builtIn: true}];
     let aiModels: Array<{id: string; name: string; provider: string}> = [];
@@ -99,7 +110,7 @@ const createOCRPanel = async (initial?: {config?: SettingOCR}) => {
             contains(name: string) { return classes.has(name); },
         };
     };
-    const controls = Object.fromEntries([...generalIds, ...advancedIds].map(id => [id, {
+    const controls = Object.fromEntries([...generalIds, ...advancedIds, ...tooltipRowNames].map(id => [id, {
         id, value: id === "ocrProvider" ? "paddleocr" : id === "ocrAIModel" || id === "ocrReasoningEffort" ? "" : "tiny", checked: false, disabled: false, innerHTML: "",
         tagName: id === "ocrImport" ? "BUTTON" : "INPUT",
         validationMessage: "", validity: {badInput: false},
@@ -117,6 +128,7 @@ const createOCRPanel = async (initial?: {config?: SettingOCR}) => {
     });
     const groups: Record<string, ReturnType<typeof groupElement>> = {
         general: groupElement("general", generalIds), advanced: groupElement("advanced", advancedIds),
+        tooltip: groupElement("tooltip", tooltipRowNames),
     };
     const listeners = new Map<string, (event: unknown) => Promise<void>>();
     let renders = 0;
@@ -186,17 +198,13 @@ const createOCRPanel = async (initial?: {config?: SettingOCR}) => {
     })});
     const close = exports.mountOCRSettings(root);
     await new Promise(setImmediate);
-    const searchRuntime = {} as {
+    const searchRuntime = loadModule<{
         applySettingTabSearchVisibility: typeof applySettingTabSearchVisibility;
         clearSettingTabSearch: typeof clearSettingTabSearch;
-    };
-    runInNewContext(transpileModule(readFileSync("src/config/setting/mount.ts", "utf8"), {
-        compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2021},
-    }).outputText, {exports: searchRuntime, require: () => ({})});
-    const builderRuntime = {} as {SettingBuilder: typeof SettingBuilder};
-    runInNewContext(transpileModule(readFileSync("src/config/setting/builder.ts", "utf8"), {
-        compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2021},
-    }).outputText, {exports: builderRuntime, require: (name: string) => name === "./mount" ? searchRuntime : {}});
+    }>("src/config/setting/mount.ts", {require: () => ({})}, ScriptTarget.ES2021);
+    const builderRuntime = loadModule<{SettingBuilder: typeof SettingBuilder}>("src/config/setting/builder.ts", {
+        require: (name: string) => name === "./mount" ? searchRuntime : {},
+    }, ScriptTarget.ES2021);
     const tab = new builderRuntime.SettingBuilder().tab({
         id: "ocr", icon: "iconOCR", title: () => "OCR", onShow: exports.updateOCRTabBorders,
     }, () => {});
@@ -234,14 +242,60 @@ const createOCRPanel = async (initial?: {config?: SettingOCR}) => {
             return listeners.get("change")({target: controls.ocrReasoningEffort, stopPropagation() {}});
         },
         deferRead: () => { deferredRead = true; },
-        updateServer: (next: typeof config.ocr) => { serverConfig = next; },
+        updateServer: (next: Partial<typeof config.ocr>) => { serverConfig = defaultOCRConfig(next); },
         addModel: (id: string) => { models = [...models, {id, name: "Imported", builtIn: false}]; },
         changeAuto: (checked: boolean) => {
             controls.ocrAuto.checked = checked;
             return listeners.get("change")({target: controls.ocrAuto, stopPropagation() {}});
         },
+        changeTooltip: (key: "showText" | "showEmpty" | "showError", checked: boolean) => {
+            const control = controls[`ocr_${key}`];
+            control.checked = checked;
+            return listeners.get("change")({target: control, stopPropagation() {}});
+        },
     };
 };
+
+test("OCR tooltip switches save independently, recover after failed saves and receive notifications", async () => {
+    const panel = await createOCRPanel();
+    assert.equal(panel.controls.ocr_showText.checked, true);
+    assert.equal(panel.controls.ocr_showEmpty.checked, false);
+    assert.equal(panel.controls.ocr_showError.checked, false);
+    const hide = panel.changeTooltip("showText", false);
+    await new Promise(setImmediate);
+    const empty = panel.changeTooltip("showEmpty", true);
+    assert.equal(panel.requests[0].config.auto, false);
+    assert.equal(panel.requests[0].config.showText, false);
+    assert.equal(panel.controls.ocr_showEmpty.disabled, false);
+    panel.requests[0].resolve({code: 0, data: panel.requests[0].config});
+    await hide;
+    await new Promise(setImmediate);
+    assert.equal(panel.requests[1].config.showText, false);
+    assert.equal(panel.requests[1].config.showEmpty, true);
+    panel.requests[1].resolve({code: 0, data: panel.requests[1].config});
+    await empty;
+    const error = panel.changeTooltip("showError", true);
+    await new Promise(setImmediate);
+    panel.requests[2].resolve({code: -1});
+    await error;
+    assert.equal(panel.controls.ocr_showError.checked, false);
+    assert.equal(panel.controls.ocr_showEmpty.checked, true);
+    panel.updateServer({provider: "tesseract", model: "tiny", auto: true,
+        showText: true, showEmpty: false, showError: true});
+    panel.notify();
+    await new Promise(setImmediate);
+    assert.equal(panel.controls.ocr_showText.checked, true);
+    assert.equal(panel.controls.ocr_showEmpty.checked, false);
+    assert.equal(panel.controls.ocr_showError.checked, true);
+    const automatic = panel.changeAuto(false);
+    await new Promise(setImmediate);
+    assert.equal(panel.requests[3].config.showText, true);
+    assert.equal(panel.requests[3].config.showError, true);
+    panel.requests[3].resolve({code: 0, data: panel.requests[3].config});
+    await automatic;
+    assert.equal(panel.renders(), 0);
+    panel.close();
+});
 
 test("selecting AI uses a separate model and requires opting into automatic recognition", async () => {
     const panel = await createOCRPanel();
@@ -360,19 +414,19 @@ test("hidden trailing rows keep the last visible OCR row borderless for every pr
     const marked = () => Object.values(panel.controls)
         .filter(control => control.classList.contains("b3-label--noborder")).map(control => control.id);
     // PaddleOCR：末尾两项隐藏，导入行成为最后可见项
-    assert.deepEqual(marked(), ["ocrImport", "ocrThreshold_recognition"]);
+    assert.deepEqual(marked(), ["ocrImport", "ocrThreshold_recognition", "ocr_showError"]);
     const tesseract = panel.changeProvider("tesseract");
     await new Promise(setImmediate);
     panel.requests[0].resolve({code: 0, data: panel.requests[0].config});
     await tesseract;
     // Tesseract：模型与导入行也隐藏，提供商行成为最后可见项
-    assert.deepEqual(marked(), ["ocrProvider", "ocrThreshold_recognition"]);
+    assert.deepEqual(marked(), ["ocrProvider", "ocrThreshold_recognition", "ocr_showError"]);
     const ai = panel.changeProvider("ai");
     await new Promise(setImmediate);
     panel.requests[1].resolve({code: 0, data: panel.requests[1].config});
     await ai;
     // AI：末尾两项可见，仅隐藏模型与导入行
-    assert.deepEqual(marked(), ["ocrReasoningEffort", "ocrThreshold_recognition"]);
+    assert.deepEqual(marked(), ["ocrReasoningEffort", "ocrThreshold_recognition", "ocr_showError"]);
     panel.close();
 });
 

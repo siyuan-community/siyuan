@@ -1,4 +1,4 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -190,14 +190,14 @@ func (p *assetRelinkPlan) scan() error {
 			rel, _ := filepath.Rel(boxDir, absPath)
 			tree.Box, tree.Path = boxID, "/"+filepath.ToSlash(rel)
 			tree.Root.Box, tree.Root.Path = tree.Box, tree.Path
-			tree.HPath = "/" + tree.Root.IALAttr("title")
+			tree.HPath = "/" + treenode.ReadDocumentTitle(tree.Root).Text
 			if readErr = filesys.NormalizeTreeForRead(tree); readErr != nil {
 				return readErr
 			}
 			if tree.Root.ID != strings.TrimSuffix(entry.Name(), ".sy") {
 				return fmt.Errorf("document ID does not match path: %s", absPath)
 			}
-			titles[tree.Root.ID] = tree.Root.IALAttr("title")
+			titles[tree.Root.ID] = treenode.ReadDocumentTitle(tree.Root).Text
 			before := len(p.result.References)
 			p.tree(tree, apicontract.AssetReference{Notebook: boxID, RootID: tree.Root.ID, Path: tree.Path})
 			retain := false
@@ -468,7 +468,7 @@ func newAssetRelinkHistoryDir() (string, error) {
 	if err := os.MkdirAll(util.HistoryDir, 0755); err != nil {
 		return "", err
 	}
-	for offset := 0; offset < 1000; offset++ {
+	for offset := range 1000 {
 		dir := filepath.Join(util.HistoryDir, time.Now().Add(time.Duration(offset)*time.Second).Format("2006-01-02-150405")+"-"+HistoryOpReplace)
 		if err := os.Mkdir(dir, 0755); err == nil {
 			return dir, nil

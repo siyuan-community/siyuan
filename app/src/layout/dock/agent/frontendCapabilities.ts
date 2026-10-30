@@ -1,22 +1,7 @@
-// SiYuan - From thought to insight, with agents
-// Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 import type {App} from "../../../index";
 import type {SearchOpenOptions} from "../../../search/openOptions";
 import {isDisabledFeature} from "../../../protyle/util/compatibility";
+import {isBrowser} from "../../../util/functions";
 
 // 浏览器能力只在当前应用实例中执行，内核持有声明和本轮不可变的调用映射。
 
@@ -97,6 +82,42 @@ export const unregisterCapability = (id: string, generation?: number) => {
 let mobileFrontend = false;
 /// #if MOBILE
 mobileFrontend = true;
+/// #endif
+
+/// #if !BROWSER && !MOBILE
+if (!mobileFrontend && !isBrowser()) {
+    registerCapability({
+        id: "native/frontend/web_page_fetch",
+        title: "Fetch rendered web page",
+        description: "Fetch a public HTTP/HTTPS web page using the local Electron browser, execute its JavaScript, and extract rendered content as Markdown (default) or text. Page scripts make real network requests. Uses an isolated session without your SiYuan browser cookies or login state. Use this for client-rendered pages; web_fetch uses raw HTTP without JavaScript. Available only while this desktop instance is connected. Private/internal addresses and downloads are blocked. Workers, embedded frames, WebSocket, WebRTC, and WebTransport are disabled.",
+        inputSchema: {type: "object", properties: {
+            url: {type: "string"}, format: {type: "string", enum: ["markdown", "text"]},
+        }, required: ["url"], additionalProperties: false},
+        effects: {dataEgress: true},
+        source: "native",
+        handler: async args => {
+            if (typeof args.url !== "string" || !args.url.trim()) {
+                return {error: "missing required argument: url"};
+            }
+            if (args.format !== undefined && args.format !== "markdown" && args.format !== "text") {
+                return {error: "format must be markdown or text"};
+            }
+            try {
+                const page: {html: string, text: string, plain: boolean} = await require("electron").ipcRenderer.invoke(
+                    "siyuan-web-page-fetch", {url: args.url, timeout: window.siyuan.config.ai.web?.timeout});
+                const content = page.plain || args.format === "text" ? page.text : Lute.New().HTML2Md(page.html);
+                if (!content.trim()) {
+                    return {error: "No meaningful content found in the rendered page"};
+                }
+                const characters = Array.from(content);
+                return {result: characters.length > 50000 ? characters.slice(0, 50000).join("") +
+                    `\n\n...content truncated, total length ${characters.length} characters...` : content};
+            } catch (error) {
+                return {error: `Rendered page fetch failed: ${(error as Error).message}`};
+            }
+        },
+    });
+}
 /// #endif
 
 registerCapability({

@@ -1,26 +1,16 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package plugin
 
 import (
 	"math"
+	"slices"
 
 	"github.com/dop251/goja"
 	"github.com/siyuan-community/siyuan/kernel/plugin/crypto"
+	"github.com/siyuan-community/siyuan/kernel/plugin/gojaext"
 )
 
 // normalizeAlgorithm 将 JS 的算法参数（字符串或对象）转换为算法层的 Algorithm。
@@ -30,7 +20,7 @@ func (h *cryptoHost) normalizeAlgorithm(rt *goja.Runtime, value goja.Value) (alg
 		return
 	}
 
-	if !isJsValueNotNull(value) {
+	if !gojaext.IsValueNotNull(value) {
 		err = crypto.NewError(crypto.ErrNameType, "algorithm must be a string or an object")
 		return
 	}
@@ -49,14 +39,14 @@ func (h *cryptoHost) normalizeAlgorithm(rt *goja.Runtime, value goja.Value) (alg
 		return
 	}
 
-	if hashValue := object.Get("hash"); isJsValueNotNull(hashValue) {
+	if hashValue := object.Get("hash"); gojaext.IsValueNotNull(hashValue) {
 		if alg.Hash, err = h.normalizeHash(rt, hashValue); err != nil {
 			return
 		}
 	}
 
 	// ECDH 与 X25519 的 public 成员是对方的 CryptoKey。
-	if publicValue := object.Get("public"); isJsValueNotNull(publicValue) {
+	if publicValue := object.Get("public"); gojaext.IsValueNotNull(publicValue) {
 		if alg.Public, err = cryptoKeyOf(rt, publicValue, "algorithm.public"); err != nil {
 			return
 		}
@@ -74,14 +64,14 @@ func (h *cryptoHost) normalizeAlgorithm(rt *goja.Runtime, value goja.Value) (alg
 		{"label", &alg.Label},
 		{"publicExponent", &alg.PublicExponent},
 	} {
-		if memberValue := object.Get(member.name); isJsValueNotNull(memberValue) {
+		if memberValue := object.Get(member.name); gojaext.IsValueNotNull(memberValue) {
 			if *member.target, err = h.cryptoBytesOf(rt, memberValue, "algorithm."+member.name); err != nil {
 				return
 			}
 		}
 	}
 
-	if curveValue := object.Get("namedCurve"); isJsValueNotNull(curveValue) {
+	if curveValue := object.Get("namedCurve"); gojaext.IsValueNotNull(curveValue) {
 		if !goja.IsString(curveValue) {
 			err = crypto.NewError(crypto.ErrNameType, "algorithm.namedCurve must be a string")
 			return
@@ -99,7 +89,7 @@ func (h *cryptoHost) normalizeAlgorithm(rt *goja.Runtime, value goja.Value) (alg
 		{"saltLength", &alg.SaltLength},
 		{"modulusLength", &alg.ModulusLength},
 	} {
-		if memberValue := object.Get(member.name); isJsValueNotNull(memberValue) {
+		if memberValue := object.Get(member.name); gojaext.IsValueNotNull(memberValue) {
 			var number int
 			if number, err = integerOf(memberValue, "algorithm."+member.name); err != nil {
 				return
@@ -141,7 +131,7 @@ func integerOf(value goja.Value, name string) (int, error) {
 
 // keyUsagesOf 解析用法数组，取值必须是规范定义的字符串。
 func keyUsagesOf(rt *goja.Runtime, value goja.Value) ([]crypto.KeyUsage, error) {
-	if !isJsArray(rt, value) {
+	if !gojaext.IsArray(rt, value) {
 		return nil, crypto.NewError(crypto.ErrNameType, "keyUsages must be an array")
 	}
 
@@ -176,19 +166,12 @@ func keyFormatOf(value goja.Value) (crypto.KeyFormat, error) {
 	}
 
 	format := crypto.KeyFormat(value.String())
-	for _, cur := range crypto.KeyFormats {
-		if cur == format {
-			return format, nil
-		}
+	if slices.Contains(crypto.KeyFormats, format) {
+		return format, nil
 	}
 	return "", crypto.NewError(crypto.ErrNameType, "%q is not a valid key format", value.String())
 }
 
 func containsKeyUsage(usages []crypto.KeyUsage, usage crypto.KeyUsage) bool {
-	for _, cur := range usages {
-		if cur == usage {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(usages, usage)
 }

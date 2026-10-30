@@ -6,12 +6,13 @@ import {isTableLikeView} from "./viewType";
 import {transaction} from "../../wysiwyg/transaction";
 import {fetchPost} from "../../../util/fetch";
 import {setPosition} from "../../../util/setPosition";
+import {setAutomationMenuPosition} from "./automationPosition";
 import {setColOption} from "./select";
 import {prepareFilterColumns} from "./filter";
 import {Constants} from "../../../constants";
 import {hideElements} from "../../ui/hideElements";
 import {isMobile} from "../../../util/functions";
-import {bindMobileAVPanel} from "./mobilePanel";
+import {bindMobileAVPanel, getMobileAVPanelBackTarget} from "./mobilePanel";
 import {bindSwitcherEvent, getFieldsByData, getSwitcherHTML} from "./view";
 import {focusBlock} from "../../util/selection";
 import {getFieldIdByCellElement} from "./row";
@@ -28,7 +29,17 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
         options.destroyCallback?.();
         return;
     }
-    const avID = options.blockElement.getAttribute("data-av-id");
+    let anchorRect = options.anchorRect;
+    const getAnchorRect = () => {
+        const rect = options.anchorElement?.getBoundingClientRect();
+        if (rect?.width > 0 && rect.height > 0) {
+            anchorRect = rect;
+        }
+        return anchorRect;
+    };
+    // 在菜单关闭和字段异步加载前保留锚点，按钮被隐藏或替换时继续使用有效坐标。
+    getAnchorRect();
+    const avID = options.data?.id || options.blockElement.getAttribute("data-av-id");
     const avPageSize = getPageSize(options.blockElement);
     // config/properties/sorts/filters/contextFilter/switcher 菜单只需要字段/视图元数据，不需要行数据，
     // 跳过行渲染以提升大体量视图下的响应速度。
@@ -55,6 +66,10 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
         }
         const blockID = options.blockElement.getAttribute("data-node-id");
         const saveFilters = (newFilters: IAVFilter[], oldFilters: IAVFilter[]) => {
+            if (options.filterOperation?.save) {
+                options.filterOperation.save(newFilters);
+                return;
+            }
             const operation = (filters: IAVFilter[]): IOperation => ({
                 action: options.filterOperation?.action || "setAttrViewFilters",
                 avID,
@@ -143,12 +158,13 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
                 inputElement.dispatchEvent(new Event("input"));
             }
         };
-        let tabRect = options.blockElement.querySelector(`.av__views, .av__row[data-col-id="${options.colId}"] > .block__logo`)?.getBoundingClientRect();
+        let tabRect = getAnchorRect() ||
+            options.blockElement.querySelector(`.av__views, .av__row[data-col-id="${options.colId}"] > .block__logo`)?.getBoundingClientRect();
         const resizeMenu = ignoreRows && !isMobile() ? () => {
             if (!menuElement.isConnected) {
                 return;
             }
-            tabRect = options.blockElement.querySelector(".av__views")?.getBoundingClientRect();
+            tabRect = getAnchorRect() || options.blockElement.querySelector(".av__views")?.getBoundingClientRect();
             if (!tabRect) {
                 return;
             }
@@ -156,7 +172,11 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
             delete menuElement.dataset.positionTop;
             delete menuElement.dataset.positionBottom;
             delete menuElement.dataset.positionX;
-            setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
+            if (menuElement.classList.contains("av__automation-panel")) {
+                setAutomationMenuPosition(menuElement, tabRect);
+            } else {
+                setPosition(menuElement, tabRect.right - menuElement.clientWidth, tabRect.bottom, tabRect.height, 0, true);
+            }
         } : undefined;
         if (resizeMenu) {
             window.addEventListener("resize", resizeMenu);
@@ -222,6 +242,16 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
                 type = (event.detail as { type: string }).type;
                 target = (event.detail as { target: HTMLElement }).target;
             }
+            if (isMobile() && (type === "back" || type === "close")) {
+                // 系统返回与标题栏共用导航及提交入口，先结束当前输入框的编辑。
+                if (document.activeElement && menuElement.contains(document.activeElement)) {
+                    (document.activeElement as HTMLElement).blur();
+                }
+                if (type === "back") {
+                    target = getMobileAVPanelBackTarget(menuElement);
+                    type = target?.dataset.type || "close";
+                }
+            }
             const selectedElement = target?.closest(".b3-chip--middle") as HTMLElement;
             if (options.type === "select" && selectedElement?.parentElement.classList.contains("b3-chips") &&
                 !target.closest('[data-type="removeCellOption"]')) {
@@ -241,7 +271,7 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
                     break;
                 }
                 if (type === "close") {
-                    if (!options.protyle.toolbar.subElement.classList.contains("fn__none")) {
+                    if (options.protyle?.toolbar && !options.protyle.toolbar.subElement.classList.contains("fn__none")) {
                         // 优先关闭资源文件搜索
                         hideElements(["util"], options.protyle);
                     } else if (!options.keepMenuOpen &&
@@ -251,7 +281,9 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
                         closeCB?.();
                         avPanelElement.remove();
                         setTimeout(() => {
-                            focusBlock(options.blockElement);
+                            if (!options.anchorElement) {
+                                focusBlock(options.blockElement);
+                            }
                         }, Constants.TIMEOUT_TRANSITION);  // 单选使用 enter 修改选项后会滚动
                     }
                     if (!options.keepMenuOpen || !isProgrammaticClose) {

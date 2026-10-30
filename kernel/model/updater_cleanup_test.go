@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -28,8 +32,10 @@ func TestInstallPackageVersion(t *testing.T) {
 
 func TestClearOldInstallPackages(t *testing.T) {
 	originalTempDir := util.TempDir
-	t.Cleanup(func() { util.TempDir = originalTempDir })
+	originalHomeDir := util.HomeDir
+	t.Cleanup(func() { util.TempDir, util.HomeDir = originalTempDir, originalHomeDir })
 	util.TempDir = t.TempDir()
+	util.HomeDir = t.TempDir()
 	currentVersion := "v3.8.5-alpha.2"
 	installDir := filepath.Join(util.TempDir, "install")
 	if err := os.MkdirAll(installDir, 0755); err != nil {

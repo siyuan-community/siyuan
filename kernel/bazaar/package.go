@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package bazaar
 
@@ -62,30 +50,36 @@ func clearBazaarPackageRating(pkg *Package) {
 	pkg.Rating = nil
 }
 
+// PackageChoice 描述弃用包的一个替代包及其类型，由在线集市索引生成，供客户端跨类型跳转。
+type PackageChoice struct {
+	PackageType string `json:"packageType"`
+	Name        string `json:"name"`
+}
+
 // Package 描述了集市包元数据和传递给前端的其他信息。
 //   - 集市包新增元数据字段需要同步修改 bazaar 的工作流，参考
 //     https://github.com/siyuan-note/bazaar/commit/aa36d0003139c52d8e767c6e18a635be006323e2
 type Package struct {
-	Author            string        `json:"author"`
-	URL               string        `json:"url"`
-	Version           string        `json:"version"`
-	MinAppVersion     string        `json:"minAppVersion"`
-	DisabledInPublish bool          `json:"disabledInPublish"`
-	Kernels           []string      `json:"kernels"`
-	Backends          []string      `json:"backends"`
-	Frontends         []string      `json:"frontends"`
-	SettingsWindow    bool          `json:"settingsWindow,omitempty"` // 声明支持在独立设置窗口运行
-	BootAppearances   []string      `json:"bootAppearances,omitempty"`
-	DisplayName       LocaleStrings `json:"displayName"`
-	Description       LocaleStrings `json:"description"`
-	Readme            LocaleStrings `json:"readme"`
-	Icon              *string       `json:"icon,omitempty"`
-	Preview           *string       `json:"preview,omitempty"`
-	Funding           *Funding      `json:"funding"`
-	Keywords          []string      `json:"keywords"`
-	Deprecated        bool          `json:"deprecated,omitempty"`
-	DeprecatedReason  LocaleStrings `json:"deprecatedReason,omitempty"`
-	Alternatives      []string      `json:"alternatives,omitempty"`
+	Author            string          `json:"author"`
+	URL               string          `json:"url"`
+	Version           string          `json:"version"`
+	MinAppVersion     string          `json:"minAppVersion"`
+	DisabledInPublish bool            `json:"disabledInPublish"`
+	Kernels           []string        `json:"kernels"`
+	Backends          []string        `json:"backends"`
+	Frontends         []string        `json:"frontends"`
+	SettingsWindow    bool            `json:"settingsWindow,omitempty"` // 声明支持在独立设置窗口运行
+	BootAppearances   []string        `json:"bootAppearances,omitempty"`
+	DisplayName       LocaleStrings   `json:"displayName"`
+	Description       LocaleStrings   `json:"description"`
+	Readme            LocaleStrings   `json:"readme"`
+	Icon              *string         `json:"icon,omitempty"`
+	Preview           *string         `json:"preview,omitempty"`
+	Funding           *Funding        `json:"funding"`
+	Keywords          []string        `json:"keywords"`
+	Deprecated        bool            `json:"deprecated,omitempty"`
+	DeprecatedReason  LocaleStrings   `json:"deprecatedReason,omitempty"`
+	Choices           []PackageChoice `json:"choices,omitempty"` // 替代包及其类型，可跨类型
 
 	PreferredFunding          string `json:"preferredFunding"`
 	PreferredName             string `json:"preferredName"`
@@ -232,7 +226,7 @@ func clearPackageDeprecationMetadata(pkg *Package) {
 	}
 	pkg.Deprecated = false
 	pkg.DeprecatedReason = nil
-	pkg.Alternatives = nil
+	pkg.Choices = nil
 	pkg.PreferredDeprecatedReason = ""
 }
 
@@ -277,20 +271,22 @@ func setPreferredPackageDeprecationMetadata(pkg *Package) {
 		return
 	}
 	pkg.PreferredDeprecatedReason = GetPreferredLocaleString(pkg.DeprecatedReason, "")
-	alternatives := make([]string, 0, len(pkg.Alternatives))
-	seen := make(map[string]struct{}, len(pkg.Alternatives))
-	for _, alternative := range pkg.Alternatives {
-		identity := strings.ToLower(alternative)
-		if !IsValidPackageName(alternative) || strings.EqualFold(alternative, pkg.Name) {
+
+	// 替代包可以跨类型，故按「包类型 + 包名」判重与校验
+	choices := make([]PackageChoice, 0, len(pkg.Choices))
+	seen := make(map[string]struct{}, len(pkg.Choices))
+	for _, choice := range pkg.Choices {
+		if !IsValidPackageType(choice.PackageType) || !IsValidPackageName(choice.Name) {
 			continue
 		}
+		identity := choice.PackageType + "/" + strings.ToLower(choice.Name)
 		if _, duplicate := seen[identity]; duplicate {
 			continue
 		}
 		seen[identity] = struct{}{}
-		alternatives = append(alternatives, alternative)
+		choices = append(choices, choice)
 	}
-	pkg.Alternatives = alternatives
+	pkg.Choices = choices
 }
 
 // GetPreferredLocaleString 从 LocaleStrings 中按当前语种取值，无则回退 default、en、en_US（历史命名兼容），再回退 fallback。

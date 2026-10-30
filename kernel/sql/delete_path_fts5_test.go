@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package sql
@@ -177,21 +181,22 @@ func TestDocumentPathDeletionQueryPlan(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					var plan string
+					var plan strings.Builder
 					for rows.Next() {
 						var id, parent, unused int
 						var detail string
 						if err = rows.Scan(&id, &parent, &unused, &detail); err != nil {
 							t.Fatal(err)
 						}
-						plan += detail + "\n"
+						plan.WriteString(detail)
+						plan.WriteString("\n")
 					}
 					rows.Close()
 					if err = rows.Err(); err != nil {
 						t.Fatal(err)
 					}
-					if !strings.Contains(plan, "idx_"+table+"_box_docpath") || !strings.Contains(plan, column+">? AND "+column+"<?") {
-						t.Fatalf("encrypted=%t case=%s: deletion lacks path range search: %s", encrypted, sensitive, plan)
+					if !strings.Contains(plan.String(), "idx_"+table+"_box_docpath") || !strings.Contains(plan.String(), column+">? AND "+column+"<?") {
+						t.Fatalf("encrypted=%t case=%s: deletion lacks path range search: %s", encrypted, sensitive, plan.String())
 					}
 				}
 			}

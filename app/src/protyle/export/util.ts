@@ -51,14 +51,18 @@ export const exportImage = (id: string, copyOnly = false) => {
         <div class="export-img__watermark"></div>
     </div>
 </div>
-<div class="b3-dialog__action${copyOnly ? " fn__none" : ""}" style="justify-content: flex-start">
+<div class="b3-dialog__action export-img__options${copyOnly ? " fn__none" : ""}">
     <label class="fn__flex fn__flex-center">
         ${window.siyuan.languages.export17}
         <span class="fn__space"></span>
         <input id="addTitle" class="b3-switch fn__flex-center" type="checkbox" ${window.siyuan.config.export.addTitle ? "checked" : ""}>
     </label>
-    <span class="fn__space"></span>
     <input aria-label="${window.siyuan.languages.title}" id="customTitle" class="b3-text-field fn__flex-1 fn__flex-center" placeholder="${window.siyuan.languages.title}" ${window.siyuan.config.export.addTitle ? "" : "disabled"}>
+    <label class="fn__flex fn__flex-center">
+        ${window.siyuan.languages.exportTitleImage}
+        <span class="fn__space"></span>
+        <input id="titleImage" class="b3-switch fn__flex-center" type="checkbox" ${window.siyuan.storage[Constants.LOCAL_EXPORTIMG].titleImage !== false ? "checked" : ""}>
+    </label>
 </div>
 <div class="b3-dialog__action">
     <label class="fn__flex${copyOnly ? " fn__none" : ""}">
@@ -76,7 +80,7 @@ export const exportImage = (id: string, copyOnly = false) => {
     <button data-type="copy" disabled class="b3-button b3-button--text${copyOnly ? " fn__none" : ""}">${window.siyuan.languages.copyAsPNG}</button><div class="fn__space${copyOnly ? " fn__none" : ""}"></div>
     <button data-type="export" disabled class="b3-button b3-button--text${copyOnly ? " fn__none" : ""}">${window.siyuan.languages.exportFile}</button>
 </div>
- <div class="fn__loading"><img height="128px" width="128px" src="stage/loading-pure.svg"></div>`,
+ <div class="fn__loading"><span class="b3-loading b3-loading--large" aria-hidden="true"></span></div>`,
         width: isMobile() ? "92vw" : "990px",
         height: "70vh",
         resizeCallback() {
@@ -96,6 +100,7 @@ export const exportImage = (id: string, copyOnly = false) => {
     const foldElement = exportDialog.element.querySelector("#keepFold") as HTMLInputElement;
     const watermarkElement = exportDialog.element.querySelector("#watermark") as HTMLInputElement;
     const addTitleElement = exportDialog.element.querySelector("#addTitle") as HTMLInputElement;
+    const titleImageElement = exportDialog.element.querySelector("#titleImage") as HTMLInputElement;
     const customTitleElement = exportDialog.element.querySelector("#customTitle") as HTMLInputElement;
     let imageName = "image.png";
     let outputting = false;
@@ -253,12 +258,17 @@ export const exportImage = (id: string, copyOnly = false) => {
         const revision = ++previewRevision;
         setActionDisabled(true);
         if (!exportDialog.element.querySelector(".fn__loading")) {
-            exportButton.parentElement.insertAdjacentHTML("afterend", '<div class="fn__loading"><img height="128px" width="128px" src="stage/loading-pure.svg"></div>');
+            exportButton.parentElement.insertAdjacentHTML("afterend", '<div class="fn__loading"><span class="b3-loading b3-loading--large" aria-hidden="true"></span></div>');
         }
         requestPreview(revision);
     };
     addTitleElement.addEventListener("change", () => {
         customTitleElement.disabled = !addTitleElement.checked;
+        refreshExportPreview();
+    });
+    titleImageElement.addEventListener("change", () => {
+        window.siyuan.storage[Constants.LOCAL_EXPORTIMG].titleImage = titleImageElement.checked;
+        setStorageVal(Constants.LOCAL_EXPORTIMG, window.siyuan.storage[Constants.LOCAL_EXPORTIMG]);
         refreshExportPreview();
     });
     const scheduleTitleRefresh = () => {
@@ -364,6 +374,7 @@ export const exportImage = (id: string, copyOnly = false) => {
             keepJSEmbed: true,
             keepFold: foldElement.checked,
             image: true,
+            excludeTitleImage: !titleImageElement.checked,
             addTitle: addTitleElement.checked,
             customTitle: customTitleElement.value,
         }, (response) => {

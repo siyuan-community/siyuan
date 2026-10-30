@@ -17,6 +17,7 @@ const sources = () => {
         viewer: compile("asset/pdf/viewer.js"),
         annotations: compile("asset/anno.ts"),
         annotationRuntime: compile("asset/annoRuntime.ts"),
+        annotationSave: compile("asset/annotationSave.ts"),
         textLayer: compile("asset/pdf/text_layer_builder.js"),
         viewerTemplate: compile("asset/pdf/viewerTemplate.ts"),
         pdfTheme: compile("asset/pdfViewer.ts"),
@@ -34,7 +35,10 @@ const runCases = async source => {
     const check = require("node:assert/strict");
     const load = (code, modules = {}) => {
         const exports = {};
-        new Function("require", "exports", code)(name => modules[name] || {}, exports);
+        new Function("require", "exports", code)(name => {
+            check.ok(Object.hasOwn(modules, name), "Unexpected asset preview fixture module: " + name);
+            return modules[name];
+        }, exports);
         return exports;
     };
     const settle = () => new Promise(resolve => setTimeout(resolve, 10));
@@ -43,27 +47,34 @@ const runCases = async source => {
         const promise = new Promise(done => { resolve = done; });
         return {promise, resolve};
     };
-    const Constants = {SIYUAN_ASSETS_IMAGE: [".png"], SIYUAN_ASSETS_AUDIO: [".mp3"], SIYUAN_ASSETS_VIDEO: [".mp4"],
-        LOCAL_PDFTHEME: "pdfTheme"};
+    const Constants = {SIYUAN_ASSETS_IMAGE: [".png"], SIYUAN_ASSETS_AUDIO: [".mp3"], SIYUAN_ASSETS_VIDEO: [".mp4"]};
     let mobile = false;
-    window.siyuan = {languages: source.languages, config: {appearance: {mode: 0}, editor: {}},
-        storage: {pdfTheme: {light: "light", dark: "dark"}}};
+    window.siyuan = {languages: source.languages, config: {
+        appearance: {mode: 0, pdfTheme: {light: "light", dark: "dark"}}, editor: {}, readonly: false,
+    }, storage: {}};
+    const themePatches = [];
     const viewerTemplate = load(source.viewerTemplate, {
         "../../protyle/util/compatibility": {updateHotkeyTip: value => value},
     });
     const pdfTheme = load(source.pdfTheme, {
-        "../constants": {Constants}, "../protyle/util/compatibility": {setStorageVal: () => {}},
+        "../constants": {Constants},
+        "../protyle/util/browserCompat": {ensureBrowserCompatibility: async () => {}},
+        "../config/tabs/appearancePreferences": {patchAppearancePreference: async (key, value) => {
+            themePatches.push([key, value]);
+        }},
     });
     const highlight = load(source.highlight, {
         "../util/addScript": {addScript: () => Promise.resolve()},
         "../../constants": {Constants}, "./util": {setCodeTheme() {}},
         "./foldedContent": {isFoldedRenderContent: () => false},
+        "../util/selectionOffsets": {}, "../wysiwyg/getBlock": {}, "../../util/escape": {},
     });
     const pathName = {getAssetExtension: value => require("node:path").extname(value.split(/[?#]/)[0])};
     const previewPath = load(source.previewPath);
     const escape = load(source.escape);
     const media = load(source.media, {"../constants": {Constants}, "../util/pathName": pathName,
-        "../util/escape": escape, "./previewPath": previewPath});
+        "../util/escape": escape, "./previewPath": previewPath,
+        "../layout/getAll": {}, dayjs: {}, "./html": {}, "../util/imageURL": {}});
     const pdfCalls = [];
     let destroyed = 0;
     let loaded = 0;
@@ -167,19 +178,33 @@ const runCases = async source => {
         check.equal(pdfCalls.at(-1)[4], true);
         check.equal(new URL(pdfCalls.at(-1)[0]).searchParams.get("dataPath"), "box/assets/book.pdf");
         check.equal(container.firstElementChild.classList.contains("pdf-viewer--mobile"), isMobile);
+        check.equal(container.querySelector("#pdfMaximize").classList.contains("fn__none"), true,
+            "asset preview hides maximize in its initial markup");
         preview.clear();
     }
     check.equal(destroyed, 2);
     const themed = document.createElement("div");
-    themed.innerHTML = viewerTemplate.getPdfViewerHTML();
     for (const mode of [0, 1]) {
+        themed.innerHTML = viewerTemplate.getPdfViewerHTML();
         window.siyuan.config.appearance.mode = mode;
         pdfTheme.bindPdfTheme(themed);
         check.equal(themed.firstElementChild.classList.contains("pdf__outer--dark"), mode === 1);
+        themed.querySelector(mode === 0 ? "#pdfDark" : "#pdfLight").click();
+        check.equal(themed.firstElementChild.classList.contains("pdf__outer--dark"), mode === 0);
     }
-    themed.querySelector("#pdfLight").click();
-    check.equal(window.siyuan.storage.pdfTheme.dark, "light");
+    check.deepEqual(themePatches, [["pdfTheme.light", "dark"], ["pdfTheme.dark", "light"]]);
+    check.equal(window.siyuan.config.appearance.pdfTheme.light, "light");
+    check.equal(window.siyuan.config.appearance.pdfTheme.dark, "dark", "theme changes await confirmed configuration");
     check.equal(themed.firstElementChild.classList.contains("pdf__outer--dark"), false);
+    for (const protectedMode of ["readonly", "publish"]) {
+        window.siyuan.config.readonly = protectedMode === "readonly";
+        window.siyuan.isPublish = protectedMode === "publish";
+        themed.querySelector("#pdfDark").click();
+        check.equal(themePatches.length, 2);
+        check.equal(themed.firstElementChild.classList.contains("pdf__outer--dark"), false);
+    }
+    window.siyuan.config.readonly = false;
+    window.siyuan.isPublish = false;
 
     const read = async response => {
         window.fetch = async (_url, options) => {
@@ -211,6 +236,7 @@ const runCases = async source => {
 
     let model;
     const mobileAPI = load(source.mobilePDF, {
+        "../dialog/message": {}, "../util/fetch": {},
         "../util/escape": escape,
         "../asset/pdf/viewerTemplate": viewerTemplate,
         "../util/pathName": {getDisplayName: value => value, getAssetPathWithoutQuery: value => value.split("?")[0]},
@@ -220,6 +246,8 @@ const runCases = async source => {
     mobileAPI.openMobilePDF("assets/normal.pdf");
     const mobilePanel = document.createElement("div");
     mobilePanel.innerHTML = model.html;
+    check.equal(mobilePanel.querySelector("#pdfMaximize").classList.contains("fn__none"), true,
+        "standalone mobile hides maximize before loading the viewer");
     document.body.append(mobilePanel);
     model.bindEvent(mobilePanel);
     await settle();
@@ -242,16 +270,20 @@ const runCases = async source => {
             "../util/functions": {isMobile: () => mobile, isBrowser: () => true},
             "../util/hostCapabilities": {getHostCapabilities: () => ({localFileSystem: false})},
             "../protyle/util/hasClosest": {hasClosestByClassName: (element, name) => element.closest("." + name)},
-            "./ocr": {mountOCRSettings: () => () => {}},
+            ...Object.fromEntries(["./setting/maintenance", "../dialog/confirmDialog", "../util/fetchAppId",
+                "../layout/getAll", "path", "../editor/util", "../protyle/util/compatibility", "../dialog/message",
+                "../protyle/util/lute", "./setting/mount", "../mobile/editor", "../block/Panel"].map(name => [name, {}])),
             "../protyle": {Protyle: class {
                 constructor(_app, element) { this.protyle = {element}; }
                 destroy() {}
             }},
             "../protyle/util/onGet": {disabledProtyle: () => {}},
             "../protyle/ui/initUI": {removeLoading: () => {}},
-            "../util/fetch": {fetchPost: (url, _data, callback) => {
-                if (url.endsWith("getUnusedAssets")) callback({data: ["note.txt", "other.txt", "audio.mp3", "book.pdf"].map(name =>
-                    ({item: "assets/" + name, path: "assets/" + name}))});
+            "../util/fetch": {fetchSyncPost: async (url, data) => {
+                check.equal(url, "/api/asset/getUnusedAssets");
+                check.deepEqual(data, {all: true});
+                return {code: 0, data: ["note.txt", "other.txt", "audio.mp3", "book.pdf"].map(name =>
+                    ({name, item: "assets/" + name, path: "assets/" + name}))};
             }},
         });
         const root = document.createElement("div");
@@ -260,6 +292,7 @@ const runCases = async source => {
         style.textContent = source.styles[isMobile ? 1 : 0];
         document.body.append(root);
         await assetsAPI.mountAssetsTab(root, undefined, {});
+        await settle();
         const item = root.querySelector('[data-tab-type="unrefAssets"]');
         const panel = root.querySelector(".config-assets__preview");
         item.dispatchEvent(new MouseEvent(isMobile ? "click" : "mouseover", {bubbles: true}));
@@ -347,12 +380,14 @@ const runCases = async source => {
     };
     const viewerAPI = load(source.viewer, {
         "./ui_utils.js": {RenderingStates: {}, ScrollMode: {}, SpreadMode: {}, TextLayerMode: {}},
+        "./renderable_view.js": {},
         "./app_options.js": {AppOptions: {set() {}}},
         "./pdf_link_service.js": {LinkTarget: {}},
         "./app.js": {PDFViewerApplication: application},
         "../../constants": {Constants: {PROTYLE_CDN: "/stage/protyle"}},
         "../anno": {initAnno: () => annotations++, destroyAnno: () => cleanup++},
         "../annoRuntime": {registerPdfInstance: () => registrations++},
+        "../pdfMaximize": {bindPdfMaximize: () => () => {}},
         "./pdfjs": {AnnotationEditorType: {DISABLE: 0}},
     });
     const viewerElement = document.createElement("div");
@@ -373,11 +408,19 @@ const runCases = async source => {
     const runtime = load(source.annotationRuntime);
     const annotationRequests = [];
     const anno = load(source.annotations, {
+        ...Object.fromEntries(["../util/setPosition", "../protyle/util/hasClosest", "../protyle/util/compatibility",
+            "../config/tabs/appearancePreferences", "../protyle/util/selectionOffsets", "../constants", "../dialog",
+            "../dialog/message", "../util/functions", "../dialog/confirmDialog", "../util/escape", "filesize",
+            "blueimp-md5", "./rectAnnotationResize", "./pdfRectCapture", "../protyle/upload",
+            "../protyle/upload/uploadResult", "../editor/pdfAssetLink", "./pdfTextAnnotation", "./pdfCoordinates",
+            "./pdfSelectionText"].map(name => [name, {}])),
         "./annoRuntime": runtime,
+        "./annotationSave": load(source.annotationSave),
         "../layout/getAll": {getAllModels: () => ({asset: []})},
         "../util/fetch": {fetchPost: (...args) => annotationRequests.push(args)},
     });
     const {TextLayerBuilder} = load(source.textLayer, {
+        "./ui_utils.js": {},
         "../anno": anno,
         "./pdfjs": {TextLayer: class {
             textDivs = [];

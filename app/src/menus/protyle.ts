@@ -38,7 +38,8 @@ import {transaction, updateTransaction} from "../protyle/wysiwyg/transaction";
 import {openMenu} from "./commonMenuItem";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
 import {Constants} from "../constants";
-import {copyPlainText, isPhablet, readClipboard, setStorageVal, updateHotkeyTip, writeText} from "../protyle/util/compatibility";
+import {copyPlainText, isIOSDevice, isPhablet, readClipboard, setStorageVal, updateHotkeyTip, writeText} from "../protyle/util/compatibility";
+import {usesNativeTextMenu} from "../protyle/wysiwyg/nativeTextMenu";
 import {onGet} from "../protyle/util/onGet";
 import {getAllModels} from "../layout/getAll";
 import {paste, pasteAndKeepSourceFormat, pasteAsPlainText, pasteEscaped} from "../protyle/util/paste";
@@ -49,7 +50,7 @@ import {openNewWindowById} from "../window/openNewWindow";
 import {openBacklink, openGraph} from "../layout/dock/util";
 /// #endif
 import {getSearch, isMobile} from "../util/functions";
-import * as dayjs from "dayjs";
+import dayjs from "dayjs";
 import {blockRender} from "../protyle/render/blockRender";
 import {renameAsset} from "../editor/rename";
 import {renderImageDisplay} from "../protyle/render/imageDisplay";
@@ -99,7 +100,8 @@ import {
     stripSemanticMarkersFromRangeText,
 } from "../protyle/util/inlineElementMarker";
 
-const renderAssetList = (element: Element, k: string, position: IPosition, exts: string[] = [], session?: IMenuSession) => {
+const renderAssetList = (element: Element, k: string, position: IPosition, exts: string[] = [], session?: IMenuSession,
+                         initial = false) => {
     fetchPost("/api/search/searchAsset", {
         k,
         exts,
@@ -124,7 +126,9 @@ const renderAssetList = (element: Element, k: string, position: IPosition, exts:
         }
         const show = () => {
             /// #if MOBILE
-            window.siyuan.menus.menu.fullscreen();
+            if (initial) {
+                window.siyuan.menus.menu.fullscreen();
+            }
             /// #else
             window.siyuan.menus.menu.popup(position);
             /// #endif
@@ -134,7 +138,7 @@ const renderAssetList = (element: Element, k: string, position: IPosition, exts:
         } else {
             show();
         }
-        if (!k) {
+        if (!k && !isMobile()) {
             inputElement.select();
         }
     });
@@ -170,7 +174,7 @@ const buildAssetMenu = (protyle: IProtyle, position: IPosition, callback?: (url:
         <span class="fn__space"></span>
         <span data-type="next" class="block__icon block__icon--show"><svg><use xlink:href="#iconRight"></use></svg></span>
     </div>
-    <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><img style="margin: 0 auto;display: block;width: 64px;height: 64px" src="/stage/loading-pure.svg"></div>
+    <div class="b3-list fn__flex-1 b3-list--background" style="position: relative"><div class="fn__flex" style="height:64px;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div></div>
 </div>
 <div id="preview" style="width: 360px;display: ${isMobile() || window.outerWidth < window.outerWidth / 2 + 260 ? "none" : "flex"};padding: 8px;overflow: auto;justify-content: center;align-items: center;word-break: break-all;"></div>
 </div>`,
@@ -265,7 +269,7 @@ const buildAssetMenu = (protyle: IProtyle, position: IPosition, callback?: (url:
                     }
                 }
             });
-            renderAssetList(element, "", position, exts, session);
+            renderAssetList(element, "", position, exts, session, true);
         }
     });
 };
@@ -792,6 +796,16 @@ export const refMenu = (protyle: IProtyle, element: HTMLElement) => {
 
 export const contentMenu = (protyle: IProtyle, nodeElement: Element) => {
     const range = getEditorRange(nodeElement);
+    /// #if MOBILE
+    const rangeTarget = range.startContainer.nodeType === Node.ELEMENT_NODE ?
+        range.startContainer as HTMLElement : range.startContainer.parentElement;
+    if (isIOSDevice() && rangeTarget && !isInEmbedBlock(rangeTarget) &&
+        usesNativeTextMenu(rangeTarget, protyle.wysiwyg.element)) {
+        // 所有正文菜单入口统一交给系统，避免异步菜单在选区切换后短暂覆盖文字。
+        protyle.toolbar.subElement.classList.add("fn__none");
+        return;
+    }
+    /// #endif
     window.siyuan.menus.menu.remove();
     window.siyuan.menus.menu.element.setAttribute("data-name", Constants.MENU_INLINE_CONTEXT);
     /// #if !MOBILE

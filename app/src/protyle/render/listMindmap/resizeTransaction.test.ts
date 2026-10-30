@@ -26,13 +26,15 @@ test("resizing uses one source update with both dimensions and retains the exact
     }
     globalThis.Controller = Controller;`, {compilerOptions: {target: ScriptTarget.ES2021}}).outputText;
     let title = "Before editing";
-    const list = {isConnected: true, dataset: {nodeId: "map-resize"}, parentElement: {classList: {contains: () => false}},
+    const list = {isConnected: true, dataset: {nodeId: "map-resize"}, closest: (): null => null,
+        parentElement: {classList: {contains: () => false}},
         style: {width: "50%", height: "40vh", flex: ""},
         get outerHTML() { return JSON.stringify({style: this.style, title}); }};
     const transactions: {before: string, after: string}[] = [];
     const root = {id: "root", children: [] as unknown[]};
     const context: any = {
-        canEdit: () => true, readListMindmap: () => ({root, nodes: new Map([["root", root]])}),
+        canEdit: () => true, readListMindmap: () => ({root, nodes: new Map([["root", root]]),
+            metadata: {version: 1, nodes: {}, relations: [] as unknown[]}}),
         getListMindmapSiblingIDs: () => new Map(), normalizeListMindmapSummaryMetadata: () => {},
         cleanListMindmapHTML: (html: string) => html,
         setBlockHeight: (block: typeof list, height: string) => block.style.height = height,

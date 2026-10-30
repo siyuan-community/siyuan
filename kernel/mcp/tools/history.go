@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -87,12 +75,12 @@ func historyList(args map[string]any) (CallToolResult, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("History (%d total, page %d/%d):\n\n", totalCount, page, pageCount))
+	fmt.Fprintf(&sb, "History (%d total, page %d/%d):\n\n", totalCount, page, pageCount)
 	for _, ts := range results {
 		items := model.FullTextSearchHistoryItems(ts, query, notebook, op, typ)
-		sb.WriteString(fmt.Sprintf("--- %s (%d items) ---\n", ts, len(items)))
+		fmt.Fprintf(&sb, "--- %s (%d items) ---\n", ts, len(items))
 		for _, item := range items {
-			sb.WriteString(fmt.Sprintf("  - [%s] %s (path: %s)\n", item.Op, item.Title, item.Path))
+			fmt.Fprintf(&sb, "  - [%s] %s (path: %s)\n", item.Op, item.Title, item.Path)
 		}
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
@@ -137,12 +125,12 @@ func historySearch(args map[string]any) (CallToolResult, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search '%s' (%d total, page %d/%d):\n\n", query, totalCount, page, pageCount))
+	fmt.Fprintf(&sb, "Search '%s' (%d total, page %d/%d):\n\n", query, totalCount, page, pageCount)
 	for _, ts := range timestamps {
 		items := model.FullTextSearchHistoryItems(ts, query, box, op, typ)
-		sb.WriteString(fmt.Sprintf("--- %s (%d items) ---\n", ts, len(items)))
+		fmt.Fprintf(&sb, "--- %s (%d items) ---\n", ts, len(items))
 		for _, item := range items {
-			sb.WriteString(fmt.Sprintf("  - [%s] %s (path: %s)\n", item.Op, item.Title, item.Path))
+			fmt.Fprintf(&sb, "  - [%s] %s (path: %s)\n", item.Op, item.Title, item.Path)
 		}
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
@@ -164,7 +152,7 @@ func historyRollback(args map[string]any) (CallToolResult, error) {
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "history rolled back: " + path}}}, nil
 }
 
-func historyClear(args map[string]any) (CallToolResult, error) {
+func historyClear(_ map[string]any) (CallToolResult, error) {
 	if err := model.ClearWorkspaceHistory(); err != nil {
 		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "clear history failed: " + err.Error()}}, IsError: true}, nil
 	}

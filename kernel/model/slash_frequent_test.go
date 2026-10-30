@@ -1,7 +1,12 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
 	"errors"
+	"maps"
 	"reflect"
 	"testing"
 
@@ -42,9 +47,7 @@ func TestMigrateSlashFrequent(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			originalStorage := make(map[string]any, len(test.storage))
-			for key, value := range test.storage {
-				originalStorage[key] = value
-			}
+			maps.Copy(originalStorage, test.storage)
 			config := conf.NormalizeEntryVisibility(&conf.EntryVisibility{
 				Version: conf.EntryVisibilityVersion,
 				Active:  "custom",

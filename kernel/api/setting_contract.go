@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -32,6 +36,10 @@ func settingAIPayload(value *conf.AI) *apicontract.SettingAI {
 		return nil
 	}
 	result := &apicontract.SettingAI{}
+	if value.Web != nil {
+		result.Web = &apicontract.SettingAIWeb{SearchProvider: value.Web.SearchProvider,
+			FetchProvider: value.Web.FetchProvider, APIKey: value.Web.APIKey, Timeout: value.Web.Timeout}
+	}
 	result.MCP = settingMCPPayload(value.MCP)
 	result.Embedding = settingEmbeddingPayload(value.Embedding)
 	result.Rerank = settingRerankPayload(value.Rerank)
@@ -106,6 +114,8 @@ func settingEmbeddingPayload(value *conf.Embedding) *apicontract.SettingEmbeddin
 	result.Name = value.Name
 	result.Timeout = value.Timeout
 	result.Dimensions = value.Dimensions
+	result.Concurrency = value.Concurrency
+	result.BatchSize = value.BatchSize
 	return result
 }
 
@@ -152,6 +162,7 @@ func settingAgentPayload(value *conf.Agent) *apicontract.SettingAgent {
 		return nil
 	}
 	result := &apicontract.SettingAgent{}
+	result.StreamingMarkdown = value.StreamingMarkdown
 	result.ModelID = value.ModelID
 	result.SessionTimeout = value.SessionTimeout
 	result.StreamIdleTimeout = value.StreamIdleTimeout
@@ -363,6 +374,7 @@ func settingEditorPayload(value *conf.Editor) *apicontract.SettingEditor {
 	result.CodeLineWrap = value.CodeLineWrap
 	result.CodeLigatures = value.CodeLigatures
 	result.DisplayBookmarkIcon = value.DisplayBookmarkIcon
+	result.BlockGutterMode = value.BlockGutterMode
 	result.DisplayNetImgMark = value.DisplayNetImgMark
 	result.DisplayImgName = value.DisplayImgName
 	result.DisplayImgAlt = value.DisplayImgAlt
@@ -371,6 +383,7 @@ func settingEditorPayload(value *conf.Editor) *apicontract.SettingEditor {
 	result.DatabaseAttrViewMode = value.DatabaseAttrViewMode
 	result.DatabaseAttrHideEmpty = value.DatabaseAttrHideEmpty
 	result.DatabaseAttrUseTabs = value.DatabaseAttrUseTabs
+	result.DatabaseAttrLayout = value.DatabaseAttrLayout
 	result.GenerateHistoryInterval = value.GenerateHistoryInterval
 	result.HistoryRetentionDays = value.HistoryRetentionDays
 	result.Emoji = value.Emoji
@@ -385,11 +398,13 @@ func settingEditorPayload(value *conf.Editor) *apicontract.SettingEditor {
 	result.KaTexMacros = value.KaTexMacros
 	result.ReadOnly = value.ReadOnly
 	result.EmbedBlockBreadcrumb = value.EmbedBlockBreadcrumb
+	result.EmbedBlockBreadcrumbParentPath = value.EmbedBlockBreadcrumbParentPath
 	result.ListLogicalOutdent = value.ListLogicalOutdent
 	result.ListItemDotNumberClickFocus = value.ListItemDotNumberClickFocus
 	result.FloatWindowMode = value.FloatWindowMode
 	result.FloatWindowDelay = value.FloatWindowDelay
 	result.KeepLoadedContent = value.KeepLoadedContent
+	result.PageScrollButtons = value.PageScrollButtons
 	result.DynamicLoadBlocks = value.DynamicLoadBlocks
 	result.Justify = value.Justify
 	result.RTL = value.RTL
@@ -398,6 +413,7 @@ func settingEditorPayload(value *conf.Editor) *apicontract.SettingEditor {
 	result.SpellcheckLanguages = value.SpellcheckLanguages
 	result.HashTagSearch = value.HashTagSearch
 	result.OnlySearchForDoc = value.OnlySearchForDoc
+	result.AutoCloseRefBrackets = value.AutoCloseRefBrackets
 	result.BacklinkExpandCount = value.BacklinkExpandCount
 	result.BackmentionExpandCount = value.BackmentionExpandCount
 	result.BacklinkMentionExclude = value.BacklinkMentionExclude
@@ -412,6 +428,7 @@ func settingEditorPayload(value *conf.Editor) *apicontract.SettingEditor {
 	result.HeadingNumberFormat = value.HeadingNumberFormat
 	result.HeadingEmbedMode = value.HeadingEmbedMode
 	result.PasteURLAutoConvert = value.PasteURLAutoConvert
+	result.MathDelimiterCompatibility = value.MathDelimiterCompatibility
 	result.DragHTMLFileToIframe = value.DragHTMLFileToIframe
 	result.Markdown = settingMarkdownPayload(value.Markdown)
 	return result
@@ -475,7 +492,6 @@ func settingExportPayload(value *conf.Export) *apicontract.SettingExport {
 	result.FileAnnotationRefMode = value.FileAnnotationRefMode
 	result.PandocBin = value.PandocBin
 	result.PandocParams = value.PandocParams
-	result.DocxTemplate = value.DocxTemplate
 	result.RemoveAssetsID = value.RemoveAssetsID
 	result.MarkdownYFM = value.MarkdownYFM
 	result.InlineMemo = value.InlineMemo
@@ -494,13 +510,17 @@ func settingFileTreePayload(value *conf.FileTree) *apicontract.SettingFileTree {
 		return nil
 	}
 	result := &apicontract.SettingFileTree{}
+	result.RecentDocsSort = value.RecentDocsSort
 	result.AlwaysSelectOpenedFile = value.AlwaysSelectOpenedFile
 	result.OpenFilesUseCurrentTab = value.OpenFilesUseCurrentTab
 	result.CloseTabOnDoubleClick = value.CloseTabOnDoubleClick
+	result.CloseWindowOnLastTabClosed = value.CloseWindowOnLastTabClosed
 	result.DocIconClickMode = value.DocIconClickMode
 	result.ParentDocTitleClickMode = value.ParentDocTitleClickMode
-	result.BoxDocEnabled = value.BoxDocEnabled
-	result.UseSVGDefaultIcon = value.UseSVGDefaultIcon
+	boxDocEnabled := value.BoxDocEnabled
+	result.BoxDocEnabled = &boxDocEnabled
+	useSVGDefaultIcon := value.UseSVGDefaultIcon
+	result.UseSVGDefaultIcon = &useSVGDefaultIcon
 	result.RefCreateSaveBox = value.RefCreateSaveBox
 	result.RefCreateSavePath = value.RefCreateSavePath
 	result.DocCreateSaveBox = value.DocCreateSaveBox
@@ -576,6 +596,16 @@ func settingAppearancePayload(value *conf.Appearance) *apicontract.SettingAppear
 		return nil
 	}
 	result := &apicontract.SettingAppearance{}
+	result.LockScreenWallpaper = value.LockScreenWallpaper
+	result.CompactMode = value.CompactMode
+	result.MenuMouseScroll = value.MenuMouseScroll
+	result.OutlineKeepCurrentExpand = value.OutlineKeepCurrentExpand
+	if value.PDFTheme != nil {
+		result.PDFTheme = &apicontract.SettingPDFTheme{Light: value.PDFTheme.Light, Dark: value.PDFTheme.Dark, AnnoColor: value.PDFTheme.AnnoColor}
+	}
+	if value.MobileBars != nil {
+		result.MobileBars = &apicontract.SettingMobileBars{AutoHide: value.MobileBars.AutoHide, SidebarSwipe: value.MobileBars.SidebarSwipe, SidebarButtons: value.MobileBars.SidebarButtons}
+	}
 	result.BodyGradient = settingBodyGradientPayload(value.BodyGradient)
 	if value.GlobalFontFamilies != nil {
 		result.GlobalFontFamilies = make([]*apicontract.SettingEditorFont, len(value.GlobalFontFamilies))

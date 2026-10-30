@@ -6,7 +6,7 @@
 		"id": "20260612192252-sgw2paw",
 		"title": "Command Line Interface",
 		"type": "doc",
-		"updated": "20261006133358"
+		"updated": "20261024164212"
 	},
 	"Children": [
 		{
@@ -423,7 +423,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260618124055-jh5iqpd",
-				"updated": "20260809232000"
+				"updated": "20261024164212"
 			},
 			"Children": [
 				{
@@ -444,7 +444,7 @@
 			"Properties": {
 				"colgroup": "|||",
 				"id": "20260618124055-ynt2ojn",
-				"updated": "20260809232000"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -546,17 +546,13 @@
 							"Data": "td",
 							"Children": [
 								{
-									"Type": "NodeText",
-									"Data": "env var "
-								},
-								{
 									"Type": "NodeTextMark",
 									"TextMarkType": "code",
 									"TextMarkTextContent": "SIYUAN_WORKSPACE_PATH"
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​, or a registered workspace, or "
+									"Data": ", otherwise "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -724,7 +720,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Dry-run mode: validate arguments without making changes"
+									"Data": "Preview supported changes without performing them"
 								}
 							]
 						}
@@ -777,8 +773,9 @@
 							"Data": "td",
 							"Children": [
 								{
-									"Type": "NodeText",
-									"Data": "Configuration value"
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "warn"
 								}
 							]
 						},
@@ -801,7 +798,7 @@
 			"Type": "NodeBlockquote",
 			"Properties": {
 				"id": "20260618124055-swngu6n",
-				"updated": "20260618124055"
+				"updated": "20261024164212"
 			},
 			"Children": [
 				{
@@ -813,9 +810,74 @@
 					"Type": "NodeParagraph",
 					"Properties": {
 						"id": "20260618124055-0ha7g1k",
-						"updated": "20260618124055"
+						"updated": "20261024164212"
 					},
 					"Children": [
+						{
+							"Type": "NodeText",
+							"Data": "For ordinary one-shot commands, always pass "
+						},
+						{
+							"Type": "NodeTextMark",
+							"TextMarkType": "code",
+							"TextMarkTextContent": "--workspace"
+						},
+						{
+							"Type": "NodeText",
+							"Data": " in scripts to avoid selecting unintended data. "
+						},
+						{
+							"Type": "NodeTextMark",
+							"TextMarkType": "code",
+							"TextMarkTextContent": "workspace info"
+						},
+						{
+							"Type": "NodeText",
+							"Data": " may fall back to the last registered workspace, while "
+						},
+						{
+							"Type": "NodeTextMark",
+							"TextMarkType": "code",
+							"TextMarkTextContent": "serve"
+						},
+						{
+							"Type": "NodeText",
+							"Data": " follows "
+						},
+						{
+							"Type": "NodeTextMark",
+							"TextMarkType": "block-ref",
+							"TextMarkBlockRefID": "20200924100717-yzwzn64",
+							"TextMarkBlockRefSubtype": "s",
+							"TextMarkTextContent": "Kernel parameter"
+						},
+						{
+							"Type": "NodeText",
+							"Data": " and uses the configured log level unless "
+						},
+						{
+							"Type": "NodeTextMark",
+							"TextMarkType": "code",
+							"TextMarkTextContent": "--log-level"
+						},
+						{
+							"Type": "NodeText",
+							"Data": " is specified."
+						}
+					]
+				},
+				{
+					"ID": "20261024164212-lljcdmt",
+					"Type": "NodeParagraph",
+					"Properties": {
+						"id": "20261024164212-lljcdmt",
+						"updated": "20261024164212"
+					},
+					"Children": [
+						{
+							"Type": "NodeText",
+							"Data": "Use "
+						},
 						{
 							"Type": "NodeText",
 							"Data": "​"
@@ -827,7 +889,7 @@
 						},
 						{
 							"Type": "NodeText",
-							"Data": "​ is ideal for scripting; "
+							"Data": " only with commands that support it. "
 						},
 						{
 							"Type": "NodeTextMark",
@@ -836,16 +898,7 @@
 						},
 						{
 							"Type": "NodeText",
-							"Data": "​ applies to all mutating operations and prints a "
-						},
-						{
-							"Type": "NodeTextMark",
-							"TextMarkType": "code",
-							"TextMarkTextContent": "[dry-run] Would..."
-						},
-						{
-							"Type": "NodeText",
-							"Data": "​ notice."
+							"Data": " previews supported changes; it does not guarantee that a real operation will pass every check."
 						}
 					]
 				}
@@ -1277,7 +1330,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260618124055-203hgdc",
-				"updated": "20260618124055"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -1292,7 +1345,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-0mkve1p",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -1306,22 +1359,9 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260618124055-e5v5ouu",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "Output JSON with "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "code",
-					"TextMarkTextContent": "--format json"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ for scripts to parse. All query commands such as "
-				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
@@ -1329,7 +1369,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ and "
+					"Data": " and "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1338,7 +1378,34 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ support JSON output."
+					"Data": " support "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "--format json"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " for script processing. Check each command’s output contract: "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "file list"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " prints a table and "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "file read"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " prints raw content even when the global format is JSON."
 				}
 			]
 		},
@@ -1348,7 +1415,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-5zxo4nb",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -1362,12 +1429,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260618124055-g27mzcs",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "For mutating or deleting operations, validate arguments with "
+					"Data": "For a mutating or deleting operation that supports "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1376,7 +1443,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ first. Once the output matches the expected "
+					"Data": ", preview it first and review the "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1385,7 +1452,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​, drop the flag and run for real."
+					"Data": " output. This does not perform every check used during execution; verify the workspace and backup before removing the flag."
 				}
 			]
 		},
@@ -1489,7 +1556,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-2gzzo96",
-				"updated": "20260618124055"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -1503,21 +1570,21 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260618124055-1xtluul",
-				"updated": "20260618124055"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Create a snapshot as a checkpoint with "
+					"Data": "Use "
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
-					"TextMarkTextContent": "repo create --memo"
+					"TextMarkTextContent": "repo create --memo \"checkpoint\""
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​; export a full workspace backup with "
+					"Data": " for a snapshot checkpoint. "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1526,7 +1593,43 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​."
+					"Data": " exports the full "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "data"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " directory only, excluding "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "conf"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ", "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "history"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ", "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "repo"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ", and other workspace directories. It is not a full workspace backup and is refused if any encrypted notebook exists."
 				}
 			]
 		},
@@ -1536,7 +1639,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260618124055-izg7yz7",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -1558,7 +1661,7 @@
 			},
 			"Properties": {
 				"id": "20260618124055-zn7ms1e",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -1572,7 +1675,7 @@
 					},
 					"Properties": {
 						"id": "20260618124055-mdfeiu7",
-						"updated": "20260618124055"
+						"updated": "20261016112115"
 					},
 					"Children": [
 						{
@@ -1580,12 +1683,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20260618124055-jq7uror",
-								"updated": "20260618124055"
+								"updated": "20261016112115"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "For mutating or deleting operations, it is recommended to validate arguments with "
+									"Data": "Use "
 								},
 								{
 									"Type": "NodeTextMark",
@@ -1594,7 +1697,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ first"
+									"Data": " where supported to preview changes; a successful preview does not guarantee that execution will succeed"
 								}
 							]
 						}
@@ -1629,6 +1732,92 @@
 							]
 						}
 					]
+				},
+				{
+					"ID": "20261016112115-qd5nm28",
+					"Type": "NodeListItem",
+					"Properties": {
+						"id": "20261016112115-qd5nm28",
+						"updated": "20261016112115"
+					},
+					"ListData": {
+						"Typ": 1,
+						"Delimiter": 46,
+						"Marker": "Mi4=",
+						"Num": 2
+					},
+					"Children": [
+						{
+							"ID": "20261016112115-fqgl6jw",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20261016112115-fqgl6jw",
+								"updated": "20261016112115"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "One-shot CLI commands do not support encrypted notebooks, their blocks, raw files, history, or snapshot-file content, even if unlocked in the app. "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "code",
+									"TextMarkTextContent": "export data"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " is refused whenever the workspace contains an encrypted notebook. Export a data archive through "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Settings"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "App"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Data"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Export Data"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " in the app and follow "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "block-ref",
+									"TextMarkBlockRefID": "20260907120000-cryen01",
+									"TextMarkBlockRefSubtype": "s",
+									"TextMarkTextContent": "Encrypted Notebook"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " for recovery; retain the matching key backup and master password separately"
+								}
+							]
+						}
+					]
 				}
 			]
 		},
@@ -1638,7 +1827,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260618124055-5xyayt6",
-				"updated": "20260914195107"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -4418,7 +4607,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-ddm1efp",
-				"updated": "20260913020024"
+				"updated": "20261024160716"
 			},
 			"Children": [
 				{
@@ -4432,12 +4621,32 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260618124055-9c1b0v9",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Full-text search with filters by notebook, path, and block type, plus multiple search methods and sort orders."
+					"Data": "Search by notebook, path, and block type with several methods and sort orders. "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "--method 4"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " performs semantic search and requires an enabled embedding model and a prepared embedding index; configure and build these in the app first, as described in "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20260804171005-semnt03",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "Semantic Search"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ". Asset search supports methods 0–3 only."
 				}
 			]
 		},
@@ -4451,7 +4660,7 @@
 			"Properties": {
 				"colgroup": "|",
 				"id": "20260618124055-jh2j81m",
-				"updated": "20260913020024"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -4735,7 +4944,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ fuzzy"
+									"Data": "​ semantic"
 								}
 							]
 						}
@@ -4979,7 +5188,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260618124055-4eyeyfx",
-				"updated": "20260913020024"
+				"updated": "20261024160716"
 			},
 			"Children": [
 				{
@@ -4992,7 +5201,7 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "siyuan search \"keyword\"\nsiyuan search \"keyword\" --notebook box1 --notebook box2\nsiyuan search \"keyword\" --path \"/folder\"\nsiyuan search \"keyword\" --type document --type heading\nsiyuan search \"keyword\" --type listItem --subtype listItem:o --subtype listItem:u\nsiyuan search \"keyword\" --method 2\nsiyuan search \"keyword\" --order-by 4 --page 1 --page-size 20\nsiyuan search \"keyword\" --group-by 1\n"
+					"Data": "siyuan search \"keyword\"\nsiyuan search \"keyword\" --notebook box1 --notebook box2\nsiyuan search \"keyword\" --path \"/folder\"\nsiyuan search \"keyword\" --type document --type heading\nsiyuan search \"keyword\" --type listItem --subtype listItem:o --subtype listItem:u\nsiyuan search \"SELECT * FROM blocks WHERE type='h' LIMIT 20\" --method 2\nsiyuan search \"keyword\" --order-by 4 --page 1 --page-size 20\nsiyuan search \"keyword\" --group-by 1\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",
@@ -5492,7 +5701,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-4cmyqw3",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -5506,12 +5715,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260618124055-m331mvc",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Export documents to various formats. "
+					"Data": "Export documents to various formats; "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -5520,7 +5729,36 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ specifies the output file path."
+					"Data": " selects the output file. "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "export data"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " archives only the workspace’s "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "data"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " directory and is refused if any encrypted notebook exists. For supported in-app backup and recovery, see "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20260907120000-cryen01",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "Encrypted Notebook"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "."
 				}
 			]
 		},
@@ -5535,7 +5773,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20260618124055-rsogdq4",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -6006,7 +6244,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Export a full data backup"
+									"Data": "Export the data directory only; unavailable if any encrypted notebook exists"
 								}
 							]
 						}
@@ -6020,7 +6258,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260618124055-noya7z6",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -6033,7 +6271,7 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "siyuan export md --id doc-id\nsiyuan export md --id doc-id --output ./output.md\nsiyuan export html --id doc-id --output ./output.html\nsiyuan export preview --id doc-id --output ./preview.html\nsiyuan export docx --id doc-id --output ./output.docx\nsiyuan export sy --id doc-id --output ./backup.sy.zip\nsiyuan export md-zip --id doc-id --output ./archive.zip\nsiyuan export data --output ./full-backup.zip\n"
+					"Data": "siyuan export md --id doc-id\nsiyuan export md --id doc-id --output ./output.md\nsiyuan export html --id doc-id --output ./output.html\nsiyuan export preview --id doc-id --output ./preview.html\nsiyuan export docx --id doc-id --output ./output.docx\nsiyuan export sy --id doc-id --output ./backup.sy.zip\nsiyuan export md-zip --id doc-id --output ./archive.zip\nsiyuan export data --output ./data-backup.zip\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",
@@ -6047,7 +6285,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-id9ovtn",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -6081,7 +6319,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20260618124055-vmjfim8",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -6424,7 +6662,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Import a full data backup"
+									"Data": "Import a data-directory backup"
 								}
 							]
 						}
@@ -6438,7 +6676,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260618124055-tvha4js",
-				"updated": "20260618124055"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -6451,7 +6689,7 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "siyuan import md --file ./notes --notebook notebook-id\nsiyuan import md --file ./doc.md --notebook notebook-id --hpath \"/import-folder\"\nsiyuan import sy --file ./backup.sy.zip --notebook notebook-id\nsiyuan import data --file ./full-backup.zip\n"
+					"Data": "siyuan import md --file ./notes --notebook notebook-id\nsiyuan import md --file ./doc.md --notebook notebook-id --hpath \"/import-folder\"\nsiyuan import sy --file ./backup.sy.zip --notebook notebook-id\nsiyuan import data --file ./data-backup.zip\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",
@@ -8855,7 +9093,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-86twxy7",
-				"updated": "20260618124055"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -8889,7 +9127,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20260618124055-ax1bjpy",
-				"updated": "20260618124055"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -8982,7 +9220,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Get all custom attributes"
+									"Data": "Get built-in and custom block attributes"
 								}
 							]
 						}
@@ -9764,7 +10002,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260618124055-680zq7t",
-				"updated": "20260809232000"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -10942,7 +11180,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260618124055-uk15vje",
-				"updated": "20260809232000"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -11029,6 +11267,15 @@
 				{
 					"Type": "NodeText",
 					"Data": "​ / "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "location"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " / "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -12636,7 +12883,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260809180000-53b0536",
-				"updated": "20260914195107"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -12650,7 +12897,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260809180000-86e65af",
-				"updated": "20260914195107"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -12660,11 +12907,38 @@
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
+					"TextMarkTextContent": "--workspace"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " selects the workspace data directory; "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
 					"TextMarkTextContent": "--wd"
 				},
 				{
 					"Type": "NodeText",
-					"Data": " specifies the working directory, "
+					"Data": " selects the program resource directory containing "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "appearance/"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " and "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "code",
+					"TextMarkTextContent": "stage/"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " and is normally detected automatically. "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -12673,7 +12947,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " the port, "
+					"Data": " sets the port; "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -12755,7 +13029,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260809180000-349101a",
-				"updated": "20260809232000"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -12768,7 +13042,7 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "siyuan serve --wd /path/to/workspace --port 6806\nsiyuan serve --wd /path/to/workspace --port 6806 --readonly true\nsiyuan serve --wd /path/to/workspace --port 6806 --accessAuthCode \"secret\" --lang en --ssl\n"
+					"Data": "siyuan serve --workspace /path/to/workspace --port 6806\nsiyuan serve --workspace /path/to/workspace --port 6806 --readonly true\nsiyuan serve --workspace /path/to/workspace --port 6806 --wd /path/to/resources --lang en --ssl\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",

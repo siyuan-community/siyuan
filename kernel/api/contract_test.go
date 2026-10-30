@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -62,24 +66,7 @@ func TestAPIContractRouterCoverage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	ServeAPI(engine)
-	data, err := os.ReadFile("../apicontract/legacy_routes.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var legacy []apicontract.Route
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		t.Fatal(err)
-	}
 	expected := map[string]bool{}
-	for _, route := range legacy {
-		methods := []string{route.Method}
-		if route.Method == "ANY" {
-			methods = []string{"GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE", "CONNECT", "TRACE"}
-		}
-		for _, method := range methods {
-			expected[method+" "+route.Path] = true
-		}
-	}
 	for _, definition := range apicontract.Definitions() {
 		for _, method := range apicontract.ExpandMethods(definition.Methods) {
 			expected[method+" "+definition.Path] = true

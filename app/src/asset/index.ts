@@ -13,10 +13,10 @@ import {webViewerLoad} from "./pdf/viewer";
 import {onPageNumberChanged} from "./pdf/app";
 /// #endif
 import {fetchPost} from "../util/fetch";
-import {setStorageVal} from "../protyle/util/compatibility";
+import {bindPdfTheme} from "./pdfViewer";
 import type {App} from "../index";
 import {clearOBG} from "../layout/dock/util";
-import {getDisplayName} from "../util/pathName";
+import {getAssetExtension, getAssetPathWithoutQuery, getDisplayName} from "../util/pathName";
 import {PdfLoadState} from "./pdfLoadState";
 import {getPdfViewerHTML} from "./pdf/viewerTemplate";
 import {forEachPluginSubscriber} from "../plugin/EventBusCore";
@@ -57,7 +57,7 @@ export class Asset extends Model {
 
     public update(path: string) {
         this.path = path;
-        this.parent.updateTitle(getDisplayName(path));
+        this.parent.updateTitle(getDisplayName(getAssetPathWithoutQuery(path)));
         this.render(false);
     }
 
@@ -109,7 +109,8 @@ export class Asset extends Model {
             void this.pdfObject.destroy();
             this.pdfObject = undefined;
         }
-        const type = this.path.substr(this.path.lastIndexOf(".")).toLowerCase().split("?")[0];
+        // 类型按去掉查询和片段后的文件名判断，src 仍使用原始路径，以保留 box 参数和 #t= 等媒体片段
+        const type = getAssetExtension(this.path).toLowerCase();
         // 对资源路径进行 HTML 转义后再拼入 src 属性，避免路径中包含 " 等字符导致属性逃逸引发 XSS
         const src = escapeHtmlTextAndAttr(this.path.startsWith("file") ? this.path : document.getElementById("baseURL").getAttribute("href") + "/" + this.path);
         if (Constants.SIYUAN_ASSETS_IMAGE.includes(type)) {
@@ -121,40 +122,7 @@ export class Asset extends Model {
         } else if (type === ".pdf") {
             /// #if !MOBILE
             this.element.innerHTML = getPdfViewerHTML();
-            const localPDF = window.siyuan.storage[Constants.LOCAL_PDFTHEME];
-            const pdfTheme = window.siyuan.config.appearance.mode === 0 ? localPDF.light : localPDF.dark;
-            const darkElement = this.element.querySelector("#pdfDark");
-            const lightElement = this.element.querySelector("#pdfLight");
-            if (pdfTheme === "dark") {
-                this.element.firstElementChild.classList.add("pdf__outer--dark");
-                lightElement.classList.remove("toggled");
-                darkElement.classList.add("toggled");
-            } else {
-                lightElement.classList.add("toggled");
-                darkElement.classList.remove("toggled");
-            }
-            lightElement.addEventListener("click", () => {
-                if (window.siyuan.config.appearance.mode === 0) {
-                    localPDF.light = "light";
-                } else {
-                    localPDF.dark = "light";
-                }
-                this.element.firstElementChild.classList.remove("pdf__outer--dark");
-                lightElement.classList.add("toggled");
-                darkElement.classList.remove("toggled");
-                setStorageVal(Constants.LOCAL_PDFTHEME, window.siyuan.storage[Constants.LOCAL_PDFTHEME]);
-            });
-            darkElement.addEventListener("click", () => {
-                if (window.siyuan.config.appearance.mode === 0) {
-                    localPDF.light = "dark";
-                } else {
-                    localPDF.dark = "dark";
-                }
-                this.element.firstElementChild.classList.add("pdf__outer--dark");
-                lightElement.classList.remove("toggled");
-                darkElement.classList.add("toggled");
-                setStorageVal(Constants.LOCAL_PDFTHEME, window.siyuan.storage[Constants.LOCAL_PDFTHEME]);
-            });
+            bindPdfTheme(this.element);
             // 初始化完成后需等待页签是否显示设置完成，才可以判断 pdf 是否能进行渲染
             this.pdfLoadState.setTimeout(window.setTimeout(() => {
                 if (!this.pdfLoadState.consumeTimeout() || !this.element.isConnected) {

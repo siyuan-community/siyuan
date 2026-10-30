@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -290,13 +278,17 @@ func skillInstall(args map[string]any) (CallToolResult, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("installed %d skill(s):\n", len(result.Names)))
+	fmt.Fprintf(&sb, "installed %d skill(s):\n", len(result.Names))
 	for i, name := range result.Names {
 		desc := ""
 		if i < len(result.Descriptions) {
 			desc = result.Descriptions[i]
 		}
-		sb.WriteString("- **" + name + "**: " + desc + "\n")
+		sb.WriteString("- **")
+		sb.WriteString(name)
+		sb.WriteString("**: ")
+		sb.WriteString(desc)
+		sb.WriteString("\n")
 	}
 	return CallToolResult{
 		Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -352,7 +344,7 @@ func skillRename(args map[string]any) (CallToolResult, error) {
 	}, nil
 }
 
-func skillList(args map[string]any) (CallToolResult, error) {
+func skillList(_ map[string]any) (CallToolResult, error) {
 	skills := util.DiscoverSkills(model.EnabledUserSkills())
 	if len(skills) == 0 {
 		return CallToolResult{
@@ -363,7 +355,11 @@ func skillList(args map[string]any) (CallToolResult, error) {
 	var sb strings.Builder
 	sb.WriteString("available skills:\n")
 	for _, s := range skills {
-		sb.WriteString("- **" + s.Name + "**: " + s.Description + "\n")
+		sb.WriteString("- **")
+		sb.WriteString(s.Name)
+		sb.WriteString("**: ")
+		sb.WriteString(s.Description)
+		sb.WriteString("\n")
 	}
 	return CallToolResult{
 		Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -378,7 +374,11 @@ func skillListDesc() string {
 	var sb strings.Builder
 	sb.WriteString("Available skills:\n")
 	for _, s := range skills {
-		sb.WriteString("- **" + s.Name + "**: " + s.Description + "\n")
+		sb.WriteString("- **")
+		sb.WriteString(s.Name)
+		sb.WriteString("**: ")
+		sb.WriteString(s.Description)
+		sb.WriteString("\n")
 	}
 	return sb.String()
 }

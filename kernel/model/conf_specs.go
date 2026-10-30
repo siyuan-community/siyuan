@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -206,7 +210,7 @@ func fileTreeReactions() []Reaction[*conf.FileTree] {
 	return []Reaction[*conf.FileTree]{
 		{Name: "sort", Changed: func(old, next *conf.FileTree) bool { return old.Sort != next.Sort }, Apply: func(old, next *conf.FileTree) { PushDocSortModeChanged("global", "", "", "/", &next.Sort) }},
 		{Name: "box-document", Changed: func(old, next *conf.FileTree) bool {
-			return (old.BoxDocEnabled != nil && *old.BoxDocEnabled) != (next.BoxDocEnabled != nil && *next.BoxDocEnabled)
+			return old.BoxDocEnabled != next.BoxDocEnabled
 		}, Apply: func(old, next *conf.FileTree) { RefreshBoxDocFeature() }},
 	}
 }

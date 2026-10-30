@@ -47,7 +47,7 @@ for (const mobile of [false, true]) {
         let confirmed: typeof config.editor;
         await api.createConfigNamespaceApi({namespace: "editor", getConfig: () => config.editor})
             .patch("fontSize", 18, value => { confirmed = value; });
-        assert.deepEqual(requests, ["/api/setting/patch", "/api/system/getConf"]);
+        assert.deepEqual(requests, ["/api/setting/patch", "/api/setting/getSection"]);
         assert.equal(confirmed.fontSize, 18);
         fontSize = 20;
         await refresh.refreshSettingConfig("editor");
@@ -96,6 +96,71 @@ for (const mobile of [false, true]) {
         });
     }
 }
+
+test("settings notifications carrying an applied revision are ignored", async () => {
+    const compiled = transpileModule(readFileSync("src/config/setting/sync.ts", "utf8"), {
+        compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2021},
+    }).outputText;
+    const requests: string[] = [];
+    const config = {editor: {fontSize: 16}};
+    let sectionRevision = 5;
+    const exports = {} as {refreshSettingConfig: (namespace?: string, revision?: number) => Promise<void>};
+    runInNewContext(compiled, {exports, window: {siyuan: {config}}, console, require: () => ({
+        fetchSyncPost: async (url: string) => {
+            requests.push(url);
+            return {code: 0, data: {conf: {editor: {fontSize: 18}}, revision: sectionRevision}};
+        },
+        systemConfig: (value: unknown) => value,
+        objEquals: (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right),
+        editorConfigApi: {apply: (value: {fontSize: number}) => { config.editor = value; }},
+        syncSettingTasks() {}, getSettingTabDefs: () => [{id: "editor"}], remountOpenSettingTab: async () => {},
+    })});
+    await exports.refreshSettingConfig("editor");
+    assert.equal(requests.length, 1);
+    // 写入后的主动读取已带上版本号 5，随后到达的同次通知不再重复读取。
+    await exports.refreshSettingConfig("editor", 5);
+    assert.equal(requests.length, 1);
+    sectionRevision = 6;
+    await exports.refreshSettingConfig("editor", 6);
+    assert.equal(requests.length, 2);
+    // 内核重启后版本号从 0 重来，与已应用的值不等，仍会重新读取。
+    sectionRevision = 1;
+    await exports.refreshSettingConfig("editor", 1);
+    assert.equal(requests.length, 3);
+});
+
+test("forced refreshes queued during a read are not dropped", async () => {
+    const compiled = transpileModule(readFileSync("src/config/setting/sync.ts", "utf8"), {
+        compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2021},
+    }).outputText;
+    const requests: string[] = [];
+    const pendingReads: Array<(response: unknown) => void> = [];
+    const config = {editor: {fontSize: 16}};
+    const exports = {} as {refreshSettingConfig: (namespace?: string, revision?: number) => Promise<void>};
+    runInNewContext(compiled, {exports, window: {siyuan: {config}}, console, require: () => ({
+        fetchSyncPost: (url: string) => {
+            requests.push(url);
+            return new Promise(resolve => pendingReads.push(resolve));
+        },
+        systemConfig: (value: unknown) => value,
+        objEquals: (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right),
+        editorConfigApi: {apply: (value: {fontSize: number}) => { config.editor = value; }},
+        syncSettingTasks() {}, getSettingTabDefs: () => [{id: "editor"}], remountOpenSettingTab: async () => {},
+    })});
+    const first = exports.refreshSettingConfig("editor");
+    // 读取进行中又来一次不带版本号的主动刷新，它的提交可能晚于本次读取，不能被丢弃。
+    const second = exports.refreshSettingConfig("editor");
+    assert.equal(requests.length, 1);
+    pendingReads[0]({code: 0, data: {conf: {editor: {fontSize: 18}}, revision: 3}});
+    for (let attempt = 0; attempt < 10 && requests.length < 2; attempt++) {
+        await new Promise(setImmediate);
+    }
+    assert.equal(requests.length, 2);
+    pendingReads[1]({code: 0, data: {conf: {editor: {fontSize: 20}}, revision: 4}});
+    await first;
+    await second;
+    assert.equal(config.editor.fontSize, 20);
+});
 
 test("settings notifications update runtime configuration and refresh the registered tab", async () => {
     const compiled = transpileModule(readFileSync("src/config/setting/sync.ts", "utf8"), {
@@ -276,7 +341,7 @@ for (const mobile of [false, true]) {
         assert.equal(config.oidc.clientSecret, "******");
         assert.equal(config.oidc.enabled, true);
         assert.equal(config.accessAuthCode, "******");
-        assert.deepEqual(remounted, mobile ? [] : ["app", "access"]);
+        assert.deepEqual(remounted, mobile ? ["access"] : ["app", "access"]);
         remounted.length = 0;
         await exports.refreshSettingConfig("system");
         assert.deepEqual(remounted, mobile ? [] : ["app"]);
@@ -284,12 +349,12 @@ for (const mobile of [false, true]) {
         next = {...next, system: {...next.system, encryptedNotebookFollowSystemLock: true}};
         await exports.refreshSettingConfig("system");
         assert.equal(config.system.encryptedNotebookFollowSystemLock, true);
-        assert.deepEqual(remounted, mobile ? [] : ["app", "access"]);
+        assert.deepEqual(remounted, mobile ? ["access"] : ["app", "access"]);
         remounted.length = 0;
         next = {...next, api: {token: "latest-token"}};
         await exports.refreshSettingConfig();
         assert.equal(config.api.token, "latest-token");
-        assert.equal(remounted.filter(tab => tab === "access").length, mobile ? 0 : 1);
+        assert.equal(remounted.filter(tab => tab === "access").length, 1);
         failed = true;
         next = {...next, api: {token: "unconfirmed-token"}};
         await assert.rejects(exports.refreshSettingConfig("system"), /Could not refresh settings/);

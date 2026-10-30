@@ -1,6 +1,11 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -108,8 +113,7 @@ func structType(typ reflect.Type) reflect.Type {
 
 func jsonFields(typ reflect.Type) map[string]reflect.Type {
 	ret := map[string]reflect.Type{}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if !field.IsExported() {
 			continue
 		}
@@ -118,9 +122,7 @@ func jsonFields(typ reflect.Type) map[string]reflect.Type {
 			continue
 		}
 		if field.Anonymous && name == "" {
-			for embedded, embeddedType := range jsonFields(structType(field.Type)) {
-				ret[embedded] = embeddedType
-			}
+			maps.Copy(ret, jsonFields(structType(field.Type)))
 			continue
 		}
 		if name == "" {

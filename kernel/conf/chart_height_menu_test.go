@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package conf
 
 import (
@@ -17,7 +21,7 @@ func TestMigrateChartHeightMenu(t *testing.T) {
 		if existing != "unset" {
 			profile.Entries["gutter.single.height"] = existing == "visible"
 		}
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			migrateChartHeightMenu(profile)
 			if !reflect.DeepEqual(profile.Entries, map[string]bool{"gutter.single.height": existing == "visible"}) ||
 				!reflect.DeepEqual(profile.Orders["gutter.single.chart"], []string{"pluginBefore", "update", "pluginAfter"}) ||

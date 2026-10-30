@@ -1,6 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-// Licensed under the GNU Affero General Public License, version 3 or later.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package agent
 
@@ -421,7 +421,7 @@ func TestPluginWorkflowPlanValidationAndEffects(t *testing.T) {
 		func(p map[string]any) { p["sourcePath"] = "other" },
 		func(p map[string]any) {
 			files := []any{"plugin.json", "index.js"}
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				files = append(files, fmt.Sprintf("%03d-%s.js", i, strings.Repeat("a", 200)))
 			}
 			p["files"] = files

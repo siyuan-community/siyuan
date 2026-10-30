@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package api
 
@@ -430,6 +418,14 @@ var checkUpdate = contractHandler(apicontract.SystemCheckUpdate, func(c *gin.Con
 	return
 })
 
+var downloadUpdate = contractHandler(apicontract.SystemDownloadUpdate, func(c *gin.Context, request apicontract.SystemDownloadUpdateRequest) apicontract.Response[apicontract.Null] {
+	if err := model.DownloadUpdate(request.Version); err != nil {
+		logging.LogWarnf("download selected update failed: %s", err)
+		return apicontract.Failure[apicontract.Null](-1, model.Conf.Language(104))
+	}
+	return apicontract.Success(apicontract.Null{})
+})
+
 var exportLog = contractHandler(apicontract.SystemExportLog, func(c *gin.Context, request apicontract.EmptyRequest) (ret apicontract.Response[apicontract.SystemZipData]) {
 	ret = apicontract.Success(apicontract.SystemZipData{})
 
@@ -459,6 +455,8 @@ var exportConf = contractHandler(apicontract.SystemExportConf, func(c *gin.Conte
 	}
 
 	if nil != clonedConf.Appearance.Load() {
+		// 壁纸文件仅属于本工作空间，不包含在设置导出中。
+		clonedConf.Appearance.Load().LockScreenWallpaper = false
 		clonedConf.Appearance.Load().DarkThemes = nil
 		clonedConf.Appearance.Load().LightThemes = nil
 		clonedConf.Appearance.Load().Icons = nil
@@ -469,6 +467,9 @@ var exportConf = contractHandler(apicontract.SystemExportConf, func(c *gin.Conte
 			}
 		}
 		clonedConf.Appearance.Load().GlobalFontFamilies = fonts
+	}
+	if clonedConf.AI.Load() != nil {
+		clonedConf.AI.Load().ClearChatGPTAccountIDs()
 	}
 	if nil != clonedConf.Editor.Load() {
 		clonedConf.Editor.Load().Emoji = []string{}
@@ -521,6 +522,9 @@ var exportConf = contractHandler(apicontract.SystemExportConf, func(c *gin.Conte
 		clonedConf.OIDC.ClientSecret = ""
 	}
 	if nil != clonedConf.AI.Load() {
+		if clonedConf.AI.Load().Web != nil {
+			clonedConf.AI.Load().Web.APIKey = ""
+		}
 		for _, provider := range clonedConf.AI.Load().Providers {
 			if nil != provider {
 				provider.APIKey = ""
@@ -678,7 +682,11 @@ var importConf = contractHandler(apicontract.SystemImportConf, func(c *gin.Conte
 		ret = apicontract.Failure[apicontract.Null](-1, err.Error())
 		return
 	}
-	// 导入的旧版配置与启动加载执行相同的格式迁移
+	importAppearance := importedConf.Appearance.Load() != nil
+	importOCR := importedConf.OCR.Load() != nil
+	importSnippet := importedConf.Snippet.Load() != nil
+	importVariables := importedConf.Variables.Load() != nil
+	// 导入的旧版配置与启动加载执行相同的格式迁移。
 	model.ApplyImportedConfMigrations(importedConf, data)
 	preserveImportedAISecrets(importedConf.AI.Load(), model.Conf.AI.Load())
 	if err = validateAIProviderHeaders(importedConf.AI.Load()); err != nil {
@@ -695,6 +703,36 @@ var importConf = contractHandler(apicontract.SystemImportConf, func(c *gin.Conte
 	}
 
 	model.NormalizeAppConf(importedConf)
+	if err = model.LoadChatGPTAccountBindings(importedConf.AI.Load()); err != nil {
+		return apicontract.Failure[apicontract.Null](-1, err.Error())
+	}
+	// 旧版包缺失的新增配置段保持不变；外观资源列表仍以目标工作空间为准。
+	if importAppearance {
+		appearance := importedConf.Appearance.Load()
+		if current := model.Conf.Appearance.Load(); current != nil {
+			appearance.DarkThemes = current.DarkThemes
+			appearance.LightThemes = current.LightThemes
+			appearance.Icons = current.Icons
+		}
+		if appearance.Lang == "" {
+			appearance.Lang = importedConf.Lang
+		}
+		if appearance.Lang == "" {
+			appearance.Lang = model.Conf.Lang
+		}
+		appearance.Lang = util.LangToBCP47(appearance.Lang)
+		model.Conf.Lang = appearance.Lang
+		model.Conf.Appearance.Store(appearance)
+	}
+	if importOCR {
+		model.Conf.OCR.Store(importedConf.OCR.Load())
+	}
+	if importSnippet {
+		model.Conf.Snippet.Store(importedConf.Snippet.Load())
+	}
+	if importVariables {
+		model.Conf.Variables.Store(importedConf.Variables.Load())
+	}
 	model.Conf.FileTree.Store(importedConf.FileTree.Load())
 	model.Conf.Tag.Store(importedConf.Tag.Load())
 	model.Conf.Editor.Store(importedConf.Editor.Load())
@@ -717,6 +755,9 @@ var importConf = contractHandler(apicontract.SystemImportConf, func(c *gin.Conte
 func preserveImportedAISecrets(imported, current *conf.AI) {
 	if imported == nil || current == nil {
 		return
+	}
+	if imported.Web != nil && current.Web != nil && imported.Web.APIKey == "" {
+		imported.Web.APIKey = current.Web.APIKey
 	}
 
 	currentProviders := map[string]*conf.Provider{}
@@ -757,41 +798,12 @@ func preserveImportedAISecrets(imported, current *conf.AI) {
 var getConf = contractHandler(apicontract.SystemGetConf, func(c *gin.Context, request apicontract.EmptyRequest) (ret apicontract.Response[apicontract.SystemConfData]) {
 	ret = apicontract.Success(apicontract.SystemConfData{})
 
-	maskedConf, err := model.GetMaskedConf()
+	// 先记录提交序号再读取配置：序号不大于该值的通知都已包含在本次响应中。
+	revision := model.ConfSettingRevision.Load()
+	maskedConf, isPublish, err := visibleConf(c)
 	if err != nil {
 		ret = apicontract.Failure[apicontract.SystemConfData](-1, "get conf failed: "+err.Error())
 		return
-	}
-
-	if !maskedConf.Sync.Load().Enabled || (0 == maskedConf.Sync.Load().Provider && !model.IsSubscriber()) {
-		maskedConf.Sync.Load().Stat = model.Conf.Language(53)
-	}
-
-	// REF: https://github.com/siyuan-note/siyuan/issues/11364
-	role := model.GetGinContextRole(c)
-	isPublish := model.IsReadOnlyRole(role)
-	if isPublish {
-		maskedConf.ReadOnly = true
-	}
-	if !model.IsValidRole(role, []model.Role{
-		model.RoleAdministrator,
-	}) {
-		model.HideConfSecret(maskedConf)
-	}
-
-	if model.IsReadOnlyRoleContext(c) {
-		maskedConf.UILayout.Store(&conf.UILayout{})
-	}
-
-	// 浏览器环境下不返回工作空间绝对路径，避免泄露用户名等敏感信息
-	// 原生客户端（桌面 Electron、移动端）UA 以 "SiYuan/" 开头，照常返回真实路径
-	// REF: https://github.com/siyuan-note/siyuan/issues/17410
-	if util.IsBrowserRequest(c) {
-		maskedConf.System.Load().WorkspaceDir = ""
-		maskedConf.System.Load().AppDir = ""
-		maskedConf.System.Load().ConfDir = ""
-		maskedConf.System.Load().DataDir = ""
-		maskedConf.System.Load().HomeDir = ""
 	}
 
 	config, err := systemConfPayload(maskedConf)
@@ -799,7 +811,7 @@ var getConf = contractHandler(apicontract.SystemGetConf, func(c *gin.Context, re
 		return apicontract.Failure[apicontract.SystemConfData](-1, "get conf failed: "+err.Error())
 	}
 	ret = apicontract.Success(apicontract.SystemConfData{Conf: config, Start: !util.IsUILoaded.Load(), IsPublish: isPublish,
-		SettingTasks: activeSettingTasks()})
+		SettingTasks: activeSettingTasks(), Revision: revision})
 	return
 })
 
@@ -909,11 +921,14 @@ var setAccessAuthCode = contractHandler(apicontract.SystemSetAccessAuthCode, fun
 		}
 	}
 
+	session := util.GetSession(c)
+	workspaceSession := util.GetWorkspaceSession(session)
+	if !model.IsWorkspaceSessionAuthenticated(workspaceSession) {
+		model.BindDesktopSession(c, workspaceSession, false)
+	}
 	model.Conf.AccessAuthCode = aac
 	model.Conf.Save()
 
-	session := util.GetSession(c)
-	workspaceSession := util.GetWorkspaceSession(session)
 	workspaceSession.AccessAuthCode = aac
 	session.Save(c)
 	go func() {
@@ -1364,7 +1379,7 @@ var addUIProcess = contractHandler(apicontract.SystemAddUIProcess, func(c *gin.C
 
 var exit = contractHandler(apicontract.SystemExit, exitSystem)
 
-var closeSystem = model.Close
+var closeSystem = model.CloseWithContext
 var recoverSystemExit = model.RecoverWorkspaceExit
 var finishSystemExit = model.ExitKernel
 
@@ -1376,9 +1391,9 @@ func exitSystem(c *gin.Context, request apicontract.SystemExitRequest) apicontra
 	var exitCode int
 	var installPkgPath string
 	if request.RecoverExit != nil {
-		exitCode, installPkgPath = recoverSystemExit(request.RecoverExit.PID, request.RecoverExit.StartedAt)
+		exitCode, installPkgPath = recoverSystemExit(request.RecoverExit.PID, request.RecoverExit.StartedAt, request.RecoverExit.Force)
 	} else {
-		exitCode, installPkgPath = closeSystem(request.Force, setCurrentWorkspace, int(request.ExecInstallPkg))
+		exitCode, installPkgPath = closeSystem(c.Request.Context(), request.Force, setCurrentWorkspace, int(request.ExecInstallPkg))
 	}
 	data := apicontract.SystemExitData{CloseTimeout: 0, InstallPkgPath: installPkgPath}
 	switch exitCode {

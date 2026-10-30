@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -124,7 +128,7 @@ func TestListConversionFrontendTransactions(t *testing.T) {
 				}
 				assertAttributeViewFieldsTest(t, view, readAttributeViewItemsTest(t, view.ID))
 			}
-			for cycle := 0; cycle < 2; cycle++ {
+			for range 2 {
 				check(testCase.After)
 				replayAttributeViewFieldsTest(t, entry.UndoOperationsForReplay())
 				check(testCase.Before)
@@ -217,7 +221,7 @@ func TestCancelListPreservesDatabaseFields(t *testing.T) {
 					}
 				}
 			}
-			for cycle := 0; cycle < 3; cycle++ {
+			for range 3 {
 				check(false)
 				replayAttributeViewFieldsTest(t, entry.UndoOperationsForReplay())
 				check(true)

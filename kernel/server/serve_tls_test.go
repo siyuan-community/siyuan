@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package server
 
@@ -255,6 +243,7 @@ func TestSessionCookieSecureFollowsConnection(t *testing.T) {
 		name         string
 		remoteAddr   string
 		serveTLS     bool
+		clientTLS    string
 		host         string
 		wantSecure   bool
 		wantRedirect bool
@@ -264,6 +253,9 @@ func TestSessionCookieSecureFollowsConnection(t *testing.T) {
 		// 本机 HTTP 会话必须能被不接受明文 Secure Cookie 的客户端回传。
 		{name: "plaintext loopback connection", remoteAddr: "127.0.0.1:54321", host: "127.0.0.1:6806", wantSecure: false},
 		{name: "plaintext ipv6 loopback connection", remoteAddr: "[::1]:54321", host: "[::1]:6806", wantSecure: false},
+		{name: "HTTP client through TLS backend", remoteAddr: "127.0.0.1:54321", serveTLS: true, clientTLS: util.ClientTLSHeaderPlaintextValue, host: "notes.example.com:6806"},
+		{name: "HTTPS client through HTTP backend", remoteAddr: "127.0.0.1:54321", clientTLS: util.ClientTLSHeaderValue, host: "notes.example.com:6806", wantSecure: true},
+		{name: "remote forged HTTP marker over TLS", remoteAddr: "192.0.2.10:54321", serveTLS: true, clientTLS: util.ClientTLSHeaderPlaintextValue, host: "notes.example.com:6806", wantSecure: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -272,6 +264,9 @@ func TestSessionCookieSecureFollowsConnection(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/api/system/loginAuth", nil)
 			request.RemoteAddr = test.remoteAddr
 			request.Host = test.host
+			if test.clientTLS != "" {
+				request.Header.Set(util.ClientTLSHeader, test.clientTLS)
+			}
 			if test.serveTLS {
 				request.TLS = &tls.ConnectionState{}
 			}
@@ -302,6 +297,13 @@ func TestSessionCookieSecureFollowsConnection(t *testing.T) {
 			}
 			if !cookies[0].HttpOnly {
 				t.Fatal("cookie HttpOnly = false, want true")
+			}
+			wantHSTS := ""
+			if test.wantSecure {
+				wantHSTS = util.StrictTransportSecurityValue
+			}
+			if hsts := recorder.Result().Header.Get("Strict-Transport-Security"); hsts != wantHSTS {
+				t.Fatalf("Strict-Transport-Security = %q, want %q", hsts, wantHSTS)
 			}
 		})
 	}

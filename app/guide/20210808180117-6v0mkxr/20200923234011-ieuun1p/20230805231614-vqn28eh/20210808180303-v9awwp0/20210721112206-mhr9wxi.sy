@@ -6,7 +6,7 @@
 		"id": "20210721112206-mhr9wxi",
 		"title": "Data sync",
 		"type": "doc",
-		"updated": "20261012014930"
+		"updated": "20261026115057"
 	},
 	"Children": [
 		{
@@ -44,6 +44,473 @@
 				{
 					"Type": "NodeText",
 					"Data": "​ folder logically consistent across devices, including assets, custom icons, third-party theme and icon packages, plugins, code snippets, templates, widgets, and document data. With on-demand downloads, some asset content may not yet be stored on this device."
+				}
+			]
+		},
+		{
+			"ID": "20210721112403-77frbcy",
+			"Type": "NodeHeading",
+			"HeadingLevel": 2,
+			"Properties": {
+				"id": "20210721112403-77frbcy",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "How to use"
+				}
+			]
+		},
+		{
+			"ID": "20220703231817-nbhxxb6",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20220703231817-nbhxxb6",
+				"updated": "20261024161816"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "First "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "block-ref",
+					"TextMarkBlockRefID": "20220615120602-iya2886",
+					"TextMarkBlockRefSubtype": "s",
+					"TextMarkTextContent": "initialize the data repository key"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ", then choose a storage provider, configure a sync target, and enable synchronization. Use the sync button to open the setup wizard if you need guidance."
+				}
+			]
+		},
+		{
+			"ID": "20220708103812-eil2e26",
+			"Type": "NodeList",
+			"ListData": {},
+			"Properties": {
+				"id": "20220708103812-eil2e26",
+				"updated": "20230713213257"
+			},
+			"Children": [
+				{
+					"ID": "20220708103814-dmdvs76",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20220708103814-dmdvs76",
+						"updated": "20220708103814"
+					},
+					"Children": [
+						{
+							"ID": "20220708103814-8ogvbpz",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20220708103814-8ogvbpz",
+								"updated": "20220708103815"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "If you need to pause sync, you can turn off the option "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Settings"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Account & Sync"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Enable cloud sync"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20220708103815-su0ak6i",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20220708103815-su0ak6i",
+						"updated": "20230713213257"
+					},
+					"Children": [
+						{
+							"ID": "20220708103815-2rl1hd5",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20220708103815-2rl1hd5",
+								"updated": "20230713213257"
+							},
+							"Children": [
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "block-ref",
+									"TextMarkBlockRefID": "20210928101257-l27t5uo",
+									"TextMarkBlockRefSubtype": "s",
+									"TextMarkTextContent": "Ignore files"
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"ID": "20220831004158-x62olku",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20220831004158-x62olku",
+				"updated": "20220831004508"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "​"
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "tag",
+					"TextMarkTextContent": "Note"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "​​: "
+				}
+			]
+		},
+		{
+			"ID": "20230220103708-l6sdi3r",
+			"Type": "NodeList",
+			"ListData": {},
+			"Properties": {
+				"id": "20230220103708-l6sdi3r",
+				"updated": "20261024163013"
+			},
+			"Children": [
+				{
+					"ID": "20230220103711-5uo9kru",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20230220103711-5uo9kru",
+						"updated": "20230220103712"
+					},
+					"Children": [
+						{
+							"ID": "20230220103711-ur0xszr",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20230220103711-ur0xszr",
+								"updated": "20230220103712"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "Before enabling synchronization, please ensure that the system time of all devices participating in the synchronization is consistent"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20230220103708-fmphm6k",
+					"Type": "NodeListItem",
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Properties": {
+						"id": "20230220103708-fmphm6k",
+						"updated": "20261024163013"
+					},
+					"Children": [
+						{
+							"ID": "20230220103708-ml52xbc",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20230220103708-ml52xbc",
+								"updated": "20261024163013"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "For a large dataset, export a Data archive using "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Settings"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "App"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Data"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Export Data"
+								},
+								{
+									"Type": "NodeText",
+									"Data": ", transfer it to the new device, and use "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Import Data"
+								},
+								{
+									"Type": "NodeText",
+									"Data": "​ on the same settings page there before configuring synchronization"
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"ID": "20261011151543-4pvea6y",
+			"Type": "NodeHeading",
+			"HeadingLevel": 3,
+			"Properties": {
+				"id": "20261011151543-4pvea6y",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Configure third-party sync"
+				}
+			]
+		},
+		{
+			"ID": "20261011151543-l4oq2bn",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261011151543-l4oq2bn",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "In "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Settings"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Account & Sync"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ", select S3, WebDAV, or the local file system, then click the configuration button in the sync service configuration row. The local file system is available with standard desktop and Docker kernels, not mobile kernels; its path is on the kernel’s machine or inside its container, not on the device running the browser."
+				}
+			]
+		},
+		{
+			"ID": "20261024164212-ztfy57c",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024164212-ztfy57c",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Complete the form and click "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Save"
+				},
+				{
+					"Type": "NodeText",
+					"Data": ". Typing does not save changes; closing an edited form asks whether to discard the draft."
+				}
+			]
+		},
+		{
+			"ID": "20261020224352-z87gp3i",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261020224352-z87gp3i",
+				"updated": "20261020224352"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Click "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Test connection"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " before saving to check the current S3, WebDAV, or local filesystem draft without saving it. WebDAV checks directory creation and probe read/write access; the local filesystem checks directory read/write access. The probe is cleaned up where possible. If the test fails, follow the diagnostic and try again; your saved configuration is retained."
+				}
+			]
+		},
+		{
+			"ID": "20261011151543-h1km9eh",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261011151543-h1km9eh",
+				"updated": "20261011151543"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "To stop using a service, click "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Clear configuration"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " in its configuration dialog and confirm. This removes the saved address and credentials, and disables sync if this is the current service. Local notes and cloud data remain intact."
+				}
+			]
+		},
+		{
+			"ID": "20261011151543-hbd6s1c",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261011151543-hbd6s1c",
+				"updated": "20261011151543"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "If changing or clearing the current source is blocked because resources or historical snapshots are incomplete, restore access to the original source and finish downloading all resources before trying again. A failed save or clear keeps the effective configuration and the draft."
+				}
+			]
+		},
+		{
+			"ID": "20261020231029-lr7z60a",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261020231029-lr7z60a",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Automatic sync normally runs in the background without opening a panel. Click the sync icon to view the current file, written bytes, speed, and estimated remaining time. "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Hide details"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " hides the details; "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Sync"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " reopens them."
+				}
+			]
+		},
+		{
+			"ID": "20261024164212-n2h2yit",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024164212-n2h2yit",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Editing pauses only while local changes are applied and affected documents are refreshed, including recovery after cancellation. Click "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Cancel"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " to request cancellation of preparation, network transfer, or file restoration."
+				}
+			]
+		},
+		{
+			"ID": "20261020231029-kuhlekv",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261020231029-kuhlekv",
+				"updated": "20261020231029"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Canceling keeps completed files and removes the current temporary file. Sync again to finish the remaining content. If storage is insufficient, free up space and retry. Recognizable temporary files from interrupted syncs are cleaned up on startup or before restoration, and the freed space is reported."
 				}
 			]
 		},
@@ -203,272 +670,31 @@
 			]
 		},
 		{
-			"ID": "20210721112403-77frbcy",
+			"ID": "20230219121305-3yj6w9y",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
-				"id": "20210721112403-77frbcy",
-				"updated": "20250115162705"
+				"id": "20230219121305-3yj6w9y",
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "How to use"
+					"Data": "Sync modes"
 				}
 			]
 		},
 		{
-			"ID": "20220703231817-nbhxxb6",
+			"ID": "20230219121305-p0gorey",
 			"Type": "NodeParagraph",
 			"Properties": {
-				"id": "20220703231817-nbhxxb6",
-				"updated": "20220821170709"
+				"id": "20230219121305-p0gorey",
+				"updated": "20261024163013"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "After "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "block-ref",
-					"TextMarkBlockRefID": "20220615120602-iya2886",
-					"TextMarkBlockRefSubtype": "s",
-					"TextMarkTextContent": "initializing the data repo key"
-				},
-				{
-					"Type": "NodeText",
-					"Data": ", if all goes well, the synchronization is already configured. If you are not familiar with synchronization configuration, it is recommended to open the synchronization configuration wizard by clicking the synchronization button. It is easier to configure through the wizard."
-				}
-			]
-		},
-		{
-			"ID": "20220708103812-eil2e26",
-			"Type": "NodeList",
-			"ListData": {},
-			"Properties": {
-				"id": "20220708103812-eil2e26",
-				"updated": "20230713213257"
-			},
-			"Children": [
-				{
-					"ID": "20220708103814-dmdvs76",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20220708103814-dmdvs76",
-						"updated": "20220708103814"
-					},
-					"Children": [
-						{
-							"ID": "20220708103814-8ogvbpz",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20220708103814-8ogvbpz",
-								"updated": "20220708103815"
-							},
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "If you need to pause sync, you can turn off the option "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "Settings"
-								},
-								{
-									"Type": "NodeText",
-									"Data": " - "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "Account & Sync"
-								},
-								{
-									"Type": "NodeText",
-									"Data": " - "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "Enable cloud sync"
-								}
-							]
-						}
-					]
-				},
-				{
-					"ID": "20220708103815-su0ak6i",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20220708103815-su0ak6i",
-						"updated": "20230713213257"
-					},
-					"Children": [
-						{
-							"ID": "20220708103815-2rl1hd5",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20220708103815-2rl1hd5",
-								"updated": "20230713213257"
-							},
-							"Children": [
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "block-ref",
-									"TextMarkBlockRefID": "20210928101257-l27t5uo",
-									"TextMarkBlockRefSubtype": "s",
-									"TextMarkTextContent": "Ignore files"
-								}
-							]
-						}
-					]
-				}
-			]
-		},
-		{
-			"ID": "20220831004158-x62olku",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20220831004158-x62olku",
-				"updated": "20220831004508"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "​"
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "tag",
-					"TextMarkTextContent": "Note"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​​: "
-				}
-			]
-		},
-		{
-			"ID": "20230220103708-l6sdi3r",
-			"Type": "NodeList",
-			"ListData": {},
-			"Properties": {
-				"id": "20230220103708-l6sdi3r",
-				"updated": "20250115162705"
-			},
-			"Children": [
-				{
-					"ID": "20230220103711-5uo9kru",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20230220103711-5uo9kru",
-						"updated": "20230220103712"
-					},
-					"Children": [
-						{
-							"ID": "20230220103711-ur0xszr",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20230220103711-ur0xszr",
-								"updated": "20230220103712"
-							},
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "Before enabling synchronization, please ensure that the system time of all devices participating in the synchronization is consistent"
-								}
-							]
-						}
-					]
-				},
-				{
-					"ID": "20230220103708-fmphm6k",
-					"Type": "NodeListItem",
-					"ListData": {
-						"BulletChar": 42,
-						"Marker": "Kg=="
-					},
-					"Properties": {
-						"id": "20230220103708-fmphm6k",
-						"updated": "20250115162705"
-					},
-					"Children": [
-						{
-							"ID": "20230220103708-ml52xbc",
-							"Type": "NodeParagraph",
-							"Properties": {
-								"id": "20230220103708-ml52xbc",
-								"updated": "20250115162705"
-							},
-							"Children": [
-								{
-									"Type": "NodeText",
-									"Data": "If the amount of data is large, it is recommended to export the data package through "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "Export Data"
-								},
-								{
-									"Type": "NodeText",
-									"Data": "​ in the settings, and then send the data package to the new device by manual copying or other methods, and export the data package on the new device. Go to "
-								},
-								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "kbd",
-									"TextMarkTextContent": "Import Data"
-								},
-								{
-									"Type": "NodeText",
-									"Data": "​, and finally configure synchronization"
-								}
-							]
-						}
-					]
-				}
-			]
-		},
-		{
-			"ID": "20261011151543-4pvea6y",
-			"Type": "NodeHeading",
-			"HeadingLevel": 3,
-			"Properties": {
-				"id": "20261011151543-4pvea6y",
-				"updated": "20261011151543"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "Configure third-party sync"
-				}
-			]
-		},
-		{
-			"ID": "20261011151543-l4oq2bn",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20261011151543-l4oq2bn",
-				"updated": "20261011151543"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "In "
+					"Data": "Three synchronization modes are supported in "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -486,109 +712,16 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": ", select S3, WebDAV, or the local file system (desktop only), then click the configuration button in the sync service configuration row. Complete the form and click "
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Save"
+					"TextMarkTextContent": "Cloud sync mode"
 				},
 				{
 					"Type": "NodeText",
-					"Data": ". Typing does not save changes; closing an edited form asks whether to discard the draft."
-				}
-			]
-		},
-		{
-			"ID": "20261011151543-h1km9eh",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20261011151543-h1km9eh",
-				"updated": "20261011151543"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "To stop using a service, click "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Clear configuration"
-				},
-				{
-					"Type": "NodeText",
-					"Data": " in its configuration dialog and confirm. This removes the saved address and credentials, and disables sync if this is the current service. Local notes and cloud data remain intact."
-				}
-			]
-		},
-		{
-			"ID": "20261011151543-hbd6s1c",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20261011151543-hbd6s1c",
-				"updated": "20261011151543"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "If changing or clearing the current source is blocked because resources or historical snapshots are incomplete, restore access to the original source and finish downloading all resources before trying again. A failed save or clear keeps the effective configuration and the draft."
-				}
-			]
-		},
-		{
-			"ID": "20230219121305-3yj6w9y",
-			"Type": "NodeHeading",
-			"HeadingLevel": 2,
-			"Properties": {
-				"id": "20230219121305-3yj6w9y",
-				"updated": "20260803171606"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "Synchronous mode"
-				}
-			]
-		},
-		{
-			"ID": "20230219121305-p0gorey",
-			"Type": "NodeParagraph",
-			"Properties": {
-				"id": "20230219121305-p0gorey",
-				"updated": "20260803171606"
-			},
-			"Children": [
-				{
-					"Type": "NodeText",
-					"Data": "Three synchronization modes are supported in "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Settings"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ - "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Account & Sync"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​ - "
-				},
-				{
-					"Type": "NodeTextMark",
-					"TextMarkType": "kbd",
-					"TextMarkTextContent": "Cloud Sync Mode"
-				},
-				{
-					"Type": "NodeText",
-					"Data": "​:"
+					"Data": ":"
 				}
 			]
 		},
@@ -598,7 +731,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20230219121305-c1bb9y3",
-				"updated": "20230219121414"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -610,7 +743,7 @@
 					},
 					"Properties": {
 						"id": "20230219121305-e5kvdxk",
-						"updated": "20230219121414"
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
@@ -633,7 +766,7 @@
 							"ListData": {},
 							"Properties": {
 								"id": "20230219121305-8v43t1f",
-								"updated": "20230219121305"
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
@@ -645,7 +778,7 @@
 									},
 									"Properties": {
 										"id": "20230219121305-oeasqmw",
-										"updated": "20230219121305"
+										"updated": "20261016111431"
 									},
 									"Children": [
 										{
@@ -653,12 +786,12 @@
 											"Type": "NodeParagraph",
 											"Properties": {
 												"id": "20230219121305-0tp4568",
-												"updated": "20230219121305"
+												"updated": "20261016111431"
 											},
 											"Children": [
 												{
 													"Type": "NodeText",
-													"Data": "A synchronization will be performed when starting and exiting, and a synchronization will be performed 30 seconds after the data in use is no longer changed"
+													"Data": "Sync runs at startup and normal exit, and after local data stops changing for the configured interval; the default is 30 seconds"
 												}
 											]
 										}
@@ -822,12 +955,26 @@
 			]
 		},
 		{
+			"ID": "20261026111206-481cuuh",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261026111206-481cuuh",
+				"updated": "20261026115057"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "If exiting takes more than 12 seconds, you can choose \"Skip sync and exit\" and confirm to cancel synchronization and finish exiting. Unsynced changes remain saved on this device. Cancel the confirmation to continue waiting for synchronization."
+				}
+			]
+		},
+		{
 			"ID": "20230219121305-n0v0nlb",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20230219121305-n0v0nlb",
-				"updated": "20260918195936"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1004,7 +1151,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20220510105000-03p25i0",
-				"updated": "20220510105000"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1016,7 +1163,7 @@
 					},
 					"Properties": {
 						"id": "20220510105000-soqifkx",
-						"updated": "20220510105000"
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
@@ -1024,12 +1171,39 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20220510105000-p9xg0yf",
-								"updated": "20220510105000"
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "After 30 seconds of data change, if there is no further change, a comparison will be made, and if it continues to change, it will be delayed by 30 seconds"
+									"Data": "After the last data change, sync is scheduled using "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Settings"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Account & Sync"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " - "
+								},
+								{
+									"Type": "NodeTextMark",
+									"TextMarkType": "kbd",
+									"TextMarkTextContent": "Sync interval"
+								},
+								{
+									"Type": "NodeText",
+									"Data": " (30 seconds by default, adjustable from 30 to 43,200 seconds); further changes restart this wait"
 								}
 							]
 						}
@@ -1044,7 +1218,7 @@
 					},
 					"Properties": {
 						"id": "20220510105000-ouj6xo5",
-						"updated": "20220510105000"
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
@@ -1052,16 +1226,119 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20220510105000-eps1jp2",
-								"updated": "20220510105000"
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "If there is no data change, it will be incremented by 5 minutes, 8 minutes, 16 minutes, 32 minutes..."
+									"Data": "When no data changes are found, the interval between automatic checks increases; new data changes schedule sync using the configured interval again"
 								}
 							]
 						}
 					]
+				}
+			]
+		},
+		{
+			"ID": "20261016111431-tjkwrig",
+			"Type": "NodeHeading",
+			"HeadingLevel": 2,
+			"Properties": {
+				"id": "20261016111431-tjkwrig",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Sync perception and LAN acceleration"
+				}
+			]
+		},
+		{
+			"ID": "20261016111431-8v5b36n",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261016111431-8v5b36n",
+				"updated": "20261016111710"
+			},
+			"Children": [
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Settings"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Account & Sync"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Sync perception"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " uses SiYuan official-cloud signals to trigger synchronization sooner in automatic mode. It is unavailable in Docker kernels, does not bypass manual or full-manual mode, and does not eliminate editing conflicts."
+				}
+			]
+		},
+		{
+			"ID": "20261016111431-hvkyscs",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261016111431-hvkyscs",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Settings"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Account & Sync"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "LAN sync acceleration"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " prefers encrypted data objects from reachable LAN devices using the same repository key and cloud sync target. Cloud storage remains authoritative, with fallback to the cloud if LAN transfers are unavailable; this is not a fully offline peer-to-peer replacement."
+				}
+			]
+		},
+		{
+			"ID": "20261024164212-sqpyaj7",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024164212-sqpyaj7",
+				"updated": "20261024164212"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Docker kernels do not provide LAN acceleration. LAN notifications trigger synchronization only in automatic mode."
 				}
 			]
 		},
@@ -1071,7 +1348,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20220307095105-is2jz8h",
-				"updated": "20220307095105"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1085,12 +1362,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20220307095105-pdveh7f",
-				"updated": "20220307095118"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "From the above working principle, we can know that SiYuan only supports alternate synchronization of data on multiple devices: after synchronization is completed on device A, synchronization is performed on device B. Simultaneous synchronization of multiple devices cannot be supported, so unexpected data overwriting will occur."
+					"Data": "To reduce conflicts, finish syncing on device A, then sync device B before editing there. Simultaneous edits to the same file can conflict and cause one version to overwrite another; sync perception and LAN acceleration do not remove this risk."
 				}
 			]
 		},
@@ -1100,7 +1377,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20220307095105-xr4ht8a",
-				"updated": "20220703232432"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1117,7 +1394,7 @@
 			},
 			"Properties": {
 				"id": "20220307095105-z02ucyo",
-				"updated": "20220307095105"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1130,19 +1407,21 @@
 						"Num": 1
 					},
 					"Properties": {
-						"id": "20220307095105-hbj4ovp"
+						"id": "20220307095105-hbj4ovp",
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
 							"ID": "20220307095105-i864hxu",
 							"Type": "NodeParagraph",
 							"Properties": {
-								"id": "20220307095105-i864hxu"
+								"id": "20220307095105-i864hxu",
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Execute synchronization after editing on device A (by triggering synchronization automatically or manually), at this time, the cloud data will be overwritten by the data of device A, that is, the cloud and device A keep the same data"
+									"Data": "After editing on device A, sync and wait for completion so its changes reach the cloud"
 								}
 							]
 						}
@@ -1158,19 +1437,21 @@
 						"Num": 2
 					},
 					"Properties": {
-						"id": "20220307095105-q12j7j7"
+						"id": "20220307095105-q12j7j7",
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
 							"ID": "20220307095105-l0xxcoe",
 							"Type": "NodeParagraph",
 							"Properties": {
-								"id": "20220307095105-l0xxcoe"
+								"id": "20220307095105-l0xxcoe",
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Execute synchronization on device B. At this time, the data of device B will be overwritten by the cloud data, that is, the cloud and devices A and B keep the same data"
+									"Data": "Before editing on device B, sync and wait for completion to receive device A’s changes"
 								}
 							]
 						}
@@ -1186,19 +1467,21 @@
 						"Num": 3
 					},
 					"Properties": {
-						"id": "20220307095105-3mv34vh"
+						"id": "20220307095105-3mv34vh",
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
 							"ID": "20220307095105-2adzw18",
 							"Type": "NodeParagraph",
 							"Properties": {
-								"id": "20220307095105-2adzw18"
+								"id": "20220307095105-2adzw18",
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "After editing on device B, perform synchronization again. At this time, the cloud data will be overwritten by device B data, that is, the cloud and device B keep the same data."
+									"Data": "After editing on device B, sync again and wait for its changes to reach the cloud"
 								}
 							]
 						}
@@ -1214,19 +1497,21 @@
 						"Num": 4
 					},
 					"Properties": {
-						"id": "20220307095105-pwlmtr3"
+						"id": "20220307095105-pwlmtr3",
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
 							"ID": "20220307095105-bivgvtw",
 							"Type": "NodeParagraph",
 							"Properties": {
-								"id": "20220307095105-bivgvtw"
+								"id": "20220307095105-bivgvtw",
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Execute synchronization on device A. At this time, the data of device A will be overwritten by the cloud data, that is, the cloud and devices A and B keep the same data"
+									"Data": "Sync device A again to receive device B’s changes before continuing to edit there"
 								}
 							]
 						}
@@ -1239,12 +1524,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20220307095105-imseszh",
-				"updated": "20220307095105"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "In this scenario, the process of using synchronization is performed alternately on devices A and B, which can ensure that data synchronization is completed normally as expected."
+					"Data": "Alternating editing and checking that each sync succeeds reduces conflicts and helps keep both devices consistent."
 				}
 			]
 		},
@@ -1254,7 +1539,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20220703232421-8zpzkw4",
-				"updated": "20220703232435"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1271,7 +1556,7 @@
 			},
 			"Properties": {
 				"id": "20220703232421-gmxxahn",
-				"updated": "20221009104451"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1285,7 +1570,7 @@
 					},
 					"Properties": {
 						"id": "20220703232421-tfvngal",
-						"updated": "20220703232625"
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
@@ -1293,12 +1578,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20220703232421-vhp8oio",
-								"updated": "20220703232625"
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Sync after editing the file a on device A"
+									"Data": "Device A edits file a and completes synchronization"
 								}
 							]
 						}
@@ -1315,7 +1600,7 @@
 					},
 					"Properties": {
 						"id": "20220703232421-wfhhavr",
-						"updated": "20220703232627"
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
@@ -1323,12 +1608,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20220703232421-2wl7eyb",
-								"updated": "20220703232627"
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Sync after editing the file a on device B"
+									"Data": "Before receiving A’s changes, device B edits its older copy of file a and then synchronizes"
 								}
 							]
 						}
@@ -1372,7 +1657,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210721112403-b62c3ph",
-				"updated": "20260614203414"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1388,7 +1673,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20210721112403-th2r6zf",
-				"updated": "20260614203414"
+				"updated": "20261016111431"
 			},
 			"Children": [
 				{
@@ -1540,7 +1825,7 @@
 					},
 					"Properties": {
 						"id": "20231120213153-tpjbi5o",
-						"updated": "20231120213154"
+						"updated": "20261016111431"
 					},
 					"Children": [
 						{
@@ -1548,12 +1833,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20231120213154-sjzx64a",
-								"updated": "20231120213154"
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "If the data snapshot takes more than 12 seconds before data synchronization, you will be prompted to clean up the data warehouse. If you need to change the default time, you can use the following two methods."
+									"Data": "If the data snapshot takes more than 12 seconds before data synchronization, you will be prompted to clean up the data warehouse. If you need to change the default time, you can use the following two methods"
 								}
 							]
 						},
@@ -1656,7 +1941,7 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20231120213154-aoykqw3",
-								"updated": "20231120213154"
+								"updated": "20261016111431"
 							},
 							"Children": [
 								{
@@ -1670,7 +1955,7 @@
 								},
 								{
 									"Type": "NodeText",
-									"Data": "​ (12 seconds), and the maximum value is not limited; when starting, environment variables will be read first to overwrite the values in the conf file."
+									"Data": "​ (12 seconds), and the maximum value is not limited; when starting, environment variables will be read first to overwrite the values in the conf file"
 								}
 							]
 						}

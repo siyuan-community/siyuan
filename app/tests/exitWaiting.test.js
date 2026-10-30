@@ -18,6 +18,14 @@ const createExitDialog = (sources, languages, mobile) => {
         return span.innerHTML;
     };
     const progress = load(sources.progress, {"../util/escape": {escapeHtml}});
+    const message = load(sources.message, {
+        "../util/genID": {genUUID: () => "message-test"},
+        "../constants": {Constants: {SIYUAN_VERSION: "test", TIMEOUT_INPUT: 0}},
+        "../util/hostCapabilities": {getHostCapabilities: () => ({remoteKernel: false}), sanitizeKernelHTML: text => text},
+        "./progress": progress,
+    });
+    document.body.insertAdjacentHTML("beforeend", '<div id="message"><div></div></div>');
+    window.showExitMessage = message.showMessage;
     const {Dialog} = load(sources.dialog, {
         "../util/genID": {genUUID: () => "exit-test"},
         "../util/zIndex": {isAbove: () => false},
@@ -51,7 +59,7 @@ if (process.versions.electron && process.type === "browser") {
         const watchdog = setTimeout(() => app.exit(1), 45000);
         const root = path.join(__dirname, "..");
         const ts = require("typescript");
-        const sources = Object.fromEntries(Object.entries({dialog: "dialog/index.ts", exit: "dialog/exitRequest.ts", progress: "dialog/progress.ts"})
+        const sources = Object.fromEntries(Object.entries({dialog: "dialog/index.ts", exit: "dialog/exitRequest.ts", progress: "dialog/progress.ts", message: "dialog/message.ts"})
             .map(([key, file]) => [key, ts.transpileModule(fs.readFileSync(path.join(root, "src", file), "utf8"), {
                 compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021},
             }).outputText]));
@@ -131,16 +139,16 @@ if (process.versions.electron && process.type === "browser") {
                 const waiting = await win.webContents.executeJavaScript(`(() => {
                     const container = document.querySelector("#exitProgress .b3-dialog__loading");
                     const bounds = container.getBoundingClientRect();
-                    const status = container.lastElementChild;
+                    const status = container.querySelector('[role="status"]');
                     const mask = document.querySelector(".b3-dialog__scrim");
                     const maskBounds = mask.getBoundingClientRect();
-                    const stripe = getComputedStyle(container.firstElementChild.firstElementChild);
+                    const segment = getComputedStyle(container.querySelector(".b3-dialog__progressbar"), "::before");
                     const key = new KeyboardEvent("keydown", {key: "a", bubbles: true, cancelable: true});
                     document.body.dispatchEvent(key);
                     return {visible: bounds.width > 0 && bounds.left >= 0 && bounds.right <= innerWidth,
                         globalMask: maskBounds.left === 0 && maskBounds.top === 0 && maskBounds.width === innerWidth && maskBounds.height === innerHeight,
                         overflow: status.scrollWidth > status.clientWidth, text: status.textContent,
-                        endless: stripe.animationName === "stripMove" && stripe.animationIterationCount === "infinite",
+                        endless: segment.animationName === "b3-progress-slide" && segment.animationIterationCount === "infinite",
                         noDialog: !document.querySelector(".b3-dialog__container"), inputBlocked: key.defaultPrevented};
                 })()`);
                 assert.equal(waiting.visible, true);
@@ -150,6 +158,18 @@ if (process.versions.electron && process.type === "browser") {
                 assert.equal(waiting.noDialog, true);
                 assert.equal(waiting.inputBlocked, true);
                 assert.ok(waiting.text.includes(languages.exitWaiting));
+                const merged = await win.webContents.executeJavaScript(`(() => {
+                    window.showExitMessage(window.siyuan.languages._kernel[95]);
+                    window.showExitMessage(window.siyuan.languages._kernel[81]);
+                    const status = document.querySelector("#exitProgress .ft__breakword").textContent;
+                    const duplicates = document.querySelectorAll(".b3-snackbar").length;
+                    window.showExitMessage("Unrelated warning", 0, "error");
+                    return {status, duplicates, error: document.querySelector(".b3-snackbar--error").textContent};
+                })()`);
+                assert.ok(merged.status.includes(languages.exitWaiting));
+                assert.ok(merged.status.includes(languages._kernel[81]));
+                assert.equal(merged.duplicates, 0);
+                assert.ok(merged.error.includes("Unrelated warning"));
                 await capture("exit");
                 await win.webContents.executeJavaScript("window.failExit(new Error('offline')); window.exitResult;");
                 const failed = await win.webContents.executeJavaScript(`(() => {

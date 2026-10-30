@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -21,8 +9,8 @@ import (
 
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/editor"
+	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
-	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/logging"
 )
@@ -40,13 +28,28 @@ func AutoSpace(rootID string) (err error) {
 	FlushTxQueue()
 
 	generateOpTypeHistory(tree, HistoryOpFormat)
+	newTree := autoSpaceTree(tree)
+	err = writeTreeUpsertQueue(newTree)
+	if err != nil {
+		return
+	}
+	invalidateDocumentHistory(newTree.ID)
+	logging.LogInfof("formatted tree [%s]", rootID)
+	util.RandomSleep(500, 700)
+	return
+}
+
+func autoSpaceTree(tree *parse.Tree) *parse.Tree {
 	luteEngine := NewLute()
+	mindmapTypes := map[string]ast.NodeType{}
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.WalkContinue
 		}
 
 		switch n.Type {
+		case ast.NodeMindmap, ast.NodeMindmapItem:
+			mindmapTypes[n.ID] = n.Type
 		case ast.NodeTextMark:
 			luteEngine.MergeSameTextMark(n) // 合并相邻的同类行级节点
 		case ast.NodeCodeBlockCode:
@@ -56,6 +59,17 @@ func AutoSpace(rootID string) (err error) {
 		}
 		return ast.WalkContinue
 	})
+	// Markdown 使用列表语法表示脑图，每次解析后按块 ID 恢复原生类型，正文中的普通列表保持不变。
+	restoreMindmapTypes := func(tree *parse.Tree) {
+		ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if entering && (n.Type == ast.NodeList || n.Type == ast.NodeListItem) {
+				if typ, ok := mindmapTypes[n.ID]; ok {
+					n.Type = typ
+				}
+			}
+			return ast.WalkContinue
+		})
+	}
 
 	rootIAL := tree.Root.KramdownIAL
 	addBlockIALNodes(tree, false)
@@ -64,25 +78,20 @@ func AutoSpace(rootID string) (err error) {
 	formatRenderer := render.NewFormatRenderer(tree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	md := formatRenderer.Render()
 	newTree := parseKTree(md)
-	newTree.Root.Spec = treenode.CurrentSpec
+	restoreMindmapTypes(newTree)
+	newTree.Root.Spec = tree.Root.Spec
 	// 第二次格式化启用自动空格
 	luteEngine.SetAutoSpace(true)
 	formatRenderer = render.NewFormatRenderer(newTree, luteEngine.RenderOptions, luteEngine.ParseOptions)
 	md = formatRenderer.Render()
 	newTree = parseKTree(md)
-	newTree.Root.Spec = treenode.CurrentSpec
+	restoreMindmapTypes(newTree)
+	newTree.Root.Spec = tree.Root.Spec
 	newTree.Root.ID = tree.ID
 	newTree.Root.KramdownIAL = rootIAL
 	newTree.ID = tree.ID
 	newTree.Path = tree.Path
 	newTree.HPath = tree.HPath
 	newTree.Box = tree.Box
-	err = writeTreeUpsertQueue(newTree)
-	if err != nil {
-		return
-	}
-	invalidateDocumentHistory(newTree.ID)
-	logging.LogInfof("formatted tree [%s]", rootID)
-	util.RandomSleep(500, 700)
-	return
+	return newTree
 }

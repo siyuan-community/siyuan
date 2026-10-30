@@ -8,6 +8,7 @@ import {MERMAID_SANITIZE_OPTIONS} from "./mermaidSanitize";
 import {isZenumlDiagram} from "./mermaidZenuml";
 import {getHostCapabilities} from "../../util/hostCapabilities";
 import {escapeHtml} from "../../util/escape";
+import {ensureBrowserCompatibility} from "../util/browserCompat";
 
 let mermaidTidyTreePromise: Promise<void>;
 let mermaidZenumlPromise: Promise<void>;
@@ -53,7 +54,8 @@ export const mermaidRender = (element: Element, cdn = Constants.PROTYLE_CDN) => 
     if (mermaidElements.length === 0) {
         return;
     }
-    addScript(`${cdn}/js/mermaid/mermaid.min.js?v=12.1.0`, "protyleMermaidScript").then(async () => {
+    ensureBrowserCompatibility(cdn).then(() =>
+        addScript(`${cdn}/js/mermaid/mermaid.min.js?v=12.2.0`, "protyleMermaidScript")).then(async () => {
         await registerMermaidExternalDiagrams(mermaidElements, cdn);
         await registerMermaidLayouts(mermaidElements, cdn);
         window.mermaid.registerIconPacks([
@@ -90,7 +92,8 @@ export const mermaidRender = (element: Element, cdn = Constants.PROTYLE_CDN) => 
         const hideElements: Element[] = [];
         const normalElements: Element[] = [];
         mermaidElements.forEach(item => {
-            if (item.firstElementChild.clientWidth === 0) {
+            // 可见的自动宽度块在图形生成前可能没有内容宽度，按布局盒判断是否隐藏。
+            if (item.getClientRects().length === 0) {
                 hideElements.push(item);
             } else {
                 normalElements.push(item);
@@ -164,6 +167,15 @@ const initMermaid = (mermaidElements: Element[]) => {
             let svg = mermaidData.svg.replace(/(href|src|xlink:href)\s*=\s*["']\\\\/gi, (match, p1) => `${p1}="about:blank"`);
             svg = window.DOMPurify.sanitize(svg, MERMAID_SANITIZE_OPTIONS);
             diagramElement.innerHTML = svg;
+            if (wysiswgElement && !item.closest(".protyle-wysiwyg__embed, .mindmap-view__preview-block") &&
+                !item.querySelector(":scope > .protyle-action__drag")) {
+                const handle = item.ownerDocument.createElement("span");
+                handle.className = "protyle-action__drag protyle-block-resize";
+                handle.contentEditable = "false";
+                handle.dataset.resizeAxis = "width";
+                handle.setAttribute("data-prevent-swipe", "true");
+                renderElement.insertAdjacentElement("afterend", handle);
+            }
         } catch (e) {
             if (renderElement.lastElementChild !== diagramElement) {
                 return;

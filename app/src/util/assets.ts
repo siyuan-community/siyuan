@@ -15,7 +15,8 @@ import {
     isIPad,
     isIPhone,
     isMac,
-    isWin11
+    isWin11,
+    resolvePlatformClass
 } from "../protyle/util/compatibility";
 import {setCodeTheme} from "../protyle/render/util";
 import {refreshMermaidTheme} from "../protyle/render/mermaidRender";
@@ -32,6 +33,7 @@ import {
 import {refreshChartTheme} from "../protyle/render/chartRender";
 import {getHostCapabilities} from "./hostCapabilities";
 import {initSelectionStyle} from "./selectionStyle";
+import {applyCompactMode} from "../config/tabs/compactMode";
 
 let headingNumberMeasurementRefreshTimer: number;
 let appearanceUpdate = Promise.resolve();
@@ -149,6 +151,8 @@ export const loadAssets = async (appearance: Config.IAppearance) => {
     const previousThemeMode = htmlElement.getAttribute("data-theme-mode");
     const themeMode = getThemeMode();
     htmlElement.setAttribute("lang", window.siyuan.config.appearance.lang);
+    applyCompactMode();
+    // data-frontend 也会由 applyPlatformClasses 提前写入，此处保持为外观刷新时的权威来源
     htmlElement.setAttribute("data-frontend", getFrontend()); // https://github.com/siyuan-note/siyuan/issues/12549
     htmlElement.setAttribute("data-backend", getBackend());
     htmlElement.setAttribute("data-theme-mode", themeMode);
@@ -218,8 +222,8 @@ export const loadAssets = async (appearance: Config.IAppearance) => {
     getAllModels().graph.forEach(item => {
         item.searchGraph();
     });
-    const pdfTheme = window.siyuan.config.appearance.mode === 0 ? window.siyuan.storage[Constants.LOCAL_PDFTHEME].light :
-        window.siyuan.storage[Constants.LOCAL_PDFTHEME].dark;
+    const pdfTheme = window.siyuan.config.appearance.mode === 0 ? window.siyuan.config.appearance.pdfTheme.light :
+        window.siyuan.config.appearance.pdfTheme.dark;
     document.querySelectorAll(".pdf__outer").forEach(item => {
         const darkElement = item.querySelector("#pdfDark");
         const lightElement = item.querySelector("#pdfLight");
@@ -336,7 +340,8 @@ export const setInlineStyle = async (set = true, servePath = "../../../", export
     if (set && allowCustomAppearance) {
         await ensureSelectedCustomFonts([...globalFonts, ...editorFonts, ...codeFonts]);
     }
-    const emojiPlatform = isMac() || isIPad() || isIPhone() ? "apple" : await isWin11() ? "windows11" : "other";
+    const emojiPlatform = isMac() || isIPad() || isIPhone() ? "apple" : await isWin11() ? "windows11" :
+        resolvePlatformClass() === "body--windows" ? "windows" : "other";
     let style = getEmojiFontStyle(emojiPlatform, servePath);
     style += getGlobalFontStyle(globalFonts);
     if (!set) {
@@ -350,7 +355,7 @@ export const setInlineStyle = async (set = true, servePath = "../../../", export
         `var(--b3-font-family-emoji-reset), ${codeFontFamilies}, var(--b3-font-family-code)` :
         "var(--b3-font-family-code)";
     const codeFontWeight = codeFonts[0]?.weight || 400;
-    style += `\n:root { --b3-font-size-editor: ${window.siyuan.config.editor.fontSize}px; --b3-font-family-editor: ${editorFontFamilies || "var(--b3-font-family-protyle)"}; --b3-font-family-editor-code: ${codeFontFamily}; --b3-font-weight-editor-code: ${codeFontWeight} }
+    style += `\n:root { --b3-font-size-editor: ${window.siyuan.config.editor.fontSize}px; --b3-font-family-editor: ${editorFontFamilies || "var(--b3-font-family-protyle)"}; --b3-font-family-editor-code: ${codeFontFamily}; --b3-font-weight-editor-code: ${codeFontWeight}; --b3-database-attr-columns: ${window.siyuan.config.editor.databaseAttrLayout === 0 ? 1 : 2}; --b3-database-attr-column-flow: ${window.siyuan.config.editor.databaseAttrLayout === 2 ? 1 : 0} }
 .b3-typography code:not(.hljs), .protyle-wysiwyg span[data-type~=code] { font-variant-ligatures: ${window.siyuan.config.editor.codeLigatures ? "normal" : "none"} }
 .b3-typography:not(.b3-typography--default) code:not(.hljs), .protyle-wysiwyg span[data-type~=code] { font-family: var(--b3-font-family-editor-code); font-weight: var(--b3-font-weight-editor-code) }${window.siyuan.config.editor.justify ? "\n.protyle-wysiwyg [data-node-id] { text-align: justify }" : ""}`;
     if (editorFontFamilies) {

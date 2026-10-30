@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package util
 
 import (
@@ -326,7 +330,7 @@ func TestPluginProjectRepeatedMutationsKeepBoundedRecoveryState(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := "initial"
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		next := fmt.Sprintf("revision %d", i)
 		err := WithPluginProjectSource(ctx, true, func(g *PluginDevelopmentGrant, root *os.Root) error {
 			if err := BeginPluginProjectMutation(g, "index.js", PluginProjectDigest([]byte(previous)), PluginProjectDigest([]byte(next))); err != nil {
@@ -389,7 +393,7 @@ func TestPluginProjectRepeatedReplansKeepOnlyCurrentCheckpoint(t *testing.T) {
 	if err = os.WriteFile(unknown, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		grant.PlanHash, grant.PlanVersion = fmt.Sprintf("plan %d", i), i+2
 		status, err = PreparePluginProject(ctx, grant.TaskID, nil, status.SourceRevision)
 		if err != nil {
@@ -423,7 +427,8 @@ func TestPluginProjectReplanFailuresKeepRecoverableBaseline(t *testing.T) {
 			previousPlan := grant.PlanHash
 			grant.PlanHash, grant.PlanVersion = "next plan", 2
 			blocked := private
-			if phase == "cleanup-before" {
+			switch phase {
+			case "cleanup-before":
 				blocked = filepath.Join(private, "checkpoints", PluginProjectDigest([]byte("obsolete checkpoint")))
 				if err = os.MkdirAll(blocked, 0700); err != nil {
 					t.Fatal(err)
@@ -431,7 +436,7 @@ func TestPluginProjectReplanFailuresKeepRecoverableBaseline(t *testing.T) {
 				if err = os.WriteFile(filepath.Join(blocked, "index.js"), []byte("obsolete"), 0600); err != nil {
 					t.Fatal(err)
 				}
-			} else if phase == "cleanup-after" {
+			case "cleanup-after":
 				blocked = filepath.Join(private, "baseline")
 			}
 			t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })

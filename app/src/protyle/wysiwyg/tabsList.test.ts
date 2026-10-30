@@ -1,6 +1,16 @@
 import * as assert from "node:assert/strict";
 import {test} from "node:test";
-import {isEmptyTabPlaceholder} from "./tabsList";
+import {ScriptTarget} from "typescript";
+import {loadModule} from "../../testSupport/loadModule";
+const {createMockRequire} = require("../../../tests/fixtures/mockModules.cjs");
+
+const {isEmptyTabPlaceholder} = loadModule<typeof import("./tabsList")>("src/protyle/wysiwyg/tabsList.ts", {
+    require: createMockRequire({
+        "../render/tabsRender": {},
+        "../render/listMindmap/model": {},
+        "../render/listMindmap/preferences": {},
+    }),
+}, ScriptTarget.ES2021);
 
 const paragraph = (attrs: Record<string, string>, text = "", rich = false) => ({
     attributes: Object.entries(attrs).map(([name, value]) => ({name, value})),

@@ -24,6 +24,8 @@ const sources = {
     layout: compile(sliceSource("../../mobile/util/mobileTopBar.ts", "const MOBILE_TOP_BAR_ELEMENT_IDS = ")),
     editor: compile(sliceSource("../../mobile/util/setEmpty.ts", "export const setEditor = ")),
     render: compile(sliceSource("onGet.ts", "export const onGet = ", "export const disabledForeverProtyle = ")),
+    content: compile(sliceSource("renderContent.ts", "export const getInsertedRenderRoots = ")),
+    backgroundActions: compile(sliceSource("../header/backgroundActions.ts", "export const updateBackgroundActions = ")),
     loading: compile(sliceSource("../ui/initUI.ts", "export const addLoading = ", "export const setPadding = ")),
     navigation: compile(sliceSource("../render/av/databaseRowNavigation.ts", "export const clearDatabaseRowNavigation = ", "export const mountDatabaseRowNavigation = ")),
     completion: compile(sliceSource("../../mobile/editor.ts", "    let completed = false;", "    if (!isValid()) {")),
@@ -55,6 +57,7 @@ const browserCases = (code: typeof sources) => {
         Constants.TIMEOUT_LOAD = 300;
         const protyle = {
             element: editorElement,
+            background: {element: document.createElement("div")},
             contentElement,
             options: {render: {title: true, breadcrumb: true}, defIds: [] as string[]},
             block: {rootID: "previous"},
@@ -65,6 +68,7 @@ const browserCases = (code: typeof sources) => {
             breadcrumb: {element: breadcrumbElement.firstElementChild, toggleExit: noop, render: noop},
             scroll: {element: scrollElement, invalidateDynamicLoad: noop},
         };
+        protyle.background.element.className = "protyle-background protyle-background--hide-actions";
         const dependencies: Record<string, unknown> = {
             document, DOMParser, Constants,
             window: {screen: {orientation: {type: mode === "landscape" ? "landscape-primary" : "portrait-primary"}},
@@ -79,6 +83,8 @@ const browserCases = (code: typeof sources) => {
             setTitle: noop, finishMobileStartup: noop, bindMobileBarsScroll: noop,
             isValid: () => true, action: [], afterOpen: () => {opened++;}, onFailure: () => {failed++;},
             sanitizeKernelHTML: (html: string) => html,
+            beginPerformance: noop,
+            updateMobileBottomBacklinkPanel: () => Promise.resolve(),
         };
         for (const name of ["invalidateTrackedRanges", "hideElements", "invalidateHeadingNumberRefresh",
             "normalizeHTMLAssetIFrameSources", "updateWidgetCacheVersion", "disposeCustomBlocksInElement",
@@ -87,7 +93,7 @@ const browserCases = (code: typeof sources) => {
             dependencies[name] = noop;
         }
         const runtime = new Function(...Object.keys(dependencies), code.orientation + code.layout + code.editor + code.loading +
-            code.render + code.navigation + code.completion + "\nreturn {onGet, addLoading, complete, fail, updateMobileTopBarLayout};")(
+            code.backgroundActions + code.content + code.render + code.navigation + code.completion + "\nreturn {onGet, addLoading, complete, fail, updateMobileTopBarLayout};")(
             ...Object.values(dependencies));
         if (mode !== "desktop") {
             runtime.updateMobileTopBarLayout();
@@ -109,6 +115,9 @@ const browserCases = (code: typeof sources) => {
         timers.forEach(callback => callback());
         check.equal(renderError, undefined, `${mode}: document rendering completes without a title lookup error`);
         check.equal(opened, 1, `${mode}: navigation settles successfully`);
+        check.equal(protyle.background.element.classList.contains("protyle-background--hide-actions"), false,
+            `${mode}: ordinary document navigation clears hidden database row actions`);
+        check.equal(protyle.background.element.classList.contains("protyle-background--mobileshow"), mode !== "desktop");
         check.equal(failed, 0);
         check.equal(wysiwygElement.textContent, "Next document");
         check.equal(editorElement.getAttribute("data-loading"), "finished");
@@ -137,6 +146,7 @@ test("mobile loading completion clears row navigation before settling once", () 
         document: {getElementById: (): HTMLElement | null => null},
         setEditor: () => calls.push("show editor"),
         bindMobileBarsScroll: () => calls.push("bind scroll"),
+        updateMobileBottomBacklinkPanel: () => { calls.push("update backlinks"); return Promise.resolve(); },
         isValid: () => true,
         action: [] as string[], Constants: {CB_GET_OPENNEW: "open-new"},
         afterOpen: () => calls.push("opened"),
@@ -147,7 +157,7 @@ test("mobile loading completion clears row navigation before settling once", () 
     const protyle = {element: container, contentElement: {}};
     complete(protyle);
     complete(protyle);
-    assert.deepEqual(calls, ["remove navigation", "protyle--database-row-navigation", "show editor", "bind scroll", "opened"]);
+    assert.deepEqual(calls, ["remove navigation", "protyle--database-row-navigation", "show editor", "update backlinks", "bind scroll", "opened"]);
 });
 
 test("document rendering preserves landscape title controls and finishes loading", {

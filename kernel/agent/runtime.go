@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package agent
 
@@ -21,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -155,6 +144,7 @@ type agentRuntimeTurn struct {
 	UserEntryID       string         `json:"userEntryID"`
 	TargetUserEntryID string         `json:"targetUserEntryID,omitempty"`
 	UserContent       string         `json:"userContent,omitempty"`
+	UserTimestamp     int64          `json:"userTimestamp,omitempty"`
 	UserBlockHTML     *string        `json:"userBlockHTML,omitempty"`
 	UserReferences    *[]Reference   `json:"userReferences,omitempty"`
 	UserEditorContext *EditorContext `json:"userEditorContext,omitempty"`
@@ -291,6 +281,10 @@ func beginRuntimeTurn(sessionID string, turn *agentRuntimeTurn) error {
 	}
 	if findRuntimeUserAnchor(session, turn.UserEntryID) < 0 {
 		return fmt.Errorf("agent runtime user entry not found")
+	}
+	// 编辑重发的消息时间固定为本轮开始时间，不随后续检查点和恢复操作改变。
+	if turn.Mode == "regenerate" && turn.UserBlockHTML != nil && turn.UserTimestamp == 0 {
+		turn.UserTimestamp = time.Now().UnixMilli()
 	}
 	runtime.ActiveTurn = turn
 	return writeRuntimeLocked(sessionID, runtime)
@@ -441,8 +435,8 @@ func isRuntimeTurnTerminal(turn *agentRuntimeTurn) bool {
 
 func findRuntimeUserAnchor(session map[string]any, userEntryID string) int {
 	entries, _ := session["entries"].([]any)
-	for i := len(entries) - 1; i >= 0; i-- {
-		entry, _ := entries[i].(map[string]any)
+	for i, entrie := range slices.Backward(entries) {
+		entry, _ := entrie.(map[string]any)
 		if entry["type"] != "user" {
 			continue
 		}
@@ -466,6 +460,9 @@ func applyRuntimeTurnToSessionLocked(session map[string]any, turn *agentRuntimeT
 	if turn.Mode == "regenerate" && turn.UserContent != "" {
 		entry, _ := entries[anchor].(map[string]any)
 		entry["content"] = turn.UserContent
+		if turn.UserTimestamp > 0 {
+			entry["timestamp"] = turn.UserTimestamp
+		}
 		if turn.UserBlockHTML != nil {
 			if *turn.UserBlockHTML != "" {
 				entry["blockHTML"] = *turn.UserBlockHTML

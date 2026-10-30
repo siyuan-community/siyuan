@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import (
@@ -56,7 +60,7 @@ func TestDirectJSONHTTPResponses(t *testing.T) {
 	if _, err := json.Marshal(SuccessNoContent[directJSONTestResult]()); err == nil {
 		t.Fatal("empty response was serialized")
 	}
-	declarations := string(bundle.TypeScript(nil, nil))
+	declarations := string(bundle.TypeScript(nil))
 	if !strings.Contains(declarations, `output: "directJSON"`) || !strings.Contains(declarations, "noContent: true") {
 		t.Fatal("direct JSON protocol metadata missing")
 	}

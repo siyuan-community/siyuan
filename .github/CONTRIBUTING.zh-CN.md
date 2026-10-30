@@ -21,10 +21,10 @@ Electron 44 要求 macOS 13 或更高版本，Windows 和 Linux 仅支持 64 位
 
 设置 Electron 镜像环境变量并安装 Electron：
 
-* macOS/Linux：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install electron@44.7.0 -D`
+* macOS/Linux：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install electron@44.10.0 -D`
 * Windows：
   * `SET ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
-  * `pnpm install electron@44.7.0 -D`
+  * `pnpm install electron@44.10.0 -D`
 
 NPM 镜像：
 
@@ -34,7 +34,7 @@ NPM 镜像：
 
 进入 app 文件夹执行：
 
-* `pnpm install electron@44.7.0 -D`
+* `pnpm install electron@44.10.0 -D`
 * `pnpm run install:electron`
 * `pnpm run dev`
 * `pnpm run start`
@@ -70,7 +70,7 @@ NPM 镜像：
 桌面端打包会运行 `scripts/prepare-ocr.py`，准备固定版本的模型和原生运行库。可以先执行 `python scripts/prepare-ocr.py --runtime windows-amd64 --check-only` 或 `python3 scripts/prepare-ocr.py --runtime linux-arm64 --build-worker --check-only` 检查原生依赖，不会下载资源或执行编译。
 
 * Windows：发布构建者须具有 Visual Studio 许可证授予的再分发权，并从 `VC/Redist/MSVC` 提供对应 x64/ARM64 架构的**发布版** CRT 文件。脚本通过 `vswhere` 或 `VCToolsRedistDir` 查找已安装的 Visual Studio。自定义位置或跨主机打包时，将 `SIYUAN_OCR_VC_REDIST_DIR` 指向含 `x64`、`arm64` 子目录的 `VC/Redist/MSVC/<version>`，也可以直接指向目标架构的 `Microsoft.VC*.CRT` 目录。仅使用官方 Visual Studio 再分发文件，不要从 `System32`、调试运行库或第三方 DLL 下载站收集文件。准备步骤会检查架构和必需的导出符号，将 CRT 的传递依赖放在 ONNX Runtime 旁，并记录 SHA-256 摘要及许可说明。发布时应及时更新这些应用本地运行库，详见 Microsoft 的[再分发条款](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution#visual-c-runtime-files)。该方案不会安装系统级运行库，也不需要最终用户提权
-* Linux：即使内核采用 musl 工具链，OCR 辅助进程仍需要 **glibc** 编译器。运行 `scripts/linux-build.sh` 前须准备本机 `gcc` 和对应的交叉编译器。在 Debian/Ubuntu 上，AMD64 主机构建 ARM64 需要 `gcc-aarch64-linux-gnu`，ARM64 主机构建 AMD64 需要 `gcc-x86-64-linux-gnu`；可执行 `sudo apt-get install gcc gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu` 安装。可选环境变量 `SIYUAN_OCR_CC_AMD64`、`SIYUAN_OCR_CC_ARM64` 分别指定目标架构的编译器命令，脚本会校验目标三元组，不会复用内核的 musl `CC`
+* Linux：桌面 OCR 辅助进程的 AMD64、ARM64 构建统一以 **glibc 2.28** 为兼容目标，独立于内核的 musl 工具链。准备脚本下载 `scripts/ocr-assets.json` 中固定版本的 Zig 编译器，校验摘要并缓存在 `.cache/ocr/`，不随应用分发。请安装 `binutils`，以便使用 `readelf` 检查兼容性。可选环境变量 `SIYUAN_OCR_CC_AMD64`、`SIYUAN_OCR_CC_ARM64` 分别指定带 glibc 2.28 或更旧 sysroot 的编译器命令；脚本会拒绝较新头文件及依赖较新 glibc 符号的产物。`--check-only` 仅校验默认工具链选择，不下载工具链。Docker 继续使用独立的 Alpine/musl OCR 构建流程
 
 ### iOS
 
@@ -85,6 +85,10 @@ NPM 镜像：
 * `gomobile bind -tags "fts5 sqlcipher" -ldflags "-s -w"  -v -o kernel.aar -target android/arm64 -androidapi 26 ./mobile/`
 * https://github.com/siyuan-note/siyuan-android
 
+Windows 下可在思源仓库根目录执行 `node scripts/android-dev-run.mjs`，构建移动端前端、打包资源、构建 `kernel.aar` 和调试 APK，然后通过 ADB 安装并启动独立调试包，默认使用 `official` 渠道。需准备 Node.js、pnpm、Go、gomobile、JDK、Android SDK 和 NDK，以及支持 ZIP 的 bsdtar（Windows 自带的 `tar`）。在 Android 工程的 `local.properties` 中配置 `sdk.dir`，或设置 `ANDROID_HOME`；脚本会选择 SDK 目录下版本最高的 NDK。设备需开启并授权调试连接。
+
+Android 工程默认位于思源仓库同级，可用 `--android-dir=<路径>` 或 `SIYUAN_ANDROID_DIR` 指定；使用 `--device=<序列号>` 选择 ADB 连接。`--skip-ui` 复用现有前端产物（需包含 mobile、desktop、export），`--skip-kernel` 复用并复制现有 `kernel/kernel.aar`，`--skip-gradle` 仅跳过 APK 构建，仍会执行前面的资源打包和内核处理。仅重新安装已有 APK 时同时传入这三个参数；SDK 和 NDK 仍需可用。更多参数见 `node scripts/android-dev-run.mjs --help`。
+
 ### Harmony
 
 仅支持在 Linux 下编译，需要安装鸿蒙 SDK，并且需要修改 Go 源码。
@@ -93,7 +97,15 @@ NPM 镜像：
 * `./build.sh` （Windows 模拟器使用 `./build-win.sh`）
 * https://github.com/siyuan-note/siyuan-harmony
 
-修改 Go 源码：
+ARM64 真机可在思源仓库根目录执行 `node scripts/harmony-dev-run.mjs`，构建移动端前端、打包资源、构建内核和已签名的调试 HAP，然后通过 HDC 安装并启动独立调试包。先在 DevEco Studio 为设备配置鸿蒙工程的 `debug` 签名，并准备原生 OCR 运行库和模型（参考鸿蒙仓库 README）。Windows 通过 WSL 在当前检出目录中执行内核构建，WSL 内需具备鸿蒙 SDK、Go 和 Python 3.10+。脚本使用支持 ZIP 的 bsdtar（Windows 自带的 `tar`），不会自动卸载应用。
+
+通过 `--deveco=<路径>`、`--harmony-dir=<路径>`、`--device=<连接标识>` 指定工具、工程和设备。`--skip-ui` 复用现有前端产物（需包含 mobile、desktop、export），`--skip-kernel` 复制现有 `kernel/harmony/libkernel.so` 和 `libkernel.h`，`--skip-hvigor` 则仅重新安装并启动已有的调试 HAP，跳过所有构建及资源复制。更多参数见 `node scripts/harmony-dev-run.mjs --help`。运行脚本测试：`node --test app/scripts/harmony-dev-run.test.js`。
+
+Windows 下，部署脚本会在临时工作区中将当前 `go.work` 的模块路径和本地替换路径转换为 WSL 路径，保留本地依赖覆盖，不修改原始工作区文件。如果已禁用工作区模式，WSL 构建同样使用 `GOWORK=off`。
+
+部署脚本通过 `scripts/prepare-harmony-go.py` 将实际选中的 Go 工具链复制到 Linux 用户缓存（默认 `~/.cache/siyuan-harmony/go`），在副本中应用下面三处鸿蒙适配，再通过 `GOTOOLCHAIN=local` 固定使用该副本。系统 Go 和自动下载的共享工具链均保持不变；版本或适配输入变化时创建另一份缓存，不识别的源码或损坏的缓存会报错。工具链准备测试：`python3 -m unittest scripts/test_prepare_harmony_go.py`；Linux 下还会验证构建包装脚本的工具链选择流程，测试不编译内核。
+
+直接运行 `kernel/harmony/build.sh` 时，需自行修改实际使用的 Go 源码：
 
 1. go/src/runtime/tls_arm64.s
 

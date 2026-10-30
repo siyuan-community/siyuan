@@ -1,10 +1,13 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"github.com/emersion/go-webdav"
@@ -50,9 +53,9 @@ func TestDAVDeleteMissingCollection(t *testing.T) {
 			}
 		})
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		err := calendarStore.DeleteCalendar(calendarPath)
-		if want := webdav.NewHTTPError(http.StatusNotFound, ErrorCalDavCalendarNotFound); !reflect.DeepEqual(err, want) {
+		if want := webdav.NewHTTPError(http.StatusNotFound, ErrorCalDavCalendarNotFound); err == nil || err.Error() != want.Error() {
 			t.Fatalf("DeleteCalendar error = %v, want %v", err, want)
 		}
 	}

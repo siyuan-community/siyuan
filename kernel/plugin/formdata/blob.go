@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package formdata
 
@@ -32,9 +20,9 @@ import (
 var (
 	// blobStateType 用于在 Object.Export() 前先以 Object.ExportType() 做品牌判定，原因见 kernel/plugin/abort 中
 	// signalStateType 的注释。
-	blobStateType = reflect.TypeOf((*blobState)(nil))
+	blobStateType = reflect.TypeFor[*blobState]()
 	// arrayBufferExportType 是 ArrayBuffer 对象的导出类型，用于在不调用 Export() 的前提下识别 ArrayBuffer。
-	arrayBufferExportType = reflect.TypeOf(goja.ArrayBuffer{})
+	arrayBufferExportType = reflect.TypeFor[goja.ArrayBuffer]()
 )
 
 var (

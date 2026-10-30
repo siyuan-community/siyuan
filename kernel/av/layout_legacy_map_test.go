@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package av
 
 import (
@@ -25,7 +29,7 @@ func TestLegacyMapLayoutPreservesStorageAsTable(t *testing.T) {
 		}
 	}
 	locationBefore := *database.KeyValues[0].Values[0].Location
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		data, marshalErr := json.Marshal(database)
 		if marshalErr != nil {
 			t.Fatal(marshalErr)

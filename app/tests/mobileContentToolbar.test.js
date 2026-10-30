@@ -5,6 +5,8 @@ const os = require("node:os");
 
 const runCases = async () => {
     const assert = require("node:assert/strict");
+    const errors = [];
+    window.addEventListener("error", event => errors.push(event.message));
     window.siyuan = {zIndex: 0, languages: {}, menus: {menu: {
         element: document.createElement("div"), remove() { this.data = undefined; }, fullscreen() {},
     }}};
@@ -70,6 +72,26 @@ const runCases = async () => {
             await click(state, action);
             assert.deepEqual(commands.at(-1), {command: action, text: "Alpha beta"});
             assert.equal(state.toolbar.subElement.classList.contains("fn__none"), true);
+        }
+    }
+
+    // 图片表情位于首尾时，内容工具栏先选中完整正文，再按编辑器能力进入块多选或保留文字选区。
+    for (const table of [false, true]) {
+        for (const gutter of [false, true]) {
+            const state = createEditor(gutter, table);
+            state.editable.insertAdjacentHTML("afterbegin", '<img class="emoji" alt="custom">');
+            state.editable.insertAdjacentHTML("beforeend", '<img class="emoji" alt="custom">');
+            await click(state, "select");
+            assertTextSelection(state);
+            assert.equal(getSelection().getRangeAt(0).cloneContents().querySelectorAll(".emoji").length, 2);
+            await click(state, "select");
+            if (gutter) {
+                assert.equal(state.toolbar.isMultiSelectMode(), true);
+                assert.equal(state.element.querySelectorAll(".protyle-wysiwyg--select").length, 2);
+            } else {
+                assertTextSelection(state);
+                assert.equal(getSelection().getRangeAt(0).cloneContents().querySelectorAll(".emoji").length, 2);
+            }
         }
     }
 
@@ -225,6 +247,14 @@ const runCases = async () => {
     assert.deepEqual(documentEditor.menus, [documentEditor.block]);
     documentEditor.toolbar.subElement.querySelector('[data-type="exitMultiSelectMode"]').click();
     assert.equal(documentEditor.element.querySelector(".protyle-wysiwyg--select"), null);
+
+    // iOS 正文双击保留原生文字菜单，不显示自定义内容工具栏。
+    window.contentToolbarIOS = true;
+    const nativeMenu = createEditor(false);
+    nativeMenu.editable.dispatchEvent(new MouseEvent("dblclick", {bubbles: true}));
+    assert.equal(nativeMenu.toolbar.subElement.classList.contains("fn__none"), true);
+    assert.equal(getSelection().toString(), "lph");
+    assert.deepEqual(errors, []);
 };
 
 const runElectron = async () => {
@@ -266,6 +296,8 @@ const runElectron = async () => {
             "const stripSemanticMarkersFromRangeText = range => range.toString();",
             "const getAVTemplateInteractiveElement = () => undefined; const getDiagramBlock = () => undefined;",
             "const isNotEditBlock = () => false;",
+            "const isIOSDevice = () => window.contentToolbarIOS === true;",
+            extract("protyle/wysiwyg/nativeTextMenu", ["usesNativeTextMenu"]),
             "const contentMenu = (protyle, node) => protyle.toolbar.showContent(protyle, getSelection().getRangeAt(0), node);",
             read("protyle/util/hasClosest"),
             read("protyle/wysiwyg/blockSelection"),

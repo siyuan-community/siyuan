@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package formdata
 
@@ -32,8 +20,8 @@ import (
 var (
 	// stateType 与 iteratorStateType 用于在 Object.Export() 前先以 Object.ExportType() 做品牌判定，
 	// 原因见 kernel/plugin/abort 中 signalStateType 的注释。
-	stateType         = reflect.TypeOf((*State)(nil))
-	iteratorStateType = reflect.TypeOf((*iteratorState)(nil))
+	stateType         = reflect.TypeFor[*State]()
+	iteratorStateType = reflect.TypeFor[*iteratorState]()
 )
 
 // multipartNameEscaper 按 HTML 规范转义 Content-Disposition 的 name 与 filename 参数：只把 LF、CR、双引号替换为百分号编码。
@@ -365,11 +353,16 @@ func (s *State) EncodeMultipart() (body []byte, contentType string) {
 
 	var buffer bytes.Buffer
 	for _, e := range s.entries {
-		buffer.WriteString("--" + boundary + "\r\n")
-		buffer.WriteString(`Content-Disposition: form-data; name="` +
-			multipartNameEscaper.Replace(crlfReplacer.Replace(e.name)) + `"`)
+		buffer.WriteString("--")
+		buffer.WriteString(boundary)
+		buffer.WriteString("\r\n")
+		buffer.WriteString(`Content-Disposition: form-data; name="`)
+		buffer.WriteString(multipartNameEscaper.Replace(crlfReplacer.Replace(e.name)))
+		buffer.WriteString(`"`)
 		if e.fileState == nil {
-			buffer.WriteString("\r\n\r\n" + crlfReplacer.Replace(e.value) + "\r\n")
+			buffer.WriteString("\r\n\r\n")
+			buffer.WriteString(crlfReplacer.Replace(e.value))
+			buffer.WriteString("\r\n")
 			continue
 		}
 
@@ -377,11 +370,17 @@ func (s *State) EncodeMultipart() (body []byte, contentType string) {
 		if fileType == "" {
 			fileType = "application/octet-stream"
 		}
-		buffer.WriteString(`; filename="` + multipartNameEscaper.Replace(e.fileState.name) + `"` +
-			"\r\nContent-Type: " + fileType + "\r\n\r\n")
+		buffer.WriteString(`; filename="`)
+		buffer.WriteString(multipartNameEscaper.Replace(e.fileState.name))
+		buffer.WriteString(`"`)
+		buffer.WriteString("\r\nContent-Type: ")
+		buffer.WriteString(fileType)
+		buffer.WriteString("\r\n\r\n")
 		buffer.Write(e.fileState.data)
 		buffer.WriteString("\r\n")
 	}
-	buffer.WriteString("--" + boundary + "--\r\n")
+	buffer.WriteString("--")
+	buffer.WriteString(boundary)
+	buffer.WriteString("--\r\n")
 	return buffer.Bytes(), "multipart/form-data; boundary=" + boundary
 }

@@ -1,10 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -84,6 +80,42 @@ func TestGraphSearchLiteralWildcards(t *testing.T) {
 					t.Fatalf("keyword %q field %s value %q: matched=%v", keyword, field, value, matched)
 				}
 			}
+		}
+	}
+}
+
+func TestGraphSearchTagAttributes(t *testing.T) {
+	previous := Conf
+	Conf = &AppConf{Search: NewConfSection(conf.NewSearch())}
+	t.Cleanup(func() { Conf = previous })
+	db, err := gosql.Open("sqlite3_extended", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, tag := range []string{"foo", "a_b", "a%b", `a\b`, "a'b"} {
+		query := "SELECT " + query2Stmt(`<span data-type="tag">`+tag+`</span>`) +
+			" FROM (SELECT ? AS content, '' AS name, '' AS alias, '' AS memo, ? AS ial)"
+		for _, test := range []struct {
+			name, content, ial string
+			want               bool
+		}{
+			{"attribute-tag", "plain text", `{: tags="` + tag + `"}`, true},
+			{"other-tag", "plain text", `{: tags="unrelated axb"}`, false},
+			{"other-attribute", "plain text", `{: name="` + tag + `"}`, false},
+			{"inline-tag", "#" + tag + "#", `{: name="other"}`, true},
+			{"empty-attributes", "plain text", "", false},
+			{"inline-tag-empty-attributes", "#" + tag + "#", "", true},
+		} {
+			t.Run(tag+"/"+test.name, func(t *testing.T) {
+				var matched bool
+				if err := db.QueryRow(query, test.content, test.ial).Scan(&matched); err != nil {
+					t.Fatalf("%s: %v", query, err)
+				}
+				if matched != test.want {
+					t.Fatalf("content %q ial %q: matched=%v, want %v", test.content, test.ial, matched, test.want)
+				}
+			})
 		}
 	}
 }

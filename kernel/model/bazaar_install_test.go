@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -130,7 +134,7 @@ func TestBoundInstallUpdatesWithoutSeparateBackups(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := first.InstalledRevision
-	for i := 0; i < 33; i++ {
+	for i := range 33 {
 		installed := installBoundFixture(t, fmt.Sprintf("version %d", i), previous)
 		if !installed.Updated || installed.PreviousRevision != previous {
 			t.Fatalf("update binding = %+v", installed)

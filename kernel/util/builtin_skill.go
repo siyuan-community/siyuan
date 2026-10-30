@@ -1,6 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-// Licensed under the GNU Affero General Public License, version 3 or later.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -9,6 +9,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -71,11 +72,8 @@ func BuiltinPluginSkill(disabled []string) (*BuiltinSkillInfo, error) {
 		Description: frontmatter["description"], Source: "builtin",
 		Version: BuiltinPluginSkillVersion, Digest: fmt.Sprintf("sha256:%x", hash.Sum(nil)), Enabled: true,
 	}
-	for _, id := range disabled {
-		if id == info.ID {
-			info.Enabled = false
-			break
-		}
+	if slices.Contains(disabled, info.ID) {
+		info.Enabled = false
 	}
 	return info, nil
 }

@@ -1,6 +1,7 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // 本文件为加密笔记本的 AV 定义提供笔记本级存储与 DEK 加解密支持。
 // 与 filesys/crypto_hook.go 同模式：av 包不直接 import model（避免循环依赖），
 // 由 model 层在 init 时注入回调函数。
@@ -222,7 +223,9 @@ func readMirrorBlocks(boxID string) (ret map[string][]string) {
 func readMirrorBlocksWithErr(boxID string) (ret map[string][]string, err error) {
 	ret = map[string][]string{}
 	p := mirrorBlocksPath(boxID)
-	if !filelock.IsExist(p) {
+	if _, err = os.Stat(p); os.IsNotExist(err) {
+		return ret, nil
+	} else if err != nil {
 		return
 	}
 	data, err := filelock.ReadFile(p)
@@ -240,6 +243,9 @@ func readMirrorBlocksWithErr(boxID string) (ret map[string][]string, err error) 
 	}
 	if err = msgpack.Unmarshal(data, &ret); err != nil {
 		return
+	}
+	if ret == nil {
+		err = errors.New("invalid database mirror index")
 	}
 	return
 }
@@ -295,6 +301,14 @@ func encryptAVData(boxID, avID string, data []byte) ([]byte, error) {
 		AVLockAcquire(boxID)
 		defer AVLockRelease(boxID)
 	}
+	return encryptAVDataLocked(boxID, avID, data)
+}
+
+// encryptAVDataLocked 在调用方持有笔记本读锁时加密数据库定义。
+func encryptAVDataLocked(boxID, avID string, data []byte) ([]byte, error) {
+	if AVDEKProvider == nil {
+		return data, nil
+	}
 	dek, err := AVDEKProvider(boxID)
 	if err != nil {
 		return nil, err // 加密但未解锁，拒绝写盘避免明文泄漏
@@ -303,6 +317,7 @@ func encryptAVData(boxID, avID string, data []byte) ([]byte, error) {
 		return data, nil // 非加密 box
 	}
 	avKey := util.DeriveSubKey(dek, "siyuan/av")
+	defer clear(avKey)
 	aad := avAAD(boxID, avID)
 	return util.EncryptWithAAD(avKey, data, []byte(aad))
 }
@@ -329,7 +344,13 @@ func decryptAVDataLocked(boxID, avID string, data []byte) ([]byte, error) {
 	if dek == nil {
 		return data, nil // 非加密 box
 	}
+	return DecryptAVDataWithDEK(boxID, avID, dek, data)
+}
+
+// DecryptAVDataWithDEK 使用已取得的密钥认证数据库定义，不重新取得笔记本锁或发布明文缓存。
+func DecryptAVDataWithDEK(boxID, avID string, dek, data []byte) ([]byte, error) {
 	avKey := util.DeriveSubKey(dek, "siyuan/av")
+	defer clear(avKey)
 	aad := avAAD(boxID, avID)
 	return util.DecryptWithAAD(avKey, data, []byte(aad))
 }

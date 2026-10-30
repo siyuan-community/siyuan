@@ -1,16 +1,17 @@
 module github.com/siyuan-community/siyuan/kernel
 
-go 1.26.5
+go 1.26.10
 
 require (
 	code.sajari.com/docconv v1.3.8
 	github.com/88250/clipboard v0.1.5
 	github.com/88250/epub v0.0.0-20230830085737-c19055cd1f48
 	github.com/88250/go-humanize v0.0.0-20240424102817-4f78fac47ea7
-	github.com/88250/gulu v1.2.3-0.20260831011033-1a37069fad34
+	github.com/88250/gulu v1.2.3-0.20261027015724-890e40ac7f1c
 	github.com/88250/vitess-sqlparser v0.0.0-20210205111146-56a2ded2aba1
 	github.com/ClarkThan/ahocorasick v0.1.2
 	github.com/ConradIrwin/font v0.2.2-0.20260202161408-44ae4cf5fb22
+	github.com/Eyevinn/mp4ff v0.60.0
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/Xuanwo/go-locale v1.1.3
@@ -59,6 +60,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/mssola/useragent v1.0.0
 	github.com/olahol/melody v1.4.0
+	github.com/oops1/go.264 v1.12.0
 	github.com/open-spaced-repetition/go-fsrs/v3 v3.3.1
 	github.com/panjf2000/ants/v2 v2.12.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -74,34 +76,35 @@ require (
 	github.com/sashabaranov/go-openai v1.42.0
 	github.com/shirou/gopsutil/v4 v4.26.7
 	github.com/siyuan-note/dataparser v0.0.0-20260115084335-b57cb8bc7c17
-	github.com/siyuan-note/dejavu v0.0.0-20261011111741-4465ef631977
+	github.com/siyuan-note/dejavu v0.0.0-20261027083850-4ce2f57c199f
 	github.com/siyuan-note/encryption v0.0.0-20260715062728-9cb8e9548044
 	github.com/siyuan-note/eventbus v0.0.0-20260530125927-d77c74260dce
-	github.com/siyuan-note/filelock v0.0.0-20260831011452-393425122aaa
+	github.com/siyuan-note/filelock v0.0.0-20261025032826-1ff24a81dda9
 	github.com/siyuan-note/httpclient v0.0.0-20260813083704-4643a83d05de
 	github.com/siyuan-note/logging v0.0.0-20260513050044-06b8e04d5490
-	github.com/siyuan-note/riff v0.0.0-20251022131846-228528e70754
+	github.com/siyuan-note/riff v0.0.0-20261027020519-fcf37f980d3f
 	github.com/smallnest/chanx v1.2.0
 	github.com/soheilhy/cmux v0.1.5
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.10.2
 	github.com/steambap/captcha v1.4.1
 	github.com/studio-b12/gowebdav v0.13.0
+	github.com/tphakala/go-aac v0.7.1
 	github.com/vanng822/css v1.0.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342
 	github.com/xuri/excelize/v2 v2.11.0
 	golang.org/x/mobile v0.0.0-20251209145715-2553ed8ce294
-	golang.org/x/mod v0.40.0
-	golang.org/x/net v0.58.0
-	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/text v0.41.0
+	golang.org/x/mod v0.41.0
+	golang.org/x/net v0.59.0
+	golang.org/x/sync v0.24.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/text v0.43.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/88250/lute v1.7.9-0.20261011125927-8bf47cd864f7
+require github.com/88250/lute v1.7.9-0.20261027103609-4a3d954e5e58
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
@@ -112,6 +115,7 @@ require (
 	github.com/olekukonko/cat v0.0.0-20250911104152-50322a0618f6 // indirect
 	github.com/olekukonko/errors v1.3.0 // indirect
 	github.com/olekukonko/ll v0.1.8 // indirect
+	github.com/tphakala/simd v1.11.0 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.8.0 // indirect
 )
 
@@ -148,7 +152,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.33.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.5 // indirect
-	github.com/aws/smithy-go v1.27.7 // indirect
+	github.com/aws/smithy-go v1.27.7
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.2 // indirect
@@ -231,17 +235,17 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/arch v0.30.0 // indirect
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.45.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9 // indirect
 	modernc.org/fileutil v1.4.0 // indirect
 )
 
-replace github.com/mattn/go-sqlite3 => github.com/88250/go-sqlite3 v1.14.13-0.20260704101239-6ddb6e555a1e
+replace github.com/mattn/go-sqlite3 => github.com/88250/go-sqlite3 v1.14.13-0.20261023044249-ae36e402e11a
 
 replace github.com/pdfcpu/pdfcpu => github.com/88250/pdfcpu v0.3.14-0.20250424122812-f10e8d9d8d46
 

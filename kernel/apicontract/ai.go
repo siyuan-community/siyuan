@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package apicontract
 
 import "strings"
@@ -45,6 +49,15 @@ type AISessionsRequest struct {
 
 type AISessionIDRequest struct {
 	ID string `json:"id" api:"optional,nullable"`
+}
+
+type AISessionPinnedRequest struct {
+	ID     string `json:"id"`
+	Pinned bool   `json:"pinned"`
+}
+
+type AISessionPinnedData struct {
+	PinnedAt int64 `json:"pinnedAt"`
 }
 
 type AISkillNameRequest struct {
@@ -133,6 +146,7 @@ type AISessionIndex struct {
 	Title        string `json:"title"`
 	CreatedAt    int64  `json:"createdAt"`
 	UpdatedAt    int64  `json:"updatedAt"`
+	PinnedAt     int64  `json:"pinnedAt,omitempty"`
 	AgentRunning bool   `json:"agentRunning,omitempty"`
 }
 
@@ -160,14 +174,14 @@ type AICapabilityManifest struct {
 	OwnerName   string               `json:"ownerName,omitempty"`
 	Runtime     string               `json:"runtime"`
 	AgentOnly   bool                 `json:"agentOnly,omitempty"`
-	Effects     AIToolEffects        `json:"effects,omitempty"`
+	Effects     AIToolEffects        `json:"effects"`
 	Available   bool                 `json:"available"`
 	Actions     []AICapabilityAction `json:"actions,omitempty"`
 }
 
 type AICapabilityAction struct {
 	Name    string        `json:"name"`
-	Effects AIToolEffects `json:"effects,omitempty"`
+	Effects AIToolEffects `json:"effects"`
 }
 
 type AIMessageRequest struct {
@@ -185,11 +199,17 @@ type AIEditorActionSaveRequest struct {
 type AIEditorActionIDRequest struct {
 	ID string `json:"id" api:"trim"`
 }
+
+// AIProviderRequest 按配置协议列出模型；Gemini Interactions 使用原生模型清单并去除 models/ 前缀。
 type AIProviderRequest struct {
 	Provider       string           `json:"provider" api:"optional,nullable,ignoretype"`
 	ProviderConfig *SettingProvider `json:"providerConfig" api:"optional,nullable,legacyobject"`
 	providerError  error
 }
+
+// AIModelRequest 在列出模型后执行所选协议的最小生成请求，清单包含模型本身不代表测试成功。
+// Gemini Interactions 测试使用 store=false、流式响应及有限输出预算，必须收到已校验的终止事件。
+// 测试允许无上游错误且不含工具调用的 incomplete 响应，避免思考耗尽测试预算导致误判；正常生成仍报错。
 type AIModelRequest struct {
 	Model string `json:"model" api:"trim"`
 	AIProviderRequest

@@ -1,24 +1,13 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/88250/lute/ast"
@@ -129,14 +118,15 @@ func templateDocumentAttributes(source []byte) [][]string {
 			return nil
 		}
 		actions = append(actions, text[start:end+1])
-		masked.WriteString(prefix + strings.Repeat("x", len(actions)))
+		masked.WriteString(prefix)
+		masked.WriteString(strings.Repeat("x", len(actions)))
 		text = text[end+1:]
 	}
 	attrs := parseTemplateDocumentAttributes(masked.String())
 	for _, attr := range attrs {
 		// 长占位符优先替换，避免前缀相同的动作相互覆盖。
-		for i := len(actions) - 1; i >= 0; i-- {
-			attr[1] = strings.ReplaceAll(attr[1], prefix+strings.Repeat("x", i+1), actions[i])
+		for i, action := range slices.Backward(actions) {
+			attr[1] = strings.ReplaceAll(attr[1], prefix+strings.Repeat("x", i+1), action)
 		}
 	}
 	return attrs

@@ -6,7 +6,7 @@
 		"id": "20260614104204-staofnm",
 		"title": "Network Proxy",
 		"type": "doc",
-		"updated": "20260803171606"
+		"updated": "20261022120655"
 	},
 	"Children": [
 		{
@@ -44,7 +44,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260614104245-1vghukz",
-				"updated": "20260803171606"
+				"updated": "20261022120655"
 			},
 			"Children": [
 				{
@@ -58,7 +58,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260614104245-ubfypqu",
-				"updated": "20260803171606"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -72,7 +72,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -81,7 +81,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -90,7 +90,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ - "
+					"Data": " - "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -99,7 +99,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​:"
+					"Data": ":"
 				}
 			]
 		},
@@ -109,7 +109,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260614104245-nkm2226",
-				"updated": "20260614104245"
+				"updated": "20261022120655"
 			},
 			"Children": [
 				{
@@ -121,7 +121,7 @@
 					},
 					"Properties": {
 						"id": "20260614104245-y89w1o2",
-						"updated": "20260614104245"
+						"updated": "20261016112115"
 					},
 					"Children": [
 						{
@@ -129,17 +129,68 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20260614104245-zro5c2g",
-								"updated": "20260614104245"
+								"updated": "20261016112115"
 							},
 							"Children": [
 								{
-									"Type": "NodeTextMark",
-									"TextMarkType": "strong",
-									"TextMarkTextContent": "Scheme"
-								},
+									"Type": "NodeText",
+									"Data": "Scheme: Choose Direct Connection (no proxy), Use system proxy, HTTP, HTTPS, or SOCKS5. Direct Connection and Use system proxy do not require host or port fields"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20261016112115-7c46gfq",
+					"Type": "NodeListItem",
+					"Properties": {
+						"id": "20261016112115-7c46gfq",
+						"updated": "20261022120655"
+					},
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Children": [
+						{
+							"ID": "20261016112115-mlgnje1",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20261016112115-mlgnje1",
+								"updated": "20261022120655"
+							},
+							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": ": Choose the proxy protocol — Direct Connection (no proxy), HTTP, HTTPS, or SOCKS5"
+									"Data": "System mode uses supported system settings or the proxy environment inherited when the kernel started. The kernel reads manual proxy settings on Windows, Linux GNOME, and macOS; on Linux and macOS, explicit proxy environment variables take priority. These readers do not support automatic PAC configuration; Windows and macOS automatic detection is also unsupported. On other platforms the kernel retains its initial proxy environment instead of reading OS settings"
+								}
+							]
+						}
+					]
+				},
+				{
+					"ID": "20261022120655-quj9zir",
+					"Type": "NodeListItem",
+					"Properties": {
+						"id": "20261022120655-quj9zir",
+						"updated": "20261022120655"
+					},
+					"ListData": {
+						"BulletChar": 42,
+						"Marker": "Kg=="
+					},
+					"Children": [
+						{
+							"ID": "20261022120655-un99ra6",
+							"Type": "NodeParagraph",
+							"Properties": {
+								"id": "20261022120655-un99ra6",
+								"updated": "20261022120655"
+							},
+							"Children": [
+								{
+									"Type": "NodeText",
+									"Data": "macOS supports manual HTTP, HTTPS, and SOCKS5 proxies. The bypass list is converted to NO_PROXY rules, supporting IP addresses, CIDR ranges (including 169.254/16), domains, leading *. domain patterns, and trailing IPv4 wildcards such as 10.*. Exclude simple hostnames and other wildcard patterns are unsupported; use explicit bypass entries instead. If reading or conversion fails, the kernel logs a warning and retains its startup proxy environment. To apply changed macOS proxy settings, restart the kernel or switch to another proxy mode and back to system mode"
 								}
 							]
 						}
@@ -251,7 +302,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260614104245-o4ly291",
-				"updated": "20260614104245"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -280,7 +331,7 @@
 			"ListData": {},
 			"Properties": {
 				"id": "20260614104245-7nupnza",
-				"updated": "20260614104245"
+				"updated": "20261016112115"
 			},
 			"Children": [
 				{
@@ -376,7 +427,7 @@
 					},
 					"Properties": {
 						"id": "20260614104245-doewm7l",
-						"updated": "20260614104245"
+						"updated": "20261016112115"
 					},
 					"Children": [
 						{
@@ -384,12 +435,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20260614104245-mqw5uhd",
-								"updated": "20260614104245"
+								"updated": "20261016112115"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "All other operations requiring network access"
+									"Data": "Other network requests made through SiYuan’s managed proxy clients; external browsers, plugins, and stdio child programs may have their own proxy settings"
 								}
 							]
 						}

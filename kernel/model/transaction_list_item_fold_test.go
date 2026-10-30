@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -18,7 +22,7 @@ func newFoldedListItemTree(blockCount int, task bool) (*parse.Tree, *ast.Node) {
 		item.ListData.Typ = 3
 		item.AppendChild(&ast.Node{Type: ast.NodeTaskListItemMarker})
 	}
-	for i := 0; i < blockCount; i++ {
+	for i := range blockCount {
 		item.AppendChild(&ast.Node{Type: ast.NodeParagraph, ID: fmt.Sprintf("20260729000000-block%03d", i)})
 	}
 	item.AppendChild(&ast.Node{Type: ast.NodeKramdownBlockIAL})

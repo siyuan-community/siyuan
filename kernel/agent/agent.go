@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package agent
 
@@ -23,10 +11,12 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -52,16 +42,16 @@ const systemPrompt = `You are a SiYuan AI assistant. You help users manage their
 - Heading hierarchy: headings (h1-h6) are leaf blocks. Blocks that appear "under" a heading in the UI are its *following siblings* in the AST, not its children.
 - Native structured blocks: use native capabilities and preserve existing structure, block IDs, and metadata unless the user explicitly requests a conversion. Follow the relevant tool descriptions for block-specific syntax and operations.
 - Notebook: a top-level container holding documents. Use notebook.list to enumerate; pass notebook ID when creating documents.
-- hPath (human-readable path): the title-based path shown in the document tree, e.g. "/Diary/2024/June". The "path" parameter in document.create/move/list refers to hPath, not the internal ID-based filesystem path. A rename changes hPath but not the ID.
-- Document vs block move: document.move relocates an entire document (and children) to a new hPath within a notebook — needs id, notebook (from document.get field "Box"), and path. block.move repositions a single content block under a new parent block.
+- hPath (human-readable path): display text only. A literal title can contain "/", so identical hPaths can refer to different document hierarchies. Never split an hPath or use it to recover identity. Document create/list/move and inbox.convert use notebook + parentID; parentID="" explicitly selects the notebook root. Legacy path=hPath resolves only unambiguous ancestor chains with non-empty titles and no literal "/"; unsupported or ambiguous candidates and unavailable indexes return explicit errors. Obtain document IDs from document.list/search_docs/get; a rename changes display text but not ID.
+- Document vs block move: document.move relocates an entire document (and children) — needs id, notebook (from document.get field "Box"), and target parentID. block.move repositions a single content block under a new parent block.
 - Dailynote (daily note/diary/journal): a special document on the notebook's daily-note save path. For diary/daily note/journal requests, use dailynote.create (not document.create) to open today's note, then dailynote.append/prepend to add content.
 
 ## Tool Usage Patterns
 - Find: search.fulltext (keyword) → block.get (by ID). For semantic search use search.semantic.
 - Structural search: for block types, inline formats, ancestry or statistics, first fetch sql.schema, then use sql.query. To show matching blocks in the frontend, use native/frontend/open_search(query, method=2) with SELECT b.* FROM blocks b; use projections and aggregates only with sql.query.
 - Dynamic SQL in documents: reuse a complete-block query in a native {{SQL}} embed via block.insert/append/prepend. For single-line embeds, read block.get_kramdown, preserve ID and IAL, and update that block with lockType=true. For multiline SQL or -- comments, read block.dom and write dataType=dom with preserved metadata. Consult sql.schema for the workflow; never replace a dynamic embed with static results unless requested.
-- Explore structure: document.list (children under an hPath) → document.get → block.get_children → block.get. Use block breadcrumb to trace a block's location.
-- Create content: document.create (notebook + hPath) → block.append/prepend/insert.
+- Explore structure: document.list (notebook + parentID, omitted parentID lists the notebook root) → document.get → block.get_children → block.get. Use block breadcrumb to trace a block's location.
+- Create content: document.create (notebook + parentID + independent literal title) → block.append/prepend/insert. Title slashes are text, never implicit parent segments.
 - Modify: block.update replaces ONE block's content — it does NOT create or append new blocks. To both modify and add, call block.update first, then block.append/prepend/insert as separate calls.
 - Organize: document.move (full document), document.rename (title), block.move (single content block), document.delete.
 - Inbox (cloud-synced clippings, messages, and audio/video/file attachments; requires subscription): inbox.list (paged, summaries only) → inbox.get (read full content to judge how to file it) → inbox.convert (move one or many into local documents under a notebook, auto-deleting the cloud originals on success). Failed conversions are left in the inbox for retry. If a request fails with an auth/subscription error, report it honestly — do not retry.
@@ -173,14 +163,19 @@ var toolSignatureKeys = map[string][]string{
 // buildDoomSignature 用 toolName + action + 关键参数构造死循环签名。
 func buildDoomSignature(name, action string, args map[string]any) string {
 	var sig strings.Builder
-	sig.WriteString(name + "::action=" + action)
+	sig.WriteString(name)
+	sig.WriteString("::action=")
+	sig.WriteString(action)
 	for _, k := range toolSignatureKeys[name] {
 		if v, ok := args[k]; ok {
 			s := fmt.Sprint(v)
 			if len(s) > 64 {
 				s = s[:64] + "..."
 			}
-			sig.WriteString("::" + k + "=" + s)
+			sig.WriteString("::")
+			sig.WriteString(k)
+			sig.WriteString("=")
+			sig.WriteString(s)
 		}
 	}
 	return sig.String()
@@ -379,14 +374,15 @@ type AgentGoogleToolCallProviderData struct {
 }
 
 type AgentAttachment struct {
-	Type       string `json:"type"`
-	Data       []byte `json:"-"`
-	MIMEType   string `json:"mimeType,omitempty"`
-	Path       string `json:"path"`
-	DocumentID string `json:"documentId"`
-	Detail     string `json:"detail,omitempty"`
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
+	PDFImage   *kernelModel.PDFImageSelection `json:"pdfImage,omitempty"`
+	Type       string                         `json:"type"`
+	Data       []byte                         `json:"-"`
+	MIMEType   string                         `json:"mimeType,omitempty"`
+	Path       string                         `json:"path"`
+	DocumentID string                         `json:"documentId"`
+	Detail     string                         `json:"detail,omitempty"`
+	Width      int                            `json:"width,omitempty"`
+	Height     int                            `json:"height,omitempty"`
 }
 
 type Reference struct {
@@ -546,12 +542,13 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 			NotebookID: editorCtx.NotebookID,
 			DocumentID: editorCtx.ActiveDocID,
 		}
-		capabilities, capabilityErr := buildCapabilitySet(frontendCapabilities, capabilityContext)
+		mcpState := newMCPToolState(capabilityContext)
+		ctx = mcptools.ContextWithMCPDiscovery(ctx, mcpState.discover)
+		capabilities, capabilityErr := mcpState.build(frontendCapabilities)
 		if capabilityErr != nil {
 			sendCriticalEvent(ctx, ch, AgentEvent{Type: "error", Error: capabilityErr.Error()})
 			return
 		}
-		tools := capabilities.definitions
 		var messages []openai.ChatCompletionMessage
 		var checkpointMsgs []AgentMessage
 		var contextMsgs []AgentMessage
@@ -589,8 +586,8 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 					currentUserExists := false
 					if regenerate {
 						lastUserIdx := -1
-						for i := len(truncated) - 1; i >= 0; i-- {
-							if truncated[i].Role == "user" && (userEntryID == "" || truncated[i].EntryID == userEntryID) {
+						for i, t := range slices.Backward(truncated) {
+							if t.Role == "user" && (userEntryID == "" || t.EntryID == userEntryID) {
 								lastUserIdx = i
 								break
 							}
@@ -602,12 +599,12 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 							return
 						}
 					} else {
-						for i := len(truncated) - 1; i >= 0; i-- {
-							if truncated[i].Role != "user" {
+						for _, t := range slices.Backward(truncated) {
+							if t.Role != "user" {
 								continue
 							}
-							currentUserExists = userEntryID != "" && truncated[i].EntryID == userEntryID
-							if userEntryID == "" && (truncated[i].Content == userMessage || truncated[i].Content == rawUserMessage) {
+							currentUserExists = userEntryID != "" && t.EntryID == userEntryID
+							if userEntryID == "" && (t.Content == userMessage || t.Content == rawUserMessage) {
 								currentUserExists = true
 							}
 							break
@@ -683,8 +680,8 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 		saveTurn := func(state string) bool {
 			turn.State = state
 			deltaStart := turnBaseIndex
-			for i := len(checkpointMsgs) - 1; i >= 0; i-- {
-				message := checkpointMsgs[i]
+			for i, message := range slices.Backward(checkpointMsgs) {
+
 				if message.Role == "user" && ((userEntryID != "" && message.EntryID == userEntryID) ||
 					(userEntryID == "" && message.Content == userMessage)) {
 					deltaStart = i + 1
@@ -927,7 +924,7 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 			}
 			modelRound++
 
-			roundCapabilities, capabilityErr := buildCapabilitySet(frontendCapabilities, capabilityContext)
+			roundCapabilities, capabilityErr := mcpState.build(frontendCapabilities)
 			if capabilityErr != nil {
 				if !saveTurn("interrupted") {
 					return
@@ -936,13 +933,16 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 				return
 			}
 			requestTools := roundCapabilities.definitions
-			if maxRounds > 0 && toolCallRounds >= maxRounds {
+			toolRoundLimitReached := maxRounds > 0 && toolCallRounds >= maxRounds
+			if toolRoundLimitReached {
 				// 工具调用达到上限后仍允许模型完成一次最终回答，但不再提供工具定义。
 				requestTools = nil
-				roundCapabilities = &capabilitySet{registrations: map[string]*capabilityRegistration{}}
+				roundCapabilities = &capabilitySet{
+					registrations:         map[string]*capabilityRegistration{},
+					toolRoundLimitReached: true,
+				}
 			}
 			capabilities = roundCapabilities
-			tools = requestTools
 			contextMsgs = projectCompactionContext(checkpointMsgs, coveredMessages)
 			messages = checkpointMessagesToOpenAIWithSummary(contextMsgs, language, capabilities, compaction, instructions.Content)
 			if len(messages) > 0 && messages[0].Role == openai.ChatMessageRoleSystem {
@@ -1029,14 +1029,18 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 					return
 				}
 				contentBuilder.WriteString(token)
-				sendEvent(ch, AgentEvent{Type: "content", Token: token})
+				if !toolRoundLimitReached {
+					sendEvent(ch, AgentEvent{Type: "content", Token: token})
+				}
 			}
 			writeReasoning := func(token string) {
 				if token == "" {
 					return
 				}
 				reasoningBuilder.WriteString(token)
-				sendEvent(ch, AgentEvent{Type: "reasoning", Token: token})
+				if !toolRoundLimitReached {
+					sendEvent(ch, AgentEvent{Type: "reasoning", Token: token})
+				}
 			}
 			writeTaggedContent := func(token string) {
 				if !splitTaggedReasoning {
@@ -1065,6 +1069,7 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 			}
 
 			firstResponsePending := true
+			outputLimitReached := false
 			for {
 				resp := firstResp
 				var recvErr error
@@ -1079,6 +1084,11 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 						break
 					}
 					logging.LogErrorf("agent stream error: %s", recvErr.Error())
+					if toolRoundLimitReached {
+						// 最后一轮尚未校验，不把可能含原始工具标记的部分输出写入会话。
+						contentBuilder.Reset()
+						reasoningBuilder.Reset()
+					}
 					content := contentBuilder.String()
 					if content != "" || reasoningBuilder.String() != "" {
 						checkpointMsgs = append(checkpointMsgs, AgentMessage{
@@ -1102,8 +1112,15 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 				select {
 				case <-ctx.Done():
 					flushTaggedContent()
+					if toolRoundLimitReached {
+						contentBuilder.Reset()
+						reasoningBuilder.Reset()
+					}
 					turn.DraftContent = contentBuilder.String()
 					turn.DraftRoundID = roundID
+					if toolRoundLimitReached {
+						turn.DraftRoundID = ""
+					}
 					saveTurn("interrupted")
 					stream.Close()
 					roundCancel()
@@ -1112,6 +1129,9 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 				}
 
 				for _, choice := range resp.Choices {
+					if choice.FinishReason == openai.FinishReasonLength {
+						outputLimitReached = true
+					}
 					if choice.Delta.Content != "" {
 						writeTaggedContent(choice.Delta.Content)
 					}
@@ -1122,7 +1142,7 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 
 					toolCallAccumulator.Add(choice.Delta.ToolCalls)
 				}
-				if contentBuilder.Len() > 0 && time.Since(lastDraftCheckpoint) >= time.Second {
+				if !toolRoundLimitReached && contentBuilder.Len() > 0 && time.Since(lastDraftCheckpoint) >= time.Second {
 					turn.DraftContent = contentBuilder.String()
 					turn.DraftRoundID = roundID
 					saveTurn("running")
@@ -1152,6 +1172,59 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 			roundCancel()
 			turn.DraftContent = ""
 			turn.DraftRoundID = ""
+
+			if toolRoundLimitReached {
+				// 先校验完整收尾，覆盖跨流片段的标记；既不展示，也不持久化越界调用。
+				if len(toolCallAccumulator.ToolCalls()) > 0 || containsTextToolCall(contentBuilder.String()) ||
+					containsTextToolCall(reasoningBuilder.String()) {
+					contentBuilder.Reset()
+					reasoningBuilder.Reset()
+					toolCallAccumulator = toolCallStreamAccumulator{}
+					nativeContent = nil
+					responseOutput = nil
+					responseOutputTokens = 0
+				} else {
+					if reasoningBuilder.Len() > 0 {
+						sendEvent(ch, AgentEvent{Type: "reasoning", Token: reasoningBuilder.String()})
+					}
+					if contentBuilder.Len() > 0 {
+						sendEvent(ch, AgentEvent{Type: "content", Token: contentBuilder.String()})
+					}
+				}
+			}
+
+			if outputLimitReached {
+				// 保留已收到的文本，并在执行可能被截断的工具调用前结束本轮。
+				partial := AgentMessage{
+					Role:                 "assistant",
+					Content:              contentBuilder.String(),
+					ReasoningContent:     reasoningBuilder.String(),
+					NativeContent:        nativeContent,
+					ResponseOutput:       responseOutput,
+					ResponseOutputTokens: responseOutputTokens,
+					RoundID:              roundID,
+				}
+				if len(toolCallAccumulator.ToolCalls()) > 0 {
+					// 不将缺少执行结果的工具请求带入下一轮模型上下文。
+					partial.NativeContent = nil
+					partial.ResponseOutput = nil
+					partial.ResponseOutputTokens = 0
+				}
+				if partial.Content != "" || partial.ReasoningContent != "" || partial.NativeContent != nil || len(partial.ResponseOutput) > 0 {
+					checkpointMsgs = append(checkpointMsgs, partial)
+				}
+				turn.TokenBreakdown = computeBreakdownIfNeeded(model, requestMessages, requestTools, lastPromptTokens)
+				if !saveTurn("interrupted") {
+					return
+				}
+				sendEvent(ch, AgentEvent{Type: "usage", PromptTokens: totalPrompt, CompletionTokens: totalCompletion, LastPromptTokens: lastPromptTokens, TokenBreakdown: turn.TokenBreakdown, CachedTokens: lastCachedTokens, ContextLimit: contextLimit})
+				errMsg := kernelModel.Conf.Language(297)
+				if toolRoundLimitReached {
+					errMsg = kernelModel.Conf.Language(440)
+				}
+				sendCriticalEvent(ctx, ch, AgentEvent{Type: "error", Error: errMsg})
+				return
+			}
 
 			aggregatedToolCalls := toolCallAccumulator.ToolCalls()
 			if len(aggregatedToolCalls) > 0 {
@@ -1251,9 +1324,7 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 							toolInputErr = previewErr
 						} else if preview != nil {
 							confirmationArgs = make(map[string]any, len(args)+1)
-							for key, value := range args {
-								confirmationArgs[key] = value
-							}
+							maps.Copy(confirmationArgs, args)
 							confirmationArgs["verifiedPackage"] = preview
 						}
 					}
@@ -1263,9 +1334,7 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 							toolInputErr = previewErr
 						} else if preview != nil {
 							confirmationArgs = make(map[string]any, len(args)+1)
-							for key, value := range args {
-								confirmationArgs[key] = value
-							}
+							maps.Copy(confirmationArgs, args)
 							confirmationArgs["currentSnippet"] = preview
 						}
 					}
@@ -1597,21 +1666,22 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 				ReasoningContent: reasoningBuilder.String(),
 			})
 			turn.TokenBreakdown = computeBreakdownIfNeeded(model, requestMessages, requestTools, lastPromptTokens)
-			if !saveTurn("finished") {
+			state := "finished"
+			if toolRoundLimitReached {
+				state = "interrupted"
+			}
+			if !saveTurn(state) {
 				return
 			}
 
 			sendEvent(ch, AgentEvent{Type: "usage", PromptTokens: totalPrompt, CompletionTokens: totalCompletion, LastPromptTokens: lastPromptTokens, TokenBreakdown: turn.TokenBreakdown, CachedTokens: lastCachedTokens, ContextLimit: contextLimit})
+			if toolRoundLimitReached {
+				sendCriticalEvent(ctx, ch, AgentEvent{Type: "error", Error: kernelModel.Conf.Language(440)})
+				return
+			}
 			sendCriticalEvent(ctx, ch, AgentEvent{Type: "done", TurnID: turn.TurnID})
 			return
 		}
-
-		turn.TokenBreakdown = computeBreakdownIfNeeded(model, messages, tools, lastPromptTokens)
-		if !saveTurn("finished") {
-			return
-		}
-		sendEvent(ch, AgentEvent{Type: "usage", PromptTokens: totalPrompt, CompletionTokens: totalCompletion, LastPromptTokens: lastPromptTokens, TokenBreakdown: turn.TokenBreakdown, CachedTokens: lastCachedTokens, ContextLimit: contextLimit})
-		sendCriticalEvent(ctx, ch, AgentEvent{Type: "done", TurnID: turn.TurnID})
 	}()
 
 	return ch
@@ -2095,6 +2165,10 @@ func buildSystemPrompt(language string, capabilities *capabilitySet, instruction
 
 	var sb strings.Builder
 	sb.WriteString(filterSystemPromptByCapabilities(systemPrompt, capabilities))
+	sb.WriteString(availableMCPSegment(capabilities))
+	if capabilities != nil && capabilities.toolRoundLimitReached {
+		sb.WriteString(toolRoundLimitPrompt)
+	}
 	if len(instructions) > 0 && strings.TrimSpace(instructions[0]) != "" {
 		sb.WriteString("\n\n## Workspace instructions\nThe following AGENTS.md contains persistent user preferences for this workspace. " +
 			"Follow them where applicable; the current user's explicit request overrides general preferences. " +
@@ -2127,7 +2201,13 @@ func buildSystemPrompt(language string, capabilities *capabilitySet, instruction
 				"Yes requires loading skill with source=builtin and name=siyuan-plugin-development BEFORE asking only materially missing details; No skips that skill and continues the user's custom approach. " +
 				"Do not turn ordinary templates or existing capabilities into plugin work. Confirm a short proposal with workflow.action=plan before implementation; neither choice nor proposal authorizes installation or enabling. " +
 				"Reuse the taskId for adjustments; use newTask only for a separate requested plugin and reconsider only when the user changes the choice.\n")
-			sb.WriteString("Official skill: " + html.EscapeString(builtin.ID) + " · " + html.EscapeString(builtin.Version) + " · " + html.EscapeString(builtin.Digest) + ". This entry requires the workflow question; generic skill matching does not activate it.")
+			sb.WriteString("Official skill: ")
+			sb.WriteString(html.EscapeString(builtin.ID))
+			sb.WriteString(" · ")
+			sb.WriteString(html.EscapeString(builtin.Version))
+			sb.WriteString(" · ")
+			sb.WriteString(html.EscapeString(builtin.Digest))
+			sb.WriteString(". This entry requires the workflow question; generic skill matching does not activate it.")
 		}
 	}
 
@@ -2215,15 +2295,15 @@ func buildUserMessageContent(userMessage string, references []Reference, editorC
 			totalVisible := len(editorCtx.VisibleBlockIDs)
 			if totalVisible > maxVisibleBlockIDs {
 				sb.WriteString("Visible block ids (showing first ")
-				sb.WriteString(fmt.Sprintf("%d", maxVisibleBlockIDs))
+				fmt.Fprintf(&sb, "%d", maxVisibleBlockIDs)
 				sb.WriteString(" of ")
-				sb.WriteString(fmt.Sprintf("%d", totalVisible))
+				fmt.Fprintf(&sb, "%d", totalVisible)
 				sb.WriteString("):\n")
 			} else {
 				sb.WriteString("Visible block ids:\n")
 			}
 			limit := min(totalVisible, maxVisibleBlockIDs)
-			for i := 0; i < limit; i++ {
+			for i := range limit {
 				sb.WriteString("- ")
 				sb.WriteString(editorCtx.VisibleBlockIDs[i])
 				sb.WriteString("\n")
@@ -2450,7 +2530,7 @@ func checkpointMessagesToOpenAIWithSummary(checkpointMsgs []AgentMessage, langua
 	return msgs
 }
 
-func checkpointMessagesToOpenAIResponseInput(checkpointMsgs []AgentMessage, language string, capabilities *capabilitySet,
+func checkpointMessagesToOpenAIResponseInput(checkpointMsgs []AgentMessage, _ string, capabilities *capabilitySet,
 	compaction *runtimeCompaction, downgradeImages bool) []any {
 	var input []any
 	if compaction != nil {
@@ -2634,7 +2714,8 @@ func createProtocolStreamWithRetry(ctx context.Context, client *util.AIClient, p
 		if err == nil {
 			for {
 				firstResp, firstErr := recvStreamWithIdleTimeout(stream, streamIdleTimeout, streamCancel)
-				if firstErr != nil || (!util.IsOpenAIResponsesProtocol(protocol) && !util.IsAnthropicMessagesProtocol(protocol)) || len(firstResp.Choices) > 0 ||
+				if firstErr != nil || (!util.IsOpenAIResponsesProtocol(protocol) && !util.IsAnthropicMessagesProtocol(protocol) &&
+					!util.IsGeminiInteractionsProtocol(protocol)) || len(firstResp.Choices) > 0 ||
 					firstResp.Usage != nil {
 					if firstErr == nil || errors.Is(firstErr, io.EOF) {
 						return stream, firstResp, streamCancel, nil
@@ -2698,16 +2779,14 @@ func classifyRetry(err error) string {
 	if errors.Is(err, errModelRequestTimeout) || errors.Is(err, errModelStreamIdleTimeout) || errors.Is(err, context.DeadlineExceeded) {
 		return "timeout"
 	}
-	var subscriptionErr *chatgpt.RequestError
-	if errors.As(err, &subscriptionErr) {
+	if subscriptionErr, ok := errors.AsType[*chatgpt.RequestError](err); ok {
 		if subscriptionErr.Status >= 500 {
 			return "server_error"
 		}
 		return "fatal"
 	}
 
-	var apiErr *openai.APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*openai.APIError](err); ok {
 		code := strings.ToLower(strings.TrimSpace(fmt.Sprint(apiErr.Code)))
 		if code == "subscription_sharing_usage_limit_exceeded" {
 			return "fatal"
@@ -2766,8 +2845,7 @@ func getAgentErrorMessage(err error) string {
 }
 
 func getAgentRequestErrorMessage(err error, _ []openai.ChatCompletionMessage) string {
-	var apiErr *openai.APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*openai.APIError](err); ok {
 		message := strings.TrimSpace(apiErr.Message)
 		if message != "" {
 			runes := []rune(message)

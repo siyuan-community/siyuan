@@ -40,12 +40,18 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
         block.textContent = text;
         return block.outerHTML;
     };
-    const create = (initialBlockHTML = textHTML("Initial"), replaceFirstParagraph?: string) => {
+    const create = (initialBlockHTML = textHTML("Initial"), replaceFirstParagraph?: string,
+                    branchType = "NodeList", embedded = false, canvas = false) => {
         let transactionOwner: (operations: Array<{action: string; id: string; parentID?: string;
             previousID?: string; nextID?: string}>) => unknown;
         const container = document.createElement("section");
+        container.dataset.type = branchType;
+        const rootID = embedded ? "source-document" : "document";
+        if (embedded) {
+            container.classList.add("protyle-wysiwyg__embed");
+        }
         const element = document.createElement("div");
-        element.dataset.type = "NodeListItem";
+        element.dataset.type = `${branchType}Item`;
         element.dataset.nodeId = "item";
         element.innerHTML = initialBlockHTML;
         const host = document.createElement("div");
@@ -59,14 +65,28 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
         const subElement = document.createElement("div");
         [hintElement, toolbarElement, subElement].forEach(item => item.classList.add("fn__none"));
         container.append(element, host, hintElement, toolbarElement, subElement);
+        if (canvas) {
+            const map = document.createElement("div");
+            map.className = "mindmap-view";
+            map.innerHTML = '<div class="mindmap-view__viewport"><div class="mindmap-view__world">' +
+                '<div class="mindmap-view__node mindmap-view__node--editing"></div></div></div>';
+            map.querySelector(".mindmap-view__node").append(host);
+            host.classList.add("mindmap-view__content");
+            hintElement.classList.add("protyle-hint", "protyle-hint--lite-overlay");
+            toolbarElement.classList.add("protyle-toolbar");
+            subElement.classList.add("protyle-util");
+            container.append(map);
+        }
         document.body.append(container);
         const state = {
             focusedText: "",
+            panTarget: undefined as Element | undefined,
             flushed: 0,
             destroyed: 0,
             finished: 0,
             saves: [] as string[],
             additions: [] as string[],
+            listInputs: [] as import("./listInput").ListMindmapListInput[],
             messages: [] as string[],
             accept: true,
             flush: async (): Promise<void> => undefined,
@@ -101,13 +121,20 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
             isMobile: () => false,
             hintRef: (): unknown[] => [],
             hintSlash: (): unknown[] => [],
+            hintTag: (): unknown[] => [],
             registerBuiltinSlashHint: (callback: unknown) => callback,
             mountProtyleLiteFragment: (target: HTMLElement, options: {
                 initialBlockHTML: string;
                 onChange: () => void;
                 afterSetContent: (owner: unknown, element: HTMLElement) => void;
                 runtimeCapabilities: {getTransactionOwner: typeof transactionOwner};
+                protyleOptions: {hint: {extend: Array<{key: string; hint: unknown}>}};
             }) => {
+                const hints = options.protyleOptions.hint.extend;
+                check.equal(hints.find(item => item.key === "#")?.hint, dependencies.hintTag,
+                    "mindmap nodes use the built-in tag creation and search hint");
+                check.ok(hints.findIndex(item => item.key === "#") < hints.findIndex(item => item.key === "/"),
+                    "tag searches containing a slash retain tag hint precedence");
                 transactionOwner = options.runtimeCapabilities.getTransactionOwner;
                 target.style.width = "";
                 wysiwyg.innerHTML = options.initialBlockHTML;
@@ -132,13 +159,12 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
                 };
             },
             bindLiteCodeActions: noop,
-            uploadFiles: (target: typeof protyle, files: File[], _element: unknown, _success: unknown,
-                          _complete: unknown, options: {source: string}) => {
+            paste: (target: typeof protyle, data: {files?: File[], target: HTMLElement}) => {
                 check.equal(target, protyle);
-                check.equal(options.source, "paste");
-                check.equal(target.block.rootID, "document");
+                check.equal(data.target, wysiwyg);
+                check.equal(target.block.rootID, rootID);
                 check.equal(target.toolbar.range, undefined);
-                state.uploads.push(files);
+                state.uploads.push(data.files);
             },
             setMobileToolbarUndo: noop,
             getDefaultToolbar: (): unknown[] => [],
@@ -179,10 +205,13 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
         const owner = {app: {}, notebookId: "notebook", block: {rootID: "document"}};
         const editor = open({
             owner,
+            rootID,
             node: {element}, host, replaceFirstParagraph,
             canEdit: () => element.isConnected,
             onResize: noop,
             onAdd: async (kind: string) => { state.additions.push(kind); },
+            onListInput: async (input: import("./listInput").ListMindmapListInput) => { state.listInputs.push(input); },
+            isPanTarget: (event: PointerEvent) => event.target === state.panTarget,
             onFinish: () => state.finished++,
             onUndo: noop,
             onSave: async (html: string) => {
@@ -196,7 +225,7 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
             },
         });
         check.ok(editor);
-        check.equal(protyle.block.rootID, "document");
+        check.equal(protyle.block.rootID, rootID);
         const type = async (value: string) => {
             wysiwyg.innerHTML = textHTML(value);
             await settle();
@@ -211,7 +240,7 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
     };
     window.siyuan = {
         languages: {listMindmapStale: "Content changed", listMindmapUnsupported: "Unsupported"},
-        config: {keymap: {editor: {
+        config: {editor: {markdown: {codeBlockMiddleDot: true}}, keymap: {editor: {
             general: {
                 undo: "undo", redo: "redo",
                 insertBefore: {default: "⇧⌘B", custom: "⇧⌘B"},
@@ -224,13 +253,204 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
         }}},
     } as unknown as typeof window.siyuan;
 
+    const documentHistoryEditor = create();
+    const documentHistory = document.createElement("div");
+    documentHistory.className = "protyle-breadcrumb__history";
+    const undoButton = document.createElement("button");
+    documentHistory.append(undoButton); document.body.append(documentHistory);
+    undoButton.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+    await settle();
+    check.equal(documentHistoryEditor.state.finished, 0,
+        "document history controls preserve the node editor until the explicit save gate runs");
+    check.equal(await documentHistoryEditor.editor.finish(), true);
+    check.equal(documentHistoryEditor.state.finished, 1);
+    documentHistory.remove(); await documentHistoryEditor.remove();
+
+    // 普通段落与软键盘回车走同一节点拆分路径；保留富文本、后续块和原生编辑边界。
+    const listParagraph = '<div data-type="NodeParagraph" data-node-id="paragraph"><div contenteditable="true"><span data-type="strong">AlphaBeta</span></div></div>';
+    for (const softKeyboard of [false, true]) {
+        const current = create(listParagraph + '<div data-type="NodeParagraph" data-node-id="second"><div contenteditable="true">Second</div></div>');
+        const editable = current.wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]');
+        const range = document.createRange();
+        range.setStart(editable.firstChild.firstChild, 5);
+        range.collapse(true);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        const event = softKeyboard ? new InputEvent("beforeinput", {inputType: "insertParagraph", bubbles: true, cancelable: true}) :
+            new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true});
+        editable.dispatchEvent(event);
+        check.equal(event.defaultPrevented, true);
+        check.equal(current.state.listInputs.length, 1);
+        check.equal(current.state.listInputs[0].kind, "split");
+        check.match(current.state.listInputs[0].before, /<span data-type="strong">Alpha<\/span>/);
+        check.match(current.state.listInputs[0].after, /<span data-type="strong">Beta<\/span>/);
+        check.match(current.state.listInputs[0].after, /data-node-id="second"/);
+        check.equal(editable.textContent, "AlphaBeta", "planning does not mutate unsaved text");
+        await current.remove();
+    }
+    for (const [key, shift, offset, expected] of [
+        ["Enter", false, 0, "before"], ["Enter", false, 9, "split"],
+        ["Tab", false, 3, "indent"], ["Tab", true, 3, "outdent"],
+        ["Backspace", false, 0, "mergePrevious"], ["Delete", false, 9, "mergeNext"],
+        ["Enter", true, 5, undefined], ["Backspace", false, 5, undefined], ["Delete", true, 9, undefined],
+    ] as const) {
+        const current = create(listParagraph);
+        const editable = current.wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]');
+        const range = document.createRange();
+        range.setStart(editable.firstChild.firstChild, offset);
+        range.collapse(true);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        const event = new KeyboardEvent("keydown", {key, shiftKey: shift, bubbles: true, cancelable: true});
+        editable.dispatchEvent(event);
+        check.equal(current.state.listInputs[0]?.kind, expected, `${key} shift=${shift} offset=${offset}`);
+        check.equal(event.defaultPrevented, !!expected);
+        await current.remove();
+    }
+    for (const boundary of ["code-block", "table", "av", "protyle-wysiwyg__embed", "hint", "composition"]) {
+        const current = create(listParagraph);
+        const editable = current.wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]');
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        range.collapse(false);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        if (boundary === "hint") current.hintElement.classList.remove("fn__none");
+        else if (boundary !== "composition") editable.classList.add(boundary);
+        const event = new KeyboardEvent("keydown", {key: "Enter", isComposing: boundary === "composition", bubbles: true, cancelable: true});
+        editable.dispatchEvent(event);
+        check.equal(event.defaultPrevented, false, boundary);
+        check.equal(current.state.listInputs.length, 0, boundary);
+        await current.remove();
+    }
+    for (const [inputType, offset, expected] of [
+        ["deleteContentBackward", 0, "mergePrevious"], ["deleteContentForward", 9, "mergeNext"],
+    ] as const) {
+        const current = create(listParagraph);
+        const editable = current.wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]');
+        const range = document.createRange();
+        range.setStart(editable.firstChild.firstChild, offset);
+        range.collapse(true);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        editable.dispatchEvent(new InputEvent("beforeinput", {inputType, bubbles: true, cancelable: true}));
+        check.equal(current.state.listInputs[0].kind, expected);
+        await current.remove();
+    }
+    const customized = create(listParagraph);
+    const originalChildShortcut = window.siyuan.config.keymap.editor.list.mindmapAddChild.custom;
+    window.siyuan.config.keymap.editor.list.mindmapAddChild.custom = "↩";
+    const customizedEditable = customized.wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]');
+    const customizedRange = document.createRange();
+    customizedRange.selectNodeContents(customizedEditable);
+    customizedRange.collapse(false);
+    getSelection().removeAllRanges();
+    getSelection().addRange(customizedRange);
+    customizedEditable.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+    await until(() => customized.state.additions.length === 1);
+    check.deepEqual(customized.state.additions, ["child"], "a configured plain Enter shortcut takes precedence over node splitting");
+    check.equal(customized.state.listInputs.length, 0);
+    window.siyuan.config.keymap.editor.list.mindmapAddChild.custom = originalChildShortcut;
+    await customized.remove();
+    for (const marker of ["```js", "~~~go", "···"]) {
+        const current = create('<div data-type="NodeParagraph" data-node-id="paragraph"><div contenteditable="true"></div></div>');
+        const editable = current.wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]');
+        editable.textContent = marker;
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        range.collapse(false);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        const event = new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true});
+        editable.dispatchEvent(event);
+        check.equal(event.defaultPrevented, false, "code fences reach the existing Markdown conversion");
+        check.equal(current.state.listInputs.length, 0);
+        await current.remove();
+    }
+
+    // 节点编辑器透传未处理的组合快捷键，已消费的编辑操作和组合输入仍保持隔离。
+    const shortcutEditor = create();
+    const received: KeyboardEvent[] = [];
+    shortcutEditor.container.addEventListener("keydown", event => received.push(event));
+    for (const key of ["p", "f", "e"]) {
+        for (const modifiers of [{ctrlKey: true}, {metaKey: true}]) {
+            const event = new KeyboardEvent("keydown", {key, ...modifiers, bubbles: true, cancelable: true});
+            shortcutEditor.wysiwyg.dispatchEvent(event);
+            check.equal(received[received.length - 1], event);
+        }
+    }
+    const beforeHandled = received.length;
+    for (const init of [{key: "x"}, {key: "p", ctrlKey: true, isComposing: true}]) {
+        shortcutEditor.wysiwyg.dispatchEvent(new KeyboardEvent("keydown", {...init, bubbles: true}));
+    }
+    const consumed = new KeyboardEvent("keydown", {key: "p", ctrlKey: true, bubbles: true, cancelable: true});
+    consumed.preventDefault();
+    shortcutEditor.wysiwyg.dispatchEvent(consumed);
+    check.equal(received.length, beforeHandled);
+    await shortcutEditor.remove();
+
     // 直接键入只替换首个段落，保留其余内容块。
     const paragraph = (id: string, html: string) =>
         `<div data-type="NodeParagraph" data-node-id="${id}" class="p"><div contenteditable="true">${html}</div></div>`;
+    // 新增的直接子分支在关闭节点编辑时提交，自动保存不能先把分支 ID 写入源树。
+    for (const type of ["NodeList", "NodeMindmap"]) {
+        const current = create(paragraph("body", "Keep body"), undefined, "NodeMindmap");
+        const branch = document.createElement("div");
+        branch.dataset.type = type;
+        branch.dataset.nodeId = "new-branch";
+        branch.innerHTML = `<div data-node-id="new-item" data-type="${type}Item">${paragraph("child", "New child")}</div>`;
+        current.wysiwyg.append(branch);
+        await settle();
+        const flushed = current.state.flushed;
+        window.dispatchEvent(new Event("blur"));
+        await until(() => current.state.flushed > flushed);
+        await settle();
+        check.equal(current.state.saves.length, 0, type);
+        check.equal(current.element.textContent, "Keep body", "background saves retain the original source");
+        check.equal(await current.editor.finish(), true, type);
+        check.equal(current.state.saves.length, 1, "closing commits the branch in one content snapshot");
+        check.equal(current.element.querySelector('[data-node-id="child"]').textContent, "New child");
+        check.equal(current.state.finished, 1);
+        check.equal(current.state.messages.length, 0);
+        await current.remove();
+    }
+    // 旧列表脑图中的独立脑图仍属于正文，保留其后台保存能力。
+    const legacyNested = create(paragraph("body", "Keep body"));
+    legacyNested.wysiwyg.insertAdjacentHTML("beforeend", '<div data-type="NodeMindmap" data-node-id="nested">' +
+        '<div data-type="NodeMindmapItem" data-node-id="nested-item">' + paragraph("child", "Nested body") + "</div></div>");
+    await settle();
+    window.dispatchEvent(new Event("blur"));
+    await until(() => legacyNested.state.saves.length === 1);
+    check.equal(legacyNested.element.querySelector('[data-node-id="child"]').textContent, "Nested body");
+    check.equal(await legacyNested.editor.finish(), true);
+    await legacyNested.remove();
     // 粘贴到选中节点时保留原正文，在当前可见正文末尾启动上传；上传结束前保留编辑器。
+    const panEditor = create(paragraph("body", "Keep caret"));
+    const panTarget = document.createElement("div");
+    document.body.append(panTarget);
+    panEditor.state.panTarget = panTarget;
+    const editable = panEditor.wysiwyg.querySelector<HTMLElement>('[contenteditable="true"]');
+    editable.focus();
+    const panRange = document.createRange();
+    panRange.setStart(editable.firstChild, 3);
+    panRange.collapse(true);
+    getSelection().removeAllRanges();
+    getSelection().addRange(panRange);
+    panTarget.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+    await settle();
+    check.equal(panEditor.state.finished, 0, "canvas panning does not close the node editor");
+    check.equal(document.activeElement, editable);
+    check.equal(getSelection().anchorOffset, 3, "canvas panning retains the insertion point");
+    await require("electron").ipcRenderer.invoke("mindmap-view-editor-type", "X");
+    check.equal(editable.textContent, "KeeXp caret", "typing continues at the retained insertion point");
+    document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+    await until(() => panEditor.state.finished === 1);
+    panTarget.remove();
+    await panEditor.remove();
+
     const imageEditor = create(paragraph("body", "Keep text"));
     const images = [new File(["image"], "image.png", {type: "image/png"})];
-    imageEditor.editor.pasteImages(images);
+    imageEditor.editor.pasteClipboard({files: images});
     check.equal(imageEditor.state.focusedText, "Keep text");
     check.deepEqual(imageEditor.state.uploads, [images]);
     check.equal(imageEditor.wysiwyg.textContent, "Keep text");
@@ -243,9 +463,25 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
     imageEditor.protyle.upload.isUploading = false;
     check.equal(await imageEditor.editor.finish(), true);
     check.equal(imageEditor.element.querySelector("img").getAttribute("src"), "assets/image.png");
-    imageEditor.editor.pasteImages(images);
+    imageEditor.editor.pasteClipboard({files: images});
     check.equal(imageEditor.state.uploads.length, 1, "closed editors do not accept another upload");
     await imageEditor.remove();
+    for (const resized of [false, true]) {
+        const current = create('<div data-node-id="image-body" data-type="NodeParagraph"><span data-type="img" class="img">' +
+            '<span class="protyle-image-container" style="width: 180px;"><img src="assets/image.png" alt="description"></span></span></div>');
+        const image = current.wysiwyg.querySelector("img");
+        image.closest(".img").classList.add("img--select", "img--drag");
+        image.parentElement.classList.add("protyle-image-container--compact");
+        image.parentElement.insertAdjacentHTML("beforeend", '<span class="protyle-image-resize"><span class="touch-resize-active"></span></span>');
+        if (resized) {
+            image.parentElement.style.width = "140px";
+        }
+        check.equal(await current.editor.finish(), true);
+        check.equal(current.state.saves.length, resized ? 1 : 0, "image UI changes alone do not create a content save");
+        check.equal(current.element.querySelector(".img--select, .img--drag, .protyle-image-resize, .protyle-image-container--compact"), null);
+        check.equal(current.element.querySelector("img").parentElement.style.width, resized ? "140px" : "180px");
+        await current.remove();
+    }
     // 关闭等待内层编辑结束时启动上传，也不能提前销毁外层编辑器。
     const uploadingEditor = create();
     const nestedGate = gate();
@@ -353,7 +589,8 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
     await conflictingTabs.remove();
 
     // 数据库和嵌入结果在编辑期间重新渲染，不会挡住普通文字保存或覆盖新的独立块状态。
-    for (const type of ["NodeAttributeView", "NodeBlockQueryEmbed"]) {
+    for (const [type, embedded] of ["NodeAttributeView", "NodeBlockQueryEmbed"].flatMap(type =>
+        [false, true].map(embedded => [type, embedded] as const))) {
         const special = document.createElement("div");
         special.dataset.type = type;
         special.dataset.nodeId = "special";
@@ -363,7 +600,7 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
             special.dataset.content = "select * from blocks";
         }
         special.textContent = "Old projection";
-        const current = create(textHTML("Initial") + special.outerHTML);
+        const current = create(textHTML("Initial") + special.outerHTML, undefined, "NodeList", embedded);
         current.element.lastElementChild.setAttribute("updated", "20260923120000");
         current.element.lastElementChild.textContent = "Latest projection";
         current.wysiwyg.lastElementChild.setAttribute("data-render", "true");
@@ -652,6 +889,36 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
     const style = document.createElement("style");
     style.textContent = css;
     document.head.append(style);
+    // 编辑浮层挂载在未缩放的脑图根元素，跨过画布边界时仍可点击。
+    for (const fullscreen of [false, true]) {
+        for (const scale of [1, .75]) {
+            const current = create(textHTML("Paint isolation"), undefined, "NodeMindmap", false, true);
+            current.container.style.cssText = "position:fixed;top:40px;left:40px;width:500px";
+            const map = current.host.closest<HTMLElement>(".mindmap-view");
+            map.classList.toggle("fullscreen", fullscreen);
+            const viewport = map.querySelector<HTMLElement>(".mindmap-view__viewport");
+            map.querySelector<HTMLElement>(".mindmap-view__world").style.transform = `translate(30px, 30px) scale(${scale})`;
+            const overlays = [current.hintElement, current.protyle.toolbar.element, current.protyle.toolbar.subElement];
+            for (const overlay of overlays) {
+                check.equal(overlay.parentElement, map, "editor overlays stay outside the isolated viewport");
+                const bounds = viewport.getBoundingClientRect();
+                const top = fullscreen ? bounds.bottom - 48 : bounds.bottom - 8;
+                overlay.style.cssText = `position:fixed;left:${bounds.left + 20}px;top:${top}px;` +
+                    "width:140px;height:36px;min-height:0;max-height:none;display:block;z-index:10";
+                overlay.classList.remove("fn__none");
+                const rect = overlay.getBoundingClientRect();
+                check.ok(Math.abs(rect.left - bounds.left - 20) < 1 && Math.abs(rect.top - top) < 1,
+                    "world zoom does not change editor overlay coordinates");
+                check.ok(overlay.contains(document.elementFromPoint(rect.left + 10, rect.bottom - 5)),
+                    "editor controls remain clickable outside the canvas and in fullscreen");
+                overlay.classList.add("fn__none");
+            }
+            await current.type("Edited with paint isolation");
+            check.equal(await current.editor.finish(), true);
+            check.ok(current.element.textContent.includes("Edited with paint isolation"), "editing still saves source content");
+            await current.remove();
+        }
+    }
     const fixture = document.createElement("div");
     fixture.className = "protyle-wysiwyg";
     document.body.append(fixture);
@@ -718,6 +985,30 @@ const browserCases = async (sourceCode: string, css: string, cleanupSource: stri
                 "repeated editing does not change preview dimensions");
         }
     }
+    // 百分比宽度的内层画布不能在按内容撑开的节点中塌缩，缩放和大字号也保持可操作宽度。
+    for (const type of ["NodeList", "NodeMindmap"]) {
+        for (const fontSize of [16, 32]) {
+            fixture.style.fontSize = `${fontSize}px`;
+            fixture.innerHTML = '<div class="mindmap-view"><div class="mindmap-view__viewport"><div class="mindmap-view__world">' +
+                '<div class="mindmap-view__node mindmap-view__node--editing"><div class="mindmap-view__content mindmap-view__editor protyle">' +
+                '<div class="protyle-content" data-padding-mode="responsive"><div class="protyle-wysiwyg" spellcheck="false">' +
+                `<div data-type="${type}" class="${type === "NodeList" ? "list" : "mindmap"}" data-mindmap-view-rendered="true">` +
+                '<div class="mindmap-view"><div class="mindmap-view__toolbar block__icons"></div>' +
+                '<div class="mindmap-view__viewport"><div class="mindmap-view__world"></div></div></div>' +
+                "</div></div></div></div></div></div></div></div>";
+            const node = fixture.querySelector<HTMLElement>(".mindmap-view__node--editing");
+            const nested = fixture.querySelector<HTMLElement>(".mindmap-view__editor .mindmap-view");
+            for (const device of ["desktop", "mobile"]) {
+                fixture.style.width = device === "mobile" ? "320px" : "800px";
+                fixture.querySelector<HTMLElement>(".protyle-content").dataset.device = device;
+                for (const scale of [1, 0.65, 1.5]) {
+                    fixture.style.transform = `scale(${scale})`;
+                    check.ok(nested.offsetWidth >= 260, "nested canvases retain a usable intrinsic width");
+                    check.ok(node.offsetWidth <= 300, "nested canvases respect the node width limit");
+                }
+            }
+        }
+    }
     fixture.remove();
     style.remove();
     return "List mindmap editor lifecycle cases passed";
@@ -729,7 +1020,8 @@ test("list mindmap editor flushes pending input and preserves text across finish
 }, async () => {
     const temporary = mkdtempSync(path.join(tmpdir(), "siyuan-mindmap-view-editor-test-"));
     const script = path.join(temporary, "run.cjs");
-    const source = transpileModule(readFileSync(path.join(__dirname, "editor.ts"), "utf8")
+    const source = transpileModule(["../../wysiwyg/codeBlockEnter.ts", "editor.ts"]
+        .map(file => readFileSync(path.join(__dirname, file), "utf8")).join("\n")
         .replace(/^import [\s\S]*?;\r?\n/gm, "").replace(/^export /gm, ""), {
         compilerOptions: {target: ScriptTarget.ES2021},
     }).outputText;
@@ -740,7 +1032,7 @@ test("list mindmap editor flushes pending input and preserves text across finish
     const cleanupSource = transpileModule(modelSource.slice(modelSource.indexOf("const cleanListMindmapDOM ="),
         modelSource.indexOf("// 转换前将思维导图块还原为列表结构"))
         .replace(/^export /gm, ""), {compilerOptions: {target: ScriptTarget.ES2021}}).outputText;
-    const tabsSource = ["../../../util/escape.ts", "../tabsState.ts", "../tabsDrag.ts", "../tabsAttributes.ts", "../tabsRender.ts"]
+    const tabsSource = ["../../../util/escape.ts", "../tabsState.ts", "../tabsDrag.ts", "../tabsAttributes.ts", "../tabsVisibility.ts", "../tabsRender.ts"]
         .map(file => transpileModule(readFileSync(path.join(__dirname, file), "utf8")
             .replace(/^import [\s\S]*?;\r?\n/gm, "").replace(/^export /gm, ""), {
             compilerOptions: {target: ScriptTarget.ES2021},

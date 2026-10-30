@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -191,7 +195,7 @@ func TestTransactionCompletionOnAllExecutionExits(t *testing.T) {
 
 func TestTransactionCompletionRepeatedSyncExecution(t *testing.T) {
 	tx := &Transaction{}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := PerformTxSync(tx); err != nil {
 			t.Fatal(err)
 		}

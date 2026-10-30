@@ -7,7 +7,7 @@ import {confirmDialog} from "../../dialog/confirmDialog";
 import {showMessage} from "../../dialog/message";
 import {processSync} from "../../dialog/processSystem";
 import {writeText} from "../../protyle/util/compatibility";
-import {bindSyncCloudListEvent, renderSyncCloudList, setKey} from "../../sync/syncGuide";
+import {bindSyncCloudListEvent, refreshSyncCloudDirBlock, renderSyncCloudList, setKey} from "../../sync/syncGuide";
 import {genConfigItemMainHtml, genConfigItemName} from "../render/fragments";
 import {getLANSyncSearchAvailability, getSyncProviderConfigKeywords, getSyncProviderConfigRowKeywords} from "./syncUi";
 import {mountLANSyncStatus, mountSyncAssetDownloadMode, mountSyncProvider} from "./syncRuntime";
@@ -184,6 +184,7 @@ const mountSyncCloudDir = (root: HTMLElement) => {
                 renderSyncCloudList(cloudListElement, true);
             }
         });
+        refreshSyncCloudDirBlock(root);
     }
 };
 
@@ -214,7 +215,7 @@ const registerRepoGroup = (tab: SettingTabBuilder) => {
     </div>
     <div class="fn__space"></div>
     <div class="fn__size200 fn__flex-center fn__none" id="repoKeyActionsEmpty">
-        <button class="b3-button b3-button--outline fn__block" id="importKey"><svg><use xlink:href="#iconDownload"></use></svg>${window.siyuan.languages.importKey}</button>
+        <button class="b3-button b3-button--outline fn__block" id="importKey"><svg><use xlink:href="#iconUpload"></use></svg>${window.siyuan.languages.importKey}</button>
         <div class="fn__hr"></div>
         <button class="b3-button b3-button--outline fn__block" id="initKey"><svg><use xlink:href="#iconLock"></use></svg>${window.siyuan.languages.genKey}</button>
         <div class="fn__hr"></div>

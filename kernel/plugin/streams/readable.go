@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package streams
 
@@ -89,9 +77,9 @@ type readRequest struct {
 }
 
 var (
-	readableStateType      = reflect.TypeOf((*readableState)(nil))
-	readableControllerType = reflect.TypeOf((*readableController)(nil))
-	readableReaderType     = reflect.TypeOf((*readableReaderState)(nil))
+	readableStateType      = reflect.TypeFor[*readableState]()
+	readableControllerType = reflect.TypeFor[*readableController]()
+	readableReaderType     = reflect.TypeFor[*readableReaderState]()
 )
 
 // readableStateOf 取出 ReadableStream 的内部状态，只接受本包创建的对象。
@@ -415,7 +403,7 @@ func readableStreamClose(h *Host, stream *readableState) {
 
 // readableStreamError 对应 ReadableStreamError：置为 errored，拒绝 reader 的 closed Promise，并以同一 reason
 // 拒绝所有挂起的 read() 请求。
-func readableStreamError(h *Host, stream *readableState, reason goja.Value) {
+func readableStreamError(_ *Host, stream *readableState, reason goja.Value) {
 	stream.status = statusErrored
 	stream.storedError = reason
 	reader := stream.reader

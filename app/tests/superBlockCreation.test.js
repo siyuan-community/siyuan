@@ -19,6 +19,7 @@ const sources = () => {
     return {
         functions: [
             extract("block/util.ts", ["genEmptyElement", "genSBElement", "refreshSbResize", "rebalanceSbWidth", "refreshSbAndPersistWidth"]),
+            extract("block/headingLevel.ts", ["getHeadingLevel"]),
             extract("block/superBlock.ts", ["getSuperBlockCommand", "getSuperBlockCommandLayout", "getSuperBlockTailHeadings"]),
             extract("block/insertSuperBlock.ts", ["genEmptySuperBlock", "focusInsertedBlock", "insertSuperBlockChild", "createSuperBlockColumn"]),
             extract("protyle/wysiwyg/transaction.ts", ["turnsIntoOneTransaction"]),
@@ -94,6 +95,7 @@ const cases = async source => {
         getHostCapabilities: () => ({widgets: false, remoteKernel: true}),
         isDisabledFeature: () => true,
         isInAndroid: () => false,
+        canPickIOSPhotos: () => false,
         isBuiltinInlineStyleVisible: () => false,
         normalizeHTMLAssetIFrameBlockDOM: value => value,
         fetchSyncPost: async (url, data) => {

@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -23,7 +27,7 @@ func testAPIContractMoveBlock(t *testing.T, engine *gin.Engine, boxID string) {
 	paragraphID := tree.Root.FirstChild.ID
 	list := &ast.Node{Type: ast.NodeList, ID: ast.NewNodeID(), ListData: &ast.ListData{Typ: 0}}
 	list.SetIALAttr("id", list.ID)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		item := &ast.Node{Type: ast.NodeListItem, ID: ast.NewNodeID(), ListData: &ast.ListData{Typ: 0}}
 		item.SetIALAttr("id", item.ID)
 		paragraph := treenode.NewParagraph(ast.NewNodeID())

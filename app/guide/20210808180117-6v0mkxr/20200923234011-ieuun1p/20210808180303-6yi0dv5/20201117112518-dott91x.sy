@@ -4,9 +4,9 @@
 	"Type": "NodeDocument",
 	"Properties": {
 		"id": "20201117112518-dott91x",
-		"title": "Embed Content Block",
+		"title": "Embed content blocks",
 		"type": "doc",
-		"updated": "20260810212846"
+		"updated": "20261024163828"
 	},
 	"Children": [
 		{
@@ -15,7 +15,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20201224120448-6jnrawi",
-				"updated": "20210512154707"
+				"updated": "20261024163828"
 			},
 			"Children": [
 				{
@@ -33,12 +33,41 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20210111230452-5lclhuo",
-				"updated": "20220623201506"
+				"updated": "20261024163828"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "The embed content block is mainly used to summarize the required content blocks, use "
+					"Data": "Embedded blocks display blocks selected by a query at the current position. Use them to gather tasks, organize a topic, or view notes from several places together."
+				}
+			]
+		},
+		{
+			"ID": "20261024163828-j88ajws",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20261024163828-j88ajws",
+				"updated": "20261024163828"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Insert a SQL embed"
+				}
+			],
+			"HeadingLevel": 3
+		},
+		{
+			"ID": "20261024163828-ls20q8h",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024163828-ls20q8h",
+				"updated": "20261024163828"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Place a SQL query between "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -56,28 +85,38 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " to wrap SQL scripts on a single line: "
+					"Data": " on its own line, for example "
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "code",
-					"TextMarkTextContent": "{{ SELECT * FROM blocks WHERE content LIKE'%Keyword%' }}"
+					"TextMarkTextContent": "{{ SELECT * FROM blocks WHERE content LIKE '%keyword%' }}"
 				},
 				{
 					"Type": "NodeText",
-					"Data": ", database table please refer to "
+					"Data": ". See "
 				},
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "block-ref",
-					"TextMarkBlockRefID": "20201117103851-gx21lz6",
+					"TextMarkBlockRefID": "20201222100339-i5hzcph",
 					"TextMarkBlockRefSubtype": "s",
-					"TextMarkTextContent": "here"
+					"TextMarkTextContent": "SQL index tables"
 				},
 				{
 					"Type": "NodeText",
-					"Data": ". "
-				},
+					"Data": " for the available tables and fields."
+				}
+			]
+		},
+		{
+			"ID": "20261024163828-j5puxdz",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024163828-j5puxdz",
+				"updated": "20261024163828"
+			},
+			"Children": [
 				{
 					"Type": "NodeTextMark",
 					"TextMarkType": "tag",
@@ -90,7 +129,8 @@
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
-				"id": "20201224120448-8ew9ane"
+				"id": "20201224120448-8ew9ane",
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -114,7 +154,7 @@
 			},
 			"Properties": {
 				"id": "20201224120448-2uaiqr9",
-				"updated": "20210503152127"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -204,7 +244,8 @@
 						"Num": -1
 					},
 					"Properties": {
-						"id": "20201224120448-4ke7k9b"
+						"id": "20201224120448-4ke7k9b",
+						"updated": "20261016111305"
 					},
 					"Children": [
 						{
@@ -248,7 +289,8 @@
 							"CodeBlockInfo": "c3Fs",
 							"CodeBlockCloseFence": "YGBg",
 							"Properties": {
-								"id": "20201224120448-bzzavtn"
+								"id": "20201224120448-bzzavtn",
+								"updated": "20261016111305"
 							},
 							"Children": [
 								{
@@ -263,7 +305,7 @@
 								{
 									"ID": "20220307092214-0soxi53",
 									"Type": "NodeCodeBlockCode",
-									"Data": "{{ SELECT * FROM blocks WHERE content LIKE '%content block%' AND content LIKE '%reference%' AND type = 'p') }}\n",
+									"Data": "{{ SELECT * FROM blocks WHERE content LIKE '%content block%' AND content LIKE '%reference%' AND type = 'p' }}\n",
 									"Properties": {
 										"id": "20220307092214-0soxi53"
 									}
@@ -431,7 +473,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20201224120448-gx2xvjh",
-				"updated": "20240731204825"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -481,7 +523,7 @@
 			"Type": "NodeBlockQueryEmbed",
 			"Properties": {
 				"id": "20201224120448-ww21jau",
-				"updated": "20211222185418"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -492,7 +534,7 @@
 				},
 				{
 					"Type": "NodeBlockQueryEmbedScript",
-					"Data": "SELECT * FROM blocks WHERE (content LIKE '%#Content block/Embed#%' OR content LIKE '%#Content block/Reference#%') AND hpath NOT LIKE '%Embed Content Block%'"
+					"Data": "SELECT * FROM blocks WHERE (content LIKE '%#Content block/Embed#%' OR content LIKE '%#Content block/Reference#%') AND hpath NOT LIKE '%Embed Content Block%' AND type = 'p'"
 				},
 				{
 					"Type": "NodeCloseBrace"
@@ -638,7 +680,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20260612202529-iytdii0",
-				"updated": "20260612202529"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -652,7 +694,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260612202529-yw2m7sw",
-				"updated": "20260612202529"
+				"updated": "20261016202856"
 			},
 			"Children": [
 				{
@@ -666,7 +708,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ prefix, allowing dynamic determination of which blocks to embed. This is suitable for complex scenarios where SQL queries are insufficient"
+					"Data": "​ prefix, allowing dynamic determination of which blocks to embed. This is suitable for complex scenarios where SQL queries are insufficient."
 				}
 			]
 		},
@@ -690,7 +732,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260612202529-36g9e2h",
-				"updated": "20260612202529"
+				"updated": "20261016202856"
 			},
 			"Children": [
 				{
@@ -704,7 +746,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260612202529-gki8m5i",
-				"updated": "20260612202529"
+				"updated": "20261016202856"
 			},
 			"Children": [
 				{
@@ -718,7 +760,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​ in the embed block editor to enter JS mode"
+					"Data": "​ in the embed block editor to enter JS mode."
 				}
 			]
 		},
@@ -728,7 +770,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260612202529-9d8y4l1",
-				"updated": "20260612202529"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -748,7 +790,7 @@
 			"Properties": {
 				"colgroup": "||",
 				"id": "20260612202529-qhxlt57",
-				"updated": "20260612202529"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -827,7 +869,7 @@
 								{
 									"Type": "NodeTextMark",
 									"TextMarkType": "code",
-									"TextMarkTextContent": "(url, data, callback?) =&gt; void"
+									"TextMarkTextContent": "(url, data?, headers?, process?, signal?) =&gt; Promise&lt;IWebSocketData&gt;"
 								},
 								{
 									"Type": "NodeText",
@@ -841,7 +883,7 @@
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Send synchronous POST request"
+									"Data": "Send an asynchronous POST request; use await or .then() to read the response. The third argument is a headers object, not a callback"
 								}
 							]
 						}
@@ -1017,7 +1059,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260612202529-n0b2kco",
-				"updated": "20260612202529"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -1031,12 +1073,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260612202529-n7a8u46",
-				"updated": "20260612202529"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "You must "
+					"Data": "To render content blocks automatically, "
 				},
 				{
 					"Type": "NodeTextMark",
@@ -1073,7 +1115,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260612202529-mimar76",
-				"updated": "20260612202529"
+				"updated": "20261024162311"
 			},
 			"Children": [
 				{
@@ -1086,7 +1128,48 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "// Synchronous return\nreturn [\"20240601150405-a1b2c3d\", \"20240601150405-e4f5g6h\"];\n\n// Asynchronous return (Promise will be automatically await'd)\nreturn fetchSyncPost(\"/api/search/fulltextSearch\", { query: \"todo\" })\n    .then(r => r.data.blocks.map(b => b.id));\n"
+					"Data": "//!js\n// Synchronous return\nreturn [\"20240601150405-a1b2c3d\", \"20240601150405-e4f5g6h\"];\n"
+				},
+				{
+					"Type": "NodeCodeBlockFenceCloseMarker",
+					"Data": "```"
+				}
+			]
+		},
+		{
+			"ID": "20261024162311-8jqi48e",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261024162311-8jqi48e",
+				"updated": "20261024162311"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "You can also return a Promise. Use the following as a separate alternative to the synchronous example above:"
+				}
+			]
+		},
+		{
+			"ID": "20261024162311-tfmkn0v",
+			"Type": "NodeCodeBlock",
+			"IsFencedCodeBlock": true,
+			"Properties": {
+				"id": "20261024162311-tfmkn0v",
+				"updated": "20261024162311"
+			},
+			"Children": [
+				{
+					"Type": "NodeCodeBlockFenceOpenMarker",
+					"Data": "```"
+				},
+				{
+					"Type": "NodeCodeBlockFenceInfoMarker",
+					"CodeBlockInfo": "anM="
+				},
+				{
+					"Type": "NodeCodeBlockCode",
+					"Data": "//!js\n// Asynchronous return (Promise will be automatically await'd)\nreturn fetchSyncPost(\"/api/search/fulltextSearch\", { query: \"todo\" })\n    .then(r => r.data.blocks.map(b => b.id));\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",
@@ -1099,12 +1182,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260612202529-fkmdwuz",
-				"updated": "20260612202529"
+				"updated": "20261016202856"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "The order of IDs in the returned array determines the final display order"
+					"Data": "The order of IDs in the returned array determines the final display order."
 				}
 			]
 		},
@@ -1114,7 +1197,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260612202529-tm04p7m",
-				"updated": "20260810212846"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -1184,7 +1267,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260612202529-jid9olh",
-				"updated": "20260809232000"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -1197,7 +1280,7 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "//!js\nconst resp = fetchSyncPost(\"/api/search/fulltextSearch\", { query: \"todo\" });\nreturn resp.data.blocks.map(b => b.id);\n"
+					"Data": "//!js\nconst resp = await fetchSyncPost(\"/api/search/fulltextSearch\", { query: \"todo\" });\nif (resp.code !== 0) {\n    throw new Error(resp.msg);\n}\nreturn resp.data.blocks.map(b => b.id);\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",
@@ -1210,12 +1293,12 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20260612202529-7oe7nua",
-				"updated": "20260810212846"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "Get all child blocks of the current document:"
+					"Data": "Get the direct child blocks of the current document:"
 				}
 			]
 		},
@@ -1225,7 +1308,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260612202529-hnj4v12",
-				"updated": "20260809232000"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -1238,7 +1321,7 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "//!js\nconst docID = protyle.block.rootID;\nconst resp = fetchSyncPost(\"/api/block/getChildBlocks\", { id: docID });\nreturn resp.data.blocks.map(b => b.id);\n"
+					"Data": "//!js\nconst docID = protyle.block.rootID;\nconst resp = await fetchSyncPost(\"/api/block/getChildBlocks\", { id: docID });\nif (resp.code !== 0) {\n    throw new Error(resp.msg);\n}\nreturn resp.data.map(b => b.id);\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",
@@ -1266,7 +1349,7 @@
 			"IsFencedCodeBlock": true,
 			"Properties": {
 				"id": "20260612202529-8as8rn5",
-				"updated": "20260809232000"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -1279,7 +1362,7 @@
 				},
 				{
 					"Type": "NodeCodeBlockCode",
-					"Data": "//!js\nconst resp = fetchSyncPost(\"/api/attr/batchGetBlockAttrs\", {\n    ids: [\"20240601150405-a1b2c3d\", \"20240601150405-e4f5g6h\"]\n});\nconst filtered = Object.entries(resp.data)\n    .filter(([id, attrs]) => attrs[\"custom-tag\"] === \"important\")\n    .map(([id]) => id);\nreturn filtered;\n"
+					"Data": "//!js\nconst resp = await fetchSyncPost(\"/api/attr/batchGetBlockAttrs\", {\n    ids: [\"20240601150405-a1b2c3d\", \"20240601150405-e4f5g6h\"]\n});\nif (resp.code !== 0) {\n    throw new Error(resp.msg);\n}\nconst filtered = Object.entries(resp.data)\n    .filter(([id, attrs]) => attrs[\"custom-tag\"] === \"important\")\n    .map(([id]) => id);\nreturn filtered;\n"
 				},
 				{
 					"Type": "NodeCodeBlockFenceCloseMarker",
@@ -1293,7 +1376,7 @@
 			"HeadingLevel": 3,
 			"Properties": {
 				"id": "20260612202529-f1btjt3",
-				"updated": "20260810212846"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -1310,7 +1393,7 @@
 			},
 			"Properties": {
 				"id": "20260612202529-xxa1lw6",
-				"updated": "20260810212846"
+				"updated": "20261016111305"
 			},
 			"Children": [
 				{
@@ -1435,7 +1518,7 @@
 					},
 					"Properties": {
 						"id": "20260612202529-2ju81sc",
-						"updated": "20260810212846"
+						"updated": "20261016111305"
 					},
 					"Children": [
 						{
@@ -1443,16 +1526,12 @@
 							"Type": "NodeParagraph",
 							"Properties": {
 								"id": "20260612202529-itlebo8",
-								"updated": "20260810212846"
+								"updated": "20261016111305"
 							},
 							"Children": [
 								{
 									"Type": "NodeText",
-									"Data": "Error display"
-								},
-								{
-									"Type": "NodeText",
-									"Data": ": When JS execution fails or returns a non-array value, \"Reference expired\" is displayed"
+									"Data": "Rendering and errors: Returning a block ID array renders those blocks automatically; an empty result displays \"Reference expired\". A non-array return preserves the script’s custom DOM and ends loading. An execution error displays the actual error message"
 								}
 							]
 						}

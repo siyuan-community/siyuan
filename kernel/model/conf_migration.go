@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -72,7 +60,17 @@ var confMigrations = []confMigration{
 		if nil == c.Export.Load() {
 			return false, nil
 		}
-		docxTemplate := util.RemoveInvalid(c.Export.Load().DocxTemplate)
+		var legacy struct {
+			Export struct {
+				DocxTemplate string `json:"docxTemplate"`
+			} `json:"export"`
+		}
+		if len(raw) > 0 {
+			if err := gulu.JSON.UnmarshalJSON(raw, &legacy); err != nil {
+				return false, err
+			}
+		}
+		docxTemplate := util.RemoveInvalid(legacy.Export.DocxTemplate)
 		if "" == docxTemplate {
 			return false, nil
 		}
@@ -84,7 +82,6 @@ var confMigrations = []confMigration{
 			params += " --reference-doc " + docxTemplate
 			c.Export.Load().PandocParams = strings.TrimSpace(params)
 		}
-		c.Export.Load().DocxTemplate = ""
 		return true, nil
 	}},
 	{5, "pandoc", func(c *AppConf, raw []byte) (bool, error) {

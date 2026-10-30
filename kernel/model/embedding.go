@@ -1,23 +1,12 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
 	"container/heap"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -32,6 +21,7 @@ import (
 
 	"github.com/88250/gulu"
 	ignore "github.com/sabhiram/go-gitignore"
+	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -40,11 +30,9 @@ import (
 )
 
 const (
-	embeddingBatchSize      = 10
-	embeddingMaxConcurrency = 8
-	embeddingMinTextLen     = 7
-	embeddingMaxContentLen  = 12000
-	embeddingVectorDim      = 4 // float32 = 4 bytes
+	embeddingMinTextLen    = 7
+	embeddingMaxContentLen = 12000
+	embeddingVectorDim     = 4 // float32 = 4 bytes
 
 	// 嵌入失败重试的退避参数：API 不可用时避免连接风暴
 	// delay = min(embeddingBackoffBase << (failCount-1), embeddingBackoffMax)
@@ -160,11 +148,16 @@ func processPendingEmbeddingRows(query func(string, ...any) ([]map[string]any, e
 	embeddingStop.Store(false)
 	embeddingErrNotified.Store(false)
 
-	workCh := make(chan embeddingJob, embeddingMaxConcurrency*2)
+	concurrency := embeddingConcurrency()
+	batchSize := embeddingBatchSize()
+	// 每页容纳所有 worker 的完整批次，同时保留小批量配置下的查询下限。
+	pageSize := max(concurrency, (100+batchSize-1)/batchSize) * batchSize
+
+	workCh := make(chan embeddingJob, concurrency*2)
 	var jobsWg sync.WaitGroup
 
 	var workersWg sync.WaitGroup
-	for range embeddingMaxConcurrency {
+	for range concurrency {
 		workersWg.Go(func() {
 			for job := range workCh {
 				if embeddingStop.Load() {
@@ -190,7 +183,7 @@ func processPendingEmbeddingRows(query func(string, ...any) ([]map[string]any, e
 			cutoff := now - int64(embeddingBackoffBase) // embeddingBackoffBase 单位为秒
 			embeddingResultMu.Lock()
 			generation := embeddingGeneration
-			results, err := query(stmtPendingBlocks, embeddingMaxFailCount, cutoff)
+			results, err := query(stmtPendingBlocks, embeddingMaxFailCount, cutoff, pageSize)
 			embeddingResultMu.Unlock()
 			if err != nil {
 				logging.LogErrorf("query pending embedding blocks failed: %s", err)
@@ -239,7 +232,7 @@ func processPendingEmbeddingRows(query func(string, ...any) ([]map[string]any, e
 				texts = append(texts, content)
 				blocks = append(blocks, row)
 
-				if len(texts) >= embeddingBatchSize {
+				if len(texts) >= batchSize {
 					jobsWg.Add(1)
 					workCh <- embeddingJob{texts: texts, blocks: blocks, generation: generation}
 					anySubmitted = true
@@ -269,14 +262,14 @@ func processPendingEmbeddingRows(query func(string, ...any) ([]map[string]any, e
 //  1. 从未尝试过（e.id IS NULL）；
 //  2. 失败过、未达永久失败阈值、且距上次尝试已超过退避间隔（e.last_tried < ?）。
 //
-// 参数顺序：?1=maxFailCount，?2=now-backoff（仅作 fail_count>0 块的粗筛下界，精确退避由 Go 侧按每块 fail_count 计算）。
+// 参数顺序：?1=maxFailCount，?2=now-backoff（失败块退避的粗筛下界），?3=每页块数。
 const stmtPendingBlocks = "SELECT b.id, b.root_id, b.box, b.path, b.content, b.updated, " +
 	"COALESCE(e.fail_count, 0) AS fail_count, COALESCE(e.last_tried, 0) AS last_tried " +
 	"FROM blocks b " +
 	"LEFT JOIN block_embeddings e ON b.id = e.id " +
 	"WHERE e.id IS NULL " +
 	"OR (e.fail_count > 0 AND e.fail_count < ? AND e.last_tried < ?) " +
-	"ORDER BY fail_count ASC, b.updated DESC LIMIT 100"
+	"ORDER BY fail_count ASC, b.updated DESC LIMIT ?"
 
 // embeddingBackoffFor 返回给定失败次数对应的退避间隔（首次失败 fail_count=1 对应 base）。
 func embeddingBackoffFor(failCount int) time.Duration {
@@ -365,7 +358,7 @@ func doEmbedAndStore(texts []string, blocks []map[string]any, generation uint64)
 		buf := encodeVector(vectors[i])
 
 		// 原内容仍存在时才写入，路径取当前值，避免编辑、移动或删除期间回写过期结果。
-		err = sql.Exec(stmtStoreEmbedding, buf, model, len(plainText), id, updated, plainText)
+		err = sql.Exec(stmtStoreEmbedding, buf, model, embeddingSpaceID(baseURL, model, dimensions), len(plainText), id, updated, plainText)
 		if err != nil {
 			embeddingStop.Store(true)
 			logging.LogErrorf("store embedding failed for block [%s]: %s", id, err)
@@ -473,12 +466,17 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 		return
 	}
 
-	vectors, err := util.BatchGetEmbeddings([]string{query}, embeddingKey(), embeddingBaseURL(), embeddingModel(), embeddingDimensions(), embeddingTimeout())
+	key, baseURL, model, dimensions := embeddingKey(), embeddingBaseURL(), embeddingModel(), embeddingDimensions()
+	space := embeddingSpaceID(baseURL, model, dimensions)
+	vectors, err := util.BatchGetEmbeddings([]string{query}, key, baseURL, model, dimensions, embeddingTimeout())
 	if err != nil || 1 > len(vectors) {
 		logging.LogErrorf("get query embedding failed")
 		return
 	}
 	queryVec := vectors[0]
+	if len(queryVec) == 0 || space != embeddingSpaceID(embeddingBaseURL(), embeddingModel(), embeddingDimensions()) || !isEmbeddingEnabled() {
+		return
+	}
 
 	boxFilter, boxArgs := buildBoxesFilter(boxes, "be.")
 	pathFilter, pathArgs := buildPathsFilter(paths, "be.")
@@ -503,19 +501,21 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 
 	for {
 		var q string
-		var args []any
+		args := []any{space, len(queryVec) * embeddingVectorDim}
 		if hasFilter {
-			q = fmt.Sprintf("SELECT be.rowid, be.id, be.embedding FROM block_embeddings be JOIN blocks b ON be.id = b.id WHERE be.embedding IS NOT NULL AND length(be.embedding) > 0 AND be.rowid > %d", cursor)
+			q = fmt.Sprintf("SELECT be.rowid, be.id, be.embedding FROM block_embeddings be JOIN blocks b ON be.id = b.id WHERE be.space = ? AND length(be.embedding) = ? AND be.rowid > %d", cursor)
 			if hasTypeFilter {
 				q += " AND " + typeFilter
 			}
 			q += boxFilter + pathFilter + boxDocFilter + excludeFilter
 			// 过滤值通过绑定参数传递，避免 SQL 拼接注入
-			args = append(append(append([]any{}, boxArgs...), pathArgs...), boxDocArgs...)
+			args = append(args, boxArgs...)
+			args = append(args, pathArgs...)
+			args = append(args, boxDocArgs...)
 			args = append(args, excludeArgs...)
 			q += fmt.Sprintf(" ORDER BY be.rowid LIMIT %d", scanSize)
 		} else {
-			q = fmt.Sprintf("SELECT rowid, id, embedding FROM block_embeddings WHERE embedding IS NOT NULL AND length(embedding) > 0 AND rowid > %d ORDER BY rowid LIMIT %d", cursor, scanSize)
+			q = fmt.Sprintf("SELECT rowid, id, embedding FROM block_embeddings WHERE space = ? AND length(embedding) = ? AND rowid > %d ORDER BY rowid LIMIT %d", cursor, scanSize)
 		}
 		rows, qErr := sql.QueryNoLimitArgs(q, args...)
 		if qErr != nil {
@@ -535,7 +535,7 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 		scoredCh := make(chan []scoredBlock, numWorkers)
 		var wg sync.WaitGroup
 
-		for w := 0; w < numWorkers; w++ {
+		for w := range numWorkers {
 			start := w * chunkSize
 			end := min(start+chunkSize, len(rows))
 			if start >= end {
@@ -577,6 +577,10 @@ func SemanticSearchBlock(query string, boxes, paths []string, types, subTypes ma
 		}
 	}
 
+	// Discard the search if settings changed while scanning candidates.
+	if space != embeddingSpaceID(embeddingBaseURL(), embeddingModel(), embeddingDimensions()) || !isEmbeddingEnabled() {
+		return
+	}
 	matchedBlockCount = h.Len()
 	if 1 > matchedBlockCount {
 		pageCount = 0
@@ -862,6 +866,12 @@ func embeddingDimensions() int {
 	return 0
 }
 
+// Versioned identity of the configured vector space, excluding credentials.
+// The stored byte length additionally verifies the provider's actual output dimension.
+func embeddingSpaceID(baseURL, model string, dimensions int) string {
+	return fmt.Sprintf("v1:%x", sha256.Sum256([]byte(fmt.Sprintf("%q:%q:%d", baseURL, model, dimensions))))
+}
+
 func embeddingModel() string {
 	confAISnapshot := Conf.LoadAI()
 
@@ -872,4 +882,22 @@ func embeddingModel() string {
 		return v
 	}
 	return ""
+}
+
+func embeddingConcurrency() int {
+	confAISnapshot := Conf.LoadAI()
+
+	if nil != confAISnapshot.Embedding && confAISnapshot.Embedding.Enabled && 0 < confAISnapshot.Embedding.Concurrency {
+		return min(confAISnapshot.Embedding.Concurrency, conf.MaxEmbeddingConcurrency)
+	}
+	return conf.DefaultEmbeddingConcurrency
+}
+
+func embeddingBatchSize() int {
+	confAISnapshot := Conf.LoadAI()
+
+	if nil != confAISnapshot.Embedding && confAISnapshot.Embedding.Enabled && 0 < confAISnapshot.Embedding.BatchSize {
+		return min(confAISnapshot.Embedding.BatchSize, conf.MaxEmbeddingBatchSize)
+	}
+	return conf.DefaultEmbeddingBatchSize
 }

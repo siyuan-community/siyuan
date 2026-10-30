@@ -1,10 +1,11 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -13,8 +14,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/88250/lute"
+	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
+	"github.com/siyuan-community/siyuan/kernel/av"
+	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/dataparser"
 )
@@ -24,6 +29,7 @@ const markdownImportBatchBytes = 8 * 1024 * 1024
 
 type markdownImportEntry struct {
 	id, box, path, hpath string
+	sourcePath, title    string
 	rootType             string
 	hasRootType          bool
 	offset               int64
@@ -62,10 +68,18 @@ func (spool *markdownImportSpool) close() {
 }
 
 func markdownImportAAD(index int) []byte {
-	return []byte(fmt.Sprintf("siyuan/markdown-import/v1/%d", index))
+	return fmt.Appendf(nil, "siyuan/markdown-import/v1/%d", index)
 }
 
 func (spool *markdownImportSpool) add(tree *parse.Tree) error {
+	return spool.addSource(tree, tree.HPath)
+}
+
+// addSource 将外部链接位置与文档显示标题分开，标题中的斜杠不参与相对文件定位。
+func (spool *markdownImportSpool) addSource(tree *parse.Tree, sourcePath string) error {
+	if err := treenode.SyncTableCellRichInlineChanges(tree.Root); err != nil {
+		return err
+	}
 	// 单文件导入只保留这一棵树，不创建临时文件或增加序列化开销。
 	if spool.file == nil {
 		if spool.singleTree != nil {
@@ -74,8 +88,9 @@ func (spool *markdownImportSpool) add(tree *parse.Tree) error {
 		spool.singleTree = tree
 		spool.entries = append(spool.entries, markdownImportEntry{
 			id: tree.ID, box: tree.Box, path: tree.Path, hpath: tree.HPath,
+			sourcePath: sourcePath, title: treenode.ReadDocumentTitle(tree.Root).Text,
 		})
-		addImportSearchLinks(tree, spool.searchLinks)
+		spool.addSourceLinks(tree, sourcePath)
 		return nil
 	}
 	luteEngine := util.NewLute()
@@ -95,6 +110,7 @@ func (spool *markdownImportSpool) add(tree *parse.Tree) error {
 	}
 	entry := markdownImportEntry{
 		id: tree.ID, box: tree.Box, path: tree.Path, hpath: tree.HPath,
+		sourcePath: sourcePath, title: treenode.ReadDocumentTitle(tree.Root).Text,
 		offset: offset, size: len(ciphertext), rawSize: len(raw),
 	}
 	for _, attribute := range tree.Root.KramdownIAL {
@@ -104,7 +120,49 @@ func (spool *markdownImportSpool) add(tree *parse.Tree) error {
 		}
 	}
 	spool.entries = append(spool.entries, entry)
-	addImportSearchLinks(tree, spool.searchLinks)
+	spool.addSourceLinks(tree, sourcePath)
+	return nil
+}
+
+func (spool *markdownImportSpool) addSourceLinks(tree *parse.Tree, sourcePath string) {
+	view := *tree
+	view.HPath = sourcePath
+	addImportSearchLinks(&view, spool.searchLinks)
+}
+
+// refreshDisplayPaths 使用暂存身份关系修正前置元数据标题，不从显示文本拆分父级。
+func (spool *markdownImportSpool) refreshDisplayPaths(basePath, baseHPath string) error {
+	entries := map[string]*markdownImportEntry{}
+	for i := range spool.entries {
+		entry := &spool.entries[i]
+		entries[strings.TrimSuffix(entry.path, ".sy")] = entry
+	}
+	resolved := map[string]string{basePath: baseHPath}
+	var resolve func(string) (string, error)
+	resolve = func(idPath string) (string, error) {
+		if display, ok := resolved[idPath]; ok {
+			return display, nil
+		}
+		entry := entries[idPath]
+		if entry == nil {
+			return "", fmt.Errorf("Markdown import parent identity is missing: %s", idPath)
+		}
+		parent, err := resolve(path.Dir(idPath))
+		if err != nil {
+			return "", err
+		}
+		entry.hpath = appendDocumentHPath(parent, entry.title)
+		resolved[idPath] = entry.hpath
+		return entry.hpath, nil
+	}
+	for idPath := range entries {
+		if _, err := resolve(idPath); err != nil {
+			return err
+		}
+	}
+	if spool.singleTree != nil {
+		spool.singleTree.HPath = spool.entries[0].hpath
+	}
 	return nil
 }
 
@@ -123,6 +181,9 @@ func (spool *markdownImportSpool) load(index int) (*parse.Tree, error) {
 	}
 	tree, err := dataparser.ParseJSONWithoutFix(raw, util.NewLute().ParseOptions)
 	if err != nil {
+		return nil, err
+	}
+	if err = treenode.RefreshTableCellRichProjection(tree.Root); err != nil {
 		return nil, err
 	}
 	tree.ID, tree.Box, tree.Path, tree.HPath = entry.id, entry.box, entry.path, entry.hpath
@@ -169,9 +230,14 @@ func (spool *markdownImportSpool) finish(write func(*parse.Tree) error, flush fu
 		if err != nil {
 			return fmt.Errorf("read Markdown import staging entry %d: %w", i, err)
 		}
-		convertMdHyperlinks2WikiLinks(tree)
-		convertWikiLinksAndTags(tree, spool.searchLinks)
-		mergeTextAndHandlerNestedInlines(tree, luteEngine)
+		// 链接转换只借用外部文件位置；恢复显示路径后才交给文档写入器。
+		displayPath := tree.HPath
+		tree.HPath = entry.sourcePath
+		err = convertMarkdownImportTree(tree, spool.searchLinks, luteEngine)
+		tree.HPath = displayPath
+		if err != nil {
+			return err
+		}
 		if err = write(tree); err != nil {
 			return err
 		}
@@ -183,4 +249,49 @@ func (spool *markdownImportSpool) finish(write func(*parse.Tree) error, flush fu
 		}
 	}
 	return nil
+}
+
+// convertMarkdownImportTree 转换富文本源并重建投影，避免文本合并改写派生的列表标记和换行。
+func convertMarkdownImportTree(tree *parse.Tree, searchLinks map[string]string, luteEngine *lute.Lute) (err error) {
+	convert := func(fragment *parse.Tree) {
+		convertMdHyperlinks2WikiLinks(fragment)
+		convertWikiLinksAndTags(fragment, searchLinks)
+		mergeTextAndHandlerNestedInlines(fragment, luteEngine)
+	}
+	updates := map[*ast.Node]*ast.TableCellRich{}
+	ast.Walk(tree.Root, func(cell *ast.Node, entering bool) ast.WalkStatus {
+		if !entering || cell.TableCellRich == nil {
+			return ast.WalkContinue
+		}
+		var fragment *parse.Tree
+		if fragment, err = av.ParseTableCellRich(cell.TableCellRich); err != nil {
+			return ast.WalkStop
+		}
+		fragment.HPath = tree.HPath
+		before := render.NewJSONRenderer(fragment, luteEngine.RenderOptions, fragment.Context.ParseOption).Render()
+		convert(fragment)
+		after := render.NewJSONRenderer(fragment, luteEngine.RenderOptions, fragment.Context.ParseOption).Render()
+		rich := *cell.TableCellRich
+		if !bytes.Equal(before, after) {
+			if rich.Content, err = av.RenderTableCellRich(fragment); err != nil {
+				return ast.WalkStop
+			}
+		}
+		updates[cell] = &rich
+		return ast.WalkSkipChildren
+	})
+	if err != nil {
+		return
+	}
+	// 通用转换只处理文档正文，单元格投影在富文本源转换成功后统一生成。
+	for cell := range updates {
+		for cell.FirstChild != nil {
+			cell.FirstChild.Unlink()
+		}
+	}
+	convert(tree)
+	for cell, rich := range updates {
+		cell.TableCellRich = rich
+	}
+	return treenode.RefreshTableCellRichProjection(tree.Root)
 }

@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -183,12 +187,13 @@ func toContractAVValueBlock(value *av.ValueBlock) *apicontract.AVValueBlock {
 		return nil
 	}
 	return &apicontract.AVValueBlock{
-		ID:         value.ID,
-		Icon:       value.Icon,
-		Content:    value.Content,
-		RefSubtype: string(value.RefSubtype),
-		Created:    value.Created,
-		Updated:    value.Updated,
+		CollectionRuleID: value.CollectionRuleID,
+		ID:               value.ID,
+		Icon:             value.Icon,
+		Content:          value.Content,
+		RefSubtype:       string(value.RefSubtype),
+		Created:          value.Created,
+		Updated:          value.Updated,
 	}
 }
 func fromContractAVValueBlock(value *apicontract.AVValueBlock) *av.ValueBlock {
@@ -935,6 +940,7 @@ func toContractAVNewItemTemplate(value *av.NewItemTemplate) *apicontract.AVNewIt
 		SaveLocation:        toContractAVNewItemSaveLocation(value.SaveLocation),
 		ContentTemplatePath: value.ContentTemplatePath,
 		HideInFileTree:      value.HideInFileTree,
+		OpenAfterCreate:     value.OpenAfterCreate,
 	}
 }
 func toContractAVNewItemFieldValue(value *av.NewItemFieldValue) *apicontract.AVNewItemFieldValue {
@@ -1054,7 +1060,6 @@ func toContractAVLayoutTable(value *av.LayoutTable) *apicontract.AVLayoutTable {
 		Columns: avContractSlice(value.Columns, func(value *av.ViewTableColumn) *apicontract.AVViewTableColumn {
 			return toContractAVViewTableColumn(value)
 		}),
-		RowIDs: value.RowIDs,
 	}
 }
 func toContractAVBaseLayout(value *av.BaseLayout) *apicontract.AVBaseLayout {
@@ -1066,9 +1071,6 @@ func toContractAVBaseLayout(value *av.BaseLayout) *apicontract.AVBaseLayout {
 		ID:        value.ID,
 		ShowIcon:  value.ShowIcon,
 		WrapField: value.WrapField,
-		Filters:   avContractSlice(value.Filters, func(value *av.ViewFilter) *apicontract.AVViewFilter { return toContractAVViewFilter(value) }),
-		Sorts:     avContractSlice(value.Sorts, func(value *av.ViewSort) *apicontract.AVViewSort { return toContractAVViewSort(value) }),
-		PageSize:  value.PageSize,
 	}
 }
 func toContractAVViewTableColumn(value *av.ViewTableColumn) *apicontract.AVViewTableColumn {
@@ -1114,7 +1116,6 @@ func toContractAVLayoutGallery(value *av.LayoutGallery) *apicontract.AVLayoutGal
 		CardFields: avContractSlice(value.CardFields, func(value *av.ViewGalleryCardField) *apicontract.AVViewGalleryCardField {
 			return toContractAVViewGalleryCardField(value)
 		}),
-		CardIDs: value.CardIDs,
 	}
 }
 func toContractAVViewGalleryCardField(value *av.ViewGalleryCardField) *apicontract.AVViewGalleryCardField {
@@ -1307,11 +1308,12 @@ func toContractAVCreateAttributeViewItemResult(value *model.CreateAttributeViewI
 		return nil
 	}
 	return &apicontract.AVCreateAttributeViewItemResult{
-		ItemID:     value.ItemID,
-		BlockID:    value.BlockID,
-		Content:    value.Content,
-		IsDetached: value.IsDetached,
-		Warnings:   value.Warnings,
+		ItemID:          value.ItemID,
+		BlockID:         value.BlockID,
+		Content:         value.Content,
+		IsDetached:      value.IsDetached,
+		Warnings:        value.Warnings,
+		OpenAfterCreate: value.OpenAfterCreate,
 	}
 }
 func toContractAVCreateAttributeViewItemDocsResult(value *model.CreateAttributeViewItemDocsResult) *apicontract.AVCreateAttributeViewItemDocsResult {

@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -16,13 +20,15 @@ import (
 )
 
 func TestAPIContractSystemExportSecrets(t *testing.T) {
-	previousConf, previousTemp := model.Conf, util.TempDir
-	t.Cleanup(func() { model.Conf, util.TempDir = previousConf, previousTemp })
-	util.TempDir = t.TempDir()
+	previousConf, previousTemp, previousConfDir := model.Conf, util.TempDir, util.ConfDir
+	t.Cleanup(func() { model.Conf, util.TempDir, util.ConfDir = previousConf, previousTemp, previousConfDir })
+	util.TempDir, util.ConfDir = t.TempDir(), t.TempDir()
 	for _, populated := range []bool{true, false} {
 		model.Conf = model.NewAppConf()
 		if populated {
 			model.Conf.AI.Store(conf.NewAI())
+			model.Conf.AI.Load().Web.APIKey = "export-test-web-secret"
+			model.Conf.AI.Load().Web.FetchProvider = "deepseek"
 			model.Conf.AI.Load().Decision.Profiles["typesafe"].APIKey = "export-test-decision-secret"
 			model.Conf.AI.Load().Decision.Profiles["openai"].APIKey = "export-test-openai-secret"
 			model.Conf.OIDC = conf.NewOIDC()
@@ -66,11 +72,11 @@ func TestAPIContractSystemExportSecrets(t *testing.T) {
 			t.Fatal(err)
 		}
 		if populated {
-			if exported.AI.Load().Decision.APIKey != "" || exported.AI.Load().Decision.Profiles["typesafe"].APIKey != "" || exported.AI.Load().Decision.Profiles["openai"].APIKey != "" || exported.OIDC.ClientSecret != "" ||
+			if exported.AI.Load().Web.APIKey != "" || exported.AI.Load().Decision.APIKey != "" || exported.AI.Load().Decision.Profiles["typesafe"].APIKey != "" || exported.AI.Load().Decision.Profiles["openai"].APIKey != "" || exported.OIDC.ClientSecret != "" ||
 				bytes.Contains(data, []byte("export-test-")) {
 				t.Fatal("export retained secrets")
 			}
-			if exported.AI.Load().Decision.Profiles["typesafe"].Name != model.Conf.AI.Load().Decision.Profiles["typesafe"].Name || exported.OIDC.ClientID != "test-client" {
+			if exported.AI.Load().Web.FetchProvider != "deepseek" || exported.AI.Load().Decision.Profiles["typesafe"].Name != model.Conf.AI.Load().Decision.Profiles["typesafe"].Name || exported.OIDC.ClientID != "test-client" {
 				t.Fatal("export lost non-secret settings")
 			}
 		}

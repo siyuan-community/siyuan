@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -116,7 +120,7 @@ func TestAttributeViewItemIconBindingInheritance(t *testing.T) {
 				return
 			}
 			entry := GlobalUndoLog.Peek(fixture.sourceID)
-			for cycle := 0; cycle < 2; cycle++ {
+			for range 2 {
 				if err = PerformTxSync(&Transaction{DoOperations: entry.UndoOperationsForReplay(), isReplay: true}); err != nil {
 					t.Fatal(err)
 				}

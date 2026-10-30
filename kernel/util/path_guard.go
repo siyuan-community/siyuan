@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -80,7 +68,7 @@ func IsForbiddenDataRelPath(rel string) bool {
 	// 统一为斜杠并清理（path.Clean 使用斜杠语义，避免 Windows 上分隔符差异）
 	rel = path.Clean("/" + filepath.ToSlash(rel))
 	protectedRel := pluginDevelopmentLexicalPath(rel)
-	for _, component := range strings.Split(protectedRel, "/") {
+	for component := range strings.SplitSeq(protectedRel, "/") {
 		if strings.HasPrefix(component, ".siyuan-package-install-") {
 			return true
 		}
@@ -126,12 +114,12 @@ func IsForbiddenDataRelPath(rel string) bool {
 	return false
 }
 
-// NormalizeAndResolve 将路径转为绝对、解析符号链接并清理；在需要时转为小写以实现不区分大小写比较
+// NormalizeAndResolve 将路径转为绝对、解析符号链接和目录联接并清理；在需要时转为小写以实现不区分大小写比较。
 func NormalizeAndResolve(p string) string {
 	if abs, err := filepath.Abs(p); err == nil {
 		p = abs
 	}
-	if eval, err := filepath.EvalSymlinks(p); err == nil {
+	if eval, err := ResolveRealPath(p); err == nil {
 		p = eval
 	}
 	p = filepath.Clean(p)

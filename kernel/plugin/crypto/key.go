@@ -1,20 +1,10 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package crypto
+
+import "slices"
 
 // KeyType 对应 CryptoKey.type。
 type KeyType string
@@ -100,12 +90,7 @@ type KeyData struct {
 }
 
 func containsUsage(usages []KeyUsage, usage KeyUsage) bool {
-	for _, cur := range usages {
-		if cur == usage {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(usages, usage)
 }
 
 // cloneUsages 复制用法列表，避免调用方持有的切片被后续修改影响。
@@ -127,8 +112,4 @@ func filterUsages(usages []KeyUsage, allowed ...KeyUsage) []KeyUsage {
 		}
 	}
 	return ret
-}
-
-func intPtr(value int) *int {
-	return &value
 }

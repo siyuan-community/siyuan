@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -57,22 +45,28 @@ func syncHandler(args map[string]any) (CallToolResult, error) {
 	}, nil
 }
 
-func syncPerform(args map[string]any) (CallToolResult, error) {
-	model.SyncData(true)
+func syncPerform(_ map[string]any) (CallToolResult, error) {
+	if err := model.SyncData(true); err != nil {
+		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "sync failed: " + err.Error()}}, IsError: true}, nil
+	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "sync done: " + model.Conf.Sync.Load().Stat}}}, nil
 }
 
-func syncUpload(args map[string]any) (CallToolResult, error) {
-	model.SyncDataUpload()
+func syncUpload(_ map[string]any) (CallToolResult, error) {
+	if err := model.SyncDataUpload(); err != nil {
+		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "sync upload failed: " + err.Error()}}, IsError: true}, nil
+	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "sync upload done: " + model.Conf.Sync.Load().Stat}}}, nil
 }
 
-func syncDownload(args map[string]any) (CallToolResult, error) {
-	model.SyncDataDownload()
+func syncDownload(_ map[string]any) (CallToolResult, error) {
+	if err := model.SyncDataDownload(); err != nil {
+		return CallToolResult{Content: []ContentItem{{Type: "text", Text: "sync download failed: " + err.Error()}}, IsError: true}, nil
+	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: "sync download done: " + model.Conf.Sync.Load().Stat}}}, nil
 }
 
-func syncStatus(args map[string]any) (CallToolResult, error) {
+func syncStatus(_ map[string]any) (CallToolResult, error) {
 	s := model.Conf.Sync.Load()
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: fmt.Sprintf(
 		"Sync Status:\n  Enabled: %v\n  Mode: %d (0/1=auto, 2=manual, 3=full-manual)\n  Provider: %d\n  Cloud: %s\n  Perception: %v\n  Interval: %ds\n  Synced: %d\n  Stat: %s",

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -25,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -335,13 +324,7 @@ func getBootAppearanceByID(provider, appearanceID string) (ret *BootAppearance, 
 	if parseErr != nil || !bazaar.IsValidInstalledPackage(pkg, provider) {
 		return nil, ErrBootAppearanceNotFound
 	}
-	found := false
-	for _, declaredID := range pkg.BootAppearances {
-		if declaredID == appearanceID {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(pkg.BootAppearances, appearanceID)
 	if !found {
 		return nil, ErrBootAppearanceNotFound
 	}
@@ -658,7 +641,7 @@ func ensureBootAppearancePathHasNoSymlink(root, target string) error {
 		return ErrBootAppearanceAssetForbidden
 	}
 	current := rootAbs
-	for _, part := range strings.Split(relative, string(os.PathSeparator)) {
+	for part := range strings.SplitSeq(relative, string(os.PathSeparator)) {
 		if part == "." || part == "" {
 			continue
 		}

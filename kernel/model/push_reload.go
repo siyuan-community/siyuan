@@ -1,23 +1,12 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -47,15 +36,13 @@ var backgroundRefreshWaitGroup sync.WaitGroup
 
 // runBackgroundRefresh 跟踪延迟刷新任务，便于工作区释放前等待任务结束。
 func runBackgroundRefresh(delay time.Duration, refresh func()) {
-	backgroundRefreshWaitGroup.Add(1)
-	go func() {
-		defer backgroundRefreshWaitGroup.Done()
+	backgroundRefreshWaitGroup.Go(func() {
 		time.Sleep(delay)
 		// 与编辑事务串行刷新，避免异步分组写回覆盖撤销、重做后的数据。
 		flushLock.Lock()
 		defer flushLock.Unlock()
 		refresh()
-	}()
+	})
 }
 
 func PushReloadSnippet(snippet *conf.Snpt) {
@@ -272,7 +259,7 @@ func refreshDocInfo0(tree *parse.Tree, size uint64) {
 	docInfo := map[string]any{
 		"box":      tree.Box,
 		"rootID":   tree.ID,
-		"name":     tree.Root.IALAttr("title"),
+		"name":     treenode.ReadDocumentTitle(tree.Root).Text,
 		"alias":    tree.Root.IALAttr("alias"),
 		"name1":    tree.Root.IALAttr("name"),
 		"memo":     tree.Root.IALAttr("memo"),
@@ -521,9 +508,7 @@ func refreshDynamicRefTexts0(updatedDefNodes map[string]*ast.Node, updatedTrees 
 		if ok {
 			updatedTrees[refTreeID] = refTree
 		}
-		for id, node := range changedRefNodes {
-			updatedRefNodes[id] = node
-		}
+		maps.Copy(updatedRefNodes, changedRefNodes)
 		for _, update := range updates {
 			appendSetRefDynamicTextTask(refTreeID, update.blockID, update.defNode.id, update.defNode.refText, refTree.Box)
 		}

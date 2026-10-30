@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package chatgpt
 
 import (
@@ -65,7 +69,7 @@ func (s *Service) Do(request *http.Request, accountID string) (*http.Response, e
 			release()
 		}
 	}()
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := range 2 {
 		token, err := s.Token(ctx, accountID, attempt != 0)
 		if err != nil {
 			return nil, err

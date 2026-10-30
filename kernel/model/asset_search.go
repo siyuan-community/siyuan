@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -24,7 +28,7 @@ func imageAssetMetadataHits(markdowns, keywords []string) map[string]int {
 			if dest == nil {
 				return ast.WalkSkipChildren
 			}
-			assetPath := strings.SplitN(util.UnescapeHTML(dest.TokensStr()), "?", 2)[0]
+			assetPath, _, _ := strings.Cut(util.UnescapeHTML(dest.TokensStr()), "?")
 			if decoded, err := url.PathUnescape(assetPath); err == nil {
 				assetPath = decoded
 			}

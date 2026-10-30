@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tools
 
 import (
@@ -55,7 +59,7 @@ func PluginDevelopmentInstallPreview(ctx context.Context, args map[string]any) (
 		return nil, err
 	}
 	if expectedInstalled != "" && preview.InstalledRevision != expectedInstalled {
-		return nil, errors.New("revision_conflict: installed package changed before confirmation")
+		return nil, util.NewTextFileError(util.TextFileRevisionConflict, errors.New("installed package changed before confirmation"))
 	}
 	payload["package"], payload["managedArtifact"] = preview, managed
 	payload["archiveHashBound"], payload["targetRevisionBound"] = expectedHash != "", expectedInstalled != ""

@@ -1,22 +1,11 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/siyuan-note/httpclient"
 	"github.com/siyuan-note/logging"
@@ -33,6 +23,8 @@ const (
 	defaultExaURL     = "https://mcp.exa.ai/mcp"
 	maxWebSearchChars = 50000
 )
+
+var webSearchHTTPClient = httpclient.NewBrowserRequest().GetClient().Clone().SetTimeout(0)
 
 type mcpRequest struct {
 	JSONRPC string    `json:"jsonrpc"`
@@ -66,7 +58,9 @@ type mcpContent struct {
 	Text string `json:"text"`
 }
 
-func WebSearch(query, exaApiKey string) (string, error) {
+func WebSearchContext(ctx context.Context, query, exaApiKey string, timeout int) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(NormalizeWebTimeout(timeout))*time.Second)
+	defer cancel()
 	exaURL := defaultExaURL
 	if exaApiKey != "" {
 		exaURL += "?exaApiKey=" + url.QueryEscape(exaApiKey)
@@ -87,7 +81,8 @@ func WebSearch(query, exaApiKey string) (string, error) {
 		},
 	}
 
-	resp, err := httpclient.NewBrowserRequest().SetHeader("Accept", "application/json, text/event-stream").SetBody(reqBody).Post(exaURL)
+	resp, err := webSearchHTTPClient.R().SetRetryCount(1).SetRetryFixedInterval(3*time.Second).
+		SetContext(ctx).SetHeader("Accept", "application/json, text/event-stream").SetBody(reqBody).Post(exaURL)
 	if err != nil {
 		return "", errors.New("web search failed: " + err.Error())
 	}

@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -119,7 +123,7 @@ func TestAPIContractFileTreeDailyNoteDate(t *testing.T) {
 func TestAPIContractFileTreePayloadConversions(t *testing.T) {
 	compare := func(before, after []byte) {
 		t.Helper()
-		var left, right interface{}
+		var left, right any
 		if err := json.Unmarshal(before, &left); err != nil {
 			t.Fatal(err)
 		}

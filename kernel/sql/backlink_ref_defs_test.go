@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package sql
 
 import (
@@ -28,7 +32,7 @@ func TestQueryBacklinkRefDefsInBox(t *testing.T) {
 		}
 	}
 	ids := []string{"a", "b", "'); DELETE FROM refs --"}
-	for i := 0; i < queryRefsByDefIDsBatchSize; i++ {
+	for range queryRefsByDefIDsBatchSize {
 		ids = append(ids, "missing")
 	}
 	refs, err := QueryBacklinkRefDefsInBox(ids, boxID)

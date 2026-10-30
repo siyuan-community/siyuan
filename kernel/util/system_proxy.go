@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -49,7 +37,7 @@ func parseSystemNetworkProxy(proxyServer, proxyOverride string) (*systemNetworkP
 	}
 
 	proxies := map[string]string{}
-	for _, field := range strings.Split(proxyServer, ";") {
+	for field := range strings.SplitSeq(proxyServer, ";") {
 		parts := strings.SplitN(field, "=", 2)
 		if 2 != len(parts) {
 			continue
@@ -119,7 +107,7 @@ func parseSystemNetworkProxyBypass(proxyOverride string) string {
 			seen[entry] = true
 		}
 	}
-	for _, field := range strings.Split(proxyOverride, ";") {
+	for field := range strings.SplitSeq(proxyOverride, ";") {
 		field = strings.TrimSpace(field)
 		if strings.EqualFold(field, "<local>") {
 			add("localhost")

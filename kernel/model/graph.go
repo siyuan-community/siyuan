@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -646,7 +634,9 @@ func graphDailyNoteFilter(local bool) string {
 	for _, p := range dailyNotesPaths {
 		// 转义单引号，避免日记存储路径闭合 SQL 字符串字面量造成注入
 		// https://github.com/siyuan-note/siyuan/security/advisories/GHSA-xr4h-j7cg-q8pc
-		buf.WriteString(" AND ref.hpath NOT LIKE '" + strings.ReplaceAll(p, "'", "''") + "%'")
+		buf.WriteString(" AND ref.hpath NOT LIKE '")
+		buf.WriteString(strings.ReplaceAll(p, "'", "''"))
+		buf.WriteString("%'")
 	}
 	return buf.String()
 }
@@ -685,7 +675,9 @@ func nodeTitleLabel(node *GraphNode, blockContent string) {
 func query2Stmt(queryStr string) (ret string) {
 	buf := bytes.Buffer{}
 	if ast.IsNodeIDPattern(queryStr) {
-		buf.WriteString("id = '" + queryStr + "'")
+		buf.WriteString("id = '")
+		buf.WriteString(queryStr)
+		buf.WriteString("'")
 	} else {
 		var tags []string
 		luteEngine := util.NewLute()
@@ -711,7 +703,8 @@ func query2Stmt(queryStr string) (ret string) {
 			if "" == part {
 				continue
 			}
-			buf.WriteString("(content LIKE " + conf.SearchLikePattern(part))
+			buf.WriteString("(content LIKE ")
+			buf.WriteString(conf.SearchLikePattern(part))
 			buf.WriteString(Conf.Search.Load().NAMFilter(part))
 			buf.WriteString(")")
 			if i < len(parts)-1 {
@@ -724,14 +717,18 @@ func query2Stmt(queryStr string) (ret string) {
 				buf.WriteString(" OR ")
 			}
 			for i, tag := range tags {
-				buf.WriteString("(content LIKE " + conf.SearchLikePattern("#"+tag+"#") + ")")
+				buf.WriteString("(content LIKE ")
+				buf.WriteString(conf.SearchLikePattern("#" + tag + "#"))
+				buf.WriteString(")")
 				if i < len(tags)-1 {
 					buf.WriteString(" AND ")
 				}
 			}
 			buf.WriteString(" OR ")
 			for i, tag := range tags {
-				buf.WriteString("ial LIKE '%tags=\"%" + conf.EscapeSearchLikePattern(tag) + "%\"%' ESCAPE '\\'")
+				buf.WriteString("ial LIKE '%tags=\"%")
+				buf.WriteString(conf.EscapeSearchLikePattern(tag))
+				buf.WriteString("%\"%' ESCAPE '\\'")
 				if i < len(tags)-1 {
 					buf.WriteString(" AND ")
 				}

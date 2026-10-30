@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -102,9 +106,7 @@ func TestRapidDeletionLargeIndex(t *testing.T) {
 	stop := make(chan struct{})
 	var workers sync.WaitGroup
 	startWorker := func(interval time.Duration, run func()) {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
+		workers.Go(func() {
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			for {
@@ -115,7 +117,7 @@ func TestRapidDeletionLargeIndex(t *testing.T) {
 					run()
 				}
 			}
-		}()
+		})
 	}
 	startWorker(100*time.Millisecond, task.ExecTaskJob)
 	startWorker(100*time.Millisecond, task.ExecAsyncTaskJob)

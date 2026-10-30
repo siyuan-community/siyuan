@@ -7,7 +7,15 @@ import {getInstanceById, getWndByLayout, newModelByInitData, pdfIsLoading, setPa
 import {getDockByType} from "../layout/tabUtil";
 import {getAllModels, getAllTabs} from "../layout/getAll";
 import {highlightById, scrollCenter} from "../util/highlightById";
-import {getAssetExtension, getDisplayName, getDocDisplayName, isEncryptedBox, useShell} from "../util/pathName";
+import {
+    getAssetExtension,
+    getAssetPathWithoutFragment,
+    getAssetPathWithoutQuery,
+    getDisplayName,
+    getDocDisplayName,
+    isEncryptedBox,
+    useShell
+} from "../util/pathName";
 import {Constants} from "../constants";
 import {Files} from "../layout/dock/Files";
 import {fetchPost, fetchSyncPost} from "../util/fetch";
@@ -46,7 +54,6 @@ import {confirmDialog} from "../dialog/confirmDialog";
 import {shouldCheckOtherWindows} from "./openFileWindow";
 import {getContenteditableElement} from "../protyle/wysiwyg/getBlock";
 import type {Outline} from "../layout/dock/Outline";
-import {updateOutlineCurrentBlock} from "../protyle/util/outlineBlock";
 
 const isSameCustomTab = (type: string, data: any, options: IOpenFileOptions) => {
     if (!options.custom || (options.custom.id && options.custom.id !== type)) {
@@ -457,7 +464,20 @@ const switchEditor = (editor: Editor, options: IOpenFileOptions, allModels: IMod
         editor.parent.headElement.setAttribute("keep-cursor", options.id);
         return true;
     }
-    editor.parent.parent.switchTab(editor.parent.headElement);
+    if (options.action?.includes(Constants.CB_GET_OUTLINE)) {
+        // 大纲导航使用点击的标题，避免恢复旧光标时覆盖高亮并滚动大纲。
+        editor.parent.parent.switchTab(editor.parent.headElement, false, false);
+        updatePanelByEditor({
+            protyle: editor.editor.protyle,
+            focus: false,
+            pushBackStack: false,
+            reload: false,
+            resize: true,
+            outlineId: options.id,
+        });
+    } else {
+        editor.parent.parent.switchTab(editor.parent.headElement);
+    }
     editor.parent.parent.showHeading();
     if (options.mode !== "preview" && !editor.editor.protyle.preview.element.classList.contains("fn__none")) {
         return true;
@@ -582,9 +602,6 @@ const switchEditor = (editor: Editor, options: IOpenFileOptions, allModels: IMod
                 scrollCenter(editor.editor.protyle, undefined, options.scrollPosition);
             }
         }
-        if (nodeElement && options.action?.includes(Constants.CB_GET_OUTLINE)) {
-            updateOutlineCurrentBlock(editor.editor.protyle, nodeElement as HTMLElement);
-        }
         if (isPhablet()) {
             pushBackByEditor(editor.editor.protyle, nodeElement);
         } else {
@@ -613,7 +630,7 @@ export const newTab = (options: IOpenFileOptions, afterInitProtyle?: Constructor
             }
             tab = new Tab({
                 icon,
-                title: getDisplayName(options.assetPath),
+                title: getDisplayName(getAssetPathWithoutQuery(options.assetPath)),
                 callback(tab) {
                     tab.addModel(new Asset({
                         app: options.app,
@@ -710,7 +727,9 @@ export const updatePanelByEditor = (options: {
     focus: boolean,
     pushBackStack: boolean,
     reload: boolean,
-    resize: boolean
+    resize: boolean,
+    // 手动大纲导航按目标标题同步高亮，并保留大纲滚动位置。
+    outlineId?: string,
 }) => {
     if (options.protyle && options.protyle.path) {
         // https://ld246.com/article/1637636106054/comment/1641485541929#comments
@@ -757,7 +776,7 @@ export const updatePanelByEditor = (options: {
     }
     // 切换页签或关闭所有页签时，需更新对应的面板
     const models = getAllModels();
-    updateOutline(models, options.protyle, options.reload);
+    updateOutline(models, options.protyle, options.reload, options.outlineId);
     updateBacklinkGraph(models, options.protyle);
 };
 
@@ -776,11 +795,20 @@ export const isCurrentEditor = (blockId: string) => {
     return false;
 };
 
-const outlineRequests = new WeakMap<Outline, object>();
+const outlineRequests = new WeakMap<Outline, AbortController>();
 
-const syncOutlineCurrent = (outline: Outline, protyle: IProtyle) => {
+export const invalidateOutlineRequest = (outline: Outline) => {
+    outlineRequests.get(outline)?.abort();
+    outlineRequests.delete(outline);
+};
+
+const syncOutlineCurrent = (outline: Outline, protyle: IProtyle, outlineId?: string) => {
     if (!protyle || outline.isPreview || !protyle.preview.element.classList.contains("fn__none") ||
         outline.blockId !== protyle.block?.rootID) {
+        return;
+    }
+    if (outlineId !== undefined) {
+        outline.setCurrentById(outlineId, false);
         return;
     }
     const selection = getSelection();
@@ -793,12 +821,13 @@ const syncOutlineCurrent = (outline: Outline, protyle: IProtyle) => {
     void outline.setCurrent(currentElement || undefined);
 };
 
-export const updateOutline = (models: IModels, protyle: IProtyle, reload = false) => {
+export const updateOutline = (models: IModels, protyle: IProtyle, reload = false, outlineId?: string) => {
     models.outline.find(item => {
         if (!reload && item.type === "local" && item.blockId !== protyle?.block?.rootID) {
             return;
         }
-        const request = {};
+        invalidateOutlineRequest(item);
+        const request = new AbortController();
         outlineRequests.set(item, request);
         item.invalidateCurrent();
         const isPreview = protyle ? !protyle.preview.element.classList.contains("fn__none") : false;
@@ -822,6 +851,17 @@ export const updateOutline = (models: IModels, protyle: IProtyle, reload = false
             if (protyle && isEncryptedBox(protyle.notebookId)) {
                 outlineParam.notebook = protyle.notebookId;
             }
+            let currentOutlineId = outlineId;
+            if (protyle && outlineId !== undefined) {
+                // 等待大纲加载时，用户在正文中的新操作优先于此前点击的标题。
+                const followCaret = () => {
+                    currentOutlineId = undefined;
+                    request.abort();
+                };
+                ["pointerdown", "keydown", "beforeinput"].forEach(type => {
+                    protyle.element.addEventListener(type, followCaret, {capture: true, signal: request.signal});
+                });
+            }
             fetchPost("/api/outline/getDocOutline", outlineParam, response => {
                 if (outlineRequests.get(item) !== request) {
                     return;
@@ -835,13 +875,13 @@ export const updateOutline = (models: IModels, protyle: IProtyle, reload = false
                 item.update(response, blockId, protyle?.notebookId || "");
                 if (protyle) {
                     item.updateDocTitle(protyle.background.ial, Array.isArray(response.data) ? response.data.length : 0);
-                    syncOutlineCurrent(item, protyle);
+                    syncOutlineCurrent(item, protyle, currentOutlineId);
                 } else {
                     item.updateDocTitle();
                 }
-            });
+            }).finally(() => request.abort());
         } else {
-            syncOutlineCurrent(item, protyle);
+            syncOutlineCurrent(item, protyle, outlineId);
         }
     });
 };
@@ -911,7 +951,10 @@ export const openBy = (url: string, type: "folder" | "app") => {
     /// #if !BROWSER
     if (url.startsWith("assets/")) {
         const open = () => {
-            fetchPost("/api/asset/resolveAssetPath", {path: url.replace(/\.pdf\?page=\d{1,}$/, ".pdf")}, (response) => {
+            // 内核按文件名解析资源，需先去掉片段；查询中的 box 参数用于定位加密笔记本中的资源
+            fetchPost("/api/asset/resolveAssetPath", {
+                path: getAssetPathWithoutFragment(url).replace(/\.pdf\?page=\d{1,}$/, ".pdf")
+            }, (response) => {
                 if (type === "app") {
                     useShell("openPath", response.data);
                 } else if (type === "folder") {

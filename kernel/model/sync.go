@@ -1,22 +1,11 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -63,7 +52,6 @@ func SyncDataDownload() (err error) {
 }
 
 func syncDataDownloadLocked() (err error) {
-	revision := pendingSync.begin()
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 
 	now := util.CurrentTimeMillis()
@@ -75,7 +63,8 @@ func syncDataDownloadLocked() (err error) {
 		code = 2
 	}
 	util.BroadcastByType("main", "syncing", code, Conf.Sync.Load().Stat, nil)
-	pendingSync.finish(revision, err == nil, notifySyncPending)
+	// Download-only completion does not publish local changes, including an empty remote.
+	// Keep the pending hint until an upload or full sync actually publishes them.
 	if 1 == code {
 		consumeShorthands()
 	}
@@ -152,14 +141,13 @@ func SyncDataUpload() (err error) {
 var (
 	pendingSync      syncPendingState
 	syncSameCount    = atomic.Int32{}
-	autoSyncErrCount = 0
+	autoSyncErrCount = atomic.Int32{}
 	fixSyncInterval  = 5 * time.Minute
 
 	syncPlanTimeLock = sync.Mutex{}
 	syncPlanTime     = time.Now().Add(fixSyncInterval)
 
 	BootSyncSucc atomic.Int32 // -1：未执行，0：执行成功，1：执行失败
-	ExitSyncSucc = -1
 )
 
 func init() {
@@ -179,6 +167,13 @@ func SyncDataJob() {
 
 func BootSyncData() {
 	defer logging.Recover()
+	if scheduleBootSync() {
+		return
+	}
+	bootSyncData()
+}
+
+func bootSyncData() {
 	refreshLANSyncManager()
 
 	if Conf.Sync.Load().Perception {
@@ -191,13 +186,16 @@ func BootSyncData() {
 
 	lockSync()
 	defer unlockSync()
+	if !checkSync(true, false, false) {
+		return
+	}
 
-	iosAfterBoot := util.ContainerIOS == util.Container && util.IsBooted()
-	if !iosAfterBoot {
+	afterBoot := util.IsBooted()
+	if !afterBoot {
 		util.IncBootProgress(3, Conf.Language(307))
 	}
 	BootSyncSucc.Store(-1)
-	if iosAfterBoot {
+	if afterBoot {
 		logging.LogInfof("sync after boot")
 	} else {
 		logging.LogInfof("sync before boot")
@@ -206,23 +204,33 @@ func BootSyncData() {
 	now := util.CurrentTimeMillis()
 	UpdateSyncConf(func(s *conf.Sync) { s.Synced = now })
 	revision := pendingSync.begin()
-	if iosAfterBoot {
+	if afterBoot {
 		// 本地界面已可编辑，保持同步入口可见直到云端合并成功。
 		notifySyncPending(true)
 	}
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 	var cloudPublished bool
 	var err error
-	if iosAfterBoot {
+	if afterBoot {
 		cloudPublished, err = syncRepoWithDNSRetry(false, false)
 	} else {
-		err = bootSyncRepoWithDNSRetry()
+		var scheduled bool
+		scheduled, err = bootSyncRepoWithDNSRetry(func(err error) {
+			finishBootSync(revision, false, err)
+		})
+		if scheduled {
+			return
+		}
 	}
+	finishBootSync(revision, cloudPublished, err)
+}
+
+func finishBootSync(revision uint64, cloudPublished bool, err error) {
 	code := 1
 	if err != nil {
 		code = 2
 		BootSyncSucc.Store(1)
-		if iosAfterBoot {
+		if util.IsBooted() && !errors.Is(err, context.Canceled) && !errors.Is(err, errSyncRemoteRequestSkipped) {
 			msg := formatSyncRepoErrorMsg(err)
 			UpdateSyncConf(func(s *conf.Sync) { s.Stat = msg })
 			pushSyncStatusBar(msg)
@@ -237,14 +245,13 @@ func BootSyncData() {
 		// 启动同步成功后消费本地速记临时文件，避免移动端开启云同步时需手动触发同步才能刷新闪念速记
 		consumeShorthands()
 	}
-	if iosAfterBoot {
+	if util.IsBooted() {
 		completeSyncPerception(cloudPublished, err)
 	}
-	return
 }
 
-func SyncData(byHand bool) {
-	syncData(false, byHand)
+func SyncData(byHand bool) error {
+	return syncData(false, byHand)
 }
 
 // SyncDataBeforeEnableEncryptedNotebook 在启用加密笔记本前执行一次完整同步。
@@ -292,6 +299,10 @@ type syncRequestState struct {
 func lockSyncRequest(state *syncRequestState) (unlock func(), ok bool) {
 	request := state.requested.Add(1)
 	lockSync()
+	if util.IsExiting.Load() {
+		unlockSync()
+		return nil, false
+	}
 	if state.completed.Load() >= request {
 		unlockSync()
 		return nil, false
@@ -305,11 +316,15 @@ func lockSyncRequest(state *syncRequestState) (unlock func(), ok bool) {
 	return unlock, true
 }
 
-func syncData(exit, byHand bool) {
+func syncData(exit, byHand bool) (err error) {
+	err = errors.New("sync did not complete")
 	defer logging.Recover()
 
 	if !checkSync(false, exit, byHand) {
-		return
+		if byHand {
+			return err
+		}
+		return nil
 	}
 
 	requests := &syncAutoRequests
@@ -320,17 +335,31 @@ func syncData(exit, byHand bool) {
 	}
 	unlock, ok := lockSyncRequest(requests)
 	if !ok {
-		return
+		if byHand {
+			return err
+		}
+		return nil
 	}
 	defer unlock()
-	_ = syncDataLocked(exit, byHand)
+	return syncDataLocked(exit, byHand)
 }
 
 func syncDataLocked(exit, byHand bool) error {
+	return syncDataLockedContext(context.Background(), exit, byHand)
+}
+
+func syncDataLockedContext(ctx context.Context, exit, byHand bool) (err error) {
+	err = errors.New("sync did not complete")
+	defer logging.Recover()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := checkDataImportRecovery(); err != nil {
+		return err
+	}
 	revision := pendingSync.begin()
 	util.BroadcastByType("main", "syncing", 0, Conf.Language(81), nil)
 	if exit {
-		ExitSyncSucc = 0
 		logging.LogInfof("sync before exit")
 		msgId := util.PushMsg(Conf.Language(81), 1000*60*15)
 		defer func() {
@@ -341,7 +370,7 @@ func syncDataLocked(exit, byHand bool) error {
 	now := util.CurrentTimeMillis()
 	UpdateSyncConf(func(s *conf.Sync) { s.Synced = now })
 
-	cloudPublished, err := syncRepoWithDNSRetry(exit, byHand)
+	cloudPublished, err := syncRepoWithDNSRetryContext(ctx, exit, byHand)
 	code := 1
 	if err != nil {
 		code = 2
@@ -355,32 +384,51 @@ func syncDataLocked(exit, byHand bool) error {
 		consumeShorthands()
 	}
 
-	completeSyncPerception(cloudPublished, err)
+	finishSyncPerception(cloudPublished, err, !exit)
 	return err
 }
 
 // completeSyncPerception 恢复感知连接，并在自动同步成功发布新版本后通知其他设备。
 func completeSyncPerception(cloudPublished bool, err error) {
+	finishSyncPerception(cloudPublished, err, true)
+}
+
+func finishSyncPerception(cloudPublished bool, err error, reconnect bool) {
+	if errors.Is(err, context.Canceled) || util.IsExiting.Load() {
+		return
+	}
 	confSyncSnapshot := Conf.LoadSync()
 
-	if nil == webSocketConn && confSyncSnapshot.Perception {
+	if reconnect && nil == webSocketConn && confSyncSnapshot.Perception {
 		// 如果 websocket 连接已经断开，则重新连接
 		connectSyncWebSocket()
 	}
 
 	if nil == err && cloudPublished && 1 == confSyncSnapshot.Mode && nil != webSocketConn && confSyncSnapshot.Perception {
+		connection := webSocketConn
+		if !reconnect {
+			// 退出只使用现有连接通知其他设备，限制写入等待，不重新连接云服务。
+			connection.SetWriteDeadline(time.Now().Add(3 * time.Second))
+			defer connection.SetWriteDeadline(time.Time{})
+		}
 		// 自动同步成功发布新云端版本后通知其他设备，纯下载不发送同步信号。
 		request := map[string]any{
 			"cmd":    "synced",
 			"synced": confSyncSnapshot.Synced,
 		}
-		if writeErr := webSocketConn.WriteJSON(request); nil != writeErr {
+		if writeErr := connection.WriteJSON(request); nil != writeErr {
 			logging.LogErrorf("write websocket message failed: %v", writeErr)
 		}
 	}
 }
 
 func checkSync(boot, exit, byHand bool) bool {
+	if util.IsExiting.Load() {
+		return false
+	}
+	if !boot && !exit && !byHand && bootSyncScheduled.Load() {
+		return false
+	}
 	confSyncReadSnapshot := Conf.LoadSync()
 
 	if 2 == confSyncReadSnapshot.Mode && !boot && !exit && !byHand { // 手动模式下只有启动和退出进行同步
@@ -421,10 +469,7 @@ func checkSync(boot, exit, byHand bool) bool {
 		}
 	}
 
-	if 7 < autoSyncErrCount && !byHand {
-		logging.LogErrorf("failed to auto-sync too many times, delay auto-sync 64 minutes")
-		util.PushErrMsg(Conf.Language(125), 1000*60*60)
-		planSyncAfter(64 * time.Minute)
+	if !byHand && !exit && notifyAutoSyncPaused() {
 		return false
 	}
 	return true
@@ -915,7 +960,7 @@ func formatRepoErrorMsg(err error) string {
 	} else if errors.Is(err, dejavu.ErrLockCloudFailed) {
 		msg = Conf.Language(188)
 		if detail := cloudLockErrorDetail(err, Conf.Language); "" != detail {
-			msg += " " + detail
+			msg += ": " + detail
 		}
 	} else if errors.Is(err, dejavu.ErrCloudLocked) {
 		msg = Conf.Language(189)
@@ -938,6 +983,8 @@ func formatRepoErrorMsg(err error) string {
 		msg = Conf.language(250)
 	} else if errors.Is(err, cloud.ErrDecryptFailed) {
 		msg = Conf.Language(135)
+	} else if detail := webDAVErrorDetail(err, Conf.Language); detail != "" {
+		msg = detail
 	} else {
 		logging.LogErrorf("unclassified repository error: %s", msg)
 		msgLowerCase := strings.ToLower(msg)
@@ -967,7 +1014,6 @@ func formatRepoErrorMsg(err error) string {
 // dejavu/cloud 层用 fmt.Errorf 原样透传底层网络错误，因此这里用字符串匹配兜底。
 func isDNSError(msg string) bool {
 	return strings.Contains(msg, "no such host") ||
-		strings.Contains(msg, "connection failed") ||
 		strings.Contains(msg, "hostname resolution") ||
 		strings.Contains(msg, "no address associated with hostname")
 }
@@ -982,6 +1028,9 @@ var (
 // flushAndRetryOnDNSError 在确认是 DNS 类错误且距上次刷新超过 5 分钟时，刷新系统 DNS 缓存并返回 true
 // 以触发上层重试一次同步；否则返回 false。节流是为了避免高频自动同步反复 fork 系统命令。
 func flushAndRetryOnDNSError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
 	if !isDNSError(strings.ToLower(err.Error())) {
 		return false
 	}
@@ -1002,9 +1051,13 @@ func flushAndRetryOnDNSError(err error) bool {
 // syncRepoWithDNSRetry 执行一次同步，若失败且判定为 DNS 类错误，则刷新系统 DNS 缓存后重试一次。
 // 统一封装 DNS 重试逻辑，供主同步流程（syncData）与启动后台同步复用。
 func syncRepoWithDNSRetry(exit, byHand bool) (cloudPublished bool, err error) {
-	cloudPublished, err = syncRepo(exit, byHand)
-	if nil != err && flushAndRetryOnDNSError(err) {
-		cloudPublished, err = syncRepo(exit, byHand)
+	return syncRepoWithDNSRetryContext(context.Background(), exit, byHand)
+}
+
+func syncRepoWithDNSRetryContext(ctx context.Context, exit, byHand bool) (cloudPublished bool, err error) {
+	cloudPublished, err = syncRepoWithContext(ctx, exit, byHand)
+	if nil != err && ctx.Err() == nil && flushAndRetryOnDNSError(err) {
+		cloudPublished, err = syncRepoWithContext(ctx, exit, byHand)
 	}
 	return
 }
@@ -1027,10 +1080,10 @@ func syncRepoUploadWithDNSRetry() (err error) {
 	return
 }
 
-func bootSyncRepoWithDNSRetry() (err error) {
-	err = bootSyncRepo()
+func bootSyncRepoWithDNSRetry(complete func(error)) (scheduled bool, err error) {
+	scheduled, err = bootSyncRepo(complete)
 	if nil != err && flushAndRetryOnDNSError(err) {
-		err = bootSyncRepo()
+		scheduled, err = bootSyncRepo(complete)
 	}
 	return
 }
@@ -1088,6 +1141,7 @@ func loadSyncIgnoreLines() (ret []string, err error) {
 }
 
 func IncSync() {
+	util.MarkIndexFixDirty()
 	syncSameCount.Store(0)
 	planSyncAfter(time.Duration(Conf.Sync.Load().Interval) * time.Second)
 	pendingSync.change(notifySyncPending)

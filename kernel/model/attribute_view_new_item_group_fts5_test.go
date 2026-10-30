@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //go:build fts5
 
 package model
@@ -34,13 +38,14 @@ func TestCreateAttributeViewItemPreservesFilteredGroups(t *testing.T) {
 						MSelect: []*av.ValueSelect{{Content: "Feedback", Color: "1"}},
 					}},
 				})
-				if layout == av.LayoutTypeTable || layout == av.LayoutTypeList {
+				switch layout {
+				case av.LayoutTypeTable, av.LayoutTypeList:
 					view.GetTableLayout().Columns = append(view.GetTableLayout().Columns,
 						&av.ViewTableColumn{BaseField: &av.BaseField{ID: filterKey.ID}})
-				} else if layout == av.LayoutTypeGallery {
+				case av.LayoutTypeGallery:
 					view.Gallery.CardFields = append(view.Gallery.CardFields,
 						&av.ViewGalleryCardField{BaseField: &av.BaseField{ID: filterKey.ID}})
-				} else {
+				default:
 					view.Kanban.Fields = append(view.Kanban.Fields,
 						&av.ViewKanbanField{BaseField: &av.BaseField{ID: filterKey.ID}})
 				}
@@ -59,6 +64,7 @@ func TestCreateAttributeViewItemPreservesFilteredGroups(t *testing.T) {
 				groupID := group.ID
 				template := &av.NewItemTemplate{
 					ID: ast.NewNodeID(), Name: "Entry", TargetType: target, HideInFileTree: target == av.NewItemTargetDocument,
+					OpenAfterCreate: new(true),
 				}
 				attrView.NewItemTemplates = []*av.NewItemTemplate{template}
 				if err := av.SaveAttributeView(attrView); err != nil {
@@ -68,6 +74,9 @@ func TestCreateAttributeViewItemPreservesFilteredGroups(t *testing.T) {
 				created, err := CreateAttributeViewItem(attrView.ID, database.nodes[0].ID, view.ID, template.ID, "", "")
 				if err != nil {
 					t.Fatal(err)
+				}
+				if created.OpenAfterCreate == nil || !*created.OpenAfterCreate {
+					t.Fatal("creation did not return the template opening preference")
 				}
 				stored := readAttributeViewItemsTest(t, attrView.ID)
 				value := stored.GetValue(filterKey.ID, created.ItemID)

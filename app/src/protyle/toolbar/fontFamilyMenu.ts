@@ -1,5 +1,6 @@
 import {toggleMenu} from "../../menus/menuToggle";
 import {Menu} from "../../plugin/Menu";
+import {markMenuInnerScroll} from "../../menus/Menu";
 import {observeFontPreview} from "../../util/fontPreview";
 import {escapeAttr, escapeHtml} from "../../util/escape";
 import {
@@ -12,6 +13,7 @@ import {upDownHint} from "../../util/upDownHint";
 import {Constants} from "../../constants";
 import {getBlockRanges} from "../util/selection";
 import {hasClosestBlock} from "../util/hasClosest";
+import {isMobile} from "../../util/functions";
 import {
     FONT_FAMILY_EXCLUDED_BLOCK_TYPES,
     getInlineFontFamilySelection,
@@ -27,7 +29,7 @@ export interface IInlineFontFamilyState {
 
 interface IFontFamilyPickerOptions extends IInlineFontFamilyState {
     isOpenValid?: () => boolean;
-    onBack?: () => void;
+    onOpen?: (element: HTMLElement) => void;
     onClose?: () => void;
     onInteraction?: () => void;
     onSelect: (family?: string) => void;
@@ -157,15 +159,17 @@ const genFontListItemHTML = (font: IFontItem | undefined, currentFamily: string 
 
 let pickerID = 0;
 
+const getFontLoadingHTML = () => `<svg class="b3-menu__icon fn__rotate" role="status" aria-label="${escapeAttr(window.siyuan.languages.loading)}"><use xlink:href="#iconRefresh"></use></svg>`;
+
 const genFontPickerHTML = (fonts: IFontItem[], options: IFontFamilyPickerOptions, mobile: boolean) => {
     const currentFamily = options.mixed ? null : options.family;
     const items = [undefined, ...fonts];
     const id = `fontFamilyPicker${++pickerID}`;
     const listID = `${id}List`;
     const searchInput = `<input spellcheck="false" class="b3-text-field fn__flex-1" data-type="font-family-search" role="combobox" aria-expanded="true" aria-controls="${listID}" aria-label="${escapeAttr(window.siyuan.languages.fontFamily)}" placeholder="${escapeAttr(window.siyuan.languages.searchPlaceholder)}">`;
-    return `<div class="fn__flex-column${mobile ? "" : " b3-menu__filter"}" style="height:100%">
+    return `<div class="fn__flex-column ${mobile ? "b3-menu__custom" : "b3-menu__filter"}" style="height:100%">
     <div class="fn__flex">
-        ${mobile ? `<button class="block__icon block__icon--show fn__flex-center" data-action="fontFamilyBack" aria-label="${escapeAttr(window.siyuan.languages.back)}"><svg><use xlink:href="#iconLeft"></use></svg></button><span class="fn__space"></span>` : ""}
+        <span class="fn__flex fn__none" data-type="font-loading">${getFontLoadingHTML()}</span>
         ${searchInput}
     </div>
     <div class="fn__hr"></div>
@@ -176,7 +180,7 @@ const genFontPickerHTML = (fonts: IFontItem[], options: IFontFamilyPickerOptions
 const bindFontPicker = (element: HTMLElement, options: IFontFamilyPickerOptions) => {
     const listElement = element.querySelector<HTMLElement>('[data-type="font-family-list"]');
     const inputElement = element.querySelector<HTMLInputElement>('[data-type="font-family-search"]');
-    let removalObserver: MutationObserver;
+    const loadingElement = element.querySelector<HTMLElement>('[data-type="font-loading"]');
     const syncActiveDescendant = () => {
         const activeElement = listElement.querySelector<HTMLElement>(".b3-list-item--focus");
         if (activeElement) {
@@ -209,7 +213,6 @@ const bindFontPicker = (element: HTMLElement, options: IFontFamilyPickerOptions)
     };
     const cleanup = () => {
         cleanupPreview?.();
-        removalObserver?.disconnect();
     };
     const selectItem = (item: HTMLElement) => {
         options.onInteraction?.();
@@ -219,6 +222,8 @@ const bindFontPicker = (element: HTMLElement, options: IFontFamilyPickerOptions)
 
     const cleanupPreview = observeFontPreview(listElement, label => {
         label.style.fontFamily = getInlineFontFamilyStyle(label.dataset.family);
+    }, loading => {
+        loadingElement.classList.toggle("fn__none", !loading);
     });
     inputElement.addEventListener("keydown", event => {
         options.onInteraction?.();
@@ -236,12 +241,8 @@ const bindFontPicker = (element: HTMLElement, options: IFontFamilyPickerOptions)
         } else if (event.key === "Escape") {
             event.preventDefault();
             cleanup();
-            if (options.onBack) {
-                options.onBack();
-            } else {
-                window.siyuan.menus.menu.remove();
-                options.onClose?.();
-            }
+            window.siyuan.menus.menu.remove();
+            options.onClose?.();
         }
     });
     inputElement.addEventListener("input", (event: InputEvent) => {
@@ -257,21 +258,6 @@ const bindFontPicker = (element: HTMLElement, options: IFontFamilyPickerOptions)
             selectItem(item);
         }
     });
-    element.querySelector<HTMLElement>('[data-action="fontFamilyBack"]')?.addEventListener("click", event => {
-        options.onInteraction?.();
-        event.preventDefault();
-        event.stopPropagation();
-        cleanup();
-        options.onBack?.();
-    });
-    if (options.onBack) {
-        removalObserver = new MutationObserver(() => {
-            if (!listElement.isConnected) {
-                cleanup();
-            }
-        });
-        removalObserver.observe(element, {childList: true});
-    }
     filterFontList();
     return cleanup;
 };
@@ -292,8 +278,8 @@ const loadFontFamilies = async (currentFamily?: string) => {
     return fonts;
 };
 
-let desktopRequestID = 0;
-const desktopMenuIDs = new WeakMap<HTMLElement, string>();
+let fontFamilyRequestID = 0;
+const fontFamilyMenuIDs = new WeakMap<HTMLElement, string>();
 
 export const openFontFamilyMenu = async (target: HTMLElement, options: IFontFamilyPickerOptions) => {
     if (options.disabled) {
@@ -302,16 +288,17 @@ export const openFontFamilyMenu = async (target: HTMLElement, options: IFontFami
     await toggleMenu({
         target: target,
         build: async (_menu, session) => {
-            const requestID = ++desktopRequestID;
-            if (!desktopMenuIDs.has(target)) {
-                desktopMenuIDs.set(target, `inlineFontFamily${requestID}`);
+            const requestID = ++fontFamilyRequestID;
+            if (!fontFamilyMenuIDs.has(target)) {
+                fontFamilyMenuIDs.set(target, `inlineFontFamily${requestID}`);
             }
             let closed = false;
             let cleanup: () => void = undefined;
-            const menu = new Menu(desktopMenuIDs.get(target), () => {
+            const menu = new Menu(fontFamilyMenuIDs.get(target), () => {
                 closed = true;
                 cleanup?.();
                 target.setAttribute("aria-expanded", "false");
+                options.onClose?.();
             });
             if (menu.isOpen) {
                 return;
@@ -319,19 +306,30 @@ export const openFontFamilyMenu = async (target: HTMLElement, options: IFontFami
             const pickerElement = menu.addItem({
                 iconHTML: "",
                 type: "empty",
-                label: `<div class="b3-menu__filter">${escapeHtml(window.siyuan.languages.loading)}</div>`,
+                label: `<div class="fn__flex b3-menu__filter">${getFontLoadingHTML()}${escapeHtml(window.siyuan.languages.loading)}</div>`,
             });
+            const mobile = isMobile();
+            if (mobile) {
+                menu.element.setAttribute("data-sheet-expandable", "true");
+                menu.element.setAttribute("data-sheet-actions", "false");
+                pickerElement.style.height = "100%";
+            }
             const openMenu = () => {
                 if (!session.isCurrent()) {
                     return;
                 }
 
-                const rect = target.getBoundingClientRect();
-                session.show(() => menu.open({x: rect.left, y: rect.bottom, h: rect.height, w: rect.width, target}));
-                menu.element.querySelector(".b3-menu__items").setAttribute("style", "overflow: initial");
+                if (mobile) {
+                    session.show(() => menu.fullscreen("bottom"));
+                } else {
+                    const rect = target.getBoundingClientRect();
+                    markMenuInnerScroll(menu.element);
+                    session.show(() => menu.open({x: rect.left, y: rect.bottom, h: rect.height, w: rect.width, target}));
+                }
             };
             target.setAttribute("aria-expanded", "true");
             openMenu();
+            options.onOpen?.(menu.element);
             const fonts = await loadFontFamilies(options.family);
             if (!session.isCurrent()) {
                 return;
@@ -339,42 +337,33 @@ export const openFontFamilyMenu = async (target: HTMLElement, options: IFontFami
             if (closed) {
                 return;
             }
-            if (requestID !== desktopRequestID || !target.isConnected || options.isOpenValid?.() === false) {
+            if (requestID !== fontFamilyRequestID || !target.isConnected || options.isOpenValid?.() === false) {
                 menu.close();
                 return;
             }
             if (target.tagName === "INPUT") {
                 (target as HTMLInputElement).value = getInlineFontFamilyLabel(options);
             }
-            pickerElement.innerHTML = genFontPickerHTML(fonts, options, false);
+            pickerElement.innerHTML = genFontPickerHTML(fonts, options, mobile);
             cleanup = bindFontPicker(pickerElement, {
                 ...options,
-                onClose: () => target.focus(),
+                onClose: () => {
+                    if (!mobile) {
+                        target.focus();
+                    }
+                },
                 onSelect(family) {
                     menu.close();
                     options.onSelect(family);
                 }
             });
-            openMenu();
-            menu.element.querySelector<HTMLInputElement>('[data-type="font-family-search"]')?.focus();
+            if (!mobile) {
+                openMenu();
+                menu.element.querySelector<HTMLInputElement>('[data-type="font-family-search"]')?.focus();
+            }
 
         },
     });
-};
-
-let mobileRequestID = 0;
-
-export const renderMobileFontFamilyMenu = async (element: HTMLElement, options: IFontFamilyPickerOptions) => {
-    const requestID = ++mobileRequestID;
-    element.innerHTML = `<div class="keyboard__slash-title" data-font-family-request="${requestID}">${window.siyuan.languages.loading}</div>`;
-    const fonts = await loadFontFamilies(options.family);
-    if (requestID !== mobileRequestID || !element.isConnected ||
-        !element.querySelector(`[data-font-family-request="${requestID}"]`) || options.isOpenValid?.() === false) {
-        return;
-    }
-    element.innerHTML = genFontPickerHTML(fonts, options, true);
-    bindFontPicker(element, options);
-    element.querySelector<HTMLInputElement>('[data-type="font-family-search"]')?.focus();
 };
 
 export const getInlineFontFamilyLabel = (state: IInlineFontFamilyState) => state.mixed ?

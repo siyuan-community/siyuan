@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package proxy
 
@@ -52,6 +40,7 @@ func TestPublishReverseProxyPreservesRequestHost(t *testing.T) {
 	request.Header.Set("X-Forwarded-For", "192.0.2.1")
 	request.Header.Set("X-Forwarded-Host", "spoofed.example")
 	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set(util.ClientTLSHeader, util.ClientTLSHeaderValue)
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
@@ -75,6 +64,9 @@ func TestPublishReverseProxyPreservesRequestHost(t *testing.T) {
 	}
 	if actual := headers.Get("Forwarded"); actual != "" {
 		t.Fatalf("Forwarded = %q, want empty", actual)
+	}
+	if actual := headers.Get(util.ClientTLSHeader); actual != util.ClientTLSHeaderPlaintextValue {
+		t.Fatalf("%s = %q, want %q", util.ClientTLSHeader, actual, util.ClientTLSHeaderPlaintextValue)
 	}
 	if actual := <-hostInfo; actual != request.Host {
 		t.Fatalf("Host = %q, want %q", actual, request.Host)
@@ -196,6 +188,12 @@ func TestPublishSessionCookieAttributes(t *testing.T) {
 				t.Fatal(err)
 			}
 			request.SetBasicAuth(username, password)
+			// 客户端伪造相反的协议标记不得改变会话 Cookie 的传输限制。
+			if test.plaintext {
+				request.Header.Set(util.ClientTLSHeader, util.ClientTLSHeaderValue)
+			} else {
+				request.Header.Set(util.ClientTLSHeader, util.ClientTLSHeaderPlaintextValue)
+			}
 
 			response, err := publishServer.Client().Do(request)
 			if err != nil {

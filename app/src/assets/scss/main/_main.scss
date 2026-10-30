@@ -32,11 +32,12 @@ html {
 }
 
 body {
-  background-image: var(--b3-body-background-gradient, radial-gradient(
+  --b3-window-background-image: var(--b3-body-background-gradient, radial-gradient(
                   ellipse 45% 20% at 0% 0%,
                   hsla(var(--b3-body-background-hl), calc(var(--b3-body-background-hl-opacity) * 0.5)) 0%,
                   transparent 100%
   ));
+  background-image: var(--b3-window-background-image);
 }
 
 .fullscreen {
@@ -69,17 +70,23 @@ body {
 }
 
 html[data-frontend="browser-desktop"] {
-  .fullscreen > .protyle-breadcrumb,
-  .fullscreen > .block__icons {
-    padding-left: calc(env(titlebar-area-x, 0px) + 8px);
-    padding-right: calc(100% - env(titlebar-area-width, 100%) - env(titlebar-area-x, 0px) + 8px);
-    height: calc(env(titlebar-area-height, 31px) + 1px);
+  .fullscreen {
+    > .protyle-breadcrumb,
+    > .block__icons {
+      padding-left: calc(env(titlebar-area-x, 0px) + 8px);
+      padding-right: calc(100% - env(titlebar-area-width, 100%) - env(titlebar-area-x, 0px) + 8px);
+      height: calc(env(titlebar-area-height, var(--b3-ui-browser-titlebar-height, 31px)) + 1px);
+    }
   }
 }
 
 // 移动设备的桌面布局不预留 macOS 窗口按钮空间，iPad 窗口控件按原生上报的宽度避让。
-:root:is([data-backend="android"], [data-backend="ios"], [data-backend="harmony"]) .fullscreen {
-  --b3-toolbar-left-mac: calc(var(--ios-window-controls-left, 0px) + 8px);
+body.body--android,
+body.body--ios,
+body.body--harmony {
+  .fullscreen {
+    --b3-toolbar-left-mac: calc(var(--ios-window-controls-left, 0px) + 8px);
+  }
 }
 
 // 仅顶部工具栏避让原生窗口控件，正文与侧栏不增加横向留白。
@@ -96,20 +103,20 @@ html[data-frontend="browser-desktop"] {
 }
 
 :root[data-ios-window-controls] #status {
-  height: calc(32px + var(--ios-window-safe-bottom, 0px));
+  height: calc(var(--b3-ui-status-height, 32px) + var(--ios-window-safe-bottom, 0px));
   padding-bottom: var(--ios-window-safe-bottom, 0px);
 }
 
-// 融合页签沿用原有的 42px 顶栏，仅增加横向占位，避免按钮与页签使用不同的纵向基准。
+// 融合页签与当前界面密度使用相同高度，仅增加横向占位，避免按钮与页签使用不同的纵向基准。
 :root[data-ios-window-controls] .body--toolbar-hide #toolbar {
-  height: 42px;
+  height: var(--b3-ui-panel-height, 42px);
   padding-top: 0;
 }
 
 .toolbar {
   box-sizing: border-box;
-  height: 32px;
-  line-height: 32px;
+  height: var(--b3-ui-toolbar-height, 32px);
+  line-height: var(--b3-ui-toolbar-height, 32px);
   padding: 0 5px 0 var(--b3-toolbar-left-mac);
   overflow: hidden; // 最小化后右上角显示不全
 
@@ -121,7 +128,7 @@ html[data-frontend="browser-desktop"] {
   &--browser {
     padding-left: calc(env(titlebar-area-x, 0px) + 5px);
     padding-right: calc(100% - env(titlebar-area-width, 100%) - env(titlebar-area-x, 0px) + 5px);
-    height: calc(env(titlebar-area-height, 31px) + 1px);
+    height: calc(env(titlebar-area-height, var(--b3-ui-browser-titlebar-height, 31px)) + 1px);
   }
 
   #windowControls {
@@ -179,7 +186,7 @@ html[data-frontend="browser-desktop"] {
     cursor: pointer;
     color: var(--b3-toolbar-color);
     padding: 4px;
-    margin: 2px;
+    margin: var(--b3-ui-toolbar-item-margin, 2px);
     border-radius: var(--b3-border-radius);
     box-sizing: border-box;
     transition: var(--b3-transition);
@@ -212,17 +219,22 @@ html[data-frontend="browser-desktop"] {
       cursor: not-allowed;
     }
 
+    &--win,
+    &--close {
+      align-items: center;
+    }
+
     &--win {
-      padding: 9px 13px;
+      padding: var(--b3-ui-toolbar-control-padding, 9px) 13px;
       margin: 0;
-      height: 31.5px;
+      height: var(--b3-ui-toolbar-control-height, 31.5px);
       border-radius: 0;
     }
 
     &--close {
-      padding: 9px 15px;
+      padding: var(--b3-ui-toolbar-control-padding, 9px) 15px;
       margin: 0;
-      height: 31.5px;
+      height: var(--b3-ui-toolbar-control-height, 31.5px);
       border-radius: 0;
 
       &:hover {
@@ -246,8 +258,8 @@ html[data-frontend="browser-desktop"] {
     }
 
     .toolbar__item {
-      padding: 13.25px;
-      height: 42px;
+      padding: var(--b3-ui-window-control-padding, 13.25px);
+      height: var(--b3-ui-panel-height, 42px);
       margin: 0;
       border-radius: 0;
 
@@ -268,6 +280,65 @@ html[data-frontend="browser-desktop"] {
   }
 }
 
+// 原生按钮的实际尺寸由 Electron 上报，页面仅为同一块区域预留空间。
+html.window-controls-overlay {
+  --b3-window-controls-width: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px));
+  --b3-window-controls-height: env(titlebar-area-height, 0px);
+  --b3-window-controls-top-height: max(var(--b3-ui-panel-height, 42px), var(--b3-window-controls-height));
+
+  &.window-controls-overlay--hidden {
+    --b3-window-controls-width: 0px;
+    --b3-window-controls-height: 0px;
+  }
+
+  .body--windows {
+    #toolbar,
+    .toolbar--settings {
+      height: max(var(--b3-ui-toolbar-height, 32px), var(--b3-window-controls-height));
+    }
+
+    .window-controls-overlay__placeholder {
+      width: var(--b3-window-controls-width);
+      height: var(--b3-window-controls-height);
+      flex-shrink: 0;
+      pointer-events: none;
+    }
+
+    .toolbar__window,
+    .toolbar__window .toolbar__item,
+    .window-controls-overlay__top-row {
+      min-height: var(--b3-window-controls-top-height);
+    }
+
+    .fullscreen > .protyle-breadcrumb,
+    .fullscreen > .block__icons {
+      padding-right: calc(var(--b3-window-controls-width) + 8px);
+      min-height: var(--b3-window-controls-height);
+    }
+
+    &.body--toolbar-hide {
+      #toolbar,
+      #toolbar #drag,
+      #toolbar #drag::before,
+      #toolbar #drag::after {
+        height: var(--b3-window-controls-top-height);
+      }
+
+      #dockLeft,
+      #dockRight,
+      .layout__dockl:not(.layout--float),
+      .layout__dockr:not(.layout--float) {
+        margin-top: var(--b3-window-controls-top-height);
+      }
+
+      #dockLeft:not(.dock--float),
+      #dockRight:not(.dock--float) {
+        height: calc(100% - var(--b3-window-controls-top-height));
+      }
+    }
+  }
+}
+
 .status {
   & > [data-entry-hidden="true"] {
     display: none !important;
@@ -275,8 +346,8 @@ html[data-frontend="browser-desktop"] {
 
   box-sizing: border-box;
   z-index: 2;
-  height: 32px;
-  line-height: 32px;
+  height: var(--b3-ui-status-height, 32px);
+  line-height: var(--b3-ui-status-height, 32px);
   padding: 0 7px;
 
   &__msg {
@@ -464,7 +535,37 @@ html[data-frontend="browser-desktop"] {
 .switch-doc {
   max-height: 70vh;
   max-width: 100%;
-  min-width: 426px;
+  min-width: 0;
+
+  &__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__search {
+    flex: 0 1 200px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    max-width: 100%;
+
+    .b3-select {
+      flex: 1;
+      min-width: 0;
+    }
+  }
 
   .b3-list {
     padding: 8px 0;
@@ -474,9 +575,27 @@ html[data-frontend="browser-desktop"] {
     border-left: 1px solid var(--b3-theme-surface-lighter);
   }
 
-  &__path {
+  &__footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 4px 8px;
     border-top: 1px solid var(--b3-theme-surface-lighter);
+    min-height: 36px;
+    box-sizing: border-box;
+  }
+
+  &__footer > &__path {
+    flex: 1;
+    min-width: 0;
+  }
+
+  & > &__path {
+    padding: 4px 8px;
+    border-top: 1px solid var(--b3-theme-surface-lighter);
+  }
+
+  &__path {
     color: var(--b3-theme-on-surface);
     font-size: 12px;
     white-space: nowrap;

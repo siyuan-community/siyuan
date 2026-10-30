@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package crypto
 
@@ -23,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"math/big"
+	"slices"
 )
 
 // aesKeyLengths 是 AES 允许的密钥位长。
@@ -54,7 +43,7 @@ func generateAESKey(alg Algorithm, extractable bool, usages []KeyUsage) (*Key, e
 		Type:        KeyTypeSecret,
 		Extractable: extractable,
 		Usages:      cloneUsages(usages),
-		Algorithm:   KeyAlgorithm{Name: alg.Name, Length: intPtr(*alg.Length)},
+		Algorithm:   KeyAlgorithm{Name: alg.Name, Length: new(*alg.Length)},
 		secret:      secret,
 	}, nil
 }
@@ -71,7 +60,7 @@ func importAESKey(alg Algorithm, secret []byte, extractable bool, usages []KeyUs
 		Type:        KeyTypeSecret,
 		Extractable: extractable,
 		Usages:      cloneUsages(usages),
-		Algorithm:   KeyAlgorithm{Name: alg.Name, Length: intPtr(length)},
+		Algorithm:   KeyAlgorithm{Name: alg.Name, Length: new(length)},
 		secret:      bytes.Clone(secret),
 	}, nil
 }
@@ -293,7 +282,7 @@ func unpadPKCS7(algName string, data []byte, blockSize int) ([]byte, error) {
 	valid := subtle.ConstantTimeLessOrEq(1, padding) & subtle.ConstantTimeLessOrEq(padding, blockSize)
 
 	// 密文长度是分组长度的整数倍，因此始终比较整个末尾分组，填充字节数不合法时结果必然不匹配。
-	for i := 0; i < blockSize; i++ {
+	for i := range blockSize {
 		expected := subtle.ConstantTimeLessOrEq(i+1, padding)
 		matched := subtle.ConstantTimeByteEq(data[len(data)-1-i], byte(padding))
 		valid &= matched | (1 ^ expected)
@@ -306,10 +295,5 @@ func unpadPKCS7(algName string, data []byte, blockSize int) ([]byte, error) {
 }
 
 func containsInt(values []int, value int) bool {
-	for _, cur := range values {
-		if cur == value {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, value)
 }

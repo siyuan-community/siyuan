@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -83,7 +87,7 @@ func TestHTML2BlockDOMContractEscapedText(t *testing.T) {
 						t.Fatalf("conversion failed: %s, %v", recorder.Body.String(), err)
 					}
 					engine := util.NewLute()
-					for round := 0; round < 3; round++ {
+					for round := range 3 {
 						doc, parseErr := goquery.NewDocumentFromReader(strings.NewReader(response.Data))
 						if parseErr != nil {
 							t.Fatal(parseErr)

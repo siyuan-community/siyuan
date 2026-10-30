@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package sql
 
@@ -108,6 +96,9 @@ func queryBlockRowIDsTx(tx *sql.Tx, blocks []*Block) (ret map[string]int64, err 
 		}
 		ret[id] = rowID
 	}
+	if err = rows.Err(); err != nil {
+		logging.LogErrorf("iterate block rowids failed: %s", err)
+	}
 	return
 }
 
@@ -200,7 +191,7 @@ func nodeStaticContent(node *ast.Node, excludeTypes []string, includeTextMarkATi
 	}
 
 	if ast.NodeDocument == node.Type {
-		return html.EscapeHTMLStr(node.IALAttr("title"))
+		return html.EscapeHTMLStr(treenode.ReadDocumentTitle(node).Text)
 	}
 
 	if ast.NodeAttributeView == node.Type {
@@ -244,9 +235,11 @@ func nodeStaticContent(node *ast.Node, excludeTypes []string, includeTextMarkATi
 				}
 			}
 			if ast.NodeCallout == n.Type {
-				buf.WriteString(n.CalloutType + " ")
+				buf.WriteString(n.CalloutType)
+				buf.WriteString(" ")
 				if "" != n.CalloutIcon && 0 == n.CalloutIconType {
-					buf.WriteString(n.CalloutIcon + " ")
+					buf.WriteString(n.CalloutIcon)
+					buf.WriteString(" ")
 				}
 				if "" != n.CalloutTitle {
 					if titleTree := parse.Inline("", []byte(n.CalloutTitle), luteEngine.ParseOptions); nil != titleTree && nil != titleTree.Root.FirstChild.FirstChild {
@@ -358,12 +351,14 @@ func nodeStaticContent(node *ast.Node, excludeTypes []string, includeTextMarkATi
 			if n.IsTextMarkType("a") && includeTextMarkATitleURL {
 				// 搜索不到超链接元素的 URL 和标题 https://github.com/siyuan-note/siyuan/issues/7352
 				if "" != n.TextMarkATitle {
-					buf.WriteString(" " + util.UnescapeHTML(n.TextMarkATitle))
+					buf.WriteString(" ")
+					buf.WriteString(util.UnescapeHTML(n.TextMarkATitle))
 				}
 
 				if !strings.HasPrefix(n.TextMarkAHref, "assets/") || includeAssetPath {
 					href := util.UnescapeHTML(n.TextMarkAHref)
-					buf.WriteString(" " + util.UnescapeHTML(href))
+					buf.WriteString(" ")
+					buf.WriteString(util.UnescapeHTML(href))
 				}
 			}
 		case ast.NodeBackslashContent:

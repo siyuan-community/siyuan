@@ -3,7 +3,7 @@ import {ipcRenderer} from "electron";
 /// #endif
 import {genUUID} from "../../util/genID";
 import {setStorageVal} from "../../protyle/util/compatibility";
-import {exportLayout, reloadUI, resetLayout} from "../../layout/util";
+import {exportLayout, reloadUI, resetLayout, suspendLayoutSaving} from "../../layout/util";
 import {exitSiYuan} from "../../dialog/processSystem";
 import {subscribeGlobalPluginState, applyPluginReload} from "../../plugin/globalState";
 import {loadPlugin, unloadPlugin} from "../../plugin/loader";
@@ -16,6 +16,7 @@ import {getEditorToolbarCatalogSnapshot} from "../../protyle/toolbar/catalogSnap
 import {hasNativeSettingTasks} from "./taskBlocker";
 import {openBazaarPath} from "../bazaar/openPath";
 import {acceptSettingInterfaceRevision, watchSettingInterface} from "./interface";
+import {isCompactModeEnabled} from "../tabs/compactMode";
 import type {App} from "../../index";
 import type {ISettingsWindowHost} from "./windowContext";
 import type {TSettingTab} from "./tabs";
@@ -107,6 +108,7 @@ export const openNativeSettings = async (app: App, command: ISettingsCommand = {
     const host: ISettingsWindowHost = {
         app, title, isActive, dispose: close,
         exportLayout: options => { assertActive(); return exportLayout(options); },
+        suspendLayoutSaving: () => { assertActive(); return suspendLayoutSaving(); },
         reload: () => { assertActive(); return reloadUI(); },
         resetLayout: () => { assertActive(); return resetLayout(); },
         getDockOrderSnapshot: () => { assertActive(); return getDockEntryOrderSnapshot(); },
@@ -176,6 +178,8 @@ export const openNativeSettings = async (app: App, command: ISettingsCommand = {
         const prepared = await ipcRenderer.invoke("siyuan-settings-prepare", {
             token, key, command, title,
             geometry: key === "builtin" ? window.siyuan.storage[geometryKey] : undefined,
+            // 原生设置窗口需要按当前界面密度预留窗口按钮区，避免加载完成后按钮跳变。
+            compactMode: isCompactModeEnabled(),
         });
         if (!prepared.create) {
             dispose(false, false);

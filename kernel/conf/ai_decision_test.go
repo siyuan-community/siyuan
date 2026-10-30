@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package conf
 
 import (
@@ -37,26 +41,5 @@ func TestAIDecisionConfiguration(t *testing.T) {
 	restored.Decision.Provider = "unknown"
 	if restored.Decision.Configured() {
 		t.Fatal("unknown provider silently accepted")
-	}
-}
-
-func TestAIDecisionMergeLegacy(t *testing.T) {
-	previous := defaultDecision()
-	previous.Provider = "openai"
-	previous.Profiles["openai"].APIKey = "openai-key"
-	legacy := &Decision{Enabled: true, Endpoint: "https://legacy.example", APIKey: "typesafe-key", Name: "legacy", Timeout: 45}
-	legacy.MergePrevious(previous)
-	legacy.Normalize()
-	if legacy.Provider != "openai" || legacy.Profiles["openai"].APIKey != "openai-key" || legacy.Profiles["typesafe"].APIKey != "typesafe-key" {
-		t.Fatal("legacy save lost active provider or credentials")
-	}
-	legacy.Profiles["openai"].APIKey = ""
-	if previous.Profiles["openai"].APIKey != "openai-key" {
-		t.Fatal("merge aliases previous config")
-	}
-	legacy.APIKey = "stale-flat-key"
-	legacy.Normalize()
-	if legacy.Profiles["typesafe"].APIKey != "typesafe-key" {
-		t.Fatal("stale flat config replaced profile")
 	}
 }

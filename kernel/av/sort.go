@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package av
 
@@ -191,12 +179,13 @@ func (value *Value) compare(other *Value, optionSort map[string]int, dateEndpoin
 		}
 	case KeyTypeText:
 		if nil != value.Text && nil != other.Text {
-			if "" == value.Text.Content {
+			switch "" {
+			case value.Text.Content:
 				if "" == other.Text.Content {
 					return 0
 				}
 				return 1
-			} else if "" == other.Text.Content {
+			case other.Text.Content:
 				return -1
 			}
 
@@ -324,24 +313,26 @@ func (value *Value) compare(other *Value, optionSort map[string]int, dateEndpoin
 		}
 	case KeyTypeURL:
 		if nil != value.URL && nil != other.URL {
-			if "" == value.URL.Content {
+			switch "" {
+			case value.URL.Content:
 				if "" == other.URL.Content {
 					return 0
 				}
 				return 1
-			} else if "" == other.URL.Content {
+			case other.URL.Content:
 				return -1
 			}
 			return strings.Compare(value.URL.Content, other.URL.Content)
 		}
 	case KeyTypeEmail:
 		if nil != value.Email && nil != other.Email {
-			if "" == value.Email.Content {
+			switch "" {
+			case value.Email.Content:
 				if "" == other.Email.Content {
 					return 0
 				}
 				return 1
-			} else if "" == other.Email.Content {
+			case other.Email.Content:
 				return -1
 			}
 			return strings.Compare(value.Email.Content, other.Email.Content)
@@ -360,12 +351,13 @@ func (value *Value) compare(other *Value, optionSort map[string]int, dateEndpoin
 		return strings.Compare(left, right)
 	case KeyTypePhone:
 		if nil != value.Phone && nil != other.Phone {
-			if "" == value.Phone.Content {
+			switch "" {
+			case value.Phone.Content:
 				if "" == other.Phone.Content {
 					return 0
 				}
 				return 1
-			} else if "" == other.Phone.Content {
+			case other.Phone.Content:
 				return -1
 			}
 			return strings.Compare(value.Phone.Content, other.Phone.Content)
@@ -376,16 +368,16 @@ func (value *Value) compare(other *Value, optionSort map[string]int, dateEndpoin
 			for _, v := range value.MAsset {
 				v1.WriteString(v.Content)
 			}
-			var v2 string
+			var v2 strings.Builder
 			for _, v := range other.MAsset {
-				v2 += v.Content
+				v2.WriteString(v.Content)
 			}
 
-			if 0 == strings.Compare(v1.String(), v2) {
+			if 0 == strings.Compare(v1.String(), v2.String()) {
 				return 0
 			}
 
-			if util.EmojiPinYinCompare(v1.String(), v2) {
+			if util.EmojiPinYinCompare(v1.String(), v2.String()) {
 				return -1
 			}
 			return 1

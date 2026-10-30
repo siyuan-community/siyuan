@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
@@ -116,8 +104,9 @@ func getStableUpdateRelease(force bool) (*updateRelease, error) {
 	if "" == checksum {
 		return release, nil
 	}
+	githubURL := "https://github.com/siyuan-community/siyuan/releases/download/v" + version + "/" + pkgName
 	release.Packages[pkgName] = &updatePackage{
-		URLs:     getStablePackageURLs(release.Version, pkgName),
+		URLs:     getUpdatePackageURLs(pkgName, githubURL),
 		Checksum: checksum,
 	}
 	return release, nil
@@ -149,8 +138,8 @@ func getStablePackageChecksum(result map[string]any, pkgName string) string {
 	return normalizeSHA256(checksum)
 }
 
-func getStablePackageURLs(version, pkgName string) []string {
-	githubURL := "https://github.com/siyuan-community/siyuan/releases/download/v" + strings.TrimPrefix(version, "v") + "/" + pkgName
+// getUpdatePackageURLs 只返回 GitHub 地址：社区版安装包只发布在 siyuan-community 的 GitHub Releases，官方镜像没有这些安装包。
+func getUpdatePackageURLs(_, githubURL string) []string {
 	return []string{githubURL}
 }
 
@@ -193,7 +182,7 @@ func getGitHubUpdateRelease(channel string, force bool) (*updateRelease, error) 
 		}
 	}
 	release.Packages[pkgName] = &updatePackage{
-		URLs:     []string{asset.BrowserDownloadURL},
+		URLs:     getUpdatePackageURLs(pkgName, asset.BrowserDownloadURL),
 		Checksum: checksum,
 	}
 	return release, nil
@@ -289,7 +278,7 @@ func isReleaseAllowed(channel, version string) bool {
 }
 
 func prereleaseChannelLabel(prerelease string) string {
-	identifier := strings.SplitN(prerelease, ".", 2)[0]
+	identifier, _, _ := strings.Cut(prerelease, ".")
 	for _, channel := range []string{"alpha", "beta", "rc"} {
 		if channel == identifier {
 			return channel
@@ -413,7 +402,7 @@ func getGitHubManifestChecksum(ctx context.Context, release *githubRelease, pkgN
 }
 
 func parseChecksumManifest(manifest, pkgName string) string {
-	for _, line := range strings.Split(manifest, "\n") {
+	for line := range strings.SplitSeq(manifest, "\n") {
 		fields := strings.Fields(line)
 		if 2 > len(fields) {
 			continue

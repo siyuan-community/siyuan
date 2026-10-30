@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package sql
 
 import (
@@ -80,7 +84,7 @@ func TestBookmarkIndexPreservesBlockFieldsAndLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows.Close()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err = ensureBookmarkAttributesIndex(database); err != nil {
 			t.Fatal(err)
 		}

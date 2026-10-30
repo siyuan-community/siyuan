@@ -5,6 +5,7 @@ import {fetchSyncPost} from "../../../util/fetch";
 import {normalizeHTMLAssetIFrameBlockDOM} from "../../../asset/html";
 import {updateTransaction, transaction} from "../../wysiwyg/transaction";
 import {genListItemElement, setTaskListItemMarker} from "../../wysiwyg/list";
+import {getListConversionType, type TListSubtype} from "../../wysiwyg/listContext";
 import {nextTaskListMarker, nextTaskListStatus} from "../../wysiwyg/taskListMarker";
 import {getTaskStatusItems} from "../../wysiwyg/taskStatusDialog";
 import {getTabTask} from "../tabsRender";
@@ -16,42 +17,58 @@ import {hideAllElements, hideElements} from "../../ui/hideElements";
 import {globalClickHideMenu} from "../../../menus/menuClick";
 import {countBlockWord} from "../../../layout/status";
 import {openLink} from "../../../editor/openLink";
+import {previewDocImage} from "../../preview/image";
 import {suspendBlockPopover} from "../../../block/popover";
 import {matchHotKey} from "../../util/hotKey";
 import {setFullscreen} from "../../breadcrumb/action";
-import {
-    getBuiltinColorPropertyValue, getBuiltinInlineStylePreview, getBuiltinInlineStylePropertyValue,
-    getInlineStyleByID, getInlineStylePreview, getInlineStylePropertyValue,
-    getInlineStylesCache, getVisibleOrderedStyleKeys, isBuiltinOrderKey,
-    TBuiltinInlineStyleID,
-} from "../../toolbar/inlineStyle";
+import {getCurrentInlineStyleMode, getInlineStylesCache} from "../../toolbar/inlineStyle";
 import {openInlineStyleDialog} from "../../toolbar/inlineStyleDialog";
 import {
     addListMindmapNode, cleanListMindmapHTML, deleteListMindmapNode,
     moveListMindmapNode, readListMindmap, replaceListMindmapContent,
     writeListMindmapMetadata, getListMindmapTabItem, retagMindmapBranch, normalizeListMindmapSummaryMetadata,
-    convertListMindmapToList, hasListMindmapRootTitle, clearListMindmapHeight,
+    convertListMindmapToList, hasListMindmapRootTitle, clearListMindmapHeight, initializeListMindmapConnectorStyle,
 } from "./model";
 import {prepareListMindmapConversion} from "./conversion";
 import type {ListMindmapMetadata, ListMindmapModel} from "./model";
+import {applyListMindmapListInput, getListMindmapListInputTarget} from "./listInput";
+import type {ListMindmapListInput} from "./listInput";
 import {getListMindmapElements, registerListMindmapRoot, registerListMindmapView} from "./render";
 import {syncListMindmapHeight} from "./height";
 import {bindListMindmapResize} from "./resize";
 import {setBlockHeight} from "../../gutter/height";
 import {ListMindmapView} from "./view";
+import {flushListMindmapViewports, getListMindmapViewport, saveListMindmapViewport} from "./viewport";
+import {getListMindmapLineColors, getListMindmapNodeColors, getListMindmapNodeColorMenu} from "./colors";
 import {openListMindmapEditor} from "./editor";
 import {focusListMindmap} from "./create";
 import {getListMindmapFoldStates, getListMindmapSiblingFoldStates} from "./fold";
+import {getListMindmapFoldMenuItems} from "./foldMenu";
 import {isMobile} from "../../../util/functions";
-import {addListMindmapSummaryRanges, getListMindmapSiblingIDs, getListMindmapSummaryParentID, getListMindmapSummaryRange,
+import {addListMindmapSummaryRanges, getListMindmapSiblingIDs,
     getListMindmapSummarySnapshot} from "./summary";
-import {isProtyleListItemFragment} from "../../runtimeCapabilities";
+import {getProtyleTransactionOwner, isProtyleListItemFragment} from "../../runtimeCapabilities";
 import {isFoldedRenderContent} from "../foldedContent";
 import {disposeCustomBlocksInElement} from "../../../plugin/customBlockRender";
 import {processRender} from "../../util/processCode";
 import {highlightRender} from "../highlightRender";
 import {avRender} from "../av/render";
 import {blockRender} from "../blockRender";
+import {getListMindmapConnectorMenuItem} from "./connectorMenu";
+import {getDefaultListMindmapConnectorStyle, setDefaultListMindmapConnectorStyle} from "./preferences";
+import {assignListMindmapBranchColors, getListMindmapAppearanceMenu} from "./appearance";
+import {getEmbedChildOperationContext} from "../../wysiwyg/getBlock";
+import {requestRedo, requestUndo} from "../../undo/globalUndo";
+/// #if MOBILE
+import {showFullscreenDocumentBar} from "../../../mobile/util/documentBar";
+/// #endif
+import {preserveUndoViewport} from "../../undo/viewport";
+import {buildBlockDOMClipboardData} from "../../util/blockDOMClipboard";
+import {buildWebClipboardHTML, getTextSiyuanFromTextHTML} from "../../util/clipboardData";
+import {readClipboard, writeClipboardData} from "../../util/compatibility";
+import {prepareExternalClipboardHTML} from "../../util/richClipboard";
+import {canCutMindmapBranches, copyMindmapBranches, pasteMindmapBranches, readMindmapClipboard,
+    removeMindmapBranches} from "./clipboard";
 
 const roots = new WeakMap<IProtyle, {refresh: () => void, mountNew: (list: HTMLElement) => void,
     restoreFocus: (listID: string, candidateIDs: string[], selection?: Record<string, string>, source?: HTMLElement) => void, focusRevision: number,
@@ -75,7 +92,8 @@ const canToggleView = (owner: IProtyle, list: HTMLElement) => !owner.disabled &&
     list.closest(".protyle-wysiwyg") === owner.wysiwyg.element;
 
 const canEdit = (owner: IProtyle, list: HTMLElement) => canToggleView(owner, list) &&
-    !list.closest(".protyle-wysiwyg__embed");
+    (!list.closest(".protyle-wysiwyg__embed") ||
+        !!getEmbedChildOperationContext(list)?.resultElement.dataset.rootId);
 
 export const toggleListMindmap = async (owner: IProtyle, list: HTMLElement) => {
     if (!["NodeList", "NodeMindmap"].includes(list.dataset.type) || !canToggleView(owner, list)) {
@@ -87,7 +105,8 @@ export const toggleListMindmap = async (owner: IProtyle, list: HTMLElement) => {
         if (!source || !canEdit(owner, list)) {
             return;
         }
-        const type = {o: "UL2OL", t: "UL2TL", u: "OL2UL"}[source.getAttribute("data-subtype")] || "OL2UL";
+        const type = getListConversionType("u", source.getAttribute("data-subtype") as TListSubtype) ||
+            getListConversionType("o", "u");
         const html = convertListMindmapToList(source, type, owner.lute);
         const template = list.ownerDocument.createElement("template");
         template.innerHTML = html;
@@ -104,6 +123,9 @@ export const toggleListMindmap = async (owner: IProtyle, list: HTMLElement) => {
     if (list.dataset.type === "NodeMindmap" || list.getAttribute(Constants.CUSTOM_SY_LIST_MINDMAP) == null) {
         const before = cleanListMindmapHTML(list.outerHTML);
         const toMindmap = list.dataset.type === "NodeList";
+        if (toMindmap) {
+            initializeListMindmapConnectorStyle(list, getDefaultListMindmapConnectorStyle());
+        }
         retagMindmapBranch(list, toMindmap);
         if (!toMindmap) {
             list.removeAttribute(Constants.CUSTOM_SY_LIST_MINDMAP);
@@ -126,12 +148,19 @@ export const toggleListMindmap = async (owner: IProtyle, list: HTMLElement) => {
     }
     hideElements(["gutter", "toolbar", "hint"], owner);
     const previousStyle = list.getAttribute("style") || "";
+    const previousMetadata = list.getAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA) || "";
     if (!next) {
+        initializeListMindmapConnectorStyle(list, "bezier");
         clearListMindmapHeight(list);
     }
     const nextStyle = list.getAttribute("style") || "";
     const doAttrs: Record<string, string> = {[Constants.CUSTOM_SY_LIST_MINDMAP]: next};
     const undoAttrs: Record<string, string> = {[Constants.CUSTOM_SY_LIST_MINDMAP]: previous};
+    const nextMetadata = list.getAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA) || "";
+    if (nextMetadata !== previousMetadata) {
+        doAttrs[Constants.CUSTOM_SY_LIST_MINDMAP_DATA] = nextMetadata;
+        undoAttrs[Constants.CUSTOM_SY_LIST_MINDMAP_DATA] = previousMetadata;
+    }
     if (nextStyle !== previousStyle) {
         doAttrs.style = nextStyle;
         undoAttrs.style = previousStyle;
@@ -151,6 +180,7 @@ class ListMindmapController {
     private model: ListMindmapModel;
     private snapshot = "";
     private activeEditor?: ReturnType<typeof openListMindmapEditor>;
+    private newNodeOrigins?: WeakMap<HTMLElement, {id: string; html: string}>;
     private editRequest = 0;
     private disposed = false;
     private taskChanges: Promise<void> = Promise.resolve();
@@ -161,11 +191,18 @@ class ListMindmapController {
         this.owner = owner;
         this.list = list;
         this.model = readListMindmap(list);
-        list.querySelector(":scope > .mindmap-view")?.remove();
+        list.querySelectorAll(":scope > .mindmap-view").forEach(host => host.remove());
         this.host = document.createElement("div");
         this.host.className = "mindmap-view";
         syncListMindmapHeight(list, this.host);
         this.host.contentEditable = "false";
+        // 节点编辑器和画布隔离 keyup，捕获阶段同步全局修饰键释放状态。
+        this.host.addEventListener("keyup", () => {
+            window.siyuan.ctrlIsPressed = false;
+            window.siyuan.shiftIsPressed = false;
+            window.siyuan.altIsPressed = false;
+            document.body.classList.remove("body--shift-pressed");
+        }, {capture: true});
         const renderGutter = (event: PointerEvent) => {
             if (!owner.options.render.gutter ||
                 !owner.gutter || this.host.classList.contains("fullscreen") ||
@@ -215,36 +252,104 @@ class ListMindmapController {
         }, {capture: true});
         list.appendChild(this.host);
         let restoreFullscreenChrome: () => void;
+        /// #if MOBILE
+        let restoreDocumentBar: () => void;
+        /// #endif
         this.view = new ListMindmapView({
+            viewport: getListMindmapViewport(owner, list),
+            onViewportChange: state => saveListMindmapViewport(owner, list, state),
             host: this.host, model: this.model, labels: window.siyuan.languages,
             onOpenLink: (href, event) => openLink(owner.app, href, event, event.ctrlKey || event.metaKey),
+            onPreviewImage: (src, video) => previewDocImage(src, owner.block.rootID, video),
             onInteractionStart: event => suspendBlockPopover(this.host, event),
             readOnly: !canEdit(owner, list),
             onLockChange: locked => canEdit(owner, list) ? this.metadata(metadata => {
                 metadata.viewLocked = locked;
             }) : Promise.resolve(true),
+            onSettingsMenu: (anchor, expand, pan) => {
+                toggleMenu({
+                    target: anchor,
+                    build: (_menu, session) => {
+                        let previewing = false;
+                        let closed = false;
+                        const preview = (update?: (metadata: ListMindmapMetadata) => void) => {
+                            if (this.disposed || closed) {
+                                return;
+                            }
+                            if (update) {
+                                // 预览只替换视图模型，源块和撤销记录仍使用已保存的数据。
+                                const metadata = JSON.parse(JSON.stringify(this.model.metadata)) as ListMindmapMetadata;
+                                update(metadata);
+                                previewing = true;
+                                this.view.update({...this.model, metadata});
+                            } else if (previewing) {
+                                previewing = false;
+                                this.view.update(this.model);
+                            }
+                        };
+                        const cancelPreview = (event: KeyboardEvent) => {
+                            if (event.key === "Escape") {
+                                preview();
+                            }
+                        };
+                        const menu = new Menu(undefined, () => {
+                            window.removeEventListener("keydown", cancelPreview, true);
+                            preview();
+                            closed = true;
+                        });
+                        if (!isMobile()) {
+                            window.addEventListener("keydown", cancelPreview, true);
+                        }
+                        if (pan) {
+                            menu.addItem({
+                                id: "pan", icon: "iconPan", label: window.siyuan.languages.cursorHand,
+                                checked: pan.active, click: pan.toggle,
+                            });
+                        }
+                        if (canEdit(owner, list)) {
+                            const current = readListMindmap(list).metadata;
+                            menu.addItem(getListMindmapAppearanceMenu(current,
+                                update => void this.metadata(update), window.siyuan.languages,
+                                getListMindmapConnectorMenuItem(current.connectorStyle || "bezier",
+                                style => {
+                                    void this.metadata(metadata => {
+                                        if ((metadata.connectorStyle || "bezier") === style) {
+                                            return false;
+                                        }
+                                        if (style === "bezier") {
+                                            delete metadata.connectorStyle;
+                                        } else {
+                                            metadata.connectorStyle = style;
+                                        }
+                                    });
+                                }, window.siyuan.languages), isMobile() ? undefined : preview));
+                            menu.addItem(getListMindmapConnectorMenuItem(getDefaultListMindmapConnectorStyle(), style => {
+                                if (canEdit(owner, list)) {
+                                    setDefaultListMindmapConnectorStyle(style);
+                                }
+                            }, window.siyuan.languages, "default"));
+                        }
+                        if (expand) {
+                            menu.addItem({
+                                id: "expandLevel", icon: "iconExpandLevel", label: window.siyuan.languages.expandLevel,
+                                submenu: getListMindmapFoldMenuItems(expand, window.siyuan.languages),
+                            });
+                        }
+                        if (isMobile()) {
+                            session.show(() => menu.fullscreen("bottom"));
+                        } else {
+                            const rect = anchor.getBoundingClientRect();
+                            session.show(() => menu.open({x: rect.left, y: rect.bottom, h: rect.height}));
+                        }
+                    },
+                });
+            },
             onExpandLevelMenu: (anchor, select) => {
                 toggleMenu({
                     target: anchor,
                     build: (_menu, session) => {
                         const menu = new Menu();
-                        for (let level = 1; level <= 6; level++) {
-                            menu.addItem({
-                                id: `level${level}`,
-                                iconHTML: "",
-                                label: window.siyuan.languages.listMindmapExpandToLevel.replace("${level}", String(level)),
-                                click: () => select(level),
-                            });
-                        }
-                        menu.addSeparator({id: "separator_all"});
-                        menu.addItem({
-                            id: "expandAll", icon: "iconExpand", label: window.siyuan.languages.expandAll,
-                            click: () => select("expandAll")
-                        });
-                        menu.addItem({
-                            id: "foldAll", icon: "iconContract", label: window.siyuan.languages.foldAll,
-                            click: () => select("foldAll")
-                        });
+                        getListMindmapFoldMenuItems(select, window.siyuan.languages).forEach(item => menu.addItem(item));
                         if (isMobile()) {
                             session.show(() => menu.fullscreen("bottom"));
                         } else {
@@ -265,6 +370,14 @@ class ListMindmapController {
                 });
             }),
             onFullscreen: (enter, button) => {
+                /// #if MOBILE
+                if (enter) {
+                    restoreDocumentBar = showFullscreenDocumentBar(this.owner, this.host);
+                } else {
+                    restoreDocumentBar?.();
+                    restoreDocumentBar = undefined;
+                }
+                /// #endif
                 if (enter) {
                     const drag = document.getElementById("drag");
                     const controls = document.getElementById("windowControls");
@@ -284,32 +397,19 @@ class ListMindmapController {
                     restoreFullscreenChrome = undefined;
                 }
             },
-            colors: () => {
-                const type = "color";
-                const data = getInlineStylesCache();
-                return getVisibleOrderedStyleKeys(type, data).map(key => {
-                    if (isBuiltinOrderKey(type, key)) {
-                        return {label: `${window.siyuan.languages.color} ${key}`,
-                            value: getBuiltinColorPropertyValue(Number(key), type)};
-                    }
-                    const style = getInlineStyleByID(key, data);
-                    return {label: style.name, value: getInlineStylePropertyValue(style, type)};
-                });
-            },
-            nodeColors: () => {
-                const data = getInlineStylesCache();
-                return getVisibleOrderedStyleKeys("style1", data).map(key => {
-                    if (isBuiltinOrderKey("style1", key)) {
-                        return {label: window.siyuan.languages[`${key}Style`],
-                            color: getBuiltinInlineStylePropertyValue(key as TBuiltinInlineStyleID, "color"),
-                            backgroundColor: getBuiltinInlineStylePropertyValue(key as TBuiltinInlineStyleID, "backgroundColor"),
-                            preview: getBuiltinInlineStylePreview(key as TBuiltinInlineStyleID)};
-                    }
-                    const style = getInlineStyleByID(key, data);
-                    return {label: style.name, ...getInlineStylePreview(style)};
-                });
-            },
-            onManageNodeColors: () => openInlineStyleDialog("style1"),
+            colors: () => getListMindmapLineColors(getInlineStylesCache(), window.siyuan.languages, getCurrentInlineStyleMode()),
+            nodeColors: () => getListMindmapNodeColors(getInlineStylesCache(), window.siyuan.languages, getCurrentInlineStyleMode()),
+            onManageNodeColors: anchor => toggleMenu({target: anchor, build: (_menu, session) => {
+                const menu = new Menu();
+                getListMindmapNodeColorMenu(window.siyuan.languages, type => openInlineStyleDialog(type))
+                    .forEach(item => menu.addItem(item));
+                if (isMobile()) {
+                    session.show(() => menu.fullscreen("bottom"));
+                } else {
+                    const rect = anchor.getBoundingClientRect();
+                    session.show(() => menu.open({x: rect.left, y: rect.bottom, h: rect.height}));
+                }
+            }}),
             onManageLineColors: () => openInlineStyleDialog("color"),
             finishEdit: () => this.activeEditor?.finish(),
             onExit: async () => {
@@ -323,7 +423,39 @@ class ListMindmapController {
                 }
             },
             onEdit: (id, contentHost, replaceFirstParagraph) => this.edit(id, contentHost, replaceFirstParagraph),
-            onPasteImages: (id, files) => void this.edit(id, this.view.getContentHost(id), undefined, files),
+            onCopy: (ids, cut, event) => void this.copyNodes(ids, cut, event),
+            onPaste: (id, kind, data) => void this.pasteNodes(id, kind, data),
+            onDeleteNodes: ids => void this.removeNodes(ids),
+            onClipboardMenu: (anchor, ids) => {
+                toggleMenu({target: anchor, build: (_menu, session) => {
+                    const menu = new Menu();
+                    if (canEdit(owner, list) && canCutMindmapBranches(readListMindmap(list), ids)) {
+                        menu.addItem({label: window.siyuan.languages.cut, icon: "iconCut",
+                            click: () => void this.copyNodes(ids, true)});
+                    }
+                    menu.addItem({label: window.siyuan.languages.copy, icon: "iconCopy",
+                        click: () => void this.copyNodes(ids, false)});
+                    if (ids.length === 1 && canEdit(owner, list)) {
+                        menu.addItem({label: window.siyuan.languages.mindmapPasteChild, icon: "iconPaste",
+                            click: () => void this.pasteNodes(ids[0], "child")});
+                        if (!this.model.nodes.get(ids[0])?.virtual) {
+                            menu.addItem({label: window.siyuan.languages.mindmapPasteSibling, icon: "iconPaste",
+                                click: () => void this.pasteNodes(ids[0], "sibling")});
+                        }
+                    }
+                    const marker = ids.length === 1 ? this.model.nodes.get(ids[0])?.taskMarker : undefined;
+                    if (marker !== undefined && canEdit(owner, list)) {
+                        menu.addItem({label: window.siyuan.languages.checkToggle, icon: "iconCheck",
+                            submenu: getTaskStatusItems(marker, next => this.setTask(ids[0], () => next))});
+                    }
+                    const rect = anchor.getBoundingClientRect();
+                    if (isMobile()) {
+                        session.show(() => menu.fullscreen("bottom"));
+                    } else {
+                        session.show(() => menu.open({x: rect.left, y: rect.bottom, h: rect.height}));
+                    }
+                }});
+            },
             isAddSiblingShortcut: event => {
                 const key = window.siyuan.config.keymap.editor.list?.mindmapAddSibling;
                 return !!key && matchHotKey(key, event);
@@ -377,7 +509,7 @@ class ListMindmapController {
             }),
             onMove: (id, target, placement) => this.change(() => moveListMindmapNode(list, id, target, placement)),
             onAdd: (id, kind) => this.add(id, kind),
-            onDelete: id => this.change(() => deleteListMindmapNode(list, id)),
+            onDelete: id => this.deleteNode(id),
             onFold: id => this.change(() => {
                 const node = this.model.nodes.get(id);
                 if (node?.element && !node.virtual) {
@@ -393,10 +525,24 @@ class ListMindmapController {
                     }
                 });
             }),
-            onUndo: () => this.undo(false),
-            onRedo: () => this.undo(true),
             onNodeStyle: (id, patch) => this.metadata(metadata => {
                 metadata.nodes[id] = {...metadata.nodes[id], ...patch};
+            }),
+            onNodesStyle: (ids, patch) => this.metadata(metadata => {
+                const nodes = readListMindmap(list).nodes;
+                ids.filter(id => nodes.has(id)).forEach(id => {
+                    metadata.nodes[id] = {...metadata.nodes[id], ...patch};
+                });
+            }),
+            onNodeWidths: (widths, expected) => this.metadata(metadata => {
+                const nodes = readListMindmap(list).nodes;
+                const current = widths.map(({id}) => ({id, width: metadata.nodes[id]?.width || 0}));
+                if (JSON.stringify(current) !== expected || widths.some(({id, width}) =>
+                    !nodes.has(id) || !Number.isFinite(width) || width < 0)) {
+                    showMessage(window.siyuan.languages.listMindmapStale);
+                    return false;
+                }
+                widths.forEach(({id, width}) => metadata.nodes[id] = {...metadata.nodes[id], width});
             }),
             onRelationAdd: (from, to) => this.metadata(metadata => {
                 if (from !== to && !metadata.relations.some(relation => relation.from === from && relation.to === to)) {
@@ -428,23 +574,6 @@ class ListMindmapController {
             onRelationDelete: id => this.metadata(metadata => {
                 metadata.relations = metadata.relations.filter(item => item.id !== id);
             }),
-            onSummaryAdd: async (from, to) => {
-                let ids: string[];
-                const saved = await this.change(() => {
-                    const model = readListMindmap(list);
-                    const nodeIds = getListMindmapSummaryRange(model, from, to);
-                    if (!nodeIds.length) {
-                        return false;
-                    }
-                    ids = addListMindmapSummaryRanges(model, [{parentId: getListMindmapSummaryParentID(model, from), nodeIds}],
-                        () => Lute.NewNodeID(), window.siyuan.languages.listMindmapSummary);
-                    if (!ids) {
-                        return false;
-                    }
-                    writeListMindmapMetadata(list, model.metadata);
-                });
-                return saved ? ids?.[0] : undefined;
-            },
             onSummaryBatchAdd: async (ranges, expected) => {
                 let ids: string[];
                 const saved = await this.change(() => {
@@ -592,22 +721,40 @@ class ListMindmapController {
             const siblings = selected?.parentId ? model.nodes.get(selected.parentId)?.children || [] : [];
             const index = siblings.findIndex(node => node.id === selectedID);
             const previous = getListMindmapSiblingIDs(model);
+            const focusContext = (id: string, source: ListMindmapModel): Record<string, string> => {
+                const embed = this.list.closest(".protyle-wysiwyg__embed");
+                if (!embed) {
+                    return {};
+                }
+                const element = source.nodes.get(id)?.element || this.list;
+                const index = Array.from(this.owner.wysiwyg.element.querySelectorAll(`[data-node-id="${id}"]`))
+                    .indexOf(element);
+                const query = embed.closest<HTMLElement>('[data-type="NodeBlockQueryEmbed"]');
+                return {...(index >= 0 ? {undoFocusIndex: String(index)} : {}),
+                    ...(query?.dataset.nodeId ? {undoFocusEmbedId: query.dataset.nodeId} : {})};
+            };
+            const undoFocus = focusContext(selectedID, model);
             if (change() === false) {
                 return false;
             }
             normalizeListMindmapSummaryMetadata(this.list, previous);
+            const next = readListMindmap(this.list);
+            if (next.metadata.appearance?.palette.length && assignListMindmapBranchColors(next)) {
+                writeListMindmapMetadata(this.list, next.metadata);
+            }
             if (cleanListMindmapHTML(this.list.outerHTML) !== before) {
-                const next = readListMindmap(this.list);
                 const nextID = [focusID, selectedID, siblings[index + 1]?.id, siblings[index - 1]?.id,
                     selected?.parentId].find(id => next.nodes.has(id)) || next.root.id;
                 // 将操作前后的节点分别记录在事务中，重做时可定位到重新插入的节点。
                 updateTransaction(this.owner, this.list, before, {
                     undoFocusId: selectedID, undoFocusStart: "0", undoFocusEnd: "0",
                     mindmapSnapshotId: this.list.dataset.nodeId,
+                    ...undoFocus,
                     ...(selection?.undo ? {undoFocusMindmapSelection: JSON.stringify(selection.undo)} : {}),
                 }, {doOperations: [], undoOperations: [], context: {
                     undoFocusId: nextID, undoFocusStart: "0", undoFocusEnd: "0",
                     mindmapSnapshotId: this.list.dataset.nodeId,
+                    ...focusContext(nextID, next),
                     ...(selection?.redo ? {undoFocusMindmapSelection: JSON.stringify(selection.redo)} : {}),
                 }});
             }
@@ -620,7 +767,117 @@ class ListMindmapController {
         }
     }
 
-    private async add(id: string, kind: "child" | "sibling") {
+    private async copyNodes(ids: string[], cut: boolean, event?: ClipboardEvent) {
+        try {
+            if (this.disposed || !this.list.isConnected || this.activeEditor ||
+                cut && (!canEdit(this.owner, this.list) || !canCutMindmapBranches(this.model, ids))) {
+                return;
+            }
+            const before = cleanListMindmapHTML(this.list.outerHTML);
+            const source = copyMindmapBranches(this.list, ids);
+            if (!source) {
+                return;
+            }
+            const data = buildBlockDOMClipboardData(this.owner.lute, source);
+            data.textHTML = prepareExternalClipboardHTML(data.textHTML);
+            if (event?.clipboardData) {
+                event.clipboardData.setData("text/plain", data.textPlain);
+                event.clipboardData.setData("text/html", buildWebClipboardHTML(data.textHTML, data.textSiyuan));
+                event.clipboardData.setData("text/siyuan", data.textSiyuan);
+                return;
+            }
+            const result = await writeClipboardData(data, {fallbackToPlainText: !cut});
+            if (result.status === "failed" || cut && result.status !== "rich") {
+                showMessage(window.siyuan.languages.clipboardPermissionDenied);
+                return;
+            }
+            if (cut && cleanListMindmapHTML(this.list.outerHTML) === before) {
+                await this.removeNodes(ids, before);
+            }
+        } catch (error) {
+            console.error(error);
+            showMessage(window.siyuan.languages.listMindmapInvalid);
+        }
+    }
+
+    private async removeNodes(ids: string[], expected?: string) {
+        return this.change(() => {
+            if (expected !== undefined && cleanListMindmapHTML(this.list.outerHTML) !== expected) {
+                return false;
+            }
+            const copy = removeMindmapBranches(this.list, ids);
+            if (!copy) {
+                return false;
+            }
+            this.replaceClipboardSource(copy);
+        });
+    }
+
+    private replaceClipboardSource(source: HTMLElement) {
+        this.replaceSourceChildren(source);
+        const metadata = source.getAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA);
+        if (metadata !== null) {
+            this.list.setAttribute(Constants.CUSTOM_SY_LIST_MINDMAP_DATA, metadata);
+        }
+    }
+
+    private replaceSourceChildren(source: HTMLElement) {
+        // 全屏时画布位于 body，保留原位置标记，退出全屏时仍能还原。
+        const retained = Array.from(this.list.childNodes).filter(child => child === this.host ||
+            child.nodeType === Node.COMMENT_NODE && child.nodeValue === "mindmap-view");
+        Array.from(this.list.childNodes).forEach(child => {
+            if (!retained.includes(child)) {
+                if (child instanceof Element) {
+                    disposeCustomBlocksInElement(child);
+                }
+                child.remove();
+            }
+        });
+        const children = Array.from(source.childNodes);
+        children.forEach(child => this.list.insertBefore(child, retained[0] || null));
+        children.forEach(child => {
+            if (child instanceof Element) {
+                processRender(child);
+                highlightRender(child);
+                avRender(child, this.owner);
+                blockRender(this.owner, child);
+            }
+        });
+    }
+
+    private async pasteNodes(id: string, kind: "child" | "sibling", data?: IClipboardData) {
+        const rootID = this.owner.block.rootID;
+        const before = cleanListMindmapHTML(this.list.outerHTML);
+        const current = () => !this.disposed && canEdit(this.owner, this.list) &&
+            this.owner.block.rootID === rootID && this.view.getSelectedId() === id &&
+            this.view.getSelectedIds().length === 1 && cleanListMindmapHTML(this.list.outerHTML) === before;
+        try {
+            data ||= await readClipboard();
+            if (!current() || !data) {
+                return;
+            }
+            const html = data.siyuanHTML || getTextSiyuanFromTextHTML(data.textHTML || "").textSiyuan;
+            const source = html && readMindmapClipboard(html);
+            if (source) {
+                const result = pasteMindmapBranches(this.list, source, id, kind === "child" ? "child" : "after", this.owner.lute);
+                if (result && await this.change(() => {
+                    if (!current()) {
+                        return false;
+                    }
+                    this.replaceClipboardSource(result.list);
+                }, false, result.ids[0])) {
+                    this.view.focusNode(result.ids[0]);
+                }
+            } else if (data.textPlain || data.textHTML || data.siyuanHTML || data.files?.length || data.localFiles?.length) {
+                await this.add(id, kind, data);
+            }
+        } catch (error) {
+            console.error(error);
+            showMessage(window.siyuan.languages.listMindmapInvalid);
+        }
+    }
+
+    private async add(id: string, kind: "child" | "sibling", clipboard?: IClipboardData) {
         if (!canEdit(this.owner, this.list)) {
             return;
         }
@@ -641,13 +898,81 @@ class ListMindmapController {
             return;
         }
         this.view.focusNode(item.dataset.nodeId);
-        const content = this.view.getContentHost(item.dataset.nodeId);
-        if (content) {
-            void this.edit(item.dataset.nodeId, content);
+        if (clipboard) {
+            const content = this.view.getContentHost(item.dataset.nodeId);
+            if (content) {
+                await this.edit(item.dataset.nodeId, content, undefined, clipboard);
+            }
+        } else {
+            // 仅在当前源节点未编辑、未被回放替换时，记住取消新建应返回的位置。
+            this.newNodeOrigins ||= new WeakMap();
+            this.newNodeOrigins.set(item, {id, html: cleanListMindmapHTML(item.outerHTML)});
         }
     }
 
-    private async edit(id: string, host: HTMLElement, replaceFirstParagraph?: string, images?: File[],
+    private async deleteNode(id: string) {
+        const element = this.model.nodes.get(id)?.element;
+        const origin = element && this.list.contains(element) && this.newNodeOrigins?.get(element);
+        const sourceID = origin && this.view.getSelectedId() === id && this.model.nodes.has(origin.id) &&
+            cleanListMindmapHTML(element.outerHTML) === origin.html ? origin.id : undefined;
+        const deleted = await this.change(() => deleteListMindmapNode(this.list, id), false, sourceID);
+        if (deleted) {
+            if (element) {
+                this.newNodeOrigins?.delete(element);
+            }
+            if (sourceID && this.model.nodes.has(sourceID) && !this.model.nodes.has(id) &&
+                (!this.view.getSelectedId() || this.view.getSelectedId() === id)) {
+                this.view.focusNode(sourceID);
+            }
+        }
+        return deleted;
+    }
+
+    private async listInput(id: string, input: ListMindmapListInput, selection?: Record<string, string>) {
+        const request = this.editRequest;
+        const rootID = this.owner.block.rootID;
+        if (input.kind !== "split" && input.kind !== "before" &&
+            !getListMindmapListInputTarget(this.model.nodes.get(id), input.kind)) {
+            return;
+        }
+        if (!canEdit(this.owner, this.list) || this.activeEditor && !await this.activeEditor.finish() ||
+            request !== this.editRequest || rootID !== this.owner.block.rootID || this.disposed || !canEdit(this.owner, this.list)) {
+            return;
+        }
+        // 结构编辑只克隆源内容，画布实例和全屏返回标记由当前控制器保留。
+        const template = this.list.ownerDocument.createElement("template");
+        template.innerHTML = cleanListMindmapHTML(this.list.outerHTML);
+        const source = template.content.firstElementChild as HTMLElement;
+        const node = readListMindmap(source).nodes.get(id);
+        if (!node?.element) {
+            return;
+        }
+        let item: HTMLElement;
+        if (input.kind === "split" || input.kind === "before") {
+            item = genListItemElement(node.element, 0, false);
+            if (source.dataset.type === "NodeMindmap") {
+                item.dataset.type = "NodeMindmapItem";
+                item.classList.replace("li", "mindmap-item");
+            }
+        }
+        const result = applyListMindmapListInput(source, id, input, item);
+        const before = cleanListMindmapHTML(this.list.outerHTML);
+        if (!result || !await this.change(() => {
+            if (cleanListMindmapHTML(this.list.outerHTML) !== before) {
+                return false;
+            }
+            this.replaceClipboardSource(source);
+        }, false, result.id, {undo: selection, redo: result.selection || selection})) {
+            return;
+        }
+        this.view.focusNode(result.id);
+        const host = this.view.getContentHost(result.id);
+        if (host) {
+            await this.edit(result.id, host, undefined, undefined, result.selection || selection);
+        }
+    }
+
+    private async edit(id: string, host: HTMLElement, replaceFirstParagraph?: string, clipboard?: IClipboardData,
                        selection?: Record<string, string>, guard?: () => boolean) {
         if (guard && !guard()) {
             return;
@@ -664,13 +989,17 @@ class ListMindmapController {
         if (!node || node.virtual) {
             return;
         }
+        this.newNodeOrigins?.delete(node.element);
         this.view.setEditing(id);
         const editor = openListMindmapEditor({
             owner: this.owner, node, host, replaceFirstParagraph, selection,
+            rootID: this.list.closest<HTMLElement>(".protyle-wysiwyg__embed")?.dataset.rootId,
             canEdit: () => !this.disposed && this.list.isConnected && canEdit(this.owner, this.list),
             onSave: (html, undo, redo) => this.change(() => replaceListMindmapContent(this.list, id, html), true, id, {undo, redo}),
             onResize: () => this.view.refreshLayout(),
             onAdd: kind => this.add(id, kind),
+            onListInput: (input, selection) => this.listInput(id, input, selection),
+            isPanTarget: event => this.view.isPanTarget(event),
             onFinish: () => {
                 if (this.activeEditor !== editor) {
                     return;
@@ -687,8 +1016,8 @@ class ListMindmapController {
         if (!this.activeEditor) {
             this.view.setEditing(undefined);
             this.view.update(this.model);
-        } else if (images) {
-            this.activeEditor.pasteImages(images);
+        } else if (clipboard) {
+            await this.activeEditor.pasteClipboard(clipboard);
         }
     }
 
@@ -707,6 +1036,7 @@ class ListMindmapController {
         const editorRoot = this.owner.wysiwyg.element;
         const documentID = this.owner.block.rootID;
         const notebookID = this.owner.notebookId;
+        const releaseViewport = preserveUndoViewport(editorRoot);
         const guard = () => roots.get(this.owner) === root && editorRoot.isConnected &&
             this.owner.block.rootID === documentID && this.owner.notebookId === notebookID &&
             root?.interactionRevision === interactionRevision && !hasMindmapFocusOverlay();
@@ -720,10 +1050,33 @@ class ListMindmapController {
             }
             const before = cleanListMindmapHTML(this.list.outerHTML);
             if (editingID && guard()) {
-                this.view.focusNode(editingID);
+                this.view.focusNode(editingID, false);
             }
             const focusRevision = root?.focusRevision;
-            if (redo) {
+            const sourceRootID = this.list.closest<HTMLElement>(".protyle-wysiwyg__embed")?.dataset.rootId;
+            if (sourceRootID) {
+                // 全屏视图和节点片段的选区不在嵌入源块内，撤销始终使用源文档和实际提交事务的编辑器。
+                const owner = this.owner.lite && getProtyleTransactionOwner(this.owner,
+                    [{action: "update", id: this.list.dataset.nodeId, data: before}]) || this.owner;
+                if (!owner.lite) {
+                    const releaseOwnerViewport = preserveUndoViewport(owner.wysiwyg.element);
+                    try {
+                        await (redo ? requestRedo(owner, sourceRootID) : requestUndo(owner, sourceRootID));
+                    } finally {
+                        releaseOwnerViewport();
+                    }
+                    if (this.owner.lite && this.list.isConnected && !this.disposed) {
+                        // 全屏中的片段不在外层编辑器内，按源块补齐撤销结果，并保留等待期间的新修改。
+                        const snapshot = cleanListMindmapHTML(this.list.outerHTML);
+                        const response = await fetchSyncPost("/api/block/getBlockDOM",
+                            {id: this.list.dataset.nodeId, notebook: this.owner.notebookId});
+                        if (response.code === 0 && canEdit(this.owner, this.list) && !this.disposed &&
+                            cleanListMindmapHTML(this.list.outerHTML) === snapshot) {
+                            this.replay(response.data.dom);
+                        }
+                    }
+                }
+            } else if (redo) {
                 await this.owner.undo.redo(this.owner);
             } else {
                 await this.owner.undo.undo(this.owner);
@@ -734,6 +1087,7 @@ class ListMindmapController {
                 root?.restoreFocus(this.list.dataset.nodeId, candidateIDs, unchanged ? selection : undefined, this.list);
             }
         } finally {
+            releaseViewport();
             if (root?.focusGuard === guard) {
                 root.focusGuard = undefined;
                 root.undoPending = false;
@@ -746,7 +1100,7 @@ class ListMindmapController {
             return;
         }
         const id = candidateIDs.find(id => this.model.nodes.has(id)) || this.model.root.id;
-        this.view.focusNode(id);
+        this.view.focusNode(id, false);
         const node = this.model.nodes.get(id);
         const content = selection && node && !node.virtual && this.view.getContentHost(id);
         const ids = new Set(node?.contentBlocks?.flatMap(block => [block, ...Array.from(block.querySelectorAll("[data-node-id]"))])
@@ -777,27 +1131,7 @@ class ListMindmapController {
         Array.from(this.list.attributes).forEach(attribute => this.list.removeAttribute(attribute.name));
         Array.from(next.attributes).forEach(attribute => this.list.setAttribute(attribute.name, attribute.value));
         this.list.dataset.mindmapViewRendered = "true";
-        // 全屏时画布位于 body，原位置的标记也必须保留，才能正常退出全屏。
-        const retained = Array.from(this.list.childNodes).filter(child => child === this.host ||
-            child.nodeType === Node.COMMENT_NODE && child.nodeValue === "mindmap-view");
-        Array.from(this.list.childNodes).forEach(child => {
-            if (!retained.includes(child)) {
-                if (child instanceof Element) {
-                    disposeCustomBlocksInElement(child);
-                }
-                child.remove();
-            }
-        });
-        const children = Array.from(next.childNodes);
-        children.forEach(child => this.list.insertBefore(child, retained[0] || null));
-        children.forEach(child => {
-            if (child instanceof Element) {
-                processRender(child);
-                highlightRender(child);
-                avRender(child, this.owner);
-                blockRender(this.owner, child);
-            }
-        });
+        this.replaceSourceChildren(next);
         // 即使序列化正文相同，源 Element 已替换，模型也必须重新绑定新节点。
         this.snapshot = "";
         this.refresh();
@@ -805,6 +1139,7 @@ class ListMindmapController {
     }
 
     public async finish() {
+        this.view.finishLabels();
         await this.taskChanges;
         return this.activeEditor ? this.activeEditor.finish() : true;
     }
@@ -833,6 +1168,7 @@ class ListMindmapController {
         this.resize.destroy();
         this.unregisterVisible?.();
         this.view.destroy();
+        flushListMindmapViewports();
         this.host.remove();
         this.list.removeAttribute("data-mindmap-view-rendered");
         if (restoreFocus) {
@@ -843,14 +1179,20 @@ class ListMindmapController {
 
 // 补齐折叠隐藏的正文后才允许改动列表，避免以局部视图覆盖完整块树。
 const completeList = async (owner: IProtyle, list: HTMLElement) => {
+    const rootID = owner.block.rootID;
+    const notebookId = owner.notebookId;
+    const id = list.dataset.nodeId;
+    const type = list.dataset.type;
+    const isCurrent = () => canEdit(owner, list) && owner.block.rootID === rootID &&
+        owner.notebookId === notebookId && list.dataset.nodeId === id && list.dataset.type === type;
     await owner.wysiwyg.flushPendingInput();
     await waitForPendingTransactions(owner);
-    if (!list.isConnected) {
+    if (!isCurrent()) {
         return "failed";
     }
     const before = cleanListMindmapHTML(list.outerHTML);
-    const response = await fetchSyncPost("/api/block/getBlockDOM", {id: list.dataset.nodeId, notebook: owner.notebookId});
-    if (response.code !== 0 || !list.isConnected) {
+    const response = await fetchSyncPost("/api/block/getBlockDOM", {id, notebook: notebookId});
+    if (response.code !== 0 || !isCurrent()) {
         return "failed";
     }
     if (cleanListMindmapHTML(list.outerHTML) !== before) {
@@ -877,6 +1219,10 @@ export const initListMindmaps = (owner: IProtyle) => {
     const placeholders = new Map<HTMLElement, HTMLElement>();
     const failed = new WeakSet<HTMLElement>();
     const newlyCreated = new WeakSet<HTMLElement>();
+    const completeSources = new WeakSet<HTMLElement>();
+    const needsCompleteSource = (list: HTMLElement) =>
+        (!owner.lite || !!list.closest(".protyle-wysiwyg__embed")) && canEdit(owner, list) &&
+        !newlyCreated.has(list) && !completeSources.has(list);
     let pendingFocus: {list: HTMLElement, candidateIDs: string[], selection?: Record<string, string>, guard?: () => boolean};
     let frame = 0;
     let disposed = false;
@@ -899,11 +1245,12 @@ export const initListMindmaps = (owner: IProtyle) => {
                 return;
             }
             // 在浏览器绘制正文前占位，补齐源块期间沿用脑图的尺寸和公共加载动画。
+            list.querySelectorAll(":scope > .mindmap-view").forEach(host => host.remove());
             const host = document.createElement("div");
             host.className = "mindmap-view";
             host.contentEditable = "false";
             host.setAttribute("aria-busy", "true");
-            host.innerHTML = '<div class="fn__loading"><img width="64" src="/stage/loading-pure.svg" alt=""></div>';
+            host.innerHTML = '<div class="fn__loading"><span class="b3-loading" aria-hidden="true"></span></div>';
             syncListMindmapHeight(list, host);
             placeholders.set(list, host);
             list.appendChild(host);
@@ -916,7 +1263,7 @@ export const initListMindmaps = (owner: IProtyle) => {
         }
         const lists = new Set(getListMindmapElements(root));
         instances.forEach((instance, list) => {
-            if (!lists.has(list)) {
+            if (!lists.has(list) || needsCompleteSource(list)) {
                 instance.destroy();
                 instances.delete(list);
             } else if (!isFoldedRenderContent(list, true)) {
@@ -930,6 +1277,7 @@ export const initListMindmaps = (owner: IProtyle) => {
                 }
             }
         });
+        prepare();
         lists.forEach(list => {
             if (instances.has(list) || loading.has(list) || failed.has(list) || isFoldedRenderContent(list, true)) {
                 return;
@@ -955,11 +1303,12 @@ export const initListMindmaps = (owner: IProtyle) => {
                     list.removeAttribute("data-mindmap-view-rendered");
                 }
             };
-            if (!owner.lite && canEdit(owner, list) && !newlyCreated.has(list)) {
+            if (needsCompleteSource(list)) {
                 loading.add(list);
                 let retry = false;
                 void completeList(owner, list).then(complete => {
                     if (complete === "complete") {
+                        completeSources.add(list);
                         mount();
                     } else if (complete === "changed") {
                         retry = true;
@@ -978,6 +1327,9 @@ export const initListMindmaps = (owner: IProtyle) => {
                     }
                 });
             } else {
+                if (newlyCreated.has(list)) {
+                    completeSources.add(list);
+                }
                 newlyCreated.delete(list);
                 mount();
             }
@@ -1063,7 +1415,8 @@ export const initListMindmaps = (owner: IProtyle) => {
             newlyCreated.add(list);
             refresh();
         }
-    }, restoreFocus, focusRevision: 0, interactionRevision: 0, destroy: () => {
+    }, restoreFocus,
+    focusRevision: 0, interactionRevision: 0, destroy: () => {
         disposed = true;
         interactions.abort();
         unregister();

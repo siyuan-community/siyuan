@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -65,7 +69,7 @@ func lastReloadPluginsLog(t *testing.T) string {
 		t.Fatal(err)
 	}
 	var line string
-	for _, l := range strings.Split(string(data), "\n") {
+	for l := range strings.SplitSeq(string(data), "\n") {
 		if strings.Contains(l, "reload plugins, uninstalls=") {
 			line = strings.TrimSpace(l)
 		}

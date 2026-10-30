@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package api
 
@@ -24,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/siyuan-community/siyuan/kernel/apicontract"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
@@ -54,6 +43,25 @@ func TestPublishReaderSearchAndBacklinkEncryptedNotebook(t *testing.T) {
 	})
 	engine.POST("/api/search/fullTextSearchBlock", fullTextSearchBlock)
 	engine.POST("/api/ref/getBacklink2", getBacklink2)
+	engine.POST("/api/search/searchRefBlock", searchRefBlock)
+
+	t.Run("exact reference title", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/search/searchRefBlock",
+			strings.NewReader(`{"id":"block","k":"secret","notebook":"`+boxID+`","exactDocTitle":true}`)))
+		requireAPIContract(t, http.MethodPost, "/api/search/searchRefBlock", recorder)
+		var response struct {
+			Code int `json:"code"`
+			Data struct {
+				Blocks []*apicontract.SearchBlock `json:"blocks"`
+				NewDoc bool                       `json:"newDoc"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Code != 0 ||
+			len(response.Data.Blocks) != 0 || response.Data.NewDoc {
+			t.Fatalf("published exact title search exposed encrypted data: %s, %v", recorder.Body.String(), err)
+		}
+	})
 
 	t.Run("search", func(t *testing.T) {
 		recorder := httptest.NewRecorder()

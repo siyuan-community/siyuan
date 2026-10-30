@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -173,12 +161,16 @@ func formatSQLRows(rows []map[string]any, possiblyTruncated bool) string {
 
 	var sb strings.Builder
 	if possiblyTruncated {
-		sb.WriteString(fmt.Sprintf("Query results (%d rows; the %d-row limit may have truncated the result. Use an explicit LIMIT with OFFSET to paginate):\n\n", len(rows), sqlQueryDefaultLimit))
+		fmt.Fprintf(&sb, "Query results (%d rows; the %d-row limit may have truncated the result. Use an explicit LIMIT with OFFSET to paginate):\n\n", len(rows), sqlQueryDefaultLimit)
 	} else {
-		sb.WriteString(fmt.Sprintf("Query results (%d rows):\n\n", len(rows)))
+		fmt.Fprintf(&sb, "Query results (%d rows):\n\n", len(rows))
 	}
-	sb.WriteString("| " + strings.Join(columns, " | ") + " |\n")
-	sb.WriteString("|" + strings.Repeat("---|", len(columns)) + "\n")
+	sb.WriteString("| ")
+	sb.WriteString(strings.Join(columns, " | "))
+	sb.WriteString(" |\n")
+	sb.WriteString("|")
+	sb.WriteString(strings.Repeat("---|", len(columns)))
+	sb.WriteString("\n")
 	for _, row := range rows {
 		vals := make([]string, 0, len(columns))
 		for _, k := range columns {
@@ -187,7 +179,9 @@ func formatSQLRows(rows []map[string]any, possiblyTruncated bool) string {
 			value = strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\n", "<br>")
 			vals = append(vals, value)
 		}
-		sb.WriteString("| " + strings.Join(vals, " | ") + " |\n")
+		sb.WriteString("| ")
+		sb.WriteString(strings.Join(vals, " | "))
+		sb.WriteString(" |\n")
 	}
 	return sb.String()
 }

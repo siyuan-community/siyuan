@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -22,7 +26,7 @@ func TestAVRelationCandidateUntitledContract(t *testing.T) {
 	t.Cleanup(func() { util.SearchCaseSensitive.Store(oldCaseSensitive) })
 	key := fixture.attrView.GetBlockKey()
 	var ids []string
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		id := ast.NewNodeID()
 		ids = append(ids, id)
 		fixture.attrView.KeyValues[0].Values = append(fixture.attrView.KeyValues[0].Values, &av.Value{

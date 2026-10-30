@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package tools
 
@@ -210,7 +198,7 @@ func blockGetChildren(args map[string]any) (CallToolResult, error) {
 			content = c.Content
 		}
 		content = truncateText(content, 200)
-		sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", c.Type, content, c.ID))
+		fmt.Fprintf(&sb, "- [%s] %s (%s)\n", c.Type, content, c.ID)
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 }
@@ -447,14 +435,7 @@ func blockDelete(args map[string]any) (CallToolResult, error) {
 
 	bt := treenode.GetBlockTreeInExactBox(id, boxID)
 
-	transaction := &model.Transaction{
-		DoOperations: []*model.Operation{{
-			Action: "delete",
-			ID:     id,
-		}},
-	}
-
-	if err := model.PerformTxSync(transaction); err != nil {
+	if _, err := model.PerformBlockOperation(&model.Operation{Action: "delete", ID: id}); err != nil {
 		return blockToolError("delete block failed: " + err.Error())
 	}
 
@@ -601,7 +582,7 @@ func blockBreadcrumb(args map[string]any) (CallToolResult, error) {
 
 	var sb strings.Builder
 	for _, p := range paths {
-		sb.WriteString(fmt.Sprintf("%s/%s (%s)\n", p.Type, p.Name, p.ID))
+		fmt.Fprintf(&sb, "%s/%s (%s)\n", p.Type, p.Name, p.ID)
 	}
 	return CallToolResult{Content: []ContentItem{{Type: "text", Text: sb.String()}}}, nil
 }
@@ -678,9 +659,9 @@ func blockBatchGet(args map[string]any) (CallToolResult, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Batch get %d blocks (found %d):\n\n", len(ids), len(infos)))
+	fmt.Fprintf(&sb, "Batch get %d blocks (found %d):\n\n", len(ids), len(infos))
 	for _, info := range infos {
-		sb.WriteString(fmt.Sprintf("- %s: %s (rootID: %s, refCount: %d)\n", info.ID, info.Name, info.RootID, info.RefCount))
+		fmt.Fprintf(&sb, "- %s: %s (rootID: %s, refCount: %d)\n", info.ID, info.Name, info.RootID, info.RefCount)
 	}
 	for _, id := range ids {
 		found := false
@@ -691,7 +672,7 @@ func blockBatchGet(args map[string]any) (CallToolResult, error) {
 			}
 		}
 		if !found {
-			sb.WriteString(fmt.Sprintf("- %s: not found\n", id))
+			fmt.Fprintf(&sb, "- %s: not found\n", id)
 		}
 	}
 
@@ -722,12 +703,12 @@ func blockBatchKramdown(args map[string]any) (CallToolResult, error) {
 	kramdowns := model.GetBlockKramdownsInBox(ids, "md", boxID)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Batch kramdown %d blocks (found %d):\n\n", len(ids), len(kramdowns)))
+	fmt.Fprintf(&sb, "Batch kramdown %d blocks (found %d):\n\n", len(ids), len(kramdowns))
 	for _, id := range ids {
 		if kd, ok := kramdowns[id]; ok {
-			sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", id, kd))
+			fmt.Fprintf(&sb, "--- %s ---\n%s\n\n", id, kd)
 		} else {
-			sb.WriteString(fmt.Sprintf("--- %s ---\n(not found)\n\n", id))
+			fmt.Fprintf(&sb, "--- %s ---\n(not found)\n\n", id)
 		}
 	}
 

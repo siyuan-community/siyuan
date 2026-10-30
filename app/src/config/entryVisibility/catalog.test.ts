@@ -2,7 +2,7 @@ import {IMAGE_OCR_MENU} from "../../menus/declarations/imageOCRMenu";
 import {createDeclaredMenu} from "../../menus/declarations/menuDeclaration";
 const imageOCRContext = {
     textAvailable: true, localAvailable: true, aiAvailable: true,
-    getStatus: async () => false, openResult: () => {}, copyText: () => {}, runLocal: () => {}, runAI: () => {},
+    getStatus: async () => false, openResult: () => {}, copyText: () => {}, clearText: () => {}, runLocal: () => {}, runAI: () => {},
 };
 import * as assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
@@ -67,10 +67,12 @@ test("image OCR actions retain their configurable paths and order", t => {
     assert.equal(copyImage.sortable, false);
     assert.equal(getEntryParentPath("editor.image.copyAsPNG"), "editor.image");
     assert.deepEqual(getEntryCatalogChildren("inline.image.ocr").map(item => item.key), [
-        "ocrResult", "copyOCRText", "separator_reOCR", "reOCR", "reAIOCR",
+        "ocrResult", "copyOCRText", "clearOCRText", "separator_reOCR", "reOCR", "reAIOCR",
     ]);
     assert.equal(getEntryCatalogNode("inline.image.ocr.copyOCRText").simple, false);
     assert.equal(getEntryParentPath("inline.image.ocr.copyOCRText"), "inline.image.ocr");
+    assert.equal(getEntryCatalogNode("inline.image.ocr.clearOCRText").simple, false);
+    assert.equal(getEntryParentPath("inline.image.ocr.clearOCRText"), "inline.image.ocr");
     assert.equal(getEntryCatalogNode("inline.image.ocr.reAIOCR").simple, false);
     assert.equal(getEntryParentPath("inline.image.ocr.reAIOCR"), "inline.image.ocr");
     assert.deepEqual(createDeclaredMenu(IMAGE_OCR_MENU, imageOCRContext).submenu.map(item => item.id),
@@ -101,9 +103,20 @@ test("document tree duplication follows single-document duplication in the confi
 test("embedded heading levels follow display modes and expose all levels in Simple", () => {
     const path = "gutter.single.blockEmbed";
     assert.deepEqual(getEntryCatalogChildren(path).map(entry => entry.key), [
-        "refresh", "update", "separator_breadcrumb", "embedBlockBreadcrumb", "headingEmbedMode", "embedHeadingLevel",
+        "refresh", "update", "refPopover", "separator_breadcrumb", "embedBlockBreadcrumb", "embedBlockBreadcrumbParentPath",
+        "headingEmbedMode", "embedHeadingLevel",
     ]);
     const levelPath = `${path}.embedHeadingLevel`;
+    assert.equal(getEntryCatalogNode(`${path}.embedBlockBreadcrumbParentPath`)?.simple, true);
+    assert.equal(getEntryParentPath(`${path}.embedBlockBreadcrumbParentPath`), path);
+    for (const key of ["embedBlockBreadcrumb", "embedBlockBreadcrumbParentPath"]) {
+        const parent = `${path}.${key}`;
+        assert.deepEqual(getEntryCatalogChildren(parent).map(item => item.key), ["enable", "disable", "default"]);
+        getEntryCatalogChildren(parent).forEach(item => {
+            assert.equal(item.simple, true);
+            assert.equal(getEntryParentPath(`${parent}.${item.key}`), parent);
+        });
+    }
     assert.equal(getEntryCatalogNode(levelPath)?.simple, true);
     assert.deepEqual(getEntryCatalogChildren(levelPath).map(entry => entry.key), [
         "auto", "heading1", "heading2", "heading3", "heading4", "heading5", "heading6",
@@ -112,6 +125,20 @@ test("embedded heading levels follow display modes and expose all levels in Simp
         assert.equal(entry.type, "entry");
         assert.equal(entry.simple, true);
     });
+});
+
+test("embed toolbars and popover menus remain visible by default and have independent configuration", () => {
+    const toolbar = getEntryCatalogNode("editor.blockEmbed.toolbar");
+    assert.equal(toolbar.type, "entry");
+    assert.equal(toolbar.simple, true);
+    assert.equal(toolbar.sortable, false);
+    assert.equal(getEntryParentPath("editor.blockEmbed.toolbar"), "editor.blockEmbed");
+    assert.equal(getEntryCatalogDefaultVisibility("editor.blockEmbed.toolbar"), true);
+    assert.equal(getEntryCatalogCustomDefaultVisibility("editor.blockEmbed.toolbar"), true);
+    const popover = getEntryCatalogNode("gutter.single.blockEmbed.refPopover");
+    assert.equal(popover.type, "entry");
+    assert.equal(popover.simple, true);
+    assert.equal(getEntryParentPath("gutter.single.blockEmbed.refPopover"), "gutter.single.blockEmbed");
 });
 
 const slashMenuBuiltinOrder = [
@@ -169,6 +196,7 @@ const slashMenuBuiltinOrder = [
     "tag",
     "inlineMath",
     "separator_3",
+    "insertIOSPhotos",
     "insertAsset",
     "insertHTMLFile",
     "insertIframeURL",
@@ -572,7 +600,7 @@ test("slash menu catalog follows the built-in hint order", () => {
     assert.deepEqual(section?.children.map((item) => item.key), ["menu"]);
     const children = getEntryCatalogChildren(SLASH_MENU_ROOT_PATH);
     assert.deepEqual(children.map((item) => item.key), ["frequent", ...slashMenuBuiltinOrder]);
-    assert.equal(children.filter((item) => item.type === "entry").length, 69);
+    assert.equal(children.filter((item) => item.type === "entry").length, 70);
     assert.equal(children.filter((item) => item.type === "separator").length, 5);
     assert.equal(children.filter(item => item.key !== "frequent").every((item) => item.simple), true);
 });
@@ -1121,6 +1149,7 @@ test("tab menu catalog follows its conditional menu declarations", () => {
         "pin",
         "unpin",
         "tabToWindow",
+        "tabToMainWindow",
     ]);
     assert.deepEqual(getEntryCatalogChildren("tab.split").map((item) => item.key), [
         "splitLR",
@@ -1209,6 +1238,13 @@ test("notebook pin entries follow settings and precede sorting", () => {
         assert.equal(getEntryCatalogNode(`docTree.notebook.${key}`)?.simple, true);
         assert.equal(getEntryCatalogNode(`docTree.notebook.${key}`)?.type, "entry");
     }
+});
+
+test("encrypted notebook cleanup follows replace and precedes close", () => {
+    const keys = getEntryCatalogChildren("docTree.notebook").map(item => item.key);
+    assert.deepEqual(keys.slice(keys.indexOf("replace"), keys.indexOf("close") + 1),
+        ["replace", "cleanUnusedAssets", "separator_1", "close"]);
+    assert.equal(getEntryCatalogNode("docTree.notebook.cleanUnusedAssets")?.simple, true);
 });
 
 test("document tree pin entries follow attributes and precede sorting", () => {

@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package cache
 
 import (
@@ -12,12 +16,43 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
+func TestTreeCacheRejectsStaleDiskRead(t *testing.T) {
+	defer ClearTreeCache()
+	for name, mutate := range map[string]func(){
+		"write":      func() { SetTreeDataInBox("document", "box", []byte("new")) },
+		"remove":     func() { RemoveTreeData("document") },
+		"remove box": func() { RemoveTreeDataInBox("document", "box") },
+		"clear":      ClearTreeCache,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ClearTreeCache()
+			version := TreeDataReadVersion()
+			mutate()
+			if SetTreeDataFromReadInBox("document", "box", []byte("old disk bytes"), version) {
+				t.Fatal("stale disk read was admitted after a cache mutation")
+			}
+			treeCache.Wait()
+			if data, ok := GetTreeDataInBox("document", "box"); ok && string(data) != "new" {
+				t.Fatalf("stale disk read replaced current cache: %q", data)
+			}
+			version = TreeDataReadVersion()
+			if !SetTreeDataFromReadInBox("document", "box", []byte("fresh disk bytes"), version) {
+				t.Fatal("unchanged source read was rejected")
+			}
+			treeCache.Wait()
+			if data, ok := GetTreeDataInBox("document", "box"); !ok || string(data) != "fresh disk bytes" {
+				t.Fatalf("fresh source was not cached: %q, %v", data, ok)
+			}
+		})
+	}
+}
+
 func TestTreeCacheRejectsStaleAsyncAdmission(t *testing.T) {
 	original := treeCache
 	entered, release := make(chan struct{}), make(chan struct{})
 	controlled, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: 100, MaxCost: 1 << 20, BufferItems: 64,
-		Cost: func(value interface{}) int64 {
+		Cost: func(value any) int64 {
 			close(entered)
 			<-release
 			return 1

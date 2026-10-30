@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package plugin
 
 import (
@@ -29,7 +33,7 @@ func newRPCCancellationTestPlugin(t *testing.T) *KernelPlugin {
 	GetManager().plugins.Store(p.Name, p)
 	t.Cleanup(func() {
 		cancel()
-		p.runtime.Terminate()
+		p.close()
 		GetManager().plugins.Delete(p.Name)
 	})
 	return p
@@ -75,7 +79,7 @@ func TestRPCHTTPWaitCancellation(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			p := newRPCCancellationTestPlugin(t)
 			started := make(chan struct{})
-			var resolve func(interface{}) error
+			var resolve func(any) error
 			rpcCancellationTestRun(t, p, func(rt *goja.Runtime) (any, error) {
 				p.rpcMethods.Store("pending", &RpcMethod{Method: func(goja.Value, ...goja.Value) (goja.Value, error) {
 					promise, resolvePromise, _ := rt.NewPromise()
@@ -102,6 +106,11 @@ func TestRPCHTTPWaitCancellation(t *testing.T) {
 			defer rpcCancellationTestRun(t, p, func(*goja.Runtime) (any, error) { return nil, resolve("late") })
 			cancel()
 			rpcCancellationTestWait(t, done, "HTTP cancellation")
+			leases := 0
+			p.rpcWriteLeases.Range(func(_, _ any) bool { leases++; return true })
+			if leases != 1 {
+				t.Fatalf("HTTP cancellation released an unfinished RPC write lease: %d", leases)
+			}
 			var reply JsonRpcErrorResponse
 			if err := json.Unmarshal(recorder.Body.Bytes(), &reply); err != nil || reply.ID != "cancelled" || reply.Error == nil || reply.Error.Code != JsonRpcErrorCodeInternalError {
 				t.Fatalf("unexpected cancellation reply: %s, %v", recorder.Body, err)

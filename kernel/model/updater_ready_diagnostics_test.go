@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package model
 
 import (
@@ -31,7 +35,7 @@ func TestReadyInstallPackageDiagnosticsDoNotExposeMetadata(t *testing.T) {
 
 func TestReadyInstallPackageDiagnosticLimit(t *testing.T) {
 	diagnostics := readyInstallPackageDiagnostics{}
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		message := diagnostics.rejected("package\nname.json", errors.New("metadata authentication failed"))
 		if i < readyInstallPackageDiagnosticLimit {
 			if !strings.Contains(message, "metadata authentication failed") || strings.Contains(message, "\n") {

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package agent
 
@@ -21,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +54,7 @@ func mergeAgentAttachments(current []AgentAttachment, attachments []mcptools.Mod
 			)
 		}
 		added = append(added, AgentAttachment{
+			PDFImage:   attachment.PDFImage,
 			Type:       attachment.Type,
 			Data:       attachment.Data,
 			MIMEType:   attachment.MIMEType,
@@ -126,6 +116,10 @@ func buildAttachmentMessage(attachments []AgentAttachment) (openai.ChatCompletio
 		})
 	}
 	if imageCount == 0 {
+		if omitted {
+			return openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: "The requested image attachments are unavailable. Do not claim to have inspected them. " +
+				"For PDF previews, list the source PDF again before requesting a new preview; the source may have changed or become inaccessible."}, true
+		}
 		return openai.ChatCompletionMessage{}, false
 	}
 	if omitted {
@@ -154,7 +148,17 @@ func resolveAgentAttachment(attachment AgentAttachment) (data []byte, mimeType s
 	}
 	var prepared kernelModel.PreparedDocumentImage
 	var prepareErr error
-	if attachment.DocumentID == "" {
+	if attachment.PDFImage != nil {
+		var image util.PreparedImage
+		image, prepareErr = kernelModel.PreparePDFImage(context.Background(), kernelModel.PDFImageSource{
+			DocumentID: attachment.DocumentID, Path: attachment.Path,
+		}, *attachment.PDFImage)
+		if prepareErr != nil {
+			err = prepareErr
+			return
+		}
+		return image.Data, image.MIMEType, image.Width, image.Height, nil
+	} else if attachment.DocumentID == "" {
 		prepared, prepareErr = kernelModel.PrepareAgentMessageImage(attachment.Path)
 	} else {
 		prepared, prepareErr = kernelModel.PrepareDocumentImage(attachment.DocumentID, attachment.Path)
@@ -184,8 +188,8 @@ func agentMessageAttachments(message AgentMessage) (ret []AgentAttachment) {
 }
 
 func latestAgentMessageAttachments(messages []AgentMessage) (index int, attachments []AgentAttachment) {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if attachments = agentMessageAttachments(messages[i]); len(attachments) > 0 {
+	for i, message := range slices.Backward(messages) {
+		if attachments = agentMessageAttachments(message); len(attachments) > 0 {
 			return i, attachments
 		}
 	}
@@ -328,16 +332,14 @@ func isImageInputUnsupportedError(err error) bool {
 }
 
 func imageInputValidationError(err error) (statusCode int, detail string, ok bool) {
-	var apiErr *openai.APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*openai.APIError](err); ok {
 		detail = apiErr.Message + " " + apiErr.Type + " " + fmt.Sprint(apiErr.Code)
 		if apiErr.Param != nil {
 			detail += " " + *apiErr.Param
 		}
 		return apiErr.HTTPStatusCode, detail, true
 	}
-	var requestErr *openai.RequestError
-	if errors.As(err, &requestErr) {
+	if requestErr, ok := errors.AsType[*openai.RequestError](err); ok {
 		return requestErr.HTTPStatusCode, requestErr.Error(), true
 	}
 	return 0, "", false

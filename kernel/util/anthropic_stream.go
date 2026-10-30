@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package util
 
 import (
@@ -53,8 +57,8 @@ func (s *anthropicStream) readEvent() ([]byte, error) {
 		if line == "" {
 			return bytes.TrimSuffix(data.Bytes(), []byte("\n")), nil
 		}
-		if strings.HasPrefix(line, "data:") {
-			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			data.WriteString(strings.TrimPrefix(after, " "))
 			data.WriteByte('\n')
 			if data.Len() > 32*1024*1024 {
 				return nil, errors.New("Anthropic stream event is too large")
@@ -175,11 +179,14 @@ func (s *anthropicStream) recv() (openai.ChatCompletionStreamResponse, error) {
 		if s.block == nil || event.Index != s.blockIndex {
 			return ret, errors.New("Anthropic content stop has no matching block")
 		}
-		if s.blockType == "text" {
+		switch s.blockType {
+		case "text":
 			s.block["text"] = anthropicJSON(s.text.String())
-		} else if s.blockType == "thinking" {
+		case "thinking":
 			s.block["thinking"] = anthropicJSON(s.thinking.String())
-			s.block["signature"] = anthropicJSON(s.signature.String())
+			if s.signature.Len() > 0 {
+				s.block["signature"] = anthropicJSON(s.signature.String())
+			}
 		}
 		if s.blockType == "tool_use" {
 			if s.arguments.Len() > 0 {
@@ -188,7 +195,7 @@ func (s *anthropicStream) recv() (openai.ChatCompletionStreamResponse, error) {
 				delta.ToolCalls = []openai.ToolCall{{Index: &event.Index,
 					Function: openai.FunctionCall{Arguments: string(s.block["input"])}}}
 			}
-			if !validAnthropicToolInput(s.block["input"]) {
+			if !validAIToolArguments(s.block["input"]) {
 				return ret, errors.New("Anthropic tool input is not a complete JSON object")
 			}
 		}

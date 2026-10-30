@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package util
 
 import (
@@ -13,6 +17,14 @@ import (
 
 // ListProviderModels 按提供商协议读取模型清单，保持通用接口的返回结构。
 func ListProviderModels(apiKey, baseURL, protocol string, timeout int, headers ...map[string]string) ([]AvailableModel, error) {
+	if IsGeminiInteractionsProtocol(protocol) {
+		if timeout < 1 {
+			timeout = 30
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+		return listGeminiInteractionModels(ctx, NewAIClientWithModel(apiKey, baseURL, "", headers...))
+	}
 	if !IsAnthropicMessagesProtocol(protocol) {
 		return ListAvailableModelsWithContext(apiKey, baseURL, timeout, headers...)
 	}

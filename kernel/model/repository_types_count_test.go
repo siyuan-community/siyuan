@@ -1,23 +1,12 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package model
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/siyuan-note/dejavu/entity"
@@ -26,7 +15,7 @@ import (
 // files 构造 counts 指定的文件列表：扩展名 -> 文件数。
 func files(counts map[string]int) (ret []*entity.File) {
 	for ext, count := range counts {
-		for i := 0; i < count; i++ {
+		for i := range count {
 			ret = append(ret, &entity.File{Path: fmt.Sprintf("/assets/%s-%d.%s", ext, i, ext)})
 		}
 	}
@@ -133,9 +122,9 @@ func TestStatTypesByPathNoExt(t *testing.T) {
 }
 
 func format(ret []*TypeCount) string {
-	s := ""
+	var s strings.Builder
 	for _, tc := range ret {
-		s += fmt.Sprintf("%s=%d ", tc.Type, tc.Count)
+		fmt.Fprintf(&s, "%s=%d ", tc.Type, tc.Count)
 	}
-	return s
+	return s.String()
 }

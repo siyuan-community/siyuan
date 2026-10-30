@@ -8,8 +8,9 @@ module.exports = async ({annotations = false} = {}) => {
             export const initAnno = () => {}; export const destroyAnno = () => {};
             export const getPdfInstance = () => null; export const hlPDFRect = () => {};`,
         "../annoRuntime": "export const registerPdfInstance = () => {};",
-        "../../constants": "export const Constants = {PROTYLE_CDN: '/stage/protyle', SIZE_UNDO: 100, LOCAL_PDFTHEME: 'pdf'};",
-        "../../protyle/util/compatibility": "export const setStorageVal = async () => {}; export const updateHotkeyTip = x => x;",
+        "../../constants": "export const Constants = {PROTYLE_CDN: '/stage/protyle', SIZE_UNDO: 100};",
+        "../../protyle/util/compatibility": "export const setStorageVal = async () => {}; export const updateHotkeyTip = x => x; export const isInMobileApp = () => false;",
+        "../../util/functions": "export const isMobile = () => window.pdfTestMobile === true;",
         "../../protyle/util/hasClosest": "export const hasClosestByClassName = (el, name) => el.closest?.('.' + name);",
     };
     if (annotations) {
@@ -18,11 +19,16 @@ module.exports = async ({annotations = false} = {}) => {
     }
     const annotationMocks = {
         "../util/fetch": `export const fetchPost = (url, data, callback) => {
-            if (url.endsWith('/setFileAnnotation')) window.pdfSavedAnnotations = JSON.parse(data.data);
             callback?.({code: 0, data: {data: JSON.stringify(window.pdfSavedAnnotations || {})}});
+        };
+        export const fetchSyncPost = async (url, data) => {
+            if (typeof data.baseData !== 'string') throw new Error('Missing annotation save baseline');
+            if (url.endsWith('/setFileAnnotation')) window.pdfSavedAnnotations = JSON.parse(data.data);
+            return {code: 0, msg: '', data: null};
         };`,
         "../layout/getAll": "export const getAllModels = () => ({asset: []});",
-        "../protyle/util/compatibility": "export const setStorageVal = () => {}; export const readText = async () => ''; export const writeText = text => {window.pdfCopiedText = text;};",
+        "../protyle/util/compatibility": "export const readText = async () => ''; export const writeText = text => {window.pdfCopiedText = text;};",
+        "../config/tabs/appearancePreferences": "export const patchAppearancePreference = async () => {};",
         "../constants": mocks["../../constants"],
         "../dialog": "export class Dialog {}",
         "../dialog/message": "export const showMessage = () => {};",

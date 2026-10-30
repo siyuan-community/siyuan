@@ -1,14 +1,100 @@
 import * as capabilities from "./capabilities";
+import * as filterDropdown from "./filterDropdown";
 import * as assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {test} from "node:test";
 import {runInNewContext} from "node:vm";
 import {ModuleKind, ScriptTarget, transpileModule} from "typescript";
-import type {AVAttributeViewData} from "../../../types/api";
+import type {AVAttributeViewData, AVAutomationBlockSourceInput} from "../../../types/api";
 
 const compiled = transpileModule(readFileSync("src/protyle/render/av/automation.ts", "utf8"), {
     compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2022},
 }).outputText;
+
+test("collection autosave versions document depth, attribute names, self exclusion and references with independent undo snapshots", async () => {
+    const transactions: Array<{perform: IOperation[], undo: IOperation[]}> = [];
+    let source: AVAutomationBlockSourceInput;
+    let save: () => void;
+    const child = {innerHTML: "", textContent: "", checked: true, classList: {toggle() {}},
+        querySelectorAll: (): HTMLElement[] => [], addEventListener() {}};
+    const body = {...child, isConnected: true, querySelector: () => child};
+    const panel = {isConnected: true, addEventListener() {}, querySelector: () => body};
+    const menu = {innerHTML: "", classList: {add() {}, remove() {}}, addEventListener() {}, querySelector: () => panel};
+    const database: Pick<AVAttributeViewData, "id" | "keyValues" | "automations"> = {id: "database", keyValues: [], automations: {spec: 1, rules: [{
+        id: "rule", name: "Collect", enabled: true, trigger: "block", blockSource: {documentIDs: ["doc"]},
+        actions: [{type: "collect", target: "current", fields: {}}],
+    }]}};
+    const methods = {} as typeof import("./automation");
+    runInNewContext(compiled, {
+        exports: methods, window: {siyuan: {config: {}, languages: {}}},
+        require: (name: string) => name === "./capabilities" ? capabilities : (({
+            "./blockCollection": {collectionSourceIncomplete: () => false,
+                mountBlockCollectionSource: (_host: HTMLElement, value: AVAutomationBlockSourceInput, _protyle: IProtyle, persist: () => void) => {
+                    source = value; save = persist;
+                }},
+            "../../../util/escape": {escapeAttr: String, escapeHtml: String},
+            "../../../util/fetch": {fetchSyncPost: async () => ({code: 0, data: {av: database}})},
+            "../../wysiwyg/transaction": {transaction: (_protyle: IProtyle, perform: IOperation[], undo: IOperation[]) => transactions.push({perform, undo})},
+        })[name] || {}),
+    });
+    await methods.openAutomationMenu({protyle: {options: {}} as IProtyle,
+        blockElement: {dataset: {nodeId: "carrier"}} as unknown as HTMLElement,
+        avID: "database", menuElement: menu as unknown as HTMLElement, onResize() {}});
+    assert.equal(transactions.length, 0);
+    source.documentDepth = 0;
+    save();
+    const first = JSON.parse(JSON.stringify(transactions[0]));
+    assert.equal(first.perform[0].data.spec, 5);
+    assert.equal(first.perform[0].data.rules[0].blockSource.documentDepth, 0);
+    assert.equal(first.undo[0].data.spec, 1);
+    assert.equal(first.undo[0].data.rules[0].blockSource.documentDepth, undefined);
+    source.documentDepth = 2;
+    save();
+    assert.deepEqual(JSON.parse(JSON.stringify(transactions[1].undo)), first.perform);
+    delete source.documentDepth;
+    save();
+    const last = JSON.parse(JSON.stringify(transactions[2].perform[0].data));
+    assert.equal(last.spec, 5);
+    assert.equal(last.rules[0].blockSource.documentDepth, undefined);
+    assert.equal(last.rules[0].enabled, true);
+    assert.equal(database.automations.spec, 1);
+    source.attributes = [{name: "dailynote", nameOperator: "contains", operator: "exists"}];
+    save();
+    const named = JSON.parse(JSON.stringify(transactions.at(-1)));
+    assert.equal(named.perform[0].data.spec, 6);
+    assert.equal(named.perform[0].data.rules[0].blockSource.attributes[0].nameOperator, "contains");
+    assert.equal(named.undo[0].data.spec, 5);
+    source.attributes[0] = {name: "^custom-dailynote-[0-9]{8}$", nameOperator: "regex", operator: "notExists"};
+    save();
+    assert.equal(JSON.parse(JSON.stringify(transactions.at(-1).perform[0].data)).spec, 6);
+    source.attributes = [];
+    save();
+    assert.equal(JSON.parse(JSON.stringify(transactions.at(-1).perform[0].data)).spec, 6);
+    source.includeSelectedDocuments = false;
+    save();
+    const excluded = JSON.parse(JSON.stringify(transactions.at(-1)));
+    assert.equal(excluded.perform[0].data.spec, 7);
+    assert.equal(excluded.perform[0].data.rules[0].blockSource.includeSelectedDocuments, false);
+    assert.equal(excluded.undo[0].data.spec, 6);
+    assert.equal(excluded.undo[0].data.rules[0].blockSource.includeSelectedDocuments, undefined);
+    delete source.includeSelectedDocuments;
+    save();
+    const included = JSON.parse(JSON.stringify(transactions.at(-1)));
+    assert.equal(included.perform[0].data.spec, 7);
+    assert.equal(included.perform[0].data.rules[0].blockSource.includeSelectedDocuments, undefined);
+    assert.deepEqual(included.undo, excluded.perform);
+    source.referenceID = "20261026000000-target1";
+    save();
+    const referenced = JSON.parse(JSON.stringify(transactions.at(-1)));
+    assert.equal(referenced.perform[0].data.spec, 8);
+    assert.equal(referenced.perform[0].data.rules[0].blockSource.referenceID, source.referenceID);
+    assert.deepEqual(referenced.undo, included.perform);
+    delete source.referenceID;
+    save();
+    const cleared = JSON.parse(JSON.stringify(transactions.at(-1)));
+    assert.equal(cleared.perform[0].data.spec, 8);
+    assert.equal(cleared.perform[0].data.rules[0].blockSource.referenceID, undefined);
+});
 
 test("automation settings reject readonly, publishing and historical editors before fetching data", async () => {
     for (const mode of ["disabled", "readonly", "publish", "created", "snapshot"]) {
@@ -43,10 +129,10 @@ test("automation settings autosave changes with independent undo snapshots and k
     let returned = 0;
     let resized = 0;
     let menuVisible = false;
-    let captureClick: () => void;
+    let captureClick: (event: {target: {closest: () => HTMLElement}}) => void;
     const classes = new Set(["b3-menu--fullscreen", "b3-menu--sheet"]);
     const menu = {innerHTML: "", classList: {add: (name: string) => classes.add(name), remove: (name: string) => classes.delete(name)},
-        addEventListener: (_type: string, listener: () => void, capture: boolean) => {
+        addEventListener: (_type: string, listener: typeof captureClick, capture: boolean) => {
             assert.equal(capture, true);
             captureClick = listener;
         },
@@ -71,6 +157,7 @@ test("automation settings autosave changes with independent undo snapshots and k
                 addItem() {}
                 open() { menuVisible = true; }
             }},
+            "./filterDropdown": filterDropdown,
             "../../../util/escape": {escapeAttr: String, escapeHtml: String},
             "../../../util/fetch": {fetchSyncPost: async (_path: string, request: {id: string}) => ({code: 0, data: {av: request.id === "source" ? database : destination}})},
             "../../wysiwyg/transaction": {transaction: (_protyle: IProtyle, perform: IOperation[], undo: IOperation[]) => {
@@ -89,10 +176,10 @@ test("automation settings autosave changes with independent undo snapshots and k
     assert.ok(resized >= 2);
     const addField = {dataset: {action: "add-field"}, closest: () => ({dataset: {index: "0"}}),
         getBoundingClientRect: () => ({left: 0, bottom: 0, height: 20})};
-    captureClick();
+    captureClick({target: {closest: () => null}});
     listeners.get("click")({target: {closest: () => addField}});
     assert.equal(menuVisible, true);
-    captureClick();
+    captureClick({target: {closest: () => null}});
     listeners.get("click")({target: {closest: (): HTMLElement => null}});
     assert.equal(menuVisible, false);
     assert.equal(transactions.length, 0);
@@ -123,7 +210,7 @@ test("automation settings autosave changes with independent undo snapshots and k
     assert.deepEqual(JSON.parse(JSON.stringify(transactions[3].perform[0].data)).rules[1], otherRule);
     panel.isConnected = false;
     menuVisible = true;
-    captureClick();
+    captureClick({target: {closest: () => null}});
     assert.equal(menuVisible, true);
     assert.equal(returned, 0);
 });
@@ -132,7 +219,9 @@ test("empty automation settings persist an incomplete rule disabled on editing a
     const listeners = new Map<string, (event: unknown) => void>();
     const transactions: Array<{perform: IOperation[], undo: IOperation[]}> = [];
     const status = {textContent: "", classList: {toggle() {}}};
-    const select = {selectedOptions: [{textContent: ""}]};
+    const select = {textContent: ""};
+    let renameRule: (id: string, name: string) => void;
+    let removeRule: (id: string) => void;
     const enabled = {checked: false};
     const list = {innerHTML: "", querySelectorAll: (): HTMLElement[] => []};
     const conditions = {innerHTML: "", querySelector: (selector: string) => selector === "[data-conditions]" ? list : {addEventListener() {}}};
@@ -140,7 +229,7 @@ test("empty automation settings persist an incomplete rule disabled on editing a
         addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener),
         querySelectorAll: (): HTMLElement[] => [],
         querySelector: (selector: string) => ({"[data-source-conditions]": conditions, "[data-status]": status,
-            "[data-rule]": select, "[data-enabled]": enabled})[selector] || list};
+            "[data-rule-name]": select, "[data-enabled]": enabled})[selector] || list};
     const panel = {isConnected: true, addEventListener() {}, querySelector: (selector: string) => selector === "[data-body]" ? body : {
         addEventListener: (_type: string, listener: (event: unknown) => void) => listeners.set(selector, listener),
     }};
@@ -154,6 +243,9 @@ test("empty automation settings persist an incomplete rule disabled on editing a
         Lute: {NewNodeID: () => "draft-rule"},
         window: {siyuan: {config: {}, languages: {databaseAutomations: "Automations", fields: "Fields", automationIncomplete: "Incomplete: ${1}"}}},
         require: (name: string) => name === "./capabilities" || name === "../capabilities" ? capabilities : (({
+            "./automationRules": {openAutomationRules: (_target: HTMLElement, _rules: unknown, _current: string,
+                _select: unknown, rename: typeof renameRule, remove: typeof removeRule) => { renameRule = rename; removeRule = remove; }},
+            "./automationTemplate": {automationTimeZone: () => "UTC"},
             "../../../util/escape": {escapeAttr: String, escapeHtml: String},
             "../../../util/fetch": {fetchSyncPost: async () => ({code: 0, data: {av: database}})},
             "../../wysiwyg/transaction": {transaction: (_protyle: IProtyle, perform: IOperation[], undo: IOperation[]) => {
@@ -164,15 +256,15 @@ test("empty automation settings persist an incomplete rule disabled on editing a
     await methods.openAutomationMenu({protyle: {options: {}} as IProtyle,
         blockElement: {dataset: {nodeId: "carrier"}} as unknown as HTMLElement, avID: "source",
         menuElement: menu as unknown as HTMLElement, onResize() {}});
-    assert.match(body.innerHTML, /data-name/);
+    assert.match(body.innerHTML, /data-action="rules"/);
+    assert.match(body.innerHTML, /data-action="rename-rule"/);
+    assert.doesNotMatch(body.innerHTML, /data-rule-name-input/);
     assert.match(body.innerHTML, /data-trigger/);
     assert.match(list.innerHTML, /data-action="add-field"/);
     assert.equal(transactions.length, 0);
     assert.equal(database.automations.rules.length, 0);
-    const nameInput = {value: "Draft", matches: (selector: string) => selector === "[data-name]", closest: (): HTMLElement => null};
-    listeners.get("input")({target: nameInput});
-    assert.equal(transactions.length, 0);
-    listeners.get("blur")({target: nameInput});
+    listeners.get("click")({target: {closest: () => ({dataset: {action: "rules"}, closest: (): HTMLElement => null})}});
+    renameRule("draft-rule", "Draft");
     assert.equal(transactions.length, 1);
     const saved = JSON.parse(JSON.stringify(transactions[0].perform[0]));
     const undo = JSON.parse(JSON.stringify(transactions[0].undo[0]));
@@ -185,16 +277,16 @@ test("empty automation settings persist an incomplete rule disabled on editing a
     listeners.get("change")({target: {checked: true, matches: (selector: string) => selector === "[data-enabled]", closest: (): HTMLElement => null}});
     assert.equal(transactions.length, 1);
     assert.equal(enabled.checked, false);
-    listeners.get("click")({target: {closest: () => ({dataset: {action: "remove-rule"}, closest: (): HTMLElement => null})}});
+    removeRule("draft-rule");
     assert.equal(transactions.length, 2);
     assert.equal(JSON.parse(JSON.stringify(transactions[1].perform[0].data)).rules.length, 0);
     assert.deepEqual(transactions[1].undo[0].data, transactions[0].perform[0].data);
     await new Promise(resolve => setImmediate(resolve));
-    assert.match(body.innerHTML, /data-name/);
+    assert.match(body.innerHTML, /data-action="rules"/);
     assert.match(body.innerHTML, /data-trigger/);
     assert.match(list.innerHTML, /data-action="add-field"/);
     assert.equal(transactions.length, 2);
-    listeners.get("click")({target: {closest: () => ({dataset: {action: "remove-rule"}, closest: (): HTMLElement => null})}});
+    removeRule("draft-rule");
     assert.equal(transactions.length, 2);
 });
 

@@ -1,18 +1,6 @@
-// SiYuan - From thought to insight, with agents
+// SiYuan - https://github.com/siyuan-note/siyuan
 // Copyright (c) 2020-present, b3log.org
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package util
 
@@ -56,17 +44,42 @@ func TestShouldRedirectToTLS(t *testing.T) {
 }
 
 func TestIsTLSRequestHonorsClientTLSHeaderOnlyForLocalPeers(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	request.RemoteAddr = "127.0.0.1:54321"
-	request.Header.Set(ClientTLSHeader, ClientTLSHeaderValue)
-	if !IsTLSRequest(request) {
-		t.Fatal("local proxy marked connection should be treated as TLS")
+	if IsTLSRequest(nil) {
+		t.Fatal("nil request must not be treated as TLS")
 	}
 
-	// 远端调用方伪造同名头部不得被采信
-	request.RemoteAddr = "192.0.2.10:54321"
-	if IsTLSRequest(request) {
-		t.Fatal("forged client TLS header from a remote peer must be ignored")
+	tests := []struct {
+		name       string
+		remoteAddr string
+		header     string
+		tls        bool
+		want       bool
+	}{
+		{name: "local HTTPS client over HTTP backend", remoteAddr: "127.0.0.1:54321", header: ClientTLSHeaderValue, want: true},
+		{name: "local HTTP client over HTTPS backend", remoteAddr: "127.0.0.1:54321", header: ClientTLSHeaderPlaintextValue, tls: true},
+		{name: "IPv6 local HTTP client over HTTPS backend", remoteAddr: "[::1]:54321", header: ClientTLSHeaderPlaintextValue, tls: true},
+		{name: "local HTTPS client over HTTPS backend", remoteAddr: "127.0.0.1:54321", header: ClientTLSHeaderValue, tls: true, want: true},
+		{name: "local direct TLS without marker", remoteAddr: "127.0.0.1:54321", tls: true, want: true},
+		{name: "local direct HTTP without marker", remoteAddr: "127.0.0.1:54321"},
+		{name: "local invalid marker over TLS", remoteAddr: "127.0.0.1:54321", header: "invalid", tls: true, want: true},
+		{name: "local invalid marker over HTTP", remoteAddr: "127.0.0.1:54321", header: "invalid"},
+		{name: "remote forged HTTPS marker", remoteAddr: "192.0.2.10:54321", header: ClientTLSHeaderValue},
+		{name: "remote forged HTTP marker over TLS", remoteAddr: "192.0.2.10:54321", header: ClientTLSHeaderPlaintextValue, tls: true, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			request.RemoteAddr = test.remoteAddr
+			if test.header != "" {
+				request.Header.Set(ClientTLSHeader, test.header)
+			}
+			if test.tls {
+				request.TLS = &tls.ConnectionState{}
+			}
+			if actual := IsTLSRequest(request); actual != test.want {
+				t.Fatalf("IsTLSRequest = %v, want %v", actual, test.want)
+			}
+		})
 	}
 }
 

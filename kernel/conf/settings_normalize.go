@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package conf
 
 import (
@@ -12,6 +16,9 @@ import (
 func NormalizeFileTree(fileTree *FileTree) *FileTree {
 	if fileTree == nil {
 		fileTree = NewFileTree()
+	}
+	if fileTree.CloseWindowOnLastTabClosed == nil {
+		fileTree.CloseWindowOnLastTabClosed = NewFileTree().CloseWindowOnLastTabClosed
 	}
 	if fileTree.MaxListCount < 1 {
 		fileTree.MaxListCount = 512
@@ -51,10 +58,12 @@ func NormalizeFileTree(fileTree *FileTree) *FileTree {
 	if fileTree.CreateDocAtTop == nil {
 		fileTree.CreateDocAtTop = new(true)
 	}
-	if fileTree.BoxDocEnabled == nil {
-		fileTree.BoxDocEnabled = new(false)
-	}
 	fileTree.RecentDocsMaxListCount = max(MinFileTreeRecentDocsListCount, min(MaxFileTreeRecentDocsListCount, fileTree.RecentDocsMaxListCount))
+	switch fileTree.RecentDocsSort {
+	case "viewedAt", "created", "updated", "openAt", "closedAt":
+	default:
+		fileTree.RecentDocsSort = "viewedAt"
+	}
 	return fileTree
 }
 
@@ -76,8 +85,17 @@ func NormalizeEditor(editor *Editor) *Editor {
 	if editor.DatabaseAttrUseTabs == nil {
 		editor.DatabaseAttrUseTabs = defaults.DatabaseAttrUseTabs
 	}
+	if editor.DatabaseAttrLayout == nil || *editor.DatabaseAttrLayout < 0 || *editor.DatabaseAttrLayout > 2 {
+		editor.DatabaseAttrLayout = defaults.DatabaseAttrLayout
+	}
 	if editor.CheckBlockRef == nil {
 		editor.CheckBlockRef = defaults.CheckBlockRef
+	}
+	if editor.EmbedBlockBreadcrumbParentPath == nil {
+		editor.EmbedBlockBreadcrumbParentPath = defaults.EmbedBlockBreadcrumbParentPath
+	}
+	if editor.MathDelimiterCompatibility == nil {
+		editor.MathDelimiterCompatibility = defaults.MathDelimiterCompatibility
 	}
 	if editor.HashTagSearch == nil {
 		editor.HashTagSearch = defaults.HashTagSearch
@@ -267,6 +285,34 @@ func NormalizeAppearance(appearance *Appearance, mobile bool) *Appearance {
 		appearance.CodeBlockThemeLight = "github"
 	}
 	appearance.StatusBar = util.NormalizeStatusBar(appearance.StatusBar, mobile)
+	if appearance.PDFTheme == nil {
+		appearance.PDFTheme = NewPDFTheme()
+	}
+	if appearance.PDFTheme.Light != "light" && appearance.PDFTheme.Light != "dark" {
+		appearance.PDFTheme.Light = "light"
+	}
+	if appearance.PDFTheme.Dark != "light" && appearance.PDFTheme.Dark != "dark" {
+		appearance.PDFTheme.Dark = "dark"
+	}
+	if strings.TrimSpace(appearance.PDFTheme.AnnoColor) == "" {
+		appearance.PDFTheme.AnnoColor = NewPDFTheme().AnnoColor
+	}
+	if appearance.MobileBars == nil {
+		appearance.MobileBars = NewMobileBars()
+	}
+	if appearance.MobileBars.AutoHide == nil {
+		appearance.MobileBars.AutoHide = new(true)
+	}
+	if appearance.MobileBars.SidebarSwipe == nil {
+		appearance.MobileBars.SidebarSwipe = new(true)
+	}
+	if appearance.MobileBars.SidebarButtons == nil {
+		appearance.MobileBars.SidebarButtons = new(true)
+	}
+	// 至少保留一种侧栏访问方式。
+	if !*appearance.MobileBars.SidebarSwipe && !*appearance.MobileBars.SidebarButtons {
+		appearance.MobileBars.SidebarButtons = new(true)
+	}
 	if nil == appearance.Notifications {
 		appearance.Notifications = util.NewNotifications()
 	}
@@ -364,6 +410,9 @@ func NormalizeGraph(graph *Graph) *Graph {
 func NormalizeOCR(ocr *OCR) *OCR {
 	if ocr == nil {
 		ocr = NewOCR()
+	}
+	if ocr.ShowText == nil {
+		ocr.ShowText = new(true)
 	}
 	if "small" == ocr.Model {
 		// 内置模型统一为 Tiny，自行导入的模型仍保留内容摘要标识。

@@ -1,3 +1,7 @@
+// SiYuan - https://github.com/siyuan-note/siyuan
+// Copyright (c) 2020-present, b3log.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package api
 
 import (
@@ -28,6 +32,7 @@ var settingWriteExemptions = map[string]string{
 	"/api/system/addCustomEmoji":               "写入表情资源文件，不修改配置",
 	"/api/system/removeWorkspaceDir":           "写入全局工作空间列表，不属于工作空间配置",
 	"/api/system/removeWorkspaceDirPhysically": "删除工作空间目录，不修改当前配置",
+	"/api/system/removeLockScreenWallpaper":    "删除壁纸资源文件，不修改启用配置",
 	"/api/repo/setSnapshotMemo":                "写入快照备注，不修改配置",
 	"/api/repo/importRepoKey":                  "数据仓库密钥事务，由密钥流程自行持久化和广播",
 	"/api/repo/initRepoKey":                    "数据仓库密钥事务，由密钥流程自行持久化和广播",
@@ -36,6 +41,8 @@ var settingWriteExemptions = map[string]string{
 	"/api/repo/removeRepoTagSnapshot":          "删除快照标签，不修改配置",
 	"/api/repo/removeCloudRepoTagSnapshot":     "删除云端快照标签，不修改配置",
 	"/api/system/clearTempFiles":               "清理临时文件，不修改配置",
+	"/api/storage/clearRecentDocs":             "清空最近文档记录，不修改应用配置",
+	"/api/sync/confirmSyncCheckout":            "确认窗口已排空输入，仅更新同步检出任务的运行状态",
 }
 
 // 写配置端点的命名约定：这些前缀下以写入动词开头的端点默认视为写配置。
@@ -108,19 +115,20 @@ func TestSettingWriteEndpointsAreDeclared(t *testing.T) {
 				body = funcs[ident.Name]
 			}
 			// 展开同文件中被直接调用的辅助函数一层
-			expanded := body
+			var expanded strings.Builder
+			expanded.WriteString(body)
 			for fn, fnBody := range funcs {
 				if strings.Contains(body, fn+"(") {
-					expanded += fnBody
+					expanded.WriteString(fnBody)
 				}
 			}
 			path := paths[selector.Sel.Name]
 			definition := definitions[path]
-			if directSettingWritePattern.MatchString(expanded) && !definition.Setting.Declared() {
+			if directSettingWritePattern.MatchString(expanded.String()) && !definition.Setting.Declared() {
 				t.Errorf("%s (%s) writes configuration directly but declares no setting namespace", path, name)
 			}
 			if definition.Setting.Declared() && definition.Setting.Mode != apicontract.SettingSelfManaged &&
-				strings.Contains(expanded, "settingMutationMu.Lock()") {
+				strings.Contains(expanded.String(), "settingMutationMu.Lock()") {
 				t.Errorf("%s locks the setting mutex itself; declare SettingSelfManaged instead", path)
 			}
 			return true

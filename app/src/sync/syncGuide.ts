@@ -7,6 +7,7 @@ import {openInputDialog} from "../dialog/inputDialog";
 import {confirmDialog} from "../dialog/confirmDialog";
 import {isMobile} from "../util/functions";
 import {processSync} from "../dialog/processSystem";
+import {openSyncCheckoutProgress} from "./checkoutProgress";
 /// #if !MOBILE
 import {openSetting} from "../config";
 /// #endif
@@ -33,7 +34,7 @@ export const addCloudName = (cloudListElement: Element) => {
         value: "main",
         description: window.siyuan.languages.reposTip,
         onConfirm: (value, dialog) => {
-            cloudListElement.innerHTML = '<img style="margin: 0 auto;display: block;width: 64px;height: 100%" src="/stage/loading-pure.svg">';
+            cloudListElement.innerHTML = '<div class="fn__flex" style="height:100%;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div>';
             fetchPost("/api/sync/createCloudSyncDir", {name: value}, () => {
                 dialog.destroy();
                 renderSyncCloudList(cloudListElement, true);
@@ -58,7 +59,7 @@ export const bindSyncCloudListEvent = (cloudListElement: Element, cb?: (ready: b
                         break;
                     case "removeCloud":
                         confirmDialog(window.siyuan.languages.deleteOpConfirm, `${window.siyuan.languages.confirmDeleteCloudDir} <i>${target.parentElement.getAttribute("data-name")}</i>`, () => {
-                            cloudListElement.innerHTML = '<img style="margin: 0 auto;display: block;width: 64px;height: 100%" src="/stage/loading-pure.svg">';
+                            cloudListElement.innerHTML = '<div class="fn__flex" style="height:100%;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div>';
                             fetchPost("/api/sync/removeCloudSyncDir", {name: target.parentElement.getAttribute("data-name")}, (response) => {
                                 window.siyuan.config.sync.cloudName = response.data;
                                 renderSyncCloudList(cloudListElement, true, cb);
@@ -66,7 +67,7 @@ export const bindSyncCloudListEvent = (cloudListElement: Element, cb?: (ready: b
                         }, undefined, true);
                         break;
                     case "selectCloud":
-                        cloudListElement.innerHTML = '<img style="margin: 0 auto;display: block;width: 64px;height: 100%" src="/stage/loading-pure.svg">';
+                        cloudListElement.innerHTML = '<div class="fn__flex" style="height:100%;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div>';
                         configApi.set("sync.cloudName", target.getAttribute("data-name"), () => {
                             window.siyuan.config.sync.cloudName = target.getAttribute("data-name");
                             renderSyncCloudList(cloudListElement, true, cb);
@@ -89,8 +90,11 @@ export const renderSyncCloudList = (cloudListElement: Element, reload = false, c
         const s3 = window.siyuan.config.sync.s3;
         const ready = !!s3 && [s3.endpoint, s3.accessKey, s3.secretKey, s3.bucket, s3.region]
             .every(value => !!value?.trim());
-        cloudListElement.innerHTML = ready ? `<div class="fn__hr"></div><ul class="b3-list">
-    <li class="b3-list-item" style="cursor: default;"><span class="b3-list-item__text">${escapeHtml(s3.bucket)}</span></li>
+        // S3 不使用云端同步目录，仅为与其他提供商保持一致的列表样式而显示唯一的固定项
+        cloudListElement.innerHTML = ready ? `<div class="fn__hr"></div><ul class="b3-list b3-list--background" style="overflow: auto;">
+    <li class="b3-list-item b3-list-item--narrow b3-list-item--hide-action">
+        <input type="radio" name="cloudName" checked/><span class="fn__space"></span><span>${escapeHtml(s3.bucket)}</span>
+    </li>
 </ul>` : `<ul><li class="b3-list--empty">${window.siyuan.languages.cloudConfigTip}</li></ul>`;
         cb?.(ready);
         return;
@@ -100,7 +104,7 @@ export const renderSyncCloudList = (cloudListElement: Element, reload = false, c
     }
     const canManage = provider === 0 || provider === 4;
     cb?.(false);
-    cloudListElement.innerHTML = '<img style="margin: 0 auto;display: block;width: 64px;height: 100%" src="/stage/loading-pure.svg">';
+    cloudListElement.innerHTML = '<div class="fn__flex" style="height:100%;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div>';
     fetchPost("/api/sync/listCloudSyncDir", {}, (response) => {
         if (provider !== window.siyuan.config.sync.provider) {
             return;
@@ -173,7 +177,24 @@ ${canManage ? `<span data-type="removeCloud" class="b3-tooltips b3-tooltips__w b
     });
 };
 
+/** S3 直接展示配置的存储桶，其他提供者通过“配置”按钮展开目录列表 */
+export const refreshSyncCloudDirBlock = (root: Element) => {
+    const blockElement = root.querySelector("#syncCloudDirBlock");
+    const listElement = root.querySelector("#syncCloudList");
+    if (!blockElement || !listElement) {
+        return;
+    }
+    const isS3 = window.siyuan.config.sync.provider === 2;
+    blockElement.querySelector('[data-action="config"]')?.classList.toggle("fn__none", isS3);
+    listElement.innerHTML = "";
+    listElement.classList.toggle("fn__none", !isS3);
+    if (isS3) {
+        renderSyncCloudList(listElement, true);
+    }
+};
+
 export const syncGuide = (app?: App) => {
+    if (openSyncCheckoutProgress()) return;
     if (window.siyuan.config.readonly) {
         return;
     }
@@ -259,7 +280,7 @@ const setSync = (key?: string, dialog?: Dialog) => {
         const listHTML = `<div class="b3-dialog__content">
     <div class="ft__on-surface">${window.siyuan.languages.syncConfGuide3}</div>
     <div style="display: flex;flex-direction: column;height: 40vh;">
-        <img style="margin: 0 auto;display: block;width: 64px;height: 100%" src="/stage/loading-pure.svg">
+        <div class="fn__flex" style="height:100%;align-items:center;justify-content:center"><span class="b3-loading" aria-hidden="true"></span></div>
     </div>
 </div>
 <div class="b3-dialog__action">
