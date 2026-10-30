@@ -1,0 +1,22 @@
+app/scripts/appleSilicon.test.js
+  s_7f4c94117c5758::t_4f67df0bd6e87b 10,13,17,21-22
+kernel/model/assets_notification_test.go
+  s_7f4c94117c5758::t_511314c8f4241f 59-60
+  s_7f4c94117c5758::t_2ec6459fc32848 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "b9cfdd221e1fcd935cacb9b6505a96337f0ba73b",
+  "prompts": {},
+  "sessions": {
+    "s_7f4c94117c5758": {
+      "agent_id": {
+        "tool": "chengxiaobang",
+        "id": "s_mjwbu9ftbl8e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
