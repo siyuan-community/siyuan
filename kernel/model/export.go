@@ -2300,8 +2300,9 @@ func ExportStdMarkdown(id string, opts *ExportOptions) string {
 
 		tree := prepareExportTree(bt)
 		cloudAssetsBase := ""
-		if IsSubscriber() {
-			cloudAssetsBase = util.GetCloudAssetsServer() + Conf.GetUser().UserId + "/"
+		// 社区版的 IsSubscriber 恒为真，未登录时没有用户，也就没有云端资源地址。
+		if user := Conf.GetUser(); IsSubscriber() && nil != user {
+			cloudAssetsBase = util.GetCloudAssetsServer() + user.UserId + "/"
 		}
 
 		var defBlockIDs []string
