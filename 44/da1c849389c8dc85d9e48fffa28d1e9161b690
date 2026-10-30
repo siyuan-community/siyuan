@@ -1,0 +1,19 @@
+kernel/model/export.go
+  s_7f4c94117c5758::t_a1c2ad7405ff74 2303-2305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "44da1c849389c8dc85d9e48fffa28d1e9161b690",
+  "prompts": {},
+  "sessions": {
+    "s_7f4c94117c5758": {
+      "agent_id": {
+        "tool": "chengxiaobang",
+        "id": "s_mjwbu9ftbl8e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
