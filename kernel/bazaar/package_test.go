@@ -110,7 +110,7 @@ func TestBuildBazaarPackageImageURLs(t *testing.T) {
 		wantIcon    string
 		wantPreview string
 	}{
-		{name: "legacy defaults", wantIcon: "/icon.png", wantPreview: "/preview.png?imageslim"},
+		{name: "legacy defaults", wantIcon: "/icon.png", wantPreview: "/preview.png"},
 		{name: "explicit missing", icon: &empty, preview: &empty},
 		{name: "declared formats", icon: &icon, preview: &preview, wantIcon: "/custom%20icon.webp", wantPreview: "/preview.avif"},
 	}
@@ -131,7 +131,9 @@ func TestBuildBazaarPackageImageURLs(t *testing.T) {
 				}
 				return
 			}
-			if !strings.HasSuffix(pkg.IconURL, test.wantIcon) || !strings.HasSuffix(pkg.PreviewURL, test.wantPreview) {
+			const imageBaseURL = "https://github.com/owner/repo/raw/hash/"
+			if !strings.HasPrefix(pkg.IconURL, imageBaseURL) || !strings.HasPrefix(pkg.PreviewURL, imageBaseURL) ||
+				!strings.HasSuffix(pkg.IconURL, test.wantIcon) || !strings.HasSuffix(pkg.PreviewURL, test.wantPreview) {
 				t.Fatalf("unexpected image URLs: icon=%q preview=%q", pkg.IconURL, pkg.PreviewURL)
 			}
 			if pkg.RepoRef != "v1.0.0" {
@@ -156,18 +158,18 @@ func TestBuildBazaarPackagesUsesStageAsPackageSet(t *testing.T) {
 	}
 }
 
-func TestOnlinePackagePreviewURLCompression(t *testing.T) {
+func TestOnlinePackageImageURLsUseGitHubRaw(t *testing.T) {
 	if got := onlinePackagePreviewURL("owner/repo@hash", "../preview.jpg"); got != "" {
 		t.Fatalf("unexpected invalid preview URL: %q", got)
 	}
-	for _, name := range []string{"preview.png", "preview.jpg", "preview.jpeg"} {
-		if got := onlinePackagePreviewURL("owner/repo@hash", name); !strings.HasSuffix(got, "?imageslim") {
-			t.Fatalf("expected compressed preview URL for %q: %q", name, got)
-		}
+	if got := onlinePackageImageURL("owner/repo", "icon.png"); got != "" {
+		t.Fatalf("unexpected image URL without a repository hash: %q", got)
 	}
-	for _, name := range []string{"preview.webp", "preview.avif"} {
-		if got := onlinePackagePreviewURL("owner/repo@hash", name); strings.Contains(got, "imageslim") {
-			t.Fatalf("unexpected compressed preview URL for %q: %q", name, got)
+	// GitHub 不提供图片压缩参数，各格式都直接使用仓库在该提交中的文件。
+	for _, name := range []string{"preview.png", "preview.jpg", "preview.jpeg", "preview.webp", "preview.avif"} {
+		want := "https://github.com/owner/repo/raw/hash/" + name
+		if got := onlinePackagePreviewURL("owner/repo@hash", name); got != want {
+			t.Fatalf("unexpected preview URL for %q: got %q, want %q", name, got, want)
 		}
 	}
 }

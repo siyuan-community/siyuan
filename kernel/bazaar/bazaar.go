@@ -14,7 +14,6 @@ import (
 
 	"github.com/88250/go-humanize"
 	"github.com/araddon/dateparse"
-	"github.com/siyuan-community/siyuan/kernel/util"
 )
 
 // GetBazaarPackages 返回指定类型的在线集市包列表（plugins 和 themes 类型需要传递 frontend 参数）。
@@ -107,23 +106,18 @@ func isSupportedPackageImageName(name string) bool {
 	return false
 }
 
+// onlinePackageImageURL 返回集市包仓库在 Stage 所记录提交中的图片，社区版的集市资源从 GitHub 获取。
 func onlinePackageImageURL(repoURL, imageName string) string {
-	if !isSupportedPackageImageName(imageName) {
+	repo, hash, found := strings.Cut(repoURL, "@")
+	if !found || !isSupportedPackageImageName(imageName) {
 		return ""
 	}
-	return util.BazaarOSSServer + "/package/" + repoURL + "/" + url.PathEscape(imageName)
+	return "https://github.com/" + repo + "/raw/" + hash + "/" + url.PathEscape(imageName)
 }
 
+// onlinePackagePreviewURL 与图标使用同一来源，GitHub 不提供图片压缩参数。
 func onlinePackagePreviewURL(repoURL, imageName string) string {
-	previewURL := onlinePackageImageURL(repoURL, imageName)
-	if previewURL == "" {
-		return ""
-	}
-	switch strings.ToLower(path.Ext(imageName)) {
-	case ".png", ".jpg", ".jpeg":
-		return previewURL + "?imageslim"
-	}
-	return previewURL
+	return onlinePackageImageURL(repoURL, imageName)
 }
 
 func normalizeGitHubPackageSource(repoURL, repoRef string) (string, string) {
@@ -156,24 +150,17 @@ func buildBazaarPackageWithMetadata(repo *StageRepo, bazaarStats map[string]*baz
 	pkg := *repo.Package
 	clearBazaarPackageRating(&pkg)
 	pkg.URL = strings.TrimSuffix(pkg.URL, "/")
-	repoOwner, repoName, repoHash, innerErr := parseRepoInfo(repo.URL)
-	if innerErr != nil {
+	repoURLHash := strings.Split(repo.URL, "@")
+	if 2 != len(repoURLHash) {
 		return nil
 	}
-
-	repoPath := repoOwner + "/" + repoName
-	repoURL := "https://github.com/" + repoPath + "/raw/" + repoHash
-
-	pkg.RepoURL = "https://github.com/" + repoPath
-	pkg.RepoHash = repoHash
+	pkg.RepoURL = "https://github.com/" + repoURLHash[0]
+	pkg.RepoHash = repoURLHash[1]
 	pkg.RepoRef = repo.RepoRef
 
 	// 展示信息
-	// pkg.IconURL = util.BazaarOSSServer + "/package/" + repo.URL + "/icon.png"
-	pkg.IconURL = repoURL + "/icon.png"
-	// pkg.PreviewURL = util.BazaarOSSServer + "/package/" + repo.URL + "/preview.png?imageslim"
-	pkg.PreviewURL = repoURL + "/preview.png"
-
+	pkg.IconURL = onlinePackageImageURL(repo.URL, packageImageName(pkg.Icon, "icon.png"))
+	pkg.PreviewURL = onlinePackagePreviewURL(repo.URL, packageImageName(pkg.Preview, "preview.png"))
 	pkg.PreferredName = GetPreferredLocaleString(pkg.DisplayName, pkg.Name)
 	pkg.PreferredDesc = GetPreferredLocaleString(pkg.Description, "")
 	pkg.PreferredFunding = getPreferredFunding(pkg.Funding)
@@ -207,7 +194,7 @@ func buildBazaarPackageWithMetadata(repo *StageRepo, bazaarStats map[string]*baz
 	pkg.HInstallSize = humanize.BytesCustomCeil(uint64(pkg.InstallSize), 2)
 	stats := bazaarStats[pkg.Name]
 	if nil == stats {
-		stats = bazaarStats[strings.ToLower(repoPath)] // 兼容旧版索引中的 owner/repo 下载统计
+		stats = bazaarStats[strings.ToLower(repoURLHash[0])] // 兼容旧版索引中的 owner/repo 下载统计
 	}
 	if nil != stats {
 		pkg.Downloads = stats.Downloads
