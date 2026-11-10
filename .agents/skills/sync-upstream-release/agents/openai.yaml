@@ -1,0 +1,3 @@
+interface:
+  display_name: "同步上游并打包"
+  short_description: "按指定版本同步 SiYuan CE，保留定制并验证合并、打包与发布"
