@@ -1,0 +1,1874 @@
+app/src/config/setting/sync.ts
+  s_5706450afae6e3::t_9846ba92a9e742 12,82-87,133-137,144-145
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226120854-dr1jfx2.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,226-242,420,435,440,472-554
+app/src/plugin/customTabRestore.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-141
+app/electron/window/trayMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-80
+app/src/mobile/util/bindBottomSheetDialog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 4-5,7-8,11,17-21,31,37-42,68,75-92,94,99-101
+app/electron/markdown/tree.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-279
+app/src/assets/scss/component/_card.scss
+  s_5706450afae6e3::t_9846ba92a9e742 142-143
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-axh6q1d.sy
+  s_5706450afae6e3::t_9846ba92a9e742 125-189
+app/electron/markdown/temporaryFile.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-32
+app/src/layout/tabUtil.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 6,20-22,43-45,99-214
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-8m2dowc.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,157-170,215-228,231
+app/src/markdown/tree.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-451
+app/electron/remote/connectionStore.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-95
+app/scripts/electronPackageContent.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-91
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20201204184532-3qm9l8n.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,238,396,1843-2040,2387
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226115825-mhcslw2/20211226120508-yzh70eh.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,621-696
+app/electron/static/error.html
+  s_5706450afae6e3::t_9846ba92a9e742 1-287
+.github/SECURITY.md
+  s_5706450afae6e3::t_9846ba92a9e742 18
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-cb37szr/20240530101000-vhq5afs/20240530101000-wo49zvq.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,52-65,73,108-130,380,463-490,533,538,566-569,593,704,709,1056,1454
+app/electron/window/globalShortcutBindings.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-93
+app/scripts/markdown-licenses/KaTeX-mhchem-NOTICE
+  s_5706450afae6e3::t_9846ba92a9e742 1-48
+app/changelogs/v3.8.10/v3.8.10.zh-TW.md
+  s_5706450afae6e3::t_9846ba92a9e742 1-50
+app/src/markdown/session.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-706
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20200924100808-j9sddk9.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,747-774,961-971
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20201227201128-m1wrouw.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,297,351-400,947-991
+app/src/assets/scss/component/_snackbar.scss
+  s_5706450afae6e3::t_9846ba92a9e742 67,72-73,81,93,104-108,118-119,127-156
+app/guide/20240530133126-axarxgx/20240530101000-bgv304g.sy
+  s_5706450afae6e3::t_9846ba92a9e742 229-241
+app/src/asset/pdf/mobileOverlay.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-77
+app/src/boot/globalEvent/readonlyKeydown.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 439-466
+app/scripts/build-electron.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-111
+app/electron/remote/remoteKernelAuth.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-106
+app/src/boot/startupError.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2,17-27,49,53-56,68,161,164-169,184-187,189,192
+app/electron/shared/builtinArgs.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-4,6-21,24-31
+  s_5706450afae6e3::t_aae9a90db679d7 5,22-23
+app/src/markdown/editorCodeHistory.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-152
+app/electron/remote/remoteDocument.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-77
+app/electron/window/settingsTaskBridge.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-102
+app/src/assets/scss/protyle/_protyle.scss
+  s_5706450afae6e3::t_9846ba92a9e742 7-49,90,92,368-376,387-388,401,404-407,497-509,1024,1039-1131,1581,1585,1640
+app/scripts/electronPackageContent.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-13
+app/src/config/tabs/ai/aiMemory.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-111
+app/src/boot/globalEvent/gutterMargin.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 46
+app/electron/remote/remoteKernelAuth.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-72
+app/electron/markdown/treeView.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-104
+app/electron/remote/webPageNetwork.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-274
+app/src/asset/pdfViewer.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5
+app/electron/electronGlobalBinding.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-61
+app/src/mobile/dock/MobileFiles.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-222
+app/electron/kernel/appleSiliconWarning.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-82
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20200915214115-42b8zma.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,135,499-512,1324,1329,1624,2061-2096
+app/electron/static/window-languages.json
+  s_5706450afae6e3::t_9846ba92a9e742 1-684
+app/src/config/util/resourceConfig.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5,21-24,44
+app/src/config/tabs/ai/aiTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,39,316,394
+app/electron/channelsConsistency.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-102
+app/src/assets/scss/base.scss
+  s_5706450afae6e3::t_9846ba92a9e742 5,8
+app/src/assets/scss/main/_main.scss
+  s_5706450afae6e3::t_9846ba92a9e742 343-362
+app/electron/ipc/workspace.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-162
+app/src/menus/workspace.ts
+  s_5706450afae6e3::t_9846ba92a9e742 352
+.github/ISSUE_TEMPLATE/2-bug-report-zh-CN.yml
+  s_5706450afae6e3::t_9846ba92a9e742 78
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-gvtksyj/20240530101000-1vvnhju.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,657-728
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-gvtksyj/20240530101000-35bbvcx.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,1567,2092,3310,3575,3647,3652,3655-3656,3661-3703,3708,3711-3712,3717,3722,3725-3726,3731-3749,3754,3757-3758,3763
+app/appearance/langs/uk.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/history/historyGroups.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-133
+app/src/layout/dock/docTree/DocTreeController.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-1661
+app/src/config/tabs/syncRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,4,41,94-95
+app/src/layout/Tab.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-64
+app/src/block/popoverInteraction.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,38-40,56,82-84,133-135,202-231,347-418,675,680-682
+app/electron/shared/electronRemote.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-7
+app/src/protyle/export/savePDF.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-24
+app/src/layout/dock/backlinkContextBatch.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-142
+app/src/config/entryVisibility/frequentSlashUi.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 57-58,72,86
+app/electron/kernel/kernelBoot.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-998
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20200813004551-gm0pbn1.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,3606,3615-3678,17225,18500,18514,18537,19989-20346
+app/src/markdown/editor.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-54
+app/src/dialog/message.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,10,36-44,46-51,53,74,77,87-295,299,304-355,365-366
+app/src/protyle/breadcrumb/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,37-39,41,55,75,77-78,85,87,92-94,106-109,116,119-123,151,165-177,335,362,387-405,415,448-450,490-547,815-816,824,832-838,847-848,850-858,914-916,1064,1079,1358-1360,1371,1374,1382-1384,1390,1394-1395,1397,1404-1413,1417-1418,1422,1427
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-h361q1i/20200924093441-ft2rhps.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,35,367-368,385-398,2070,2186,2210-2223,2229,2234-2270,2456-2469,5076,5090,5095,5205,5219,5607-5619
+app/src/command/shortcutRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 17
+app/changelogs/v3.8.9/v3.8.9.zh-CN.md
+  s_5706450afae6e3::t_9846ba92a9e742 3
+app/src/mobile/tabs/MobileTabs.overview.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8-43,56
+app/appearance/langs/tr.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/layout/dock/agent/AgentChat.sessions.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 82-103,233-273
+app/src/config/entryVisibility/mobileUi.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 60,62-63,68-69,137-186,237-253,555
+app/src/mobile/util/bindBottomSheetDrag.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-207
+app/src/mobile/dock/MobileOutline.lifecycle.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 15,20,43
+app/guide/20211226090932-5lcq56f/20240317202230-l8duv3r.sy
+  s_5706450afae6e3::t_9846ba92a9e742 228-240
+app/electron/markdown/codec.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-45
+app/src/mobile/util/keepKeyboard.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-74
+app/src/layout/status.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,6,24,136-139
+app/src/config/render/render.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 97-119
+app/src/command/contextTargets.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,5-6,33-51,117-122,124-125,127-128
+app/electron/markdown/replaceFile.ps1
+  s_5706450afae6e3::t_9846ba92a9e742 1-8
+app/src/editor/navigationHistory.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 72-90
+app/src/layout/dock/docTree/DocTreeModel.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-287
+app/src/command/nativeRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 4-6,14-15,38-40,64,121-122,125-126,174-175,178-179,202-207,218,220,245-249,251,253
+app/appearance/langs/th.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/electron/ipc/appEvents.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-119
+app/src/boot/globalEvent/command/global.ts
+  s_5706450afae6e3::t_9846ba92a9e742 203-211
+app/src/config/setting/nativeWindow.ts
+  s_5706450afae6e3::t_9846ba92a9e742 16,111-117,127-129
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-hnu6o79/20240530101000-3qhz7br.sy
+  s_5706450afae6e3::t_9846ba92a9e742 12,38,394,412-425,2194,2233,2257-2270,2276,2281-2317,2548-2561,5160,5174,5179,5289,5303,5704-5716
+app/scripts/css-contracts.mjs
+  s_5706450afae6e3::t_9846ba92a9e742 106
+app/src/assets/scss/viewerjs/_viewer.scss
+  s_5706450afae6e3::t_9846ba92a9e742 38
+app/src/plugin/Setting.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-100
+scripts/test_editor_e2e_workflow.py
+  s_5706450afae6e3::t_61038900df02b8 27,168,170,184,186-188,196-207,279-280,344-380,394-397,410-412,416,421-422,428-434
+.gitattributes
+  s_5706450afae6e3::t_9846ba92a9e742 10
+app/src/menus/importData.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,6,36,38-49,90-94,105
+app/src/markdown/nativeBridge.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-216
+app/src/config/bazaar/batchUpdatePreference.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-94
+app/package.json
+  s_5706450afae6e3::t_9846ba92a9e742 4,7,17,21,24-26,34,36,39-40,43-48,78-79,84,86-87,89,95,101,103-104,110,116
+app/src/markdown/keymapSync.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-20
+app/scripts/startup-entry.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-74
+app/src/mobile/util/bindBottomSheetDialog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-66
+app/scripts/build-electron.mjs
+  s_5706450afae6e3::t_9846ba92a9e742 1-68
+app/appearance/langs/ar.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/scripts/androidAssets.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 6,28-32,50-53,61-62,68-69,77-131
+app/electron/window/settingsTaskBridge.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-100
+app/changelogs/v3.8.9/v3.8.9.md
+  s_5706450afae6e3::t_9846ba92a9e742 3
+app/src/asset/pdf/viewerTemplate.ts
+  s_5706450afae6e3::t_9846ba92a9e742 268,271-272
+app/electron/static/connectionEntry.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-133
+app/electron/kernel/localKernelRequest.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-52
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-ynpmvl7.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,847-857
+app/electron/shared/argv.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-16
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20230106104645-o838uew.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,41-54,189-197,863-883
+app/src/markdown/errors.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-15
+app/src/ai/memory/taskError.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-108
+app/src/mobile/util/saveLayout.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 239,249,253,256-257,260,404-454
+app/src/config/tabs/ai/chatGPTAccount.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 79-80
+app/electron/ipc/shellIntegration.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-72
+app/src/config/tabs/editorTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 82-85
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20211226123038-4umgpxy.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,131,495-508,1310,1315,1610,2047-2082
+app/electron/shared/logging.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-81
+app/electron/remote/sessionHeaders.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-156
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-ei5t6tt/20260804223003-mcpsv04.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,65-66
+app/src/card/viewCards.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-3,6,12,16-17,32-33,88,96-97,117,136,139,148-152,156,160-161,166,170,174,189-192,201,205,213,230,249-252,263-268,271,276,281,288-295,349,352,355,361-380
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-ei5t6tt/20261029135500-37lo555.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-439
+app/guide/20211226090932-5lcq56f/.siyuan/sort.json
+  s_5706450afae6e3::t_9846ba92a9e742 1
+app/src/config/entryVisibility/catalog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 23,335,429,473-475,644-661,930-940,988,1119-1121,1203-1220
+app/guide/20211226090932-5lcq56f/20211226115227-r1rty9v.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,1061-1074,1100,1136
+app/electron/remote/connectionManager.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-449
+app/electron/startup/lastWorkspace.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-84
+app/src/menus/commonMenuItem.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,24-25,30,78,104-112,129-138,167,190-196,208-216,283,362-363,636,639,702,709,711,731-749,768,1135-1142,1257,1259
+app/src/config/tabs/syncRuntime.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,12,17-19,27,33-39,42-50,59-60,68,83-84,154-197
+app/electron/markdown/disk.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-382
+app/src/config/bazaar/events.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,16,97-100,201,203,226,232-234,271,320,699
+app/electron/window/windowVisibility.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-43
+app/src/config/tabs/appRuntime.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 10-11,13-15,19,22-23,28,30,45-60,64,67-120
+app/src/protyle/export/savePDF.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-29
+app/src/layout/reloadSnapshot.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-133
+app/electron/startup/updateCoordination.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-251
+app/src/asset/pdf/documentProperties.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-89
+app/src/protyle/breadcrumb/iconRefresh.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-29
+app/src/assets/scss/pdf/_pdf.scss
+  s_5706450afae6e3::t_9846ba92a9e742 852-865
+app/appearance/langs/zh-TW.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/electron/kernel/kernelBootBudget.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-56
+app/src/boot/globalEvent/mousemove.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8,61,110,119-120,136-137,301
+app/electron/window/windowPreferences.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-23
+app/electron/markdown/replaceFile.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-83
+app/src/menus/bookmark.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3-5,28-30,34-36
+app/guide/20240530133126-axarxgx/.siyuan/sort.json
+  s_5706450afae6e3::t_9846ba92a9e742 1
+app/electron/README.md
+  s_5706450afae6e3::t_aae9a90db679d7 95-96
+  s_5706450afae6e3::t_9846ba92a9e742 1-94,97-194,196-219
+  s_5706450afae6e3::t_c537f4981792b8 195
+app/src/protyle/breadcrumb/globalPath.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-191
+app/electron/shared/logging.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-45
+app/src/assets/scss/protyle/_toolbar.scss
+  s_5706450afae6e3::t_9846ba92a9e742 110
+app/src/boot/globalEvent/event.ts
+  s_5706450afae6e3::t_9846ba92a9e742 25,107-109,203-204,227
+app/electron/shared/crashHistory.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-134
+app/src/config/util/snippets.save.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 23,29-32,39,41,45-62,74,77-85,108-127,150-151
+app/src/layout/dock/agent/AgentChat.navigation.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 38,46,84,92-116,133,157-213,217-248,255-256,291-327,338
+app/src/mobile/util/MobileEditorDialog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 9,38-39
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-h361q1i.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,251-267,459,488,493,539-621
+app/src/history/repoScroll.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-116
+app/electron/window/windowControlsOverlay.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-117
+app/src/menus/spellcheckContext.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-18
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-3eaevtp.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,3188,3368,3373,3378,3382,3391,3396,3590-3674,3682,4158-4182,4328,4701-4860,4865-4937,5376,5390,5531,5536,5587,5695-5708,5826-6033,6085-6096
+app/src/block/popover.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 16-17,42,49,51-54,305-321
+app/src/protyle/export/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,23,35,80,212-217,395,397-414,592-611,614-616,770,815,947-948,951-953,985-986,990,1039-1045,1047-1048,1050-1055,1058,1096
+app/src/markdown/tooltip.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-158
+app/electron/markdown/appearance.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-116
+app/src/editor/markdownAsset.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-41
+app/src/plugin/lifecycle.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 122-143,389-522
+app/src/config/tabs/ai/aiDecisionUi.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 93
+app/src/config/tabs/appTab.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 221-287
+app/electron/markdown/tree.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-306
+app/src/config/entryVisibility/mobileSlash.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 34
+app/src/markdown/tooltip.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-154
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20240208172514-9dsv6na/20260613155453-sgecaav.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1771,1795-1821
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20230304000829-9jwu3po/20260804171002-aiagt02.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,292,513,527,563,665,793,876,885,894,930-1172,1179,1193,1198,1320,1385-1398,1526-1596,1622
+app/src/mobile/util/secondaryEditors.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2,4-5,24-33,36-54,57,61-62,99,110,112
+app/scripts/test-changed.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 7,47-50,118-120,123-155
+app/src/dialog/inputDialog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 35-38,52
+app/src/history/repoFile.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,9,103,105-106,109-110
+app/src/dialog/processSystem.exit.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 22
+app/electron/ipc/markdownEditors.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-125
+app/src/layout/reloadLayout.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-135
+app/src/layout/dock/PinnedDocs.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 19,22-23,26,59,63,89,94-101,109,136-156,183,206,272-275,277-281,283-285,290,295,313,315-321,326,348,352-354,360,363,375,381,393,397,425,457,460,462,494,530,541,580-581,583,585-587,589,591,596,598,601-602,604,606,609,614,618-619,622,626-627,634,638-639,642,645,650-652,660,662,683,690,694-698,700-701,704-706,708-709,711-712
+app/electron/window/mainWindow.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-19,22-33,36-50,52-62,64-68,71-131,133-143,148,218-358
+  s_5706450afae6e3::t_efe1ea9d38ae91 20-21,34-35,51,63,69-70,132,144-147,149-217
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20230304000547-ibldj1z/20260804223002-mcpsv03.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,69-70
+app/src/layout/dock/backlinkContextBatch.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-83
+app/appearance/langs/es.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/electron/startup/protocolClient.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-25
+app/electron/window/mainWindow.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-8,10-150,152-156,158-168,170-187,197,211-217,220-439,441-444,446-533
+  s_5706450afae6e3::t_aae9a90db679d7 9,151,157,169,188-196,198-210,218-219,440,445
+app/electron/markdown/host.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-478
+app/electron/shared/staticMessages.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-107
+app/src/mobile/util/bindBottomSheetDrag.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-15,18,20-29,34,37,40,44,48-53,55,57-60,63-65,68-70,75-82,85-89,92,96-99,101-102,107,111-114,117-122,124,127-129,142-149,155-159,161-162
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226115825-mhcslw2/20211226120147-ib6yy3i.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,1506,2006,3057,3301,3345,3350,3353-3354,3359-3401,3406,3409-3410,3415,3420,3423-3424,3429-3461
+app/src/layout/dock/index.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 157-191
+app/electron/architecture.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-81
+app/src/menus/commonMenuItem.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,20,22-23,40,46-51,53-54,59-76,111-123
+.github/workflows/desktop-package.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1-75
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20221223221636-ms2b4w9.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,842-852
+app/src/mobile/editor.ts
+  s_5706450afae6e3::t_9846ba92a9e742 116-117,191,206-220,325-326,343
+app/src/plugin/EventBus.ts
+  s_5706450afae6e3::t_9846ba92a9e742 10,16-21,23,29-40
+app/electron/window/windowLifecycle.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-74
+app/src/mobile/util/liteSlashMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 12-13,15,20,55-74,186
+app/guide/20210808180117-czj9bvb/20240317200013-fim8wm8.sy
+  s_5706450afae6e3::t_9846ba92a9e742 228-240
+app/electron-builder-linux-arm64.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1,13,17,66
+app/electron/static/boot.html
+  s_5706450afae6e3::t_9846ba92a9e742 1-709
+app/src/boot/globalEvent/commonHotkey.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,120
+app/src/layout/dock/Files.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-7,14,17,27,29,33,48,50,56,62-87,92-94,132-146,158-160,164,187,190,209,252-255,277-284,288,291,300,331,349,361,372,409,422-427,429-432,449-450,452-453,524,526-529,532-538,540-567,575,583-596,603,614,621-626,638-639,671,707-708,724,786,806,830,832,850-853,858,871,892-894,896-897,916,920-932,934-937,939-940,943-944,952-953,956-959,961-965,969-971,973,975-976,981-986,988-1011,1021,1049-1050,1053-1054,1058,1060-1074,1078-1080,1083-1086,1089,1091,1096-1099,1103,1106,1108-1117,1122-1123,1128-1133,1138-1147,1151,1154,1157-1161,1164-1168,1269,1282-1284,1288-1290,1292-1307,1309
+app/src/dialog/mobileDialog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-285
+app/changelogs/v3.8.10/v3.8.10.md
+  s_5706450afae6e3::t_9846ba92a9e742 1-50
+app/src/assets/scss/business/_data-import.scss
+  s_5706450afae6e3::t_9846ba92a9e742 1-43
+app/src/mobile/util/MobileBackFoward.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 34-39,82-87,119-124,135-157,186-191,214-242
+app/electron/startup/startupSwitches.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-84
+app/electron/kernel/kernelBoot.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-650
+app/src/assets/scss/business/_skill-manager.scss
+  s_5706450afae6e3::t_9846ba92a9e742 16
+app/src/markdown/identity.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-28
+app/src/config/tabs/appRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 10-14,83-86,89-106
+app/src/plugin/Setting.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,72,125,145-148
+app/electron/window/rendererCrash.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-99
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20230303235619-ex5l63e.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,446-477
+app/electron/remote/remoteExport.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-78
+app/scripts/test.mjs
+  s_5706450afae6e3::t_9846ba92a9e742 10-11,13-14,16-17
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-qgr0b3q/20200922102318-oz84yu3.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,229-242,722,751,866-926
+app/electron/window/bootWindows.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-155
+app/src/boot/startup.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-6
+app/src/layout/dock/Files.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-187
+app/src/config/tabs/exportTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 44-47,52-54
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-xr22qn8.sy
+  s_5706450afae6e3::t_9846ba92a9e742 124-188
+app/electron/shared/crashHistory.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-42
+app/src/markdown/session.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-563
+app/electron/markdown/resources.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-108
+app/src/assets/scss/component/_button.scss
+  s_5706450afae6e3::t_9846ba92a9e742 24-27,89-94,111-112,128-131,220-224
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20260612191136-feqbi1x.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,1820,12876,13016-13070,13077,13090
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20240208171522-y7dxcno.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,3163,3315,3320,3325,3329,3338,3343,3517-3601,3608,4082-4106,4238,4583-4771,4776-4819,5258,5272,5399,5404,5441,5521-5534,5642-5849,5901-5912
+app/src/protyle/breadcrumb/icon.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-13
+app/src/card/pendingAction.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-16
+app/src/layout/dock/docTree/importRefresh.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-11
+app/appearance/langs/hi.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/config/entryVisibility/ui.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,12-33,45,48,62-65,98-120
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20260612192417-fb4ueux.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,1816,12872,13012-13066,13073,13086
+app/nsis/installer.nsh
+  s_5706450afae6e3::t_9846ba92a9e742 5-31,164,177-179
+app/src/markdown/resourcePolicy.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-38
+app/src/menus/importData.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 48-49,70,89-90,112,123-164
+app/src/config/tabs/appTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-3,13,92,114,123-124,127-128,131-133,151-155,160,167
+app/src/config/util/snippets.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5,27
+app/src/card/openCard.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,16-37,41,43,48,50,58-63,66-67,76-78,87,91-93,95-99,107,119,147,166-217
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20230303235619-ex5l63e/20260804171000-aiagt01.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,292,513,527,563,665,793,876,885,894,930-1172,1179,1193,1198,1320,1385-1398,1526-1596,1622
+app/src/config/tabs/secretsVariablesUi.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 20-27,45-46,50,77-82,87-88,124-126,130,135,143,181-183,187-188,221,224,226,241-243,251,257,264
+app/src/boot/globalEvent/keydown.ts
+  s_5706450afae6e3::t_9846ba92a9e742 27,32,40,44-45,48,248,296,319,329,679-681,683,688,690,692,696-698,702,704,731,741,768-782,842,852,865,875,886-897,899-900,907,912-914,916
+app/src/dialog/mobileAnchoredInput.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-69
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20200924100950-9op5xi1.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,3608,3617-3680,17159,18458,18472,18495,19961-20316
+app/src/config/setting/reset.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,112
+app/electron/markdown/preferences.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-94
+app/src/markdown/codeCopy.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-104
+app/electron/markdown/launch.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-49
+app/src/dialog/mobileDialog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-278
+app/src/mobile/util/mobileSheetResize.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-312
+app/src/ai/memory/manager.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-420
+app/electron/environment.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-6
+app/electron/kernel/kernelRequestLog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-86
+app/src/config/tabs/accessTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-3,60,124-125,363,448-455,465,470-477,890-891,897,901,904-911,951,973,993-995,997,999-1002,1008,1043-1051,1053,1055-1058
+app/src/config/tabs/ai/aiProviderUi.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,196,330,806
+app/src/mobile/util/frequentSlashMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 89,96,120-122,130,137-139,166-172,202,211-213,221
+app/src/boot/globalEvent/fileTreeKeydown.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-84
+app/src/markdown/link.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-16
+app/src/plugin/commandAdapter.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,71-80,99,123
+app/electron/kernel/kernelEndpoint.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-47
+app/electron/remote/webPageNetwork.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-121
+app/src/mobile/dock/MobileOutline.ts
+  s_5706450afae6e3::t_9846ba92a9e742 28,85,641-644,647-652
+app/electron/markdown/resources.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-88
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-txrc7z1.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,673-685,2092-2102
+app/src/asset/imageOCR.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,6,39,65-68,86,91-99,123
+app/electron/window/appMenuStartup.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-50
+app/src/config/ocrImport.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,45,48,53,66-68,70,73,92-110,112-115
+app/src/config/mobileSheets.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-59
+app/electron/shared/errorWindow.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-55
+app/src/layout/util.ts
+  s_5706450afae6e3::t_9846ba92a9e742 35,44,52-53,158,171-180,193,242,275,300-302,311,333,352,356-368,644-650,653,753,826,905,911,915,1008-1025
+app/electron/window/appMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-83
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20230506205948-yah52eb.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,152-165,204-217,220
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-xsbxokr.sy
+  s_5706450afae6e3::t_9846ba92a9e742 12,3592,3611-3674,17246,18558,18572,18591,20114-20469
+app/src/markdown/vendor.d.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1
+app/src/layout/Tab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 16-17,74,181-194
+app/src/markdown/appearance.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-157
+app/electron/startup/accessibility.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-102
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20240208172514-9dsv6na.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,3163,3357,3362,3367,3371,3380,3385,3573-3657,3664,4138-4162,4308,4695-4883,4888-4931,5370,5384,5553,5558,5609,5731-5744,5894-6101,6154-6164
+app/src/assets/scss/business/_history.scss
+  s_5706450afae6e3::t_9846ba92a9e742 344,525-530
+app/electron/static/connections.html
+  s_5706450afae6e3::t_9846ba92a9e742 1-42
+app/appearance/langs/sk.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-3eaevtp/20260613155453-sncbsow.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1767,1791-1817
+app/src/config/tabs/ai/aiUi.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,323-324,327-330,333-335,535,555,756,916-922,938
+app/src/markdown/fontPicker.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-105
+app/src/protyle/breadcrumb/history.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,6,13-31,33-34,37,41,52,54,58,60-62,73,84
+app/electron/window/openWindow.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-213
+app/src/ai/actions.save.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-64
+app/src/command/contextTargets.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,8-15,41-51,53
+app/scripts/markdown-licenses/KaTeX-LICENSE
+  s_5706450afae6e3::t_9846ba92a9e742 1-18
+app/guide/20240530133126-axarxgx/20240530101000-e6z5okf.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,88,139-163
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20211226123302-akitvb1.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,697-724,907-917
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-6x9ivi7.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,236,396,1847-2048,2395
+app/electron/startup/linuxInputMethod.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-184
+app/src/config/tabs/keymapRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 6,13
+app/src/ai/skills/manager.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,19,43,345,349,355,362-381
+app/src/mobile/util/mobileSheetLayout.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-258
+app/src/layout/ModelLifecycle.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 31,56,84,130
+app/src/plugin/openDocTreeMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-299
+app/appearance/langs/sr.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/ai/memory/manager.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-1099
+app/electron/startup/appLifecycle.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-240
+app/src/layout/dock/docTree/selectionProgress.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-43
+app/electron/window/blockDrag.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-503
+app/src/constants.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,56,221,538
+app/src/plugin/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 44,598,601-604,625
+app/src/markdown/fontPicker.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-193
+app/src/assets/scss/component/_typography.scss
+  s_5706450afae6e3::t_9846ba92a9e742 376-380,829-836
+app/electron/static/connectionEntry.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-32
+app/src/dialog/processSystem.sync.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-65
+app/src/mobile/menu/search.ts
+  s_5706450afae6e3::t_9846ba92a9e742 889,918,936
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20230304000547-ibldj1z.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,452-483
+app/src/mobile/util/keepKeyboard.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-29
+app/src/markdown/panelAnimation.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-158
+app/src/dialog/mobileConfirmDialog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-89
+app/electron/tsconfig.json
+  s_5706450afae6e3::t_9846ba92a9e742 1-12
+app/src/layout/dock/Files.lifecycle.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-99
+app/src/config/assets.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,335,351,471
+app/src/dialog/moveResize.ts
+  s_5706450afae6e3::t_9846ba92a9e742 51,53,124-137,170-172
+app/src/mobile/util/openReference.ts
+  s_5706450afae6e3::t_9846ba92a9e742 188,235-236
+app/src/assets/scss/component/_list.scss
+  s_5706450afae6e3::t_9846ba92a9e742 4-18,149-152,277-278
+app/electron/remote/connectionManager.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-282
+app/src/assets/scss/protyle/_mindmap-view.scss
+  s_5706450afae6e3::t_9846ba92a9e742 274-283,286-289,292-293,306-311,317-321,325-328,361-390,918-920,1170-1183,1199,1208
+app/src/markdown/editor.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-671
+app/src/config/bazaar/installTask.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 61,68,95,106,239,264-268,282-332,338,345-350,363-364,387,389
+app/src/config/notebookArchive.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,18-19,95,108-109,149
+app/guide/20210808180117-6v0mkxr/20240317202444-5txwumu.sy
+  s_5706450afae6e3::t_9846ba92a9e742 228-240
+app/src/config/tabs/exportTab.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-36
+app/src/dialog/anchoredInput.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,12,20-26
+app/src/mobile/dock/MobileFiles.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-8,12,14-15,25,31,35-36,45-60,63,68-71,78-79,83-84,118-134,143-144,157-158,174,180-182,214,218,224,226,233,276,279,291-292,294,323-324,326,333-334,341,348-349,385-386,427-428,435,441,443-447,449-456,459-482,487,497-498,504-531,535-541,544-552,556-563,568-572,577,592,600-606,608-611,613-614,619,645,649,651-665,670-671,674-676,679-682,685-687,691-694,697,699-703,707-709,712,715-719,721-724,727-741,763,765,769-770,775-776,781-783,790-791,807-820,827-835,839,842,846,859-861,865-867,869-884,886
+app/src/mobile/util/secondaryEditors.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-101
+app/electron/markdown/temporaryFile.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-18
+app/src/dialog/mobileInputDialog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-120
+app/electron/remote/sessionHeaders.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-32
+app/src/menus/assetMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 9-14,17,22,27,35,43,76-92
+.gitignore
+  s_5706450afae6e3::t_9846ba92a9e742 19
+app/src/layout/dock/docTree/types.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-72
+app/src/config/tabs/appearanceTab.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 12-92,134-135,154-159,189-246
+app/src/config/tabs/editorRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 51,55
+app/scripts/test-focused.mjs
+  s_5706450afae6e3::t_9846ba92a9e742 1-48
+app/src/assets/scss/protyle/_wysiwyg.scss
+  s_5706450afae6e3::t_9846ba92a9e742 765-772,1076-1080,1172-1173
+app/changelogs/v3.8.9/v3.8.9.zh-TW.md
+  s_5706450afae6e3::t_9846ba92a9e742 3
+app/src/protyle/breadcrumb/icon.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-42
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-abz7w6k/20261101145217-402153c.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-686
+app/src/menus/menuLayout.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 58,68,176-177,560-564,657-668,834-837,843,865-908,942-943
+app/src/editor/markdownAsset.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-26
+app/src/mobile/util/onMessage.ts
+  s_5706450afae6e3::t_9846ba92a9e742 4,16-17,77,136,149,238-239,246
+app/src/plugin/lifecycle.ts
+  s_5706450afae6e3::t_9846ba92a9e742 38,76,487-494,500,502,574,647
+app/scripts/css-contract-baseline.json
+  s_5706450afae6e3::t_9846ba92a9e742 720-725
+app/electron/window/windowGeometry.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-101
+app/src/layout/dock/docTree/importRefresh.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-41
+app/scripts/test-changed.mjs
+  s_5706450afae6e3::t_9846ba92a9e742 84,90-92,104-105,109-110,115,119,144-160,163,167,170-172,174,179-185,193-194
+app/src/plugin/openDocTreeMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-194
+app/electron/kernel/previousKernelExit.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-414
+app/electron/shared/errors.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-7
+app/electron/remote/remoteKernel.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-319
+app/src/editor/deleteFile.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-62
+app/electron/startup/enabledSettingFile.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-57
+app/src/dialog/processSystem.status.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-41
+app/src/plugin/customTabOwner.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-75
+app/src/assets/scss/business/_onboarding.scss
+  s_5706450afae6e3::t_9846ba92a9e742 72
+app/src/ai/actions.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,4,22,53-59,63-65,68,72,109-114,117
+app/src/mobile/util/MobileBackFoward.ts
+  s_5706450afae6e3::t_9846ba92a9e742 11,22-24,47,68
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20230805232636-zh0adz2/20211226121232-23s79xr/20211226121438-xaafdo8.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,50-63,70,104-126,361,434-461,504,509,537-540,564,675,680,1008,1368
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121109-f060fkg/20211226121326-v5kpxfp.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,229-242,439,727,830-890
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20221223215557-o6gfsoy.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,846-856
+app/src/boot/startupRead.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-45
+app/src/config/tabs/ai/chatGPTAccount.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,216
+app/appearance/langs/en.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/config/bazaar/runtime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-9
+app/src/mobile/util/saveLayout.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8-12,19-26,37,51-69
+app/src/plugin/openDocTreeMenu.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-348
+app/src/config/tabs/ai/aiTab.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-36
+app/src/assets/scss/business/_ai_agent.scss
+  s_5706450afae6e3::t_9846ba92a9e742 469-479,1165-1166,1184,1305
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20230304000829-9jwu3po/20260804223001-mcpsv02.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,69-70
+app/src/layout/dock/docTree/dataSource.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-36
+app/electron/startup/bootstrap.test.ts
+  s_5706450afae6e3::t_f8b50ca7ee5718 78
+  s_5706450afae6e3::t_9846ba92a9e742 1-77,79-139
+app/electron/markdown/replaceFile.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-39
+app/src/layout/dock/agent/AgentComposer.ts
+  s_5706450afae6e3::t_9846ba92a9e742 15-16,77-79,85-88,117-118
+app/electron/startup/updateInstall.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-82
+app/src/mobile/util/MobileEditorDialog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 167-182
+app/src/assets/scss/mobile.scss
+  s_5706450afae6e3::t_9846ba92a9e742 24,27
+app/eslint.config.mjs
+  s_5706450afae6e3::t_9846ba92a9e742 20,60-76
+app/electron/ipc/getChannel.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-66
+app/electron/startup/updateInstall.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-40
+app/src/asset/pdf/password_prompt.js
+  s_5706450afae6e3::t_9846ba92a9e742 39-40,74,87,101-112
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-fqgskfj/20200905090211-2vixtlf.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,1510,2019,3139,3383,3426,3431,3434-3435,3440-3482,3487,3490-3491,3496,3501,3504-3505,3510-3542
+app/src/config/setting/sync.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 210-285,457-459,461
+app/electron/startup/linuxInputMethod.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-145
+app/src/config/util/snippets.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,11,37,119-138,176,184-188,214,310-312,315-317,319,328,336,351-352,356,359,378,388,392-397
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-qgr0b3q.sy
+  s_5706450afae6e3::t_9846ba92a9e742 132-196
+app/electron/markdown/types.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-16
+app/src/dialog/progress.ts
+  s_5706450afae6e3::t_9846ba92a9e742 32-33,37-38,55,65-68
+app/electron/startup/protocolClient.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-62
+app/appearance/langs/it.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/markdown/choiceMenu.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-76
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-d31i9v5.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,727-754,937-947
+app/src/markdown/index.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-347
+app/scripts/markdown-associations.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-299
+app/electron/shared/builtinArgs.test.ts
+  s_5706450afae6e3::t_aae9a90db679d7 8,28
+  s_5706450afae6e3::t_9846ba92a9e742 1-7,9-27,29-30
+app/electron/markdown/windows.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-797
+app/guide/20210808180117-czj9bvb/20240113102857-c63dmo5.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,349,400-424
+app/src/plugin/customTabOwner.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-46
+app/src/config/tabs/syncUi.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 95-96,102-103
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20230506211210-1roopyo.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,152-165,204-217,220
+app/src/command/nativeCommands.ts
+  s_5706450afae6e3::t_9846ba92a9e742 45
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20230506210010-houyyvy.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,152-165,204-217,220
+app/electron/remote/remoteDocument.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-182
+app/src/asset/pdf/viewer.js
+  s_5706450afae6e3::t_9846ba92a9e742 245
+app/electron/remote/webPageFetch.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-267
+app/src/layout/dock/agent/AgentScrollState.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3,79-114
+app/src/markdown/treeContracts.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-61
+app/electron/main.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-11
+app/electron/window/syncAfterResume.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-51
+app/src/history/history.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-3,7-8,33-34,50,55,59-67,100-145,147-150,209,214-218,238,242-253,629,637,644,658,764-766,802,804-812,834,880,1011-1017,1021,1048-1049,1051-1057,1066,1071-1082,1087,1092-1095,1111,1139,1162
+app/src/markdown/bridge.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-98
+app/src/history/docDiff.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,108-109,146
+app/src/layout/dock/docTree/dataSource.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-93
+app/electron/markdown/recoveryStore.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-179
+app/electron/kernel/appleSiliconWarning.ts
+  s_5706450afae6e3::t_aae9a90db679d7 8-9
+  s_5706450afae6e3::t_9846ba92a9e742 1-7,10-101
+app/src/markdown/editor.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-736
+app/electron/shared/desktopDefaults.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-25
+app/src/layout/dock/agent/agentSkillHint.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-132
+app/electron/kernel/kernelBootBudget.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-43
+app/src/protyle/export/headingPageBreaksUI.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,16
+app/src/markdown/choiceMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-145
+app/src/history/historyGroups.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-116
+app/electron/window/globalShortcutBindings.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-97
+app/src/ai/memory/state.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-35
+app/electron/startup/bootstrap.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-264
+app/src/menus/dataMigration.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-106
+app/src/config/bazaar/installTask.ts
+  s_5706450afae6e3::t_9846ba92a9e742 131-133
+app/electron/ipc/systemSettings.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-51
+app/src/mobile/util/visibleViewport.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-21
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-ei5t6tt.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,448-479
+app/src/layout/dock/docTree/DocTreeModel.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-122
+app/electron/markdown/imageImport.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-114
+app/src/markdown/identity.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-33
+app/src/editor/util.ts
+  s_5706450afae6e3::t_9846ba92a9e742 57,64-66,89,92-93,99-101,663,771-773
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20221223221501-mops33i.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,846-856
+app/src/menus/spellcheck.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5,11,17,21,40,42,47,49,54
+app/electron/shared/windowRoundTrip.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-68
+app/src/config/ocrImport.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 40,59,62-75,84,95-98,100,149-167,180-199,235,251
+app/electron/window/webviewDevTools.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-219
+app/src/layout/tabList.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 13,31-33,61,74-76,82-88,101-103,113,159-212
+app/src/boot/startupError.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5,114,118-120,131-132,136,152-228
+app/src/menus/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,16-17,109,159
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-axh6q1d/20200924095938-a9p5450.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,229-242,439,727,842-902
+app/src/mobile/util/keyboardSheetState.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-57
+app/src/mobile/util/liteSlashMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 22-25,29,46-47,90-107
+app/appearance/langs/ko.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/history/doc.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,4,264-265,465-466,469-470,524,548
+app/src/markdown/tree.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-131
+app/src/layout/dock/docTree/rowData.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-37
+app/electron/markdown/host.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-144
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20230303235619-ex5l63e/20260804223000-mcpsv01.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,69-70
+app/src/command/contextCore.ts
+  s_5706450afae6e3::t_9846ba92a9e742 21
+app/src/mobile/util/onMessage.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 15-16,34-36,38,44,57,67,74-75
+app/appearance/icons/index.html
+  s_5706450afae6e3::t_9846ba92a9e742 1125-1128
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-6yi0dv5/20200924101225-k254i8g.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,1477,1993,3071,3315,3358,3363,3366-3367,3372-3414,3419,3422-3423,3428,3433,3436-3437,3442-3460,3465,3468-3469,3474
+app/electron/kernel/kernelDiagnostics.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-33
+app/src/protyle/export/scriptLiteral.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-14
+app/src/config/entryVisibility/order.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 181-182,188
+app/electron/startup/lastWorkspace.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-60
+app/src/block/Panel.ts
+  s_5706450afae6e3::t_9846ba92a9e742 22,32-34,47-51,56,73,117,139-140,181,184,208,215-228,310-319,521,536-559,561,571-574,580,597,603,618-620,639-660,665,738
+app/electron/markdown/recoveryStore.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-321
+app/electron/markdown/replaceFile.test.ps1
+  s_5706450afae6e3::t_9846ba92a9e742 1-12
+app/src/protyle/breadcrumb/appearance.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-96
+app/electron/fixtures/windowControlsStub.cjs
+  s_5706450afae6e3::t_9846ba92a9e742 1-13
+app/scripts/markdown-assets.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-131
+AGENTS.md
+  s_5706450afae6e3::t_9846ba92a9e742 5-153,155-165,168,170-171,173,175,177,179-195
+app/src/markdown/appearanceDialog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-100
+app/electron/window/windowWorkspaces.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-72
+app/src/assets/scss/business/_memory-manager.scss
+  s_5706450afae6e3::t_9846ba92a9e742 1-51
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-abz7w6k/20200825162036-4dx365o.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,35,369-370,387-400,2073,2112,2136-2149,2155,2160-2196,2376-2389,4838,4852,4857,4939,4953,5344-5356
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20230304000547-ibldj1z/20261029135500-sc9beol.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-439
+app/electron/static/workspace.html
+  s_5706450afae6e3::t_9846ba92a9e742 1-448
+app/src/menus/navigation.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,4,10,13,26-27,33-34,45-47,50,88-130,133,136,144,146,149,279-280,287,290,295,300-301,307-309,319,334-336,341,345-354,360,365,373,392,449,463,470-472,475,484-485,488-489,491-494,496,498,500,525-532,534,539,561,571,583,585,720,773-775,777-778,784-814,818-819,822-823,826,829-830,832-833,835,847,850,853,855,859-861,1019,1022,1142,1145-1147,1149-1150,1163,1167
+app/src/plugin/API.ts
+  s_5706450afae6e3::t_9846ba92a9e742 41,321,335-337,450
+app/electron/startup/accessibility.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-51
+app/src/markdown/codeCopyFeedback.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-131
+app/src/config/entryVisibility/runtime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 19,75,488-502,538
+app/src/protyle/breadcrumb/history.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8,14-25,32-38,43-47,69-70,77,80-94,96-97,100-106,133,136,141-142,149,153,158-159,161-167,170-173,179-180,183-185,191,194-198,202
+app/src/markdown/choiceMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-70
+app/src/ai/memory/overview.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-83
+app/src/config/tabs/appearanceRuntime.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 12,28-29,42,60-62
+app/src/dialog/progress.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-92
+app/electron/window/openWindow.test.ts
+  s_5706450afae6e3::t_f8b50ca7ee5718 73
+  s_5706450afae6e3::t_9846ba92a9e742 1-72,74-183
+app/electron/window/settingsWindows.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-405
+app/src/layout/dock/docTree/locateUnavailable.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-35
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20230106101434-e6g4av3.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,41-54,188-196,857-877
+app/src/boot/desktopStartup.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-135
+app/electron/startup/systemShutdown.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-133
+app/src/assets/scss/business/_config.scss
+  s_5706450afae6e3::t_9846ba92a9e742 790-794,856,865-868,870-875,881-885
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-f16hpct.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,364,415-464,1051-1095
+app/electron/remote/remoteBoot.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-197
+app/electron/kernel/notebookSystemLock.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-183
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20210615211733-v6rzowm.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,653-665,1954-1964
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20200924100906-0u4zfq3.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1420
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20260612192252-sgw2paw.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,1830,12886,13026-13080,13087,13100
+app/src/editor/openLink.ts
+  s_5706450afae6e3::t_9846ba92a9e742 142
+app/electron/shared/pagePaths.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-14
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20201204181006-7bkppue.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,238,396,1847-2044,2395
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20201227173504-847cs1q.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,297,351-400,955-999
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20240208113259-nykkvaq/20260613155453-n1se73o.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1771,1795-1821
+app/src/history/docReadonly.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 119-120
+app/electron/ipc/clipboardFormat.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-41
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20240208113259-nykkvaq.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,3163,3315,3320,3325,3329,3338,3343,3517-3601,3608,4082-4106,4238,4583,4588-4819,5258,5272,5399,5404,5441,5521-5534,5642-5849,5902-5912
+app/electron/static/connections.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-200
+app/electron-builder-linux.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1,13,17,63
+app/src/editor/databaseRow.ts
+  s_5706450afae6e3::t_9846ba92a9e742 13-14,54,83,99,112-122,125,127,160-162,209
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-gvtksyj/20240530101000-boiita2.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,149,230-304,376,593,608,613,650,664
+app/src/mobile/menu/mainMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-41
+app/electron/static/window.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-267
+app/src/config/bazaar/filters.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-16
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-6yi0dv5/20201117112518-dott91x.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,677-752
+app/src/config/encryptedAssets.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,24,129
+app/src/command/contextCore.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 72-76,85,89
+app/src/layout/dock/docTree/row.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-72
+app/src/protyle/breadcrumb/appearance.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-41
+app/src/layout/dock/Files.drop.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,9,11-12,17-18,21-24,34,38-39,44,47,55-56
+app/electron/ipc/markdownAsset.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-40
+app/src/command/context.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2,149-156
+app/src/boot/globalEvent/avColumnDragScroll.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-48
+app/electron/window/contextMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-229
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20200924100744-br924ar.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,135,499-512,1326,1331,1630,2113-2148
+app/src/markdown/keymapSync.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-115
+app/src/config/bazaarTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 103-106
+app/src/protyle/export/listMindmapExport.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,39
+app/src/card/fetchDueCards.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,16-20
+app/src/asset/anno.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,12,568,1067,1069,1075,1077,1088-1095,1189
+app/src/mobile/tabs/MobileTabs.save.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 129,407-415
+app/src/markdown/editorEmptyHistory.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-103
+app/pnpm-workspace.yaml
+  s_5706450afae6e3::t_9846ba92a9e742 13
+app/src/config/setting/builder.ts
+  s_5706450afae6e3::t_9846ba92a9e742 124
+app/electron/window/webviewDevTools.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-76
+app/src/plugin/loader.ts
+  s_5706450afae6e3::t_9846ba92a9e742 16-17,99,122,129,132,143-144,147,160,164,176-189,223,225,428,460
+app/electron/startup/chromiumSwitches.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-130
+app/electron/window/windowLookup.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-32
+app/src/config/util/resourceConfig.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 18,52,62
+app/src/layout/Model.ts
+  s_5706450afae6e3::t_9846ba92a9e742 18,74-78,133-136,190-193
+app/src/assets/scss/protyle/_tabs.scss
+  s_5706450afae6e3::t_9846ba92a9e742 121-127
+.github/ISSUE_TEMPLATE/1-bug-report.yml
+  s_5706450afae6e3::t_9846ba92a9e742 78
+app/src/boot/globalEvent/command/global.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,31,53-70
+app/src/layout/statusHover.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-128
+app/electron/kernel/workspaceInfo.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-32
+app/src/dialog/mobileInputDialog.desktop.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-195
+app/src/boot/startupSnippetError.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-85
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-fqgskfj/20200813131152-0wk5akh.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,137,226-304,376,607,625,657,666,680
+app/src/block/panelResizeTouch.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 142-167
+app/src/config/tabs/syncUi.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,478,570,693
+app/src/config/tabs/editorGlobalBreadcrumb.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-46
+app/src/command/contextCommands.ts
+  s_5706450afae6e3::t_9846ba92a9e742 26-27,113-127
+app/electron/markdown/systemFonts.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-31
+app/electron/static/remote-auth.html
+  s_5706450afae6e3::t_9846ba92a9e742 1-616
+app/src/plugin/uninstall.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 6,58-92
+app/src/config/tabs/secretsVariablesUi.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,82,110,181,204,300,350,377-383,393-394,397-400,403-405
+app/src/mobile/util/visibleViewport.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5,7-8
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-abz7w6k.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,254-270,448,463,468,500-582
+app/src/markdown/shortcuts.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-37
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20200813125307-pxsjela.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,709-736,919-929
+app/src/mobile/util/mobileDocumentTitle.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-25
+app/electron/markdown/windows.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-996
+app/electron/startup/linuxInputMethod.native.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-69
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121109-f060fkg.sy
+  s_5706450afae6e3::t_9846ba92a9e742 125-189
+app/electron/remote/connectionStore.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-76
+app/electron/remote/remoteKernel.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-409
+app/appearance/langs/fr.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/mobile/tabs/MobileTabs.ts
+  s_5706450afae6e3::t_9846ba92a9e742 12,19,116,249,264,928-935
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226120854-dr1jfx2/20261101145217-411811d.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-686
+app/src/menus/index.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-57
+app/src/menus/documentMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8-10,14-20,24,27-28,30,32-35,53-55,61-67,69,72-73,75-77,80-83,86-87,92-93,98,109,112-248,274-282,323-327,330-389
+app/src/protyle/export/pdfTitle.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-72
+app/src/menus/menuKeyboardRestore.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 50,63-65
+app/src/layout/dock/util.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-60
+app/electron/ipc/clipboardFormat.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-53
+app/src/layout/dock/util.ts
+  s_5706450afae6e3::t_9846ba92a9e742 225-230,239
+app/src/config/tabs/accountUi.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,266,270,311
+app/electron/markdown/appearance.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-188
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20211226123216-tlxw66f.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1382
+app/src/asset/pdf/app.js
+  s_5706450afae6e3::t_9846ba92a9e742 293,1135,1141
+app/src/layout/dock/barVisibility.ts
+  s_5706450afae6e3::t_9846ba92a9e742 146-158,178-179,182
+app/appearance/langs/he.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/electron/startup/secondInstance.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-169
+app/src/mobile/util/initFramework.ts
+  s_5706450afae6e3::t_9846ba92a9e742 451-455,458,461-464,466-469,471-477
+app/src/assets/scss/business/_av.scss
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,457-470,659-660,948,951-957,994-1003,1029-1038,1583-1584,1588-1589,1593-1594,1600-1603,1613-1614,1656-1657,1777-1778,1792-1794,1811-1812,2317-2318,3440-3497
+app/electron/remote/remoteExport.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-108
+app/src/markdown/shortcuts.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-111
+app/electron/ipc/windowCommands.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-122
+app/electron/kernel/kernelExitCodes.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-74
+app/src/mobile/util/reloadUI.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-65
+app/src/menus/templateManagerIcon.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-17
+app/electron/markdown/registry.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-34
+app/src/editor/databaseRowPreparation.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-69
+app/electron-builder-arm64.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1,10,15,28-29,56
+app/src/menus/videoMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2-5,7,33,36,38-43,45-46,54-57,61,64-83,133-190
+app/src/assets/scss/component/_dialog.scss
+  s_5706450afae6e3::t_9846ba92a9e742 84-85,91-105,119-124,208,225-232
+app/electron/ipc/getContract.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-21
+app/electron/ipc/clipboard.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-99
+app/src/layout/dock/BacklinkContent.ts
+  s_5706450afae6e3::t_9846ba92a9e742 68,184,769-771,1314-1318,1323-1326,1331-1332,1334-1338,1340-1368,1767,1872
+app/electron/window/refererFilter.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-35
+app/electron/ipc/connectionCommands.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-61
+app/electron/window/windowControlsOverlay.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-59
+app/src/mobile/util/keyboardPanelHeight.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 22-36
+app/src/config/entryVisibility/breadcrumb.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-101
+app/src/card/pendingAction.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-50
+app/src/mobile/util/mobileDocumentTitle.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-283
+app/src/dialog/exitRequest.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,6-8,12-27,110,121
+app/electron/remoteWebviewBoundary.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-76
+app/src/mobile/util/keyboardToolbar.ts
+  s_5706450afae6e3::t_9846ba92a9e742 91,94,125-128,467-469,476-477,481-482,754-762,991,1205,1231,1367,1461,1965-1967
+app/src/assets/template/markdown/index.tpl
+  s_5706450afae6e3::t_9846ba92a9e742 1-15
+app/src/protyle/export/util.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,22,28-29,42,131-141,143-147,149-187,191-196,198-199
+app/appearance/langs/zh-CN.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/layout/dock/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 582-583,593-594,695-698
+app/electron/remote/remoteProtocol.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-338
+app/electron/kernel/previousKernelExit.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-214
+app/src/markdown/treeAnimation.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-71
+app/electron-builder-darwin-arm64.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1,10,14,48
+app/appx/AppxManifest-arm64.xml
+  s_5706450afae6e3::t_9846ba92a9e742 14
+app/guide/20210808180117-6v0mkxr/20240113110040-7sgw8kl.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,349,400-424
+app/guide/20210808180117-6v0mkxr/.siyuan/sort.json
+  s_5706450afae6e3::t_9846ba92a9e742 1
+app/electron/markdown/codec.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-23
+app/src/dialog/processSystem.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-26
+app/src/config/bazaar.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,45,47-50,159,638-696,700,736,840,1001,1704,1731,1733,1985-2001,2004-2006
+app/src/config/bazaar/html.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8-10,19-23,35-37
+app/src/dialog/progress.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-132
+app/src/menus/tag.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3-4,31-43
+app/src/editor/openFileSelection.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 124-164
+app/electron/shared/traySupport.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-4
+app/electron/window/appMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-278
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20200822191536-rm6hwid.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1396
+app/src/mobile/menu/mainMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 122
+app/electron/window/rendererIsolation.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-128
+app/src/history/snapshotDetail.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,16-17
+app/appearance/langs/de.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/electron/window/windowNavigation.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-67
+app/changelogs/v3.8.10/v3.8.10.zh-CN.md
+  s_5706450afae6e3::t_9846ba92a9e742 1-50
+app/scripts/harmony-dev-run.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 157,162-163,210-214,220-221,241-242,256
+app/src/layout/tabUtil.ts
+  s_5706450afae6e3::t_9846ba92a9e742 62,80-86,475-491,493-494,496,500,502,505-506,508,512-513,518
+app/src/assets/scss/business/_av-calendar.scss
+  s_5706450afae6e3::t_9846ba92a9e742 292
+app/src/markdown/contracts.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-136
+app/electron/shared/atomicJsonFile.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-43
+app/src/history/historyRegression.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 29,36,47-71,102-103,135-136,145-166
+app/src/ai/chat.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,10
+app/src/mobile/util/initFramework.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 13-56,58
+app/appx/AppxManifest.xml
+  s_5706450afae6e3::t_9846ba92a9e742 14
+app/src/assets/scss/component/_menu.scss
+  s_5706450afae6e3::t_9846ba92a9e742 4-8,184,327,507-512
+app/src/config/notebookArchive.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 38
+app/electron/remote/connectionRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-64
+app/src/asset/picker.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,27
+app/src/business/clearRecentDocs.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 16,25
+app/electron/window/closeRecovery.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-173
+app/src/config/setting/reload.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 18,23,45-49,55-64
+app/electron/shared/runtime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-157
+app/src/layout/dock/agent/AgentChat.ts
+  s_5706450afae6e3::t_9846ba92a9e742 21,29,62,156-160,185,192,255,271,300-304,937-938,940-941,943,946-959,961-962,972-1012,1014-1016,1021,1037-1042,1050-1052,1055,1064-1067,1295,1416,1423,1472,1479,1652-1655,1681,1728-1730,1964,1966,2395,2402,2765-2774,2789,2853,2874,3179-3188,3192-3194,3196-3201,3203,3208-3213,3218-3220,3223,3225-3226,3279,3289-3290,3299-3300,3320,3334,3359,3366,3375,3395,3397,3406-3407,3592,3730,3806-3807,3935,4002,4231,4244,4248-4256,4409,4416-4418,4438,4443-4445,4657-4663,4667-4675,4677,4725,4849-4873
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20230304000829-9jwu3po/20261029135500-7wxzqiv.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-439
+app/src/assets/scss/business/_custom.scss
+  s_5706450afae6e3::t_9846ba92a9e742 188,193,233,244,253,273,366-369,406-409,415,419,424,429,434,462-504,533-538
+app/electron/window/appExit.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-97
+app/guide/20240530133126-axarxgx/20240530101000-jp793ic.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,1106-1119,1156
+app/src/mobile/util/businessDialogSheets.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-88
+app/scripts/markdown-licenses/KaTeX-fonts-LICENSE
+  s_5706450afae6e3::t_9846ba92a9e742 1-183
+app/electron/markdown/launch.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-68
+app/src/plugin/commandAdapter.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 41-69
+app/src/asset/pdf/pdf_document_properties.js
+  s_5706450afae6e3::t_9846ba92a9e742 32-33,36-37,165,358-359
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-h361q1i/20261101145217-38d4623.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-686
+app/electron/static/window.css
+  s_5706450afae6e3::t_9846ba92a9e742 1-261
+app/src/business/openRecentDocs.layout.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 38
+app/src/protyle/export/imageLayout.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 52,100-106,185,332
+app/src/config/tabs/ai/aiInstructions.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 22-23
+app/src/layout/statusHover.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-19
+app/src/boot/startupRead.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-34
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20210615213222-vs5tzbd.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,669-681,1986-1996
+app/src/layout/dock/Outline.ts
+  s_5706450afae6e3::t_9846ba92a9e742 46,520-523,526-531
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20230304000829-9jwu3po.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,446-477
+app/src/asset/index.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,29
+app/electron/window/windowMessaging.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-81
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20211226122459-08mi5cq.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,280,330-379,917-961
+app/src/mobile/util/openBacklinks.ts
+  s_5706450afae6e3::t_9846ba92a9e742 73-74
+app/guide/20211226090932-5lcq56f/20240113110500-dz2ae4n.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,349,400-424
+app/src/mobile/util/mobileSheetGesture.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-36
+app/src/boot/onGetConfig.ts
+  s_5706450afae6e3::t_9846ba92a9e742 11,34,163,243-247,287-302,304
+app/src/asset/pdf/mobileOverlay.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-34
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20230805222417-2lj3dvk/20230808120348-orm8sjf/20230808120347-3cob0nb.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,50-63,70,104-126,361,434-461,504,509,537-540,564,675,680,1006,1365
+app/src/assets/scss/main/_mobile.scss
+  s_5706450afae6e3::t_9846ba92a9e742 22-23,26-75,153-158,212,351-385,486,812,925,978,1040,1053,1097,1325,1336,1490,1772,1959,1963-2000,2010-2011,2056-2150,2349-2360,2362-2365,2368-2372,2375-2385,2388-2389,2392-2412
+app/src/layout/replaceTab.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,22,30,32-41,43-49,51
+app/src/menus/menuSheetHeight.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8,23-26,56-58,85-90,98,100,104-133
+app/src/mobile/util/mobileSheetGesture.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-29
+app/electron/kernel/notebookSystemLock.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-121
+app/src/markdown/link.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-33
+app/src/history/repoPanel.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2,288-289,292,302-306,308,312,322,325,329-330,333,338
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-hnu6o79/20261101145217-93b3519.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-678
+app/src/editor/rename.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2,15,17,26,46-51,76-83,86-88,91,97-99,104-119,139,151,155,160,162
+app/appearance/langs/pt-BR.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/guide/20210808180117-czj9bvb/20200813093015-u6bopdt.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,1057-1070,1096,1132
+app/src/protyle/breadcrumb/globalPath.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-53
+app/src/config/bazaar/filterMenu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-141
+app/electron-builder-common.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1-39
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-hnu6o79.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,255-271,463,492,497,543-625
+app/src/markdown/appearance.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-72
+app/src/boot/loading.ts
+  s_5706450afae6e3::t_9846ba92a9e742 58-61
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20230106104821-9nfphwm.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,41-54,189-197,867-887
+app/electron/kernel/localKernelRequest.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-39
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20240208171522-y7dxcno/20260613155453-pxxzmhc.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1771,1795-1821
+app/src/protyle/breadcrumb/iconRefresh.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-111
+app/electron/ipc/exportPreview.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-59
+app/src/protyle/export/exportMd.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,13,27,54,103,131,182
+app/src/command/types.ts
+  s_5706450afae6e3::t_9846ba92a9e742 44-46
+app/src/config/tabs/syncTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,6,242,283,301-302,307-312,318,335
+app/electron/markdown/treeView.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-42
+app/src/protyle/breadcrumb/request.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 16,19,22,25,33,38,45,81,83-123
+app/src/plugin/breadcrumbButton.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-200
+app/appearance/langs/ja.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/menus/protyle.ts
+  s_5706450afae6e3::t_9846ba92a9e742 25,32,104-111,128,131,170,174,185,190,197,208,1124-1125,1975-1978,2121,2127-2128,2341-2353,2399,2624-2631
+app/electron/kernel/workspaceInfo.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-25
+app/src/config/entryVisibility/catalog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 48-73,133,136-140,1023-1027,1508-1512
+app/electron/markdown/lifecycle.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-44
+app/electron-builder.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1,10,15,28-29,55
+app/src/markdown/limits.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-5
+app/src/ai/memory/taskError.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-101
+app/src/ai/memory/state.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-23
+.github/workflows/desktop-build.yml
+  s_5706450afae6e3::t_9846ba92a9e742 12-14,181-183,187-189,191-192,195,197-199,201-207,210-211,214-215,222,232,238,250,269,308,354,382,396,413,432
+app/src/config/bazaar/pluginPublish.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,16
+app/src/boot/globalEvent/dragover.ts
+  s_5706450afae6e3::t_9846ba92a9e742 32-33,37,49-52,68,78
+app/src/menus/menuSheetDrag.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7-8,16,18-19,26-30,35-36,39-41,50,54-55,59-63,65,75,80,91,97-109,130-134,136,139-140,143,147-173,180-227
+app/src/protyle/export/scriptLiteral.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-5
+app/src/config/tabs/fileTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,287,302-307
+app/electron/ipc/register.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-43
+app/src/card/viewCards.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-68
+app/src/mobile/util/multiSelectToolbar.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,25
+app/electron/shared/argv.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-31
+app/src/layout/dock/agent/AgentHistory.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,59-79
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20211226122707-8cr09co.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,645-657,1948-1958
+app/src/editor/rename.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5-6,8,14,18,24-115
+app/src/markdown/desktopHost.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-485
+app/electron/markdown/windows.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-291
+app/src/emoji/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,14,17,882,1057,1063,1597,1603-1606
+app/src/menus/block.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2-4,18-25,29,31
+app/electron/kernel/kernelRequestLog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-102
+app/electron/window/settingsWindows.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-453
+app/src/boot/windowControlsOverlay.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 198-201,204
+app/src/assets/scss/business/_block.scss
+  s_5706450afae6e3::t_9846ba92a9e742 3,24-32,43-55,176-182
+app/src/mobile/util/keyboardPanelHeight.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2-3
+app/electron/startup/startupBranches.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-89
+app/src/config/tabs/appearanceRuntime.ts
+  s_5706450afae6e3::t_9846ba92a9e742 5-6,84,125,128
+app/src/mobile/util/reloadUI.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-24
+app/src/layout/Wnd.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2,27,72,174,722-726,855,857,864-868,919,922-933,935,978-991,993-994,1009-1014,1018,1026,1032,1042-1046,1048,1145-1147,1151-1154,1156,1158-1165,1171,1174
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-6yi0dv5/20200924101200-gss5vee.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,149,237-315,394,607,625,630,657,666,680
+app/appearance/langs/id.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/config/render/render.ts
+  s_5706450afae6e3::t_9846ba92a9e742 103-104,144
+app/electron/markdown/shortcuts.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-27
+app/src/markdown/nativeBridge.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-159
+app/scripts/CSS-CONTRACTS.md
+  s_5706450afae6e3::t_9846ba92a9e742 5
+app/electron/shared/windowRoundTrip.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-114
+app/src/config/entryVisibility/ui.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,20-21,50-51,73-91,249-250,618-625,632,777,1124
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20230805231614-vqn28eh/20210808180303-v9awwp0/20210721112206-mhr9wxi.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,50-63,70,104-126,361,448-475,518,523,542-545,592,703,708,1036,1396
+app/src/markdown/panelAnimation.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-286
+app/src/dialog/mobileAnchoredInput.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-87
+app/src/asset/pdf/overlay_manager.js
+  s_5706450afae6e3::t_9846ba92a9e742 16-17,22-29,63,78-83,101-110
+app/electron/startup/startupBranches.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-299
+app/src/plugin/breadcrumbButton.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-8,12-16,31,48,56-57,74,84,96
+app/src/ai/skills/mobileNameDialog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-36
+app/electron/markdown/preferences.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-73
+app/src/menus/navigationSelection.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,4-34,49-52,57-58
+app/src/card/openCard.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-3,5-6,45,196,204-221,223-236,273,300-301,314-344,363-364,367-379,384-389,446,453-454,470-477,479,490-528,537-544,710-713,723-726,741-744,756-759,776,818-822,824-831,833-837,880-882,889,903-904,919-921,928,937,958
+app/electron/startup/systemShutdown.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-71
+app/appearance/langs/nl.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/src/mobile/util/saveLayout.integration.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 64
+app/electron/markdown/disk.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-419
+app/electron/shared/language.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-83
+app/electron/markdown/shortcuts.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-40
+app/electron/shared/types.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-241
+app/src/config/tabs/appearanceTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,541,941-944,952,960-964,1016,1207-1215,1221,1269-1277,1283
+app/electron/window/appExit.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-118
+app/src/plugin/uninstall.ts
+  s_5706450afae6e3::t_9846ba92a9e742 4-5,22,27,40-80,91,96,98
+app/src/layout/dock/PinnedDocs.tooltip.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 27-28,34,38-41,45-51,58,61-102,105,129,156
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20211226123004-dplpw0o.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,230,385,1836-2033,2377
+app/src/dialog/exitRequest.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 11,27,39,49,58,73,92,104-115
+app/src/config/tabs/accessTab.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 137,149-152,165-167,170
+app/src/ai/editor.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,734
+app/src/menus/dataMigration.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2-3,6,19,41-49,182,210-217,228-237,259-265,279-287
+app/guide/20210808180117-6v0mkxr/20200923234731-h3zkwm2.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,1065-1078,1104
+app/src/editor/databaseRowPreparation.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-139
+app/src/config/setting/windowContext.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,19,22
+app/electron/startup/markdownEditors.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-176
+app/electron/ipc/appEvents.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-97
+app/src/layout/importLayout.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 19
+app/appearance/langs/pl.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/electron/startup/secondInstance.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-197
+app/electron/ipc/dialogs.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-56
+app/electron/static/init.html
+  s_5706450afae6e3::t_9846ba92a9e742 1-103
+app/guide/20210808180117-czj9bvb/.siyuan/sort.json
+  s_5706450afae6e3::t_9846ba92a9e742 1
+app/electron/ipc/markdownAsset.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-36
+app/scripts/test.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 28
+app/src/boot/openChangelog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-441
+app/src/asset/imageOCR.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 30-31,41
+app/src/plugin/breadcrumbButtonRegistry.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 3-4,14-29
+app/src/layout/dock/PinnedDocs.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-6,12,26,31-35,38,48-51,54-67,86-95,100-101,107,109-110,112-113,121,151,171-172,188-189,192,194,199,201,213,216,232,234,237,240-262,264-266,270-273,275-296,308,313-315,317-319,322,325-326,341,344,346-351,354-355,367,370,373,380,382,391-394,396-399,401,405,410,426,452-453,459,462,464,514,525,537-538,545
+app/src/menus/navigationSelection.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,7-9,19-29,75-127
+app/electron/shared/channels.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-66,68-91
+  s_5706450afae6e3::t_c537f4981792b8 67
+app/src/business/clearRecentDocs.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,35,38,44,47,51
+app/src/mobile/util/setEmpty.ts
+  s_5706450afae6e3::t_9846ba92a9e742 29
+app/src/config/tabs/ai/aiWeb.ts
+  s_5706450afae6e3::t_9846ba92a9e742 13,46-51
+app/electron/window/appMenuSession.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-74
+app/electron/static/connections.css
+  s_5706450afae6e3::t_9846ba92a9e742 1-21
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180321-hbvl5c2/20230303235619-ex5l63e/20261029135500-4d2w42o.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1-439
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20211226122549-jktxego.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,3600,3609-3672,17197,18492,18506,18529,20006-20363
+app/src/layout/Wnd.close.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-286
+app/src/mobile/util/keyboardReference.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 60-114
+app/electron/window/bootWindows.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-248
+app/src/card/makeCard.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-3,51,116,139
+app/src/boot/globalEvent/avColumnDragScroll.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-249
+app/electron/remote/webPageFetch.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-342
+app/electron/window/devToolsDock.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-60
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-4p096e8.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,44-57,201-209,898-918
+app/src/config/bazaar/filters.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-55
+app/src/dialog/inputDialog.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 172,177
+app/electron-builder-darwin.yml
+  s_5706450afae6e3::t_9846ba92a9e742 1,10,14,48
+app/src/config/entryVisibility/runtime.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 19-41
+app/src/dialog/processSystem.ts
+  s_5706450afae6e3::t_9846ba92a9e742 2,5,16,18,26,28,51-54,218,333-334,385-391,413-414,416-418,423-426,435-436,447-448,450-451,465,475,478
+app/src/history/diff.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,15,442-443,527,529-532
+app/src/editor/deleteFile.ts
+  s_5706450afae6e3::t_9846ba92a9e742 4,8-9,80-96,127-128,150-152,154-155,157
+app/electron/kernel/kernelExit.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-54
+app/src/mobile/editor.scroll.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 62,127,193-218
+app/src/editor/databaseRowSwitch.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 10,12,29,33,60,75-78,85,92,97,138-139,141,153-163,172,194-218
+app/src/markdown/editorInput.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-229
+app/electron/kernel/kernelDiagnostics.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-41
+app/src/menus/layouts.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 29-30
+app/electron/window/windowMessaging.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-147
+app/appearance/icons/litheness/icon.js
+  s_5706450afae6e3::t_9846ba92a9e742 576-578
+app/electron/window/devToolsDock.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-127
+app/src/config/tabs/ai/aiWeb.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 62,69,83,88-91,93-94,98,100,110,112,114
+app/electron/shared/atomicJsonFile.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-21
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-xr22qn8/20240530101000-bpj42r0.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,238-251,449,748,866-922
+app/src/config/tabs/ai/aiMemory.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-295
+app/src/mobile/util/openReference.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,17,19,60-65,67-68,71-73,75-76,94,98,106,110,112,119,123,134-135,163,165,187-195,197-205,216-217,225-226,241-242,245,252-312,687-695,703,734,738,746,757-759,770-771,773-774,787-813
+app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20210808180320-fqgskfj/20201117101902-2ewjjum.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,671-746
+app/electron/markdown/preload.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-75
+app/src/menus/navigationFocus.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 15-16,52,55,126-148
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226120854-dr1jfx2/20211226121319-emrk2yy.sy
+  s_5706450afae6e3::t_9846ba92a9e742 11,35,366,383-396,2070,2109,2133-2146,2152,2157-2193,2373-2386,4835,4849,4854,4936,4950,5342-5354
+app/src/markdown/tooltip.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-233
+app/electron/fixtures/electronStub.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-93,95-111,113-117
+  s_5706450afae6e3::t_c537f4981792b8 94,112
+app/guide/20210808180117-6v0mkxr/20200923234011-ieuun1p/20210808180303-xaduj2o/20230304000547-ibldj1z/20260804171004-aiagt03.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,320,541,555,591,707,849,941,950,986-1228,1235,1249,1254,1376,1441-1454,1610-1680,1706
+app/src/markdown/index.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-1489
+app/electron/window/syncAfterResume.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-51
+app/src/config/encryptedAssets.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 55,78
+app/src/layout/dock/agent/AgentChat.thinking.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-345
+app/electron/window/windowGeometry.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-111
+app/src/plugin/emitOpenMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-50
+app/src/config/tabs/aboutTab.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,136,165-166
+app/src/markdown/appearanceMenu.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-99
+app/src/layout/dock/parentDocClickIntegration.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 39,41-42,44-45,56-67,71,76,107,116,124,126,134
+app/src/menus/Menu.ts
+  s_5706450afae6e3::t_9846ba92a9e742 8-10,58-65,265-266,275-282,286-289,292,296-299,302-322,328,344,348-351,358-361,363-381,388,426-428,486-496,617-618,663-664,716,721,734-736,782-783,785-786,789-790,803-811,813,819-824,826,835-872,874-876,891-893,922-923,929-933
+app/src/boot/globalEvent/mousemove.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 67,130,148,156-158,160
+app/src/assets/scss/business/_ai_editor.scss
+  s_5706450afae6e3::t_9846ba92a9e742 76
+app/src/config/bazaar/rating.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,583-584,597,682,696,703
+app/src/boot/loadLanguages.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,8
+app/scripts/test-focused.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-47
+app/src/plugin/breadcrumbButtonRegistry.ts
+  s_5706450afae6e3::t_9846ba92a9e742 56-74
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226121203-rjjngpz/20260612191214-ymtlxn2.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,1820,12876,13016-13070,13077,13090
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-7yv4y5z.sy
+  s_5706450afae6e3::t_9846ba92a9e742 1415
+app/electron/startup/chromiumSwitches.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-24
+app/electron/ipc/richClipboard.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-100
+app/electron/window/closeRecovery.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-110
+app/src/markdown/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-894
+app/src/index.ts
+  s_5706450afae6e3::t_9846ba92a9e742 4,19-20,78-80,88,225,236,243,251,346-350,358,360-364,372,395,397-400
+app/src/config/tabs/secretsVariablesUi.save.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-108
+app/electron/window/windowWorkspaces.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-126
+app/electron/markdown/imageImport.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-123
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-1m5un7l.sy
+  s_5706450afae6e3::t_9846ba92a9e742 10,135,498-511,1375,1380,1686,2187-2222
+app/src/mobile/util/mobileSheetLayout.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-128
+app/src/menus/databaseSheet.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 51,57,111-113,135-143,146-147,162-171,186-187,192-202,204-208,213-214,231,233
+app/src/config/tabs/ai/mcpDeletion.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-50
+app/scripts/markdown-styles.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-133
+app/src/dialog/mobileDialogWrappers.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-176
+app/guide/20240530133126-axarxgx/20240530101000-4qitucx/20240530101000-g3ugxml/20240530101000-ei5t6tt/20260804171006-aiagt04.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,284,505,519,555,671,804,896,905,941-1175,1182,1196,1201,1323,1384-1397,1553-1623,1649
+app/src/layout/dock/Inbox.ts
+  s_5706450afae6e3::t_9846ba92a9e742 13,223
+app/appearance/langs/ru.json
+  s_5706450afae6e3::t_9846ba92a9e742 2-204,214-220,225,351,378,620,867,1209,2948,3225-3236,3416,3703-3728
+app/electron/ipc/markdownEditors.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-77
+app/electron/markdown/lifecycle.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-71
+app/src/ai/memory/overview.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-94
+app/electron/startup/enabledSettingFile.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-28
+app/scripts/markdown-assets.test.js
+  s_5706450afae6e3::t_9846ba92a9e742 1-177
+app/guide/20211226090932-5lcq56f/20211226115423-d5z1joq/20211226115825-mhcslw2/20211226120349-rbkmozu.sy
+  s_5706450afae6e3::t_9846ba92a9e742 9,126,203-281,349,558,572,604,613,627
+app/src/markdown/windowChrome.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-60
+app/electron/window/windowRegistry.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-122
+app/src/config/tabs/ai/aiDecisionUi.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,196
+app/src/block/Panel.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-175
+app/electron/startup/markdownEditors.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-206
+app/src/plugin/loader.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 7,16-43
+app/electron/kernel/kernelExitCodes.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-49
+app/electron/shared/timing.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-5
+app/src/config/bazaar/batchUpdatePreference.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-5
+app/electron/markdown/registry.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-140
+app/src/layout/reloadSnapshot.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-75
+app/src/mobile/util/touch.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 53,74-76,120-133
+app/src/menus/tagMenu.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 57-61,83,90-91,93,101,104,108
+app/electron/markdown/systemFonts.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-47
+app/src/block/popover.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,56,91-110,395-396,743,746-760,856,870
+app/src/protyle/export/exportMd.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-49
+app/src/assets/scss/markdown.scss
+  s_5706450afae6e3::t_9846ba92a9e742 1-644
+app/src/markdown/resourcePolicy.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-230
+app/src/config/render/parts.ts
+  s_5706450afae6e3::t_9846ba92a9e742 39
+app/electron/ipc/commandChannel.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-188
+app/src/boot/openChangelog.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-2,7-9,11-72,74-77,79,82,85-108
+app/src/protyle/breadcrumb/globalPath.dom.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1-303
+app/src/layout/dock/agent/AgentHistory.ts
+  s_5706450afae6e3::t_9846ba92a9e742 47-75
+app/src/layout/dock/agent/agentSkill.test.ts
+  s_5706450afae6e3::t_9846ba92a9e742 17,21-22,37,112-115,120-123,250
+app/src/layout/dock/agent/AgentScrollState.ts
+  s_5706450afae6e3::t_9846ba92a9e742 42-59
+app/src/config/tabs/ai/aiInstructions.ts
+  s_5706450afae6e3::t_9846ba92a9e742 1,9-10,32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "4cde7068332aa8bb5aceade480228ede33e1934c",
+  "prompts": {},
+  "sessions": {
+    "s_5706450afae6e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c3f1-92b6-7ff0-936c-5a08b57e5856",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Yingyi / 颖逸 <49649786+Zuoqiu-Yingyi@users.noreply.github.com>"
+    }
+  }
+}
