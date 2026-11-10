@@ -1,0 +1,25 @@
+.agents/skills/sync-upstream-release/references/packaging-and-release.md
+  s_5706450afae6e3::t_850cd76ddec828 1-33
+.agents/skills/sync-upstream-release/references/verification.md
+  s_5706450afae6e3::t_850cd76ddec828 1-27
+.agents/skills/sync-upstream-release/SKILL.md
+  s_5706450afae6e3::t_850cd76ddec828 3-63
+.agents/skills/sync-upstream-release/agents/openai.yaml
+  s_5706450afae6e3::t_850cd76ddec828 1-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "08e6b05168ce54d7e7d7a1040ed88c08a2d67019",
+  "prompts": {},
+  "sessions": {
+    "s_5706450afae6e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c3f1-92b6-7ff0-936c-5a08b57e5856",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Yingyi / 颖逸 <49649786+Zuoqiu-Yingyi@users.noreply.github.com>"
+    }
+  }
+}
