@@ -27,7 +27,6 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
-	"github.com/siyuan-note/dataparser"
 	"github.com/siyuan-note/filelock"
 )
 
@@ -183,7 +182,7 @@ func (p *assetRelinkPlan) scan() error {
 				return nil
 			}
 			p.parsedDocuments++
-			tree, readErr := dataparser.ParseJSONWithoutFix(data, luteEngine.ParseOptions)
+			tree, readErr := treenode.ParseJSONWithoutFix(data, luteEngine.ParseOptions)
 			if readErr != nil || tree == nil || tree.Root == nil {
 				return fmt.Errorf("cannot parse document %s: %v", absPath, readErr)
 			}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
+	kernelModel "github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
@@ -432,6 +433,19 @@ func SaveSessionState(data []byte) (int64, map[string]any, error) {
 		updatedAt = value
 	}
 	UpdateSessionIndex(meta.ID, title, createdAt, updatedAt, numberToInt64(newData["pinnedAt"]))
+	if commitTurnID != "" && commitTurnID != currentCommittedTurnID {
+		var checkpoint agentCheckpoint
+		if gulu.JSON.UnmarshalJSON(data, &checkpoint) == nil {
+			for i := len(checkpoint.Entries) - 1; i >= 0; i-- {
+				entry := checkpoint.Entries[i]
+				if entry.Type != "user" {
+					continue
+				}
+				kernelModel.QueueAIMemoryConversation(meta.ID, entry.ID)
+				break
+			}
+		}
+	}
 
 	return newRevision, newData, nil
 }

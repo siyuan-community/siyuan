@@ -21,7 +21,6 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
-	"github.com/siyuan-note/dataparser"
 )
 
 const markdownImportBatchDocuments = 32
@@ -179,7 +178,7 @@ func (spool *markdownImportSpool) load(index int) (*parse.Tree, error) {
 	if err != nil {
 		return nil, err
 	}
-	tree, err := dataparser.ParseJSONWithoutFix(raw, util.NewLute().ParseOptions)
+	tree, err := treenode.ParseJSONWithoutFix(raw, util.NewLute().ParseOptions)
 	if err != nil {
 		return nil, err
 	}
