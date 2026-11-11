@@ -99,7 +99,7 @@ func validateAssetDownloadSourceScope(scope string) error {
 func checkAssetDownloadAccess() error {
 	confSyncSnapshot := Conf.LoadSync()
 
-	if confSyncSnapshot == nil || !confSyncSnapshot.Enabled || Conf.GetUser() == nil {
+	if confSyncSnapshot == nil || !confSyncSnapshot.Enabled || (conf.ProviderSiYuan == confSyncSnapshot.Provider && Conf.GetUser() == nil) {
 		return errors.New(Conf.Language(376))
 	}
 	switch confSyncSnapshot.Provider {

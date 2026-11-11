@@ -6,8 +6,11 @@ package model
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/siyuan-community/siyuan/kernel/conf"
@@ -79,5 +82,51 @@ func TestThirdPartySyncAddressCompatibility(t *testing.T) {
 	}
 	if err := SetSyncProviderLocal(nil); err == nil {
 		t.Fatal("nil local configuration was accepted")
+	}
+}
+
+func TestThirdPartySyncWithoutCloudUser(t *testing.T) {
+	prepareSyncDirectoryTest(t)
+	Conf.SetUser(nil)
+	Conf.Sync.Load().Enabled = true
+	Conf.Sync.Load().CloudName = "main"
+
+	Conf.Sync.Load().Provider = conf.ProviderSiYuan
+	if checkSync(false, false, true) {
+		t.Fatal("SiYuan cloud sync succeeded without a logged-in user")
+	}
+	if err := checkAssetDownloadAccess(); err == nil {
+		t.Fatal("SiYuan cloud asset download access succeeded without a logged-in user")
+	}
+
+	for _, provider := range []int{conf.ProviderS3, conf.ProviderWebDAV, conf.ProviderLocal} {
+		Conf.Sync.Load().Provider = provider
+		if !checkSync(false, false, true) {
+			t.Fatalf("third-party provider %s sync rejected without a logged-in user", conf.ProviderToStr(provider))
+		}
+		if err := checkAssetDownloadAccess(); err != nil {
+			t.Fatalf("third-party provider %s asset download access rejected without a logged-in user: %v", conf.ProviderToStr(provider), err)
+		}
+	}
+
+	previousStatus := util.StatusBarCfg.Load()
+	util.StatusBarCfg.Store(&util.StatusBar{MsgDataSyncDisabled: true})
+	t.Cleanup(func() { util.StatusBarCfg.Store(previousStatus) })
+	if err := os.MkdirAll(util.DataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var s3Requested atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s3Requested.Store(true)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	Conf.Sync.Load().Provider = conf.ProviderS3
+	Conf.Sync.Load().S3.Endpoint = server.URL
+	_ = syncData(false, true)
+	if !s3Requested.Load() {
+		t.Fatal("S3 syncData did not reach the S3 endpoint when Conf.GetUser() == nil")
 	}
 }
