@@ -12,6 +12,7 @@ import (
 
 	"github.com/siyuan-community/siyuan/kernel/memory"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
 
 const aiMemoryCandidateRetention = 30 * 24 * time.Hour
@@ -59,6 +60,7 @@ func maintainAIMemoryCandidates(ctx context.Context, now time.Time) error {
 	removed, err := memory.NewStore(workspace).MaintainCandidates(ctx, now.Add(-aiMemoryCandidateRetention), check)
 	if removed > 0 && util.DataDir == workspace {
 		memoryChanged("")
+		logging.LogInfof("retired [%d] automatic AI memory candidates", removed)
 	}
 	return err
 }

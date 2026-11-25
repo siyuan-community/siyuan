@@ -208,6 +208,7 @@ var openNotebook = contractHandler(apicontract.OpenNotebook, func(c *gin.Context
 					"20211226090932-5lcq56f": "20211226115423-d5z1joq",
 					"20210808180117-6v0mkxr": "20200923234011-ieuun1p",
 					"20240530133126-axarxgx": "20240530101000-4qitucx",
+					"20261122113000-kt3e4wz": "20261122113000-m9xlls7",
 				}
 				startID = guideStartID[notebook]
 				if treenode.ExistBlockTree(startID) {
@@ -329,6 +330,8 @@ var setNotebookConf = contractHandler(apicontract.SetNotebookConf, func(c *gin.C
 	return apicontract.Success(notebookConfContract(boxConf))
 })
 
+var getFlashcardNotebooks = model.GetFlashcardNotebooks
+
 var lsNotebooks = contractHandler(apicontract.ListNotebooks, func(c *gin.Context, request apicontract.ListNotebooksRequest) apicontract.Response[*apicontract.ListNotebooksData] {
 
 	flashcard := request.Flashcard
@@ -337,7 +340,7 @@ var lsNotebooks = contractHandler(apicontract.ListNotebooks, func(c *gin.Context
 	var publishAccess model.PublishAccess
 	isReadOnlyRole := model.IsReadOnlyRoleContext(c)
 	if flashcard {
-		notebooks = model.GetFlashcardNotebooks()
+		notebooks = getFlashcardNotebooks()
 	} else {
 		for _, boxID := range model.ListAllEncryptedBoxIDs() {
 			if !model.IsBoxUnlocked(boxID) {
@@ -352,17 +355,10 @@ var lsNotebooks = contractHandler(apicontract.ListNotebooks, func(c *gin.Context
 		if err != nil {
 			return apicontract.Success[*apicontract.ListNotebooksData](nil)
 		}
-		if isReadOnlyRole {
-			publishAccess = model.GetPublishAccess()
-			tempNotebooks := []*model.Box{}
-			for _, notebook := range notebooks {
-				if !isNotebookVisibleByPublishAccess(notebook, publishAccess) {
-					continue
-				}
-				tempNotebooks = append(tempNotebooks, notebook)
-			}
-			notebooks = tempNotebooks
-		}
+	}
+	if isReadOnlyRole {
+		publishAccess = model.GetPublishAccess()
+		notebooks = filterNotebooksForReader(notebooks, publishAccess)
 	}
 
 	boxDocEnabled := model.IsBoxDocEnabled()
@@ -413,6 +409,19 @@ func isNotebookVisibleByPublishAccess(notebook *model.Box, publishAccess model.P
 		}
 	}
 	return true
+}
+
+// filterNotebooksForReader 过滤只读角色不可见的笔记本，并清除跨发布范围的闪卡统计。
+func filterNotebooksForReader(notebooks []*model.Box, publishAccess model.PublishAccess) (ret []*model.Box) {
+	ret = []*model.Box{}
+	for _, notebook := range notebooks {
+		if !isNotebookVisibleByPublishAccess(notebook, publishAccess) {
+			continue
+		}
+		notebook.NewFlashcardCount, notebook.DueFlashcardCount, notebook.FlashcardCount = 0, 0, 0
+		ret = append(ret, notebook)
+	}
+	return
 }
 
 // enableEncryptedNotebooks 先同步数据，再恢复既有配置或启用加密笔记本并设置主密码。

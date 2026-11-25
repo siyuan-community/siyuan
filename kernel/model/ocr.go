@@ -24,6 +24,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/task"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 )
 
@@ -156,7 +157,7 @@ func currentPaddleConfig() ocr.PaddleConfig {
 		filename = "libonnxruntime.dylib"
 	}
 	result := ocr.PaddleConfig{Directory: ocrModelDirectory(value.Model), Library: filepath.Join(directory, filename), Thresholds: ocr.Thresholds(value.Thresholds)}
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" && linuxOCRWorker {
 		result.Worker = filepath.Join(directory, "siyuan-ocr")
 	}
 	if runtime.GOOS == "android" {
@@ -240,7 +241,14 @@ func SetOCRAssetText(path, text string) {
 }
 
 func indexOCRAssetText(path string) {
-	documents, err := sql.QueryOCRAssetDocuments(path)
+	indexOCRAssetTexts(map[string]bool{path: true}, false)
+}
+
+func indexOCRAssetTexts(paths map[string]bool, refreshAll bool) {
+	if len(paths) == 0 && !refreshAll {
+		return
+	}
+	documents, err := sql.QueryOCRAssetDocuments(paths, refreshAll)
 	if err != nil {
 		logging.LogErrorf("query OCR asset documents failed: %s", err)
 		return
@@ -260,7 +268,7 @@ func indexOCRAssetText(path string) {
 				return ast.WalkContinue
 			}
 			destination := node.ChildByType(ast.NodeLinkDest)
-			if destination == nil || util.OCRAssetKey(destination.TokensStr()) != path {
+			if destination == nil || !refreshAll && !paths[util.OCRAssetKey(destination.TokensStr())] {
 				return ast.WalkContinue
 			}
 			for parent := node.Parent; parent != nil && parent.Type != ast.NodeDocument; parent = parent.Parent {
@@ -290,6 +298,52 @@ func OCRAssetsJob() {
 
 var ocrRetry automaticOCRRetryCache
 
+func automaticOCRAssets(ctx context.Context, provider string) map[string]*cache.Asset {
+	matchName := util.IsTesseractExtractable
+	if provider == "ai" {
+		matchName = isAIOCRPath
+	}
+	scan := func(root string) map[string]*cache.Asset {
+		assets, err := cache.ScanAssets(ctx, root, matchName)
+		if err != nil && ctx.Err() == nil && !os.IsNotExist(err) {
+			logging.LogWarnf("scan automatic OCR assets [%s] failed: %s", root, err)
+		}
+		return assets
+	}
+
+	var assets map[string]*cache.Asset
+	if util.IsMobileContainer() {
+		assets = scan(util.GetDataAssetsAbsPath())
+	} else {
+		assets = cache.FilterAssets(func(path string, _ *cache.Asset) bool { return matchName(path) })
+	}
+	entries, err := os.ReadDir(util.DataDir)
+	if err != nil {
+		logging.LogWarnf("list notebooks for automatic OCR failed: %s", err)
+		return assets
+	}
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			break
+		}
+		boxID := entry.Name()
+		if !entry.IsDir() || !ast.IsNodeIDPattern(boxID) {
+			continue
+		}
+		root := filepath.Join(util.DataDir, boxID, "assets")
+		if !filelock.IsExist(root) || !filelock.IsExist(filepath.Join(util.DataDir, boxID, ".siyuan", "conf.json")) || IsEncryptedBox(boxID) {
+			continue
+		}
+		// 普通笔记本图片使用不带 box 参数的链接，与手动识别及全文索引使用同一个资源键。
+		for path, asset := range scan(root) {
+			if _, exists := assets[path]; !exists {
+				assets[path] = asset
+			}
+		}
+	}
+	return assets
+}
+
 func autoOCRAssets() {
 	defer logging.Recover()
 	value := Conf.GetOCR()
@@ -298,12 +352,10 @@ func autoOCRAssets() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), automaticOCRTimeout(value))
 	defer cancel()
-	assets := cache.FilterAssets(func(path string, asset *cache.Asset) bool {
-		if value.Provider == "ai" {
-			return isAIOCRPath(asset.Path)
-		}
-		return util.IsTesseractExtractable(asset.Path)
-	})
+	assets := automaticOCRAssets(ctx, value.Provider)
+	if ctx.Err() != nil {
+		return
+	}
 	generation := ocrRetry.prepare(value, assets)
 	limit := 7
 	if value.Provider == "ai" {
@@ -320,6 +372,15 @@ func autoOCRAssets() {
 		absPath, err := GetAssetAbsPathInBox(asset.Path, "")
 		if err != nil || IsEncryptedAssetPath(absPath) {
 			continue
+		}
+		if util.BoxIDFromDataPath(absPath) != "" {
+			relativePath, err := filepath.Rel(util.DataDir, absPath)
+			if err != nil {
+				continue
+			}
+			if _, _, err = ResolveDataAssetPath(relativePath); err != nil {
+				continue
+			}
 		}
 		info, err := os.Stat(absPath)
 		if err != nil {

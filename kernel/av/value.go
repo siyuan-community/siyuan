@@ -391,13 +391,15 @@ func (subtype BlockRefSubtype) IsValid() bool {
 }
 
 type ValueBlock struct {
-	CollectionRuleID string          `json:"collectionRuleID,omitempty"` // 创建条目的收集规则；缺省表示手动条目
-	ID               string          `json:"id,omitempty"`               // 绑定的块 ID，非绑定块时为空
-	Icon             string          `json:"icon,omitempty"`
-	Content          string          `json:"content"`
-	RefSubtype       BlockRefSubtype `json:"refSubtype,omitempty"`
-	Created          int64           `json:"created,omitempty"`
-	Updated          int64           `json:"updated,omitempty"`
+	CollectionRuleID string            `json:"collectionRuleID,omitempty"` // 创建条目的收集规则；缺省表示手动条目
+	ID               string            `json:"id,omitempty"`               // 绑定的块 ID，非绑定块时为空
+	Icon             string            `json:"icon,omitempty"`
+	Content          string            `json:"content"`
+	Rich             *ValuePrimaryRich `json:"rich,omitempty"`
+	RichBlockDOM     string            `json:"richBlockDOM,omitempty"`
+	RefSubtype       BlockRefSubtype   `json:"refSubtype,omitempty"`
+	Created          int64             `json:"created,omitempty"`
+	Updated          int64             `json:"updated,omitempty"`
 }
 
 func (value *Value) NormalizeBlockRefSubtype(avID string, attrs map[string]string) (changed bool) {
@@ -516,7 +518,7 @@ func validateValueTextRichTreeWithImages(tree *parse.Tree, images bool) (err err
 		if images && !allowed {
 			allowed = isAllowedTableCellRichCustomNode(node)
 		}
-		if !allowed && !(images && isAllowedTableCellRichImageNode(node)) {
+		if !allowed && !isAllowedTableCellRichImageNode(node) {
 			err = fmt.Errorf("unsupported attribute view rich text node [%s]", node.Type.String())
 			return ast.WalkStop
 		}
@@ -2409,16 +2411,15 @@ func NewFormattedValueDate(content, content2 int64, format DateFormat, isNotTime
 	}
 
 	content2Time := time.UnixMilli(content2)
-	if hasEndDate {
+	isNotEmpty2 := 0 != content2 && !content2Time.IsZero()
+	if hasEndDate && isNotEmpty2 {
 		var formattedContent2 string
 		if isNotTime {
 			formattedContent2 = content2Time.Format("2006-01-02")
 		} else {
 			formattedContent2 = content2Time.Format("2006-01-02 15:04")
 		}
-		if !content2Time.IsZero() {
-			formatted += " → " + formattedContent2
-		}
+		formatted += " → " + formattedContent2
 	}
 	switch format {
 	case DateFormatNone:
@@ -2431,7 +2432,7 @@ func NewFormattedValueDate(content, content2 int64, format DateFormat, isNotTime
 		Content:          content,
 		Content2:         content2,
 		IsNotEmpty:       true,
-		IsNotEmpty2:      !content2Time.IsZero(),
+		IsNotEmpty2:      isNotEmpty2,
 		HasEndDate:       hasEndDate,
 		IsNotTime:        isNotTime,
 		FormattedContent: formatted,

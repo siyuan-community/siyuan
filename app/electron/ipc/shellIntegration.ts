@@ -1,8 +1,9 @@
 // 桌面外壳集成：全局快捷键、托盘文案与开机启动。
 import * as electron from "electron";
-import {state, getConsole} from "../shared/runtime";
+import {state, getConsole, writeLog} from "../shared/runtime";
 import {hasTray} from "../shared/traySupport";
 import {hideWindow, toggleMainWindow} from "../window/windowVisibility";
+import {finishWindowCloseOnHide} from "../window/closeRecovery";
 import {resetTrayMenu} from "../window/trayMenu";
 import {updateGlobalShortcutBindings} from "../window/globalShortcutBindings";
 import {hotKey2Electron} from "../window/appMenu";
@@ -10,6 +11,7 @@ import {getActiveWindow, getWindowKernelTarget} from "../window/windowRegistry";
 import {Channel} from "../shared/channels";
 
 const registerShellIntegrationIpc = (): void => {
+    let previousFailures = new Map<string, string>();
     electron.ipcMain.on(Channel.SIYUAN_HOTKEY, (event, data) => {
         if (!Array.isArray(data.hotkeys)) {
             return;
@@ -37,14 +39,27 @@ const registerShellIntegrationIpc = (): void => {
             dispatch: (workspace, hotkey) => workspace.browserWindow.webContents.send(Channel.SIYUAN_HOTKEY, {hotkey}),
             reportError: error => getConsole().error("Global shortcut registration failed:", error),
         });
-        event.sender.send(Channel.SIYUAN_HOTKEY, {failed});
+        if (!failed) {
+            return;
+        }
+        const newlyFailed: string[] = [];
+        for (const [accelerator, hotkey] of failed) {
+            if (!previousFailures.has(accelerator)) {
+                newlyFailed.push(hotkey);
+            }
+        }
+        previousFailures = failed;
+        if (failed.size) {
+            writeLog("Global shortcut registration failed [" + [...failed.keys()].join("] [") + "]");
+        }
+        event.sender.send(Channel.SIYUAN_HOTKEY, {newlyFailed});
     });
 
-    // 前端在语言变化时提交新的托盘文案，这里据此重建菜单。
     electron.ipcMain.on(Channel.SIYUAN_CONFIG_TRAY, (event, data) => {
         state.workspaces.find(item => {
             if (item.browserWindow.webContents.id === event.sender.id) {
                 hideWindow(item.browserWindow);
+                finishWindowCloseOnHide(item.browserWindow);
                 if (hasTray(process.platform)) {
                     resetTrayMenu(item.tray as electron.Tray, data.languages, item.browserWindow);
                 }

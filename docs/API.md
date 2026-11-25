@@ -1059,6 +1059,7 @@ Legacy lookup checks each candidate ancestor chain. It returns all clean matches
       Under normal circumstances, it is recommended to use the first method, which is stored in the assets folder of the
       workspace, since putting in a subdirectory has some side effects, please refer to the assets chapter of the user guide.
     * `file[]`: Uploaded file list
+    * `excludeFromCleanup`: Optional form text, either `"true"` or `"false"`; omitted means false. When true, successfully uploaded or reused ordinary assets are added to the cleanup exclusion rules. Files whose exclusion rules cannot be saved are not reported as successful. This option does not support encrypted notebook assets
 * Return value
 
   ```json
@@ -1549,6 +1550,8 @@ Block insert, prepend, append and update operations validate block IDs throughou
   }
   ```
 
+When present, `data["custom-sy-tag-created"]` is a JSON string mapping complete tag names to Unix milliseconds. Each value records when the tag was added to this block. Missing entries have an unknown addition time.
+
 ## SQL
 
 ### Execute SQL query
@@ -1756,6 +1759,8 @@ Without a live interactive window, `httpGet` returns `interaction_required` and 
 ### Put file
 
 * `/api/file/putFile`
+
+When sync retries local snapshot indexing after detecting a file change, writes to files included in sync may wait after the form has been received. Canceling a request while it waits leaves its destination untouched.
 
 For `.sy` document paths composed of notebook and document IDs, both the incoming content and any existing document are checked. Unknown formats, invalid document sources, or slash-containing titles without the required Spec 6 declaration return `code: -1`, preserving the original file and modification time. Successful writes retain the request bytes without normalizing titles. Files ending in `.sy` inside asset or plugin directories are not parsed as documents.
 
@@ -2156,6 +2161,7 @@ Incoming titles containing ASCII `/` must declare `Spec` at least `6`; otherwise
 
 * `/api/system/bootProgress`
 * No parameters
+* `details` contains the localized startup stage and may include work counters. It omits workspace paths and identifiers
 * Return value
 
   ```json
@@ -2304,6 +2310,7 @@ Ordinary HTTP template parsing or evaluation errors are returned in the affected
         "group": null,
         "pageSize": 50,
         "showIcon": true,
+        "showRelationIcon": true,
         "wrapField": false,
         "groupFolded": false,
         "groupHidden": 0,
@@ -2356,7 +2363,7 @@ Ordinary HTTP template parsing or evaluation errors are returned in the affected
   }
   ```
 
-    * `data.view`: The rendered view instance. Its shape depends on `viewType`: `table` and `list` return `columns`/`rows`/`rowCount`, while `gallery` and `kanban` return `fields`/`cards`/`cardCount`. When grouping is enabled, `groups` contains a view instance for each group, including `groupKey`/`groupValue`. `view` also includes `filters`, `sorts`, `group`, `showIcon`, `wrapField`, `groupFolded`, and `groupHidden`. Note: active filters or grouping can make the item list empty even when the total item count is greater than 0
+    * `data.view`: The rendered view instance. Its shape depends on `viewType`: `table` and `list` return `columns`/`rows`/`rowCount`, while `gallery` and `kanban` return `fields`/`cards`/`cardCount`. When grouping is enabled, `groups` contains a view instance for each group, including `groupKey`/`groupValue`. `view` also includes `filters`, `sorts`, `group`, `showIcon`, `showRelationIcon`, `wrapField`, `groupFolded`, and `groupHidden`. `showIcon` controls primary-key content icons; `showRelationIcon` controls relation and rollup content icons and falls back to `showIcon` for saved layouts without that setting. Note: active filters or grouping can make the item list empty even when the total item count is greater than 0
     * `data.view.columns[]`: Each has `id`, `name`, `type`, `icon`, `wrap`, `hidden`, `desc`, `calc`, `numberFormat`, `template`, `renderTemplate`, `pin`, `width`; `select`/`mSelect` columns additionally include `options`. Gallery and kanban fields expose the same field metadata under `data.view.fields[]`
     * `data.view.columns[].renderTemplate`: Optional display template for a normal field. It changes only the displayed content; the field's stored typed value remains unchanged
     * `data.view.rows[].id`: The table row's **item ID** (`itemID`). It also equals `value.blockID` in that row's primary-key cell. For a bound row, the bound block ID is stored in `value.block.id` in the primary-key cell; these are distinct concepts and must not be assumed equal
@@ -2667,9 +2674,11 @@ Updates a single cell (one field of one row). This is the primary write endpoint
 
 For `mAsset`, each item uses `type: "image"` to render an image or `type: "file"` to render a file link. Updating the value replaces the entire `mAsset` array, so append operations must include the existing items.
 
-For rich text, `text.rich.content` is the authoritative Kramdown source. The kernel validates its supported structure and derives `text.content` as the plain-text projection; a caller-provided plain-text projection is ignored. For compatibility with existing API clients, omitting `text.rich` preserves the stored rich-text payload when `text.content` is unchanged, but replaces it with plain text when `text.content` changes. Send `"rich": null` to explicitly remove rich formatting even when the plain-text projection is unchanged. Attribute views containing rich text use storage spec 9 and cannot be opened by kernels that only support earlier attribute-view specs.
+For rich text, `text.rich.content` is the authoritative Kramdown source. The kernel validates its supported structure and derives `text.content` as the plain-text projection; a caller-provided plain-text projection is ignored. For compatibility with existing API clients, omitting `text.rich` preserves the stored rich-text payload when `text.content` is unchanged, but replaces it with plain text when `text.content` changes. Send `"rich": null` to explicitly remove rich formatting even when the plain-text projection is unchanged. Rich text fields require storage spec 9 or later. Saving an inline image such as `![Photo](assets/photo.png)` in a text field requires spec 17. Older kernels cannot open a database whose storage spec they do not support.
 
 For `location`, `name` is optional. `latitude` and `longitude` must both be absent/null or both be finite numbers in [-90, 90] and [-180, 180], respectively; zero is valid. All coordinates implicitly use WGS84 and are stored without conversion. Explicit coordinate-system properties on location values are rejected; field-level coordinate-system settings are not provided. `originalInput` retains source text and is excluded from filtering and sorting. Omitted update members preserve existing values; to clear a location send `{"location":null}`, or explicitly clear the name and set both coordinates to null. When coordinates change, omitted `originalInput` is cleared automatically; an explicitly supplied source is retained. Text filters use `{"type":"location","text":{"content":"query"}}` and match the name and coordinates. Location fields use attribute-view storage spec 13; older kernels cannot open them. Unrelated databases retain their existing storage spec.
+
+Primary keys (`block`) store version 1 `kramdown` sources in `block.rich`, using the text field block structure with image support. Existing version 1 `inline-ast` sources remain readable without automatic conversion. `block.richBlockDOM` is a runtime rendering; the cell update endpoint validates supported block fragments and converts edited content into the stored source. Both forms must describe the same content when supplied together. `block.content` is a derived plain-text projection. Omitting rich fields preserves the source when the projection is unchanged; replacing a rich primary key with plain text requires an explicit `block.rich: null` and omission of `richBlockDOM`. Editing a bound primary key sets its static anchor without rewriting the source document; an empty plain value restores the dynamic source. Saving a Kramdown primary key requires attribute-view spec 16; legacy inline sources require spec 15. Unedited databases retain their versions. Older clients cannot open format 16 databases; rollback requires a complete pre-upgrade snapshot.
 
 * `/api/av/setAttributeViewBlockAttr`
 * Parameters

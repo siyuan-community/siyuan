@@ -23,7 +23,7 @@ const menuOf = (menu: unknown): MenuItemNode[] => menu as MenuItemNode[];
 
 
 test("startup editing menu uses requested or system language and preserves native roles", () => {
-    for (const [requested, system, expected] of [["zh-CN", "en", "zh-CN"], ["", "zh-Hant", "zh-TW"], ["", "en-US", "en"]]) {
+    for (const [requested, system, expected] of [["zh-CN", "en", "zh-CN"], ["", "zh-Hant", "zh-TW"], ["", "en-US", "en"], ["", "vi-VN", "vi"]]) {
         const language = resolveStartupMenuLanguage({
             argLang: requested, workspaceDir: "", isRemote: false, systemLanguages: [system],
         });
@@ -77,7 +77,14 @@ test("macOS menu loads translations from language identifiers without an i18n pa
 });
 
 test("macOS menu application is a no-op outside darwin", () => {
-    // applyMacAppMenu 只按当前平台生效；这里断言它不会因为缺少 Electron 菜单对象而抛错。
-    assert.equal(applyMacAppMenu(undefined), undefined);
-    assert.equal(applyMacAppMenu({lang: "", hotkey: {}}), undefined);
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    try {
+        for (const value of ["win32", "linux"]) {
+            Object.defineProperty(process, "platform", {...platform, value});
+            assert.equal(applyMacAppMenu(undefined), undefined);
+            assert.equal(applyMacAppMenu({lang: "", hotkey: {}}), undefined);
+        }
+    } finally {
+        Object.defineProperty(process, "platform", platform);
+    }
 });

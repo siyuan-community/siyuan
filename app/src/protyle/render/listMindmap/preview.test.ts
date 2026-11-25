@@ -149,7 +149,7 @@ const cases = async (source: string, css: string, formulas: string[]) => {
     check.equal(api.getCell(tablePreview.querySelector("td")), undefined);
     check.equal(api.getTableNode(tablePreview.querySelector("td")), undefined);
     const controls = Object.assign(new api.TablePreviewControl(), {
-        wysiwygElement: tablePreview, pinnedTableActions: new Map(),
+        wysiwygElement: tablePreview, pinnedTableActions: new Set(), pinnedTableResizeTargets: new Set(),
         pinnedTableResizeObserver: {observe: () => check.fail("Preview registered a pinned table control")},
         getTableGridRect: () => check.fail("Preview registered table resize handles"),
     });
@@ -187,6 +187,7 @@ const cases = async (source: string, css: string, formulas: string[]) => {
     const view = Object.assign(new api.MindmapPreviewView(), {
         options: {host: map}, viewport: document.createElement("div"), persistedLocked: false,
         nodeElements: new Map([[node.id, nodeElement]]), folded: new Map(), selectedIds: new Set(),
+        relationRoutes: new Map(), fallbackRoutes: new Set(), anchorFallbackRoutes: new Set(),
         renderTask: () => {}, destroyContentViews: () => {},
         label: (key: string) => key, updateRelations: () => {}, updateSummaries: () => {},
         updateSelection: () => {}, renderInspector: () => {}, refreshLayout: () => {},

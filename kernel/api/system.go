@@ -207,13 +207,25 @@ var getEmojiConf = contractHandler(apicontract.SystemGetEmojiConf, func(c *gin.C
 		TitleZhCN: "自定义",
 		TitleJaJP: "カスタム",
 	}
-	items := []*apicontract.SystemEmoji{}
-	custom.Items = items
+	custom.Items = []*apicontract.SystemEmoji{}
 	if gulu.File.IsDir(customConfDir) {
-		model.ClearCustomEmojis()
-		readCustomEmojis(customConfDir, "", &items)
+		if model.IsReadOnlyRoleContext(c) {
+			for _, name := range model.PublishedEmojiPaths(c, model.GetPublishAccess()) {
+				if !util.IsValidExistingEmojiFileName(html.UnescapeString(filepath.Base(name))) {
+					continue
+				}
+				file, openErr := util.OpenPublishReaderFile(customConfDir, name)
+				if openErr != nil {
+					continue
+				}
+				file.Close()
+				custom.Items = append(custom.Items, customEmojiEntry(name))
+			}
+		} else {
+			model.ClearCustomEmojis()
+			readCustomEmojis(customConfDir, "", &custom.Items)
+		}
 	}
-	custom.Items = items
 	conf = append([]*apicontract.SystemEmojiGroup{custom}, conf...)
 
 	ret = apicontract.Success(conf)
@@ -251,24 +263,22 @@ func readCustomEmojis(rootDir, relativeDir string, items *[]*apicontract.SystemE
 			readCustomEmojis(rootDir, relativePath, items)
 			continue
 		}
-		appendCustomEmoji(relativePath, items)
+		entry := customEmojiEntry(relativePath)
+		*items = append(*items, entry)
+		model.AddCustomEmoji(entry.Description, "/emojis/"+relativePath)
 	}
 }
 
-func appendCustomEmoji(name string, items *[]*apicontract.SystemEmoji) {
+func customEmojiEntry(name string) *apicontract.SystemEmoji {
 	ext := filepath.Ext(name)
 	nameWithoutExt := strings.TrimSuffix(name, ext)
-	emoji := &apicontract.SystemEmoji{
+	return &apicontract.SystemEmoji{
 		Unicode:         name,
 		Description:     nameWithoutExt,
 		DescriptionZhCN: nameWithoutExt,
 		DescriptionJaJP: nameWithoutExt,
 		Keywords:        nameWithoutExt,
 	}
-	*items = append(*items, emoji)
-
-	imgSrc := "/emojis/" + name
-	model.AddCustomEmoji(nameWithoutExt, imgSrc)
 }
 
 const maxCustomEmojiSize = 10 * 1024 * 1024
@@ -1379,6 +1389,11 @@ var setNetworkProxy = contractHandler(apicontract.SetNetworkProxy, func(c *gin.C
 })
 
 var addUIProcess = contractHandler(apicontract.SystemAddUIProcess, func(c *gin.Context, request apicontract.EmptyRequest) apicontract.Response[apicontract.Null] {
+	// 注册表用于桌面端存活判断，只接受管理员登记，避免读者占用注册槽位。
+	if !model.IsAdminRoleContext(c) {
+		return apicontract.EmptyHTTPResponse[apicontract.Null](http.StatusOK)
+	}
+
 	pidInt, err := strconv.Atoi(c.Query("pid"))
 	if err != nil || 0 >= pidInt {
 		return apicontract.EmptyHTTPResponse[apicontract.Null](http.StatusOK)
@@ -1421,6 +1436,7 @@ func exitSystem(c *gin.Context, request apicontract.SystemExitRequest) apicontra
 	case 1: // 同步执行失败
 		return apicontract.SystemExit.FailureWithData(1, model.Conf.Language(96)+"<div class=\"fn__space\"></div><button class=\"b3-button b3-button--white\">"+model.Conf.Language(97)+"</button>", data)
 	case 2: // 提示新安装包
+		data.ReleaseURL = model.GetInstallPackageReleaseURL(installPkgPath)
 		return apicontract.SystemExit.FailureWithData(2, model.Conf.Language(61), data)
 	case 3: // 仍有界面处理退出结果，宿主继续等待。
 		return apicontract.SystemExit.FailureWithData(3, "", data)

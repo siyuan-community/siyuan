@@ -676,6 +676,17 @@ export class Wnd {
                      focusEditor = !isPhablet()) {
         let currentTab: Tab;
         let isInitActive = false;
+        // 显示相邻页签会改变源页签的高度，并触发浏览器原生滚动锚定。
+        // 在改变任何页签可见性前保存离开页签的阅读位置。
+        if (isPhablet()) {
+            this.children.forEach(item => {
+                if (target !== item.headElement && item.model instanceof Editor &&
+                    !item.panelElement.classList.contains("fn__none")) {
+                    saveTabPosition(item.model.editor.protyle);
+                    saveBackScroll(item.model.editor.protyle);
+                }
+            });
+        }
         this.children.forEach((item) => {
             if (target === item.headElement) {
                 if (item.headElement && item.headElement.classList.contains("fn__none")) {
@@ -703,10 +714,6 @@ export class Wnd {
             } else {
                 item.headElement?.classList.remove("item--focus");
                 if (!item.panelElement.classList.contains("fn__none")) {
-                    if (isPhablet() && item.model instanceof Editor) {
-                        saveTabPosition(item.model.editor.protyle);
-                        saveBackScroll(item.model.editor.protyle);
-                    }
                     // 必须现判断，否则会触发 observer.observe(this.element, {attributeFilter: ["class"]}); 导致 https://ld246.com/article/1641198819303
                     item.panelElement.classList.add("fn__none");
                 }
@@ -979,16 +986,18 @@ export class Wnd {
         if (this.removingOverCounter) return;
         this.removingOverCounter = true;
         const attempted = new Set<Tab>();
+        const isOverLimit = () => this.children.length > window.siyuan.config.fileTree.maxOpenTabCount;
+        const isClosable = (tab: Tab) => !!tab.headElement &&
+            !tab.headElement.classList.contains("item--pin") && !tab.headElement.classList.contains("item--focus");
         try {
-            while (this.children.length > window.siyuan.config.fileTree.maxOpenTabCount) {
-                const candidates = this.children.filter(item => !attempted.has(item) && item.headElement &&
-                    !item.headElement.classList.contains("item--pin") && !item.headElement.classList.contains("item--focus"));
+            while (isOverLimit()) {
+                const candidates = this.children.filter(item => !attempted.has(item) && isClosable(item));
                 candidates.sort((a, b) => (a.headElement.getAttribute("data-activetime") || "").localeCompare(
                     b.headElement.getAttribute("data-activetime") || ""));
                 const item = candidates[0];
                 if (!item) break;
                 attempted.add(item);
-                await this.removeTab(item.id, false, false, isSaveLayout);
+                await this.removeTab(item.id, false, false, isSaveLayout, false, () => isOverLimit() && isClosable(item));
             }
         } finally {
             this.removingOverCounter = false;
@@ -1144,13 +1153,17 @@ export class Wnd {
 
     // 源已关闭或删除时立即清理明文，不能再等待该源上的保存和上传。
     // Pending title saves resolve to the close result; other paths remain synchronous.
-    public removeTab(id: string, isBatchClose = false, animate = true, isSaveLayout = true, sourceRemoved = false): boolean | Promise<boolean> {
+    public removeTab(id: string, isBatchClose = false, animate = true, isSaveLayout = true, sourceRemoved = false,
+                     canClose?: () => boolean): boolean | Promise<boolean> {
         for (let index = 0; index < this.children.length; index++) {
             const item = this.children[index];
             if (item.id === id) {
                 if (sourceRemoved) {
                     this.removeTabAction(id, isBatchClose, false, isSaveLayout, true);
                     return true;
+                }
+                if (canClose?.() === false) {
+                    return false;
                 }
                 if ((item.model instanceof Editor) && item.model.editor?.protyle) {
                     if (item.model.editor.isUploading()) {
@@ -1160,7 +1173,7 @@ export class Wnd {
                     const model = item.model;
                     const pending = flushDocumentTitleBeforeClose(model.editor,
                         () => this.removeTabAction(id, isBatchClose, animate, isSaveLayout),
-                        () => this.children.includes(item) && item.model === model);
+                        () => this.children.includes(item) && item.model === model, canClose);
                     if (pending) {
                         return pending;
                     }

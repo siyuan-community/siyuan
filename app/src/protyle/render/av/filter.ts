@@ -15,13 +15,21 @@ import {getAVColorStyle} from "./color";
 import {setFilterSelectPosition} from "./selectPosition";
 import {closeInlineFilterDropdowns} from "./filterDropdown";
 import type {IAVRelationContext} from "./host";
+import {validateInlineDateInput} from "../../../datePicker/inline";
+import {createFilterDateDropdown} from "./filterDateDropdown";
+import {showMessage} from "../../../dialog/message";
+
+const destroyFilterDateEditors = new WeakMap<HTMLElement, () => void>();
 
 export interface FilterEditorOptions {
     action?: IAVFilterOperation["action"];
+    // 字段筛选保存到字段所属数据库，条件元数据来自关联目标数据库。
+    avID?: string;
     keyID?: string;
     save?: (filters: IAVFilter[]) => void;
     render?: () => string;
     root?: HTMLElement;
+    onResize?: () => void;
 }
 
 const isExactRelationOperator = (operator: string) =>
@@ -31,7 +39,7 @@ const getSetFiltersOperation = (avID: string, blockID: string, data: IAVFilter[]
                                 filterOperation?: FilterEditorOptions): IOperation => {
     return {
         action: filterOperation?.action || "setAttrViewFilters",
-        avID,
+        avID: filterOperation?.avID || avID,
         keyID: filterOperation?.keyID,
         data,
         blockID,
@@ -478,7 +486,7 @@ const cacheRelationFilterValues = (data: IAV, avID: string, values: IAVCellValue
     values.forEach((value) => {
         if (value.blockID) {
             const cacheKey = getRelationFilterCacheKey(avID, value.blockID);
-            cache.set(cacheKey, value.block?.content || window.siyuan.languages.untitled);
+            cache.set(cacheKey, value.block?.content ?? "");
         }
     });
 };
@@ -716,7 +724,7 @@ const genInlineDateHTML = (filter: IAVFilter, valueType: TAVCol, path: string): 
         const hasAbsoluteValue = suffix === "2"
             ? dateVal?.isNotEmpty2
             : dateVal && (dateVal.isNotEmpty || valueType !== "date");
-        const absDate = `<input value="${hasAbsoluteValue ? formatAbsDate(suffix === "2" ? dateVal.content2 : dateVal.content) : ""}" type="date" max="9999-12-31" class="b3-text-field b3-text-field--text" data-type="absDate${suffix}" data-path="${path}" style="${isRelative ? "display:none;" : ""}">`;
+        const absDate = `<input value="${hasAbsoluteValue ? formatAbsDate(suffix === "2" ? dateVal.content2 : dateVal.content) : ""}" type="text" data-date-picker-type="date" aria-haspopup="dialog" aria-expanded="false" max="9999-12-31" class="b3-text-field b3-text-field--text" data-type="absDate${suffix}" data-path="${path}" style="${isRelative ? "display:none;" : ""}">`;
         const relDir = `<select class="b3-select" data-type="dataDirection${suffix}" data-path="${path}" style="${!isRelative ? "display:none;" : ""}">
 <option value="-1"${relativeDate?.direction === -1 ? " selected" : ""}>${window.siyuan.languages.pastDate}</option>
 <option value="1"${relativeDate?.direction === 1 ? " selected" : ""}>${window.siyuan.languages.nextDate}</option>
@@ -777,29 +785,42 @@ ${searchInput}<div class="av__select-options" data-type="selectOptions" data-pat
     return {trigger, dropdown};
 };
 
-const getRelationFilterLabel = (avID: string, blockID: string, data?: IAV) => {
-    return relationFilterLabelCaches.get(data)?.get(getRelationFilterCacheKey(avID, blockID)) ||
-        window.siyuan.languages.untitled;
+const getRelationFilterItems = (avID: string, blockIDs: string[], data?: IAV) => {
+    const titles = relationFilterLabelCaches.get(data);
+    const labelCounts = new Map<string, number>();
+    const items = blockIDs.map(blockID => {
+        const title = titles?.get(getRelationFilterCacheKey(avID, blockID));
+        const label = title || window.siyuan.languages.untitled;
+        // 按单行标题的空白折叠规则比较展示文本。
+        const labelKey = label.replace(/[ \t\r\n]+/g, " ").replace(/^ | $/g, "");
+        labelCounts.set(labelKey, (labelCounts.get(labelKey) || 0) + 1);
+        return {blockID, label, labelKey, needsID: !title || !labelKey};
+    });
+    return items.map(({blockID, label, labelKey, needsID}) => ({
+        blockID,
+        label,
+        showID: needsID || labelCounts.get(labelKey) > 1,
+    }));
 };
 
-const genRelationFilterChip = (avID: string, blockID: string, removable: boolean, path: string, data?: IAV) => {
-    const label = getRelationFilterLabel(avID, blockID, data);
-    const suffix = blockID.slice(-7);
+const genRelationFilterChip = ({blockID, label, showID}: ReturnType<typeof getRelationFilterItems>[number],
+                               removable: boolean, path: string) => {
+    const idHTML = showID ? `<span class="av__relation-filter-id">${escapeHtml(blockID.slice(-7))}</span>` : "";
     const removeButton = removable
         ? `<button type="button" class="av__relation-filter-remove" data-type="relationFilterRemove" data-path="${path}" data-id="${escapeAttr(blockID)}" aria-label="${window.siyuan.languages.remove}">
 <svg><use xlink:href="#iconCloseRound"></use></svg></button>`
         : "";
     return `<span class="b3-chip b3-chip--middle av__relation-filter-chip" title="${escapeAttr(blockID)}">
-<span class="fn__ellipsis">${escapeHtml(label)}</span><span class="av__relation-filter-id">${escapeHtml(suffix)}</span>${removeButton}</span>`;
+<span class="fn__ellipsis">${escapeHtml(label)}</span>${idHTML}${removeButton}</span>`;
 };
 
 const genRelationFilterTriggerContent = (avID: string, blockIDs: string[], path: string, data?: IAV) => {
     if (0 === blockIDs.length) {
         return `<span class="ft__on-surface fn__ellipsis">${window.siyuan.languages.selectRelationItems}</span>`;
     }
-    const visibleBlockIDs = blockIDs.slice(0, 2);
-    const overflow = blockIDs.length - visibleBlockIDs.length;
-    return visibleBlockIDs.map((blockID) => genRelationFilterChip(avID, blockID, false, path, data)).join("") +
+    const visibleItems = getRelationFilterItems(avID, blockIDs, data).slice(0, 2);
+    const overflow = blockIDs.length - visibleItems.length;
+    return visibleItems.map(item => genRelationFilterChip(item, false, path)).join("") +
         (0 < overflow ? `<span class="b3-chip b3-chip--middle av__relation-filter-count">+${overflow}</span>` : "");
 };
 
@@ -807,8 +828,9 @@ const genRelationFilterSelectedHTML = (avID: string, blockIDs: string[], path: s
     if (0 === blockIDs.length) {
         return "";
     }
-    return `<div class="av__relation-filter-selected-chips">${blockIDs.map((blockID) =>
-        genRelationFilterChip(avID, blockID, true, path, data)).join("")}</div>
+    const items = getRelationFilterItems(avID, blockIDs, data);
+    return `<div class="av__relation-filter-selected-chips">${items.map(item =>
+        genRelationFilterChip(item, true, path)).join("")}</div>
 <button type="button" class="b3-button b3-button--text av__relation-filter-clear" data-type="relationFilterClear" data-path="${path}">${window.siyuan.languages.clear}</button>`;
 };
 
@@ -938,7 +960,7 @@ const readRelativeDate = (rowElement: HTMLElement, suffix: string): IAVRelativeD
 // commitFilter 即时保存单个条件的修改。reRender=true 时重渲染整个面板（结构变化场景）。
 export const commitFilter = (data: IAV, path: string, newFilter: IAVFilter, protyle: IProtyle, blockID: string,
                              avID: string, menuElement: HTMLElement, reRender: boolean,
-                             filterOperation?: FilterEditorOptions) => {
+                             filterOperation?: FilterEditorOptions, onFailure?: () => void) => {
     const editable = getEditableFilters(data);
     const {parent, index} = getParentByPath(editable, path);
     if (!parent || index < 0 || index >= parent.length) {
@@ -946,18 +968,26 @@ export const commitFilter = (data: IAV, path: string, newFilter: IAVFilter, prot
     }
     const oldFilters = JSON.parse(JSON.stringify(data.view.filters));
     parent[index] = newFilter;
-
-    if (filterOperation?.save) {
-        filterOperation.save(data.view.filters);
-    } else {
-        transaction(protyle, [
+    let pending: void | Promise<void>;
+    try {
+        pending = filterOperation?.save ? filterOperation.save(data.view.filters) : transaction(protyle, [
             getSetFiltersOperation(avID, blockID, JSON.parse(JSON.stringify(data.view.filters)), filterOperation)
         ], [
             getSetFiltersOperation(avID, blockID, oldFilters, filterOperation)
-        ]);
+        ], onFailure ? {awaitResponse: true} : undefined);
+    } catch (error) {
+        onFailure?.();
+        throw error;
+    }
+    if (onFailure && pending && typeof pending.then === "function") {
+        void Promise.resolve(pending).catch(error => {
+            onFailure();
+            showMessage(window.siyuan.languages.transactionSaveUnconfirmed || error?.message);
+        });
     }
 
     if (reRender && menuElement) {
+        destroyFilterDateEditors.get(menuElement)?.();
         menuElement.innerHTML = filterOperation?.render?.() || getFiltersHTML(data);
     }
 };
@@ -998,13 +1028,25 @@ export const bindInlineFilterEvents = (panelElement: HTMLElement, data: IAV, pro
     };
 
     // 保存当前行的值（从 DOM 读取后提交）
+    const composingDates = new WeakSet<HTMLInputElement>();
+    const submittedDateValues = new WeakMap<HTMLInputElement, string>();
+    const pendingDateSaves = new WeakMap<HTMLInputElement, object>();
     const saveRow = (rowElement: HTMLElement, path: string, reRender: boolean) => {
+        if (!current()) { return; }
         const filter = getFilterByPath(getEditableFilters(data), path);
         const colData = findColData(path);
         if (!filter || !colData) return;
         const {type: valueType} = resolveFilterValueType(filter, colData);
         const operatorSel = rowElement.querySelector('[data-type="operation"]') as HTMLSelectElement;
         const operator = (operatorSel?.value || filter.operator) as TAVFilterOperator;
+        const usesAbsoluteDate = isAVDateType(valueType) && operator !== "Is empty" && operator !== "Is not empty" &&
+            rowElement.querySelector<HTMLSelectElement>('[data-type="dateType"]')?.value !== "custom";
+        const dateInput = rowElement.querySelector<HTMLInputElement>('[data-type="absDate"]');
+        const dateInput2 = rowElement.querySelector<HTMLInputElement>('[data-type="absDate2"]');
+        if (usesAbsoluteDate && (composingDates.has(dateInput) || !validateInlineDateInput(dateInput) ||
+            operator === "Is between" && (composingDates.has(dateInput2) || !validateInlineDateInput(dateInput2)))) {
+            return;
+        }
         const {newValue, relativeDate, relativeDate2} = readInlineValue(rowElement, valueType, operator, filter, menuElement);
         const quantifierSel = rowElement.querySelector('[data-type="quantifier"]') as HTMLSelectElement;
         const newFilter: IAVFilter = {
@@ -1024,8 +1066,59 @@ export const bindInlineFilterEvents = (panelElement: HTMLElement, data: IAV, pro
         if (quantifierSel) {
             newFilter.quantifier = quantifierSel.value;
         }
-        commitFilter(data, path, newFilter, protyle, blockID, avID, menuElement, reRender, filterOperation);
+        const saveAttempt = {};
+        [dateInput, dateInput2].forEach(input => { if (input) { pendingDateSaves.set(input, saveAttempt); } });
+        commitFilter(data, path, newFilter, protyle, blockID, avID, menuElement, reRender, filterOperation,
+            usesAbsoluteDate ? () => {
+                [dateInput, dateInput2].forEach(input => {
+                    if (input && pendingDateSaves.get(input) === saveAttempt) {
+                        // 保留失败标记，避免重新聚焦时把未确认的草稿再次视为已提交。
+                        submittedDateValues.set(input, undefined);
+                    }
+                });
+            } : undefined);
+        [dateInput, dateInput2].forEach(input => {
+            if (input) { submittedDateValues.set(input, input.value); }
+        });
     };
+
+    // 两个条件值共用月历，字段起止端点仍由 dateEndpoint 独立选择。
+    let dateDropdown: ReturnType<typeof createFilterDateDropdown>;
+    destroyFilterDateEditors.set(menuElement, () => {
+        dateDropdown?.destroy();
+        dateDropdown = undefined;
+    });
+    const isDateInput = (input: HTMLInputElement) => input.dataset.type?.startsWith("absDate") &&
+        input.closest('[data-filter-events-bound="true"]') === panelElement;
+    panelElement.addEventListener("focusin", (event: FocusEvent) => {
+        const input = event.target as HTMLInputElement;
+        if (isDateInput(input) && !submittedDateValues.has(input)) { submittedDateValues.set(input, input.value); }
+    });
+    panelElement.addEventListener("compositionstart", (event: CompositionEvent) => {
+        const input = event.target as HTMLInputElement;
+        if (isDateInput(input)) { composingDates.add(input); }
+    });
+    panelElement.addEventListener("compositionend", (event: CompositionEvent) => {
+        composingDates.delete(event.target as HTMLInputElement);
+    });
+    const openDateDropdown = (event: MouseEvent) => {
+        const input = event.target as HTMLInputElement;
+        if (event.button !== 0 || !isDateInput(input) || composingDates.has(input)) { return; }
+        event.preventDefault();
+        dateDropdown ||= createFilterDateDropdown(current);
+        dateDropdown.open(input);
+    };
+    panelElement.addEventListener("pointerdown", openDateDropdown, true);
+    panelElement.addEventListener("click", openDateDropdown);
+    panelElement.addEventListener("keydown", (event: KeyboardEvent) => {
+        const input = event.target as HTMLInputElement;
+        if (event.altKey && event.key === "ArrowDown" && !event.isComposing && isDateInput(input)) {
+            event.preventDefault();
+            event.stopPropagation();
+            dateDropdown ||= createFilterDateDropdown(current);
+            dateDropdown.open(input);
+        }
+    });
 
     const getRelationFilterSelection = (dropdown: HTMLElement): string[] => {
         return parseRelationFilterBlockIDs(dropdown.dataset.selected || []);
@@ -1089,17 +1182,13 @@ export const bindInlineFilterEvents = (panelElement: HTMLElement, data: IAV, pro
         if (!optionsElement) {
             return;
         }
-        optionsElement.innerHTML = values.map((value) => {
-            const rowID = value.blockID;
-            if (!rowID) {
-                return "";
-            }
-            const label = value.block?.content || window.siyuan.languages.untitled;
-            return `<button type="button" class="av__relation-filter-option" data-type="relationFilterOption" data-path="${path}" data-id="${escapeAttr(rowID)}">
+        const blockIDs = values.map(value => value.blockID).filter(Boolean);
+        optionsElement.innerHTML = getRelationFilterItems(targetAVID, blockIDs, data).map(({blockID, label, showID}) => {
+            const idHTML = showID ? `<span class="av__relation-filter-option-id">${escapeHtml(blockID.slice(-7))}</span>` : "";
+            return `<button type="button" class="av__relation-filter-option" data-type="relationFilterOption" data-path="${path}" data-id="${escapeAttr(blockID)}" title="${escapeAttr(label)}">
 <svg class="av__relation-filter-option-icon"><use xlink:href="#iconFile"></use></svg>
-<span class="fn__ellipsis">${escapeHtml(label)}</span>
-<span class="av__relation-filter-option-id">${escapeHtml(rowID.slice(-7))}</span>
-<svg class="av__relation-filter-option-check"><use xlink:href="#${selectedSet.has(rowID) ? "iconCheck" : "iconUncheck"}"></use></svg>
+<span class="fn__ellipsis">${escapeHtml(label)}</span>${idHTML}
+<svg class="av__relation-filter-option-check"><use xlink:href="#${selectedSet.has(blockID) ? "iconCheck" : "iconUncheck"}"></use></svg>
 </button>`;
         }).join("");
         renderRelationFilterSelection(path, dropdown, getRelationFilterSelection(dropdown));
@@ -1191,7 +1280,7 @@ export const bindInlineFilterEvents = (panelElement: HTMLElement, data: IAV, pro
             }
         } else if (type === "relUnit" || type === "relUnit2") {
             saveRow(row, path, false);
-        } else if (type === "filterValue") {
+        } else if (type === "filterValue" || type === "absDate" || type === "absDate2") {
             // select/change 触发（非键盘输入的 change，如浏览器自动填充）
             saveRow(row, path, false);
         }
@@ -1201,6 +1290,11 @@ export const bindInlineFilterEvents = (panelElement: HTMLElement, data: IAV, pro
     panelElement.addEventListener("blur", (event: Event) => {
         const target = event.target as HTMLElement;
         if (target.closest('[data-filter-events-bound="true"]') !== panelElement) {
+            return;
+        }
+        if (target.dataset.type?.startsWith("absDate") &&
+            (dateDropdown?.isOpen(target as HTMLInputElement) ||
+                submittedDateValues.get(target as HTMLInputElement) === (target as HTMLInputElement).value)) {
             return;
         }
         if (target.dataset.type === "filterValue" || target.dataset.type?.startsWith("absDate") || target.dataset.type?.startsWith("relCount")) {

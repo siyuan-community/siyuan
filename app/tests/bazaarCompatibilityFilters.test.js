@@ -154,7 +154,7 @@ const setupFixture = async ({sources, languages, mobile}) => {
     };
     Object.assign(dependencies, {
         Constants: {LOCAL_BAZAAR: "local-bazaar"},
-        getFrontend: () => mobile ? "browser-mobile" : "browser-desktop", isMobile: () => mobile,
+        getFrontend: () => mobile ? "browser-mobile" : "browser-desktop", isMobile: () => mobile, isInIOS: () => false,
         syncRatingUser: () => false, renderBazaarInstall() {},
         showMessage: message => persistence.messages.push(message),
         fetchPost: (url, data, callback) => {
@@ -254,7 +254,11 @@ const runInteractionCases = async () => {
         await f.settle();
     };
     const installedHTML = bazaar.element.querySelector("#configBazaarDownloaded").innerHTML;
+    const searchPlaceholder = window.siyuan.languages.searchPlaceholder;
+    assert.ok(searchPlaceholder);
+    assert.equal(bazaar.element.querySelector('[data-type="downloaded-filter"]').placeholder, searchPlaceholder);
     for (const type of types) {
+        assert.equal(panel(type).querySelector(".b3-text-field").placeholder, searchPlaceholder);
         activate(type);
         response(type, packages);
         assert.equal(panel(type).querySelectorAll("[data-bazaar-filter]").length, 0);

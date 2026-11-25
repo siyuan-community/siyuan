@@ -6,7 +6,7 @@
 		"id": "20200910201551-h4twhas",
 		"title": "书签和标签",
 		"type": "doc",
-		"updated": "20261024161440"
+		"updated": "20261116220110"
 	},
 	"Children": [
 		{
@@ -98,7 +98,7 @@
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20210104091316-zxotarc",
-				"updated": "20260810212846"
+				"updated": "20261116220110"
 			},
 			"Children": [
 				{
@@ -183,7 +183,7 @@
 			"Children": [
 				{
 					"Type": "NodeText",
-					"Data": "所有打过标签的内容块会在标签页签（"
+					"Data": "打开标签面板（"
 				},
 				{
 					"Type": "NodeTextMark",
@@ -219,7 +219,94 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "​）中列出。如果需要取消标签，在内容块中删掉该标签即可。"
+					"Data": "​）。在桌面端点击标签，会在全局搜索中显示匹配的内容块。要移除内容块上的标签，直接在块中删除该标签即可。"
+				}
+			]
+		},
+		{
+			"ID": "20261118205131-bd54f93",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261118205131-bd54f93",
+				"updated": "20261118205131"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在标签面板中选择 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "排序"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "自定义排序"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "，即可直接拖动标签行调整同级顺序。移动端请长按标签行后拖动。自定义顺序随工作空间数据保存。从标签面板删除标签后重新创建同名标签，它会排在已有排序位置的同级标签之后。筛选标签时，请先清除筛选条件再排序。"
+				}
+			]
+		},
+		{
+			"ID": "20261118220329-7cb10bd",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261118220329-7cb10bd",
+				"updated": "20261118220329"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在标签面板中选择 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "排序"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "最近添加"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "，即可按标签最近一次添加到文档或内容块的时间排列同级标签。添加时间未知的标签排在末尾。"
+				}
+			]
+		},
+		{
+			"ID": "20261116215152-8d44f6e",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261116215152-8d44f6e",
+				"updated": "20261116220110"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在标签面板菜单中选择 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "重命名"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "，可跨文档统一修改该标签及其子标签。可在任一受影响文档中撤销，并在该文档中重做；数据库中已有的条目及其字段值会保留。"
 				}
 			]
 		},

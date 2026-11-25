@@ -28,6 +28,7 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
     const api = (window as unknown as {MarkdownEditorTest: typeof import("./editor") & typeof import("./resourcePolicy")}).MarkdownEditorTest;
     check.equal(matchMedia("(prefers-reduced-motion: reduce)").matches, false,
         "animation cases explicitly use normal motion regardless of the host preference");
+    const primaryModifier = /Mac/i.test(navigator.platform) ? {metaKey: true} : {ctrlKey: true};
     const tick = () => new Promise(resolve => setTimeout(resolve, 0));
     const waitFor = async (predicate: () => boolean, message: string) => {
         for (let attempt = 0; attempt < 100 && !predicate(); attempt++) {
@@ -43,6 +44,68 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
         outlineStyle.onerror = () => reject(new Error("Could not load Vditor outline test styles"));
         document.head.append(outlineStyle);
     });
+    const policy = api.createMarkdownResourcePolicy(document);
+    for (const [destination, visible] of [["https://example.com/path?q=a&b=c#part", true], ["http://example.com/", true],
+        ["mailto:test@example.com", true], ["javascript:alert(1)", false], ["data:text/html,test", false],
+        ["file:///private.md", false], ["https://example.com/a\nb", false]] as const) {
+        const original = document.createElement("a");
+        original.setAttribute("href", destination);
+        original.setAttribute("ping", "https://invalid.example/track");
+        original.setAttribute("onclick", "window.markdownExecuted = true");
+        original.textContent = "Link";
+        const template = document.createElement("template");
+        template.innerHTML = policy.sanitize(original.outerHTML);
+        const anchor = template.content.querySelector("a");
+        check.equal(anchor.getAttribute("href"), visible ? destination : null);
+        check.equal(anchor.getAttribute("ping"), null, "link tracking stays blocked");
+        check.equal(anchor.getAttribute("onclick"), null, "link scripts stay blocked");
+        template.innerHTML = policy.restore(template.innerHTML);
+        check.equal(template.content.querySelector("a").getAttribute("href"), destination, "blocked destinations remain recoverable");
+    }
+    const resource = document.createElement("template");
+    resource.innerHTML = policy.sanitize('<link href="https://invalid.example/style.css" rel="stylesheet">');
+    check.equal(resource.content.querySelector("link"), null, "the href exception applies only to anchors");
+    policy.destroy();
+    for (const mobile of [false, true]) {
+        const element = document.createElement("div");
+        element.style.height = "360px";
+        document.body.append(element);
+        const destination = "https://developer.mozilla.org/zh-CN/docs/Web/API/Document/currentScript?q=a&b=c#value";
+        const source = `[Document.currentScript](${destination} "Title")\n\nOutside\n`;
+        const editor = await api.createMarkdownEditor({element, initialValue: source, mode: "ir", cdn, lutePath, mobile,
+            onEdit: () => {}});
+        editor.setMode("wysiwyg");
+        const surface = element.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+        const anchor = surface.querySelector("a");
+        check.equal(anchor.getAttribute("href"), destination, "WYSIWYG retains the link destination after switching from IR");
+        for (const theme of ["light", "dark"] as const) {
+            editor.setTheme(theme);
+            await waitFor(() => getComputedStyle(anchor).color !== getComputedStyle(surface.querySelector("p:last-child")).color,
+                `links retain their theme styling in ${theme}`);
+        }
+        const range = document.createRange();
+        range.selectNodeContents(anchor);
+        range.collapse(false);
+        surface.focus();
+        getSelection().removeAllRanges(); getSelection().addRange(range);
+        surface.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowLeft", bubbles: true}));
+        await waitFor(() => element.querySelectorAll(".vditor-panel input").length === 3, "link editing fields are available");
+        const fields = element.querySelectorAll<HTMLInputElement>(".vditor-panel input");
+        check.equal(fields[1].value, destination, "link editing displays the original destination");
+        fields[0].value = "Edited link";
+        fields[0].dispatchEvent(new Event("input", {bubbles: true}));
+        check.ok(editor.flush().content.includes(`[Edited link](${destination} "Title")`),
+            "editing link text retains its destination and title");
+        const nextDestination = "https://example.com/updated?q=1&b=2#part";
+        fields[1].value = nextDestination;
+        fields[1].dispatchEvent(new Event("input", {bubbles: true}));
+        check.ok(editor.flush().content.includes(`[Edited link](${nextDestination} "Title")`), "destination edits are serialized");
+        for (const mode of ["sv", "ir", "wysiwyg"] as const) {
+            editor.setMode(mode);
+            check.ok(editor.flush().content.includes(`[Edited link](${nextDestination} "Title")`), `link edits survive ${mode}`);
+        }
+        editor.destroy(); element.remove();
+    }
     for (const mode of ["ir", "wysiwyg", "sv"] as const) {
         const element = document.createElement("div");
         element.style.height = "360px";
@@ -355,6 +418,7 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
         '```echarts\n{"title":{"text":"static diagram"}}\n```\n\n:doge: 🐶 👨‍👩‍👧‍👦\n\nEnd\n';
     const imageURL = URL.createObjectURL(new Blob([new Uint8Array([137, 80, 78, 71])], {type: "image/png"}));
     const links: string[] = [];
+    const documentLinks: string[] = [];
     for (const mode of ["ir", "wysiwyg", "sv"] as const) {
         const element = document.createElement("div");
         element.style.height = "600px";
@@ -366,7 +430,8 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
         const editor = await api.createMarkdownEditor({element, initialValue: source, mode, cdn, lutePath, lang: "en-US",
             resolveResource: reference => reference === "assets/photo.png" ? imageURL : undefined,
             onEdit: snapshot => edits.push(snapshot), onEditPending: value => pending.push(value),
-            onModeChange: value => modes.push(value), onLink: url => links.push(url), onHistoryChange: state => history.push(state)});
+            onModeChange: value => modes.push(value), onLink: url => links.push(url),
+            onDocumentLink: reference => documentLinks.push(reference), onHistoryChange: state => history.push(state)});
         check.equal(element.querySelector<HTMLElement>(".vditor-toolbar").hidden, true);
         if (mode === "sv") check.ok(element.querySelector(".vditor-preview .vditor-reset").textContent.includes("End"), "initial source preview is ready before revealing the editor");
         check.deepEqual(editor.flush(), {content: source, edited: false, composing: false});
@@ -460,6 +525,17 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
         await new Promise(resolve => setTimeout(resolve, 850));
         check.deepEqual(editor.flush(), {content: "Reloaded\n", edited: false, composing: false});
         check.equal(edits.length, afterReload);
+        editor.setMode(mode);
+        const relativeSource = "| File |\n| --- |\n| [Next](docs/next.md) |\n\nOutside\n";
+        editor.setValue(relativeSource);
+        const relativeLink = () => element.querySelector(mode === "ir" ? '.vditor-ir [data-type="a"]' :
+            mode === "wysiwyg" ? ".vditor-wysiwyg a" : ".vditor-preview a");
+        await waitFor(() => Boolean(relativeLink()), `relative document link in ${mode}`);
+        const linksBefore = documentLinks.length;
+        relativeLink().dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
+        check.equal(documentLinks.length, linksBefore + 1, `one relative document open request in ${mode}`);
+        check.equal(documentLinks.at(-1), "docs/next.md");
+        check.deepEqual(editor.flush(), {content: relativeSource, edited: false, composing: false});
         if (mode !== "sv") {
             editor.setMode(mode);
             const keyboardSource = "- first\n- second\n";
@@ -504,6 +580,24 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
             editor.redo(); await tick();
             check.equal(editor.flush().content, keyboardEdit.content, `keyboard redo in ${mode}`);
 
+            editor.setValue("###\n\n### Next\n");
+            await new Promise(resolve => setTimeout(resolve, 350));
+            placeCaret(richSurface.querySelector("h3"));
+            const headingBackspace = new KeyboardEvent("keydown", {key: "Backspace", bubbles: true, cancelable: true});
+            richSurface.dispatchEvent(headingBackspace);
+            check.equal(headingBackspace.defaultPrevented, true, `Vditor handles empty heading Backspace in ${mode}`);
+            const paragraph = richSurface.firstElementChild;
+            check.equal(paragraph.tagName, "P");
+            check.ok(paragraph.contains(getSelection().anchorNode));
+            check.deepEqual(editor.flush(), {content: "### Next\n", edited: true, composing: false},
+                `empty heading replacement flushes in ${mode}`);
+            await new Promise(resolve => setTimeout(resolve, 350));
+            check.equal(edits.at(-1).content, "### Next\n");
+            editor.undo(); await tick();
+            check.match(editor.flush().content, /^### ?\n\n### Next\n$/, `empty heading undo in ${mode}`);
+            editor.redo(); await tick();
+            check.equal(editor.flush().content, "### Next\n");
+
             editor.setValue(keyboardSource);
             await new Promise(resolve => setTimeout(resolve, 350));
             placeCaret(richSurface.querySelectorAll("li")[1]);
@@ -521,7 +615,7 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
             editor.setValue("- [ ] first\n");
             await new Promise(resolve => setTimeout(resolve, 350));
             placeCaret(richSurface.querySelector("li"));
-            richSurface.dispatchEvent(new KeyboardEvent("keydown", {key: "J", code: "KeyJ", ctrlKey: true,
+            richSurface.dispatchEvent(new KeyboardEvent("keydown", {key: "J", code: "KeyJ", ...primaryModifier,
                 shiftKey: true, bubbles: true, cancelable: true}));
             check.ok(richSurface.querySelector<HTMLInputElement>("input").checked, `task keyboard command in ${mode}`);
             check.match(editor.flush().content, /\[[xX]\]/);
@@ -615,6 +709,7 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
         "large source opens without rendering its table-heavy preview");
     recoveryEditor.setValue("# Reloaded\n" + oversizedDraft);
     check.equal(recoveryEditor.flush().content, "# Reloaded\n" + oversizedDraft);
+    check.deepEqual(recoveryEditor.resourceReferences(), [], "source-only recovery does not parse the full document for image authorization");
     recoveryEditor.setValue("# Small preview pending\n");
     recoveryEditor.setValue(oversizedDraft);
     await new Promise(resolve => setTimeout(resolve, 220));
@@ -664,7 +759,7 @@ const browserCases = async (cdn: string, lutePath: string, imagesOrigin: string)
     return "Markdown editor DOM cases passed";
 };
 
-test("Vditor 4.0.2-alpha.8 adapter preserves content and isolates programmatic, input, composition and preview events", {
+test("Vditor 4.0.2-alpha.11 adapter preserves content and isolates programmatic, input, composition and preview events", {
     skip: process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY,
     timeout: 45000,
 }, async () => {

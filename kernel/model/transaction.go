@@ -593,6 +593,8 @@ func performTx(tx *Transaction) (ret *TxErr) {
 				ret = tx.doSetAttrViewDisplayEmptyFields(op)
 			case "setAttrViewFillColBackgroundColor":
 				ret = tx.doSetAttrViewFillColBackgroundColor(op)
+			case "setAttrViewShowRelationIcon":
+				ret = tx.doSetAttrViewShowRelationIcon(op)
 			case "setAttrViewShowIcon":
 				ret = tx.doSetAttrViewShowIcon(op)
 			case "setAttrViewWrapField":
@@ -2072,7 +2074,7 @@ func (tx *Transaction) doInsert0(operation *Operation, tree *parse.Tree) (ret *T
 	// 粘贴被引用的块后需刷新目标文档的引用计数，否则目标文档级计数角标不会更新
 	task.AppendAsyncTaskWithDelay(task.SetDefRefCount, util.SQLFlushInterval, refreshRefCount, tree.Root.ID)
 
-	upsertAvBlockRel(insertedNode)
+	tx.upsertAvBlockRel(insertedNode, tree)
 
 	// 复制为副本时移除数据库绑定状态 https://github.com/siyuan-note/siyuan/issues/12294
 	insertedNode.RemoveIALAttr(av.NodeAttrNameAvs)
@@ -2372,7 +2374,7 @@ func (tx *Transaction) doUpdate(operation *Operation) (ret *TxErr) {
 	tx.nodes[updatedNode.ID] = updatedNode
 	tx.writeTreeWithIndexChanges(tree)
 
-	upsertAvBlockRel(updatedNode)
+	tx.upsertAvBlockRel(updatedNode, tree)
 
 	return
 }
@@ -2483,7 +2485,7 @@ func getRemovedNodes(oldNode, newNode *ast.Node) (ret []*ast.Node) {
 	return
 }
 
-func upsertAvBlockRel(node *ast.Node) {
+func (tx *Transaction) upsertAvBlockRel(node *ast.Node, tree *parse.Tree) {
 	var affectedAvIDs []string
 	ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
@@ -2492,6 +2494,9 @@ func upsertAvBlockRel(node *ast.Node) {
 
 		if ast.NodeAttributeView == n.Type {
 			avID := n.AttributeViewID
+			if tx.isReplay {
+				tx.sourceMirrors = append(tx.sourceMirrors, av.BlockRelRecovery{ID: n.ID, AttributeViewID: avID, BoxID: tree.Box})
+			}
 			if changed := av.UpsertBlockRel(avID, n.ID); changed {
 				affectedAvIDs = append(affectedAvIDs, avID)
 			}
@@ -2646,6 +2651,17 @@ func (tx *Transaction) doRemoveCreatedDoc(operation *Operation) (ret *TxErr) {
 
 func (tx *Transaction) doSetAttrs(operation *Operation) (ret *TxErr) {
 	id := operation.ID
+	attrs := map[string]string{}
+	if err := gulu.JSON.UnmarshalJSON([]byte(operation.Data.(string)), &attrs); err != nil {
+		logging.LogErrorf("unmarshal attrs failed: %s", err)
+		return &TxErr{code: TxErrCodeBlockNotFound, id: id}
+	}
+	if value, ok := attrs[treenode.TagCreatedAttr]; ok && len(attrs) == 1 {
+		if tx.isReplay {
+			tx.replayedTagDates[id] = readTagDates(value)
+		}
+		return nil
+	}
 	tree, err := tx.loadTree(id)
 	if err != nil {
 		return loadTreeTxErr(id, err)
@@ -2657,11 +2673,6 @@ func (tx *Transaction) doSetAttrs(operation *Operation) (ret *TxErr) {
 		return &TxErr{code: TxErrCodeBlockNotFound, id: id}
 	}
 
-	attrs := map[string]string{}
-	if err = gulu.JSON.UnmarshalJSON([]byte(operation.Data.(string)), &attrs); err != nil {
-		logging.LogErrorf("unmarshal attrs failed: %s", err)
-		return &TxErr{code: TxErrCodeBlockNotFound, id: id}
-	}
 	if IsBoxDoc(tree.Box, tree.ID) {
 		attrs[DocHiddenAttr] = "true"
 		if icon, ok := attrs["icon"]; ok {
@@ -2675,7 +2686,6 @@ func (tx *Transaction) doSetAttrs(operation *Operation) (ret *TxErr) {
 		logging.LogErrorf("set attrs failed: %s", setErr)
 		return &TxErr{code: TxErrCodePushMsg, msg: setErr.Error(), id: id}
 	}
-
 	tx.writeTree(tree)
 	cache.PutBlockIALInBox(id, tree.Box, parse.IAL2Map(node.KramdownIAL))
 	return
@@ -2767,6 +2777,7 @@ type Operation struct {
 	blockSwapUndo                 bool
 	documentTitleState            *documentTitleUndoState
 	documentTitleUndo             bool
+	tagDatesReplay                bool // 仅内核生成，用于随编辑事务恢复标签添加时间
 	listConversion                *listConversionState
 	listConversionUndo            bool
 	attributeViewItems            *attributeViewItemsSnapshot
@@ -2778,6 +2789,7 @@ type Operation struct {
 	relationCellReplay            *attributeViewRelationCellReplay
 	relationCellReplayUndo        bool
 	attributeViewFieldUndo        bool
+	attributeViewColumnWidths     map[string]string
 	attributeViewAutomation       bool
 	attributeViewCollectionRuleID string
 	attributeViewBinding          *attributeViewBindingSnapshot
@@ -2955,7 +2967,11 @@ type Transaction struct {
 	removeCreatedDoc              func(*Box, string, *lute.Lute) (*parse.Tree, error)
 	writeTransactionTree          func(*parse.Tree) error
 	documentTitleWrite            *documentTitleWriteState
-	tagRemovalSources             map[string][]byte
+	tagMutationSources            map[string][]byte
+	trackTagDates                 bool
+	previousTagDates              map[string]tagDates
+	replayedTagDates              map[string]tagDates
+	tagDateRename                 [2]string
 	collectionRemovalVersions     map[string]string
 	blockSwapOriginalTrees        []*parse.Tree
 	sourceJournal                 *documentSourceJournal
@@ -3076,6 +3092,8 @@ func (tx *Transaction) begin() (err error) {
 	tx.nodes = map[string]*ast.Node{}
 	tx.indexChanges = nil
 	tx.documentTitleWrite = nil
+	tx.trackTagDates = false
+	tx.previousTagDates, tx.replayedTagDates = nil, nil
 	tx.mindmapSummarySiblings = nil
 	tx.mutatedRootIDs = nil
 	tx.changedRootIDs = nil
@@ -3089,6 +3107,10 @@ func (tx *Transaction) begin() (err error) {
 	for _, operation := range tx.DoOperations {
 		if nil == operation {
 			continue
+		}
+		if !tx.trackTagDates && tracksTagDates(operation) {
+			tx.trackTagDates = true
+			tx.previousTagDates, tx.replayedTagDates = map[string]tagDates{}, map[string]tagDates{}
 		}
 		if "restoreCreatedDoc" == operation.Action && "" != operation.templateDocTreeRootID &&
 			nil != operation.Tree && nil != operation.Tree.Root &&
@@ -3153,6 +3175,7 @@ func (tx *Transaction) commit() (err error) {
 			return err
 		}
 	}
+	changedTagDates := tx.reconcileTagDates()
 	// Persist each staged deck only once, with write-ahead recovery for both files.
 	for id := range tx.flashcardBefore {
 		if deck := Decks[id]; deck != nil {
@@ -3292,6 +3315,18 @@ func (tx *Transaction) commit() (err error) {
 			}
 		}
 	}
+	if tx.isReplay && len(tx.sourceMirrors) > 0 {
+		// 恢复的加密块在提交后才进入索引，镜像映射按已写入的文档树恢复。
+		present := map[string]string{}
+		for _, tree := range orderedTrees {
+			for _, node := range tree.Root.ChildrenByType(ast.NodeAttributeView) {
+				present[node.ID] = node.AttributeViewID
+			}
+		}
+		if err = av.ReconcileBlockRels(tx.sourceMirrors, present); err != nil {
+			return err
+		}
+	}
 	for boxID, icon := range tx.boxIcons {
 		box := &Box{ID: boxID}
 		boxConf := box.GetConf()
@@ -3359,6 +3394,7 @@ func (tx *Transaction) commit() (err error) {
 	tx.publishSourceBlockAttrs()
 	tx.state.Store(2)
 	committed = true
+	publishTagDateChanges(changedTagDates)
 	// 已提交且 trees 稳定后记录到全局撤销日志（rollback 不记录）
 	GlobalUndoLog.Record(tx)
 	tx.commitHTTPAutomations(memoryDatabaseIDs)
@@ -3383,7 +3419,8 @@ func (tx *Transaction) releaseCommittedResources() {
 	tx.documentTitleWrite = nil
 	tx.mindmapSummarySiblings = nil
 	tx.relatedAvIDs = nil
-	tx.tagRemovalSources = nil
+	tx.tagMutationSources = nil
+	tx.previousTagDates, tx.replayedTagDates = nil, nil
 	tx.collectionRemovalVersions = nil
 	tx.removedCreatedDocs, tx.removedTemplateCreatedDocs = nil, nil
 	tx.restoredCreatedDocs, tx.restoredTemplateCreatedDocs = nil, nil
@@ -3405,7 +3442,8 @@ func (tx *Transaction) releaseCommittedResources() {
 
 func (tx *Transaction) rollback() {
 	tx.indexChanges = nil
-	tx.tagRemovalSources = nil
+	tx.tagMutationSources = nil
+	tx.previousTagDates, tx.replayedTagDates = nil, nil
 	tx.collectionRemovalVersions = nil
 	tx.documentTitleWrite = nil
 	tx.mindmapSummarySiblings = nil
@@ -3516,7 +3554,7 @@ func loadTreeTxErr(id string, err error) *TxErr {
 	if errors.Is(err, ErrBlockNotFound) {
 		code = TxErrCodeBlockNotFound
 	}
-	return &TxErr{code: code, msg: msg, id: id}
+	return &TxErr{code: code, msg: msg, id: id, cause: err}
 }
 
 func (tx *Transaction) loadTreeByBlockTree(bt *treenode.BlockTree) (ret *parse.Tree, err error) {
@@ -3540,6 +3578,7 @@ func (tx *Transaction) loadTreeByBlockTree(bt *treenode.BlockTree) (ret *parse.T
 	if err = tx.rememberAutomationTree(ret); err != nil {
 		return nil, err
 	}
+	tx.captureTagDates(ret)
 	tx.trees[bt.RootID] = ret
 	if err = tx.captureCollectionTree(ret); err != nil {
 		return nil, err
@@ -3583,6 +3622,7 @@ func (tx *Transaction) loadTree(id string) (ret *parse.Tree, err error) {
 	if err = tx.rememberAutomationTree(ret); err != nil {
 		return nil, err
 	}
+	tx.captureTagDates(ret)
 	tx.trees[rootID] = ret
 	if err = tx.captureCollectionTree(ret); err != nil {
 		return nil, err

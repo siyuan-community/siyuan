@@ -1281,9 +1281,11 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
 
     // 复制后关系线与节点样式引用新块 ID，遇到任一损坏配置时不进行部分迁移。
     const copiedRoute = {version: 1, points: [{x: -35, y: 20, t: .5}], extension: "keep"};
+    const copiedRelationStyle = {pathStyle: "bezier", strokeStyle: "dotted", freeRoute: copiedRoute,
+        curve: {version: 1, from: {x: 50, y: -40}, to: {x: -20, y: 80}}};
     list.setAttribute("custom-sy-list-mindmap-data", JSON.stringify({version: 1, extension: "keep",
         nodes: {a: {bold: true}, b: {italic: true}, deleted: {bold: true}},
-        relations: [{id: "relation", from: "a", to: "b", label: "keep", route: copiedRoute, arrowDirection: "both"},
+        relations: [{id: "relation", from: "a", to: "b", label: "keep", route: copiedRoute, arrowDirection: "both", ...copiedRelationStyle},
             {id: "orphan", from: "a", to: "deleted", label: "remove"}]}));
     const copiedItems = list.querySelectorAll('[data-type="NodeListItem"]');
     copiedItems[0].setAttribute("data-node-id", "new-a");
@@ -1298,7 +1300,7 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
     const remapped = JSON.parse(list.getAttribute("custom-sy-list-mindmap-data"));
     check.deepEqual(remapped.nodes, {"new-a": {bold: true}, "new-b": {italic: true}});
     check.deepEqual(remapped.relations, [{id: "relation", from: "new-a", to: "new-b", label: "keep",
-        route: copiedRoute, arrowDirection: "both"}]);
+        route: copiedRoute, arrowDirection: "both", ...copiedRelationStyle}]);
     check.equal(remapped.extension, "keep");
     check.equal(list.querySelector(".mindmap-view"), null);
     check.equal(list.hasAttribute("data-mindmap-view-rendered"), false);
@@ -1859,6 +1861,34 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
         check.equal(view.linePaths.filter((line: {relation: boolean}) => !line.relation).length, view.edges.length);
         view.setReadOnly(false);
     }
+    const styled = api.readListMindmap(list);
+    const capsule = alpha;
+    const rectangle = beta;
+    const underline = styled.root.children[0].children[0].id;
+    styled.metadata.connectorStyle = "bezier";
+    styled.metadata.nodes[capsule] = {...styled.metadata.nodes[capsule], shape: "capsule", connectorStyle: "orthogonal"};
+    styled.metadata.nodes[rectangle] = {...styled.metadata.nodes[rectangle], shape: "rectangle", connectorStyle: "spline"};
+    styled.metadata.nodes[underline] = {...styled.metadata.nodes[underline], shape: "underline",
+        backgroundColor: "#123456", textColor: "#ffffff"};
+    api.writeListMindmapMetadata(list, styled.metadata);
+    view.update(api.readListMindmap(list));
+    await settle();
+    const shapeStyle = (id: string) => getComputedStyle(view.getBlockById(id));
+    check.ok(parseFloat(shapeStyle(capsule).borderTopLeftRadius) > 0, "capsule nodes have rounded corners");
+    check.equal(shapeStyle(rectangle).borderTopLeftRadius, "0px");
+    check.equal(shapeStyle(rectangle).borderTopStyle, "solid");
+    check.equal(shapeStyle(underline).borderTopStyle, "none");
+    check.equal(shapeStyle(underline).borderBottomStyle, "solid");
+    check.equal(shapeStyle(underline).backgroundColor, "rgb(18, 52, 86)", "the underline preserves an explicit node fill");
+    const capsuleParent = view.positions.get(styled.root.id);
+    const capsulePosition = view.positions.get(capsule);
+    const branchX = (capsuleParent.x + capsuleParent.width + capsulePosition.x * 3) / 4;
+    const branchY = capsulePosition.y + capsulePosition.height / 2;
+    const bounds = viewport.getBoundingClientRect();
+    check.equal(view.findLine(new MouseEvent("click", {
+        clientX: bounds.left + view.offsetX + branchX * view.scale,
+        clientY: bounds.top + view.offsetY + branchY * view.scale,
+    }))?.id, capsule, "the incoming connector meets the shaped node's side and can be selected");
     if (connectorSource === null) {
         list.removeAttribute("custom-sy-list-mindmap-data");
     } else {
@@ -1867,6 +1897,7 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
     delete model.metadata.connectorStyle;
     view.update(model);
     await settle();
+    check.equal(view.getBlockById(capsule).hasAttribute("data-mindmap-shape"), false, "restoring metadata restores the theme shape");
     check.equal(viewport.getAttribute("data-prevent-swipe"), "true");
     const originalCapture = HTMLElement.prototype.setPointerCapture;
     const originalHasCapture = HTMLElement.prototype.hasPointerCapture;
@@ -2480,7 +2511,7 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
         const managers = ["listMindmapManageNodeColors", "listMindmapManageLineColors"]
             .map(key => popup.querySelector<HTMLButtonElement>(`[aria-label="${key}"]`));
         check.deepEqual(managers.map(control => control.querySelector("use").getAttribute("xlink:href")),
-            ["#iconFont", "#iconLine"], "distinct icons identify the two settings controls");
+            ["#iconFont", "#iconSettings"], "distinct icons identify the two settings controls");
         check.equal(managers[0].getBoundingClientRect().right, managers[1].getBoundingClientRect().right,
             "settings stay in one fixed right-hand column with unequal custom palette sizes");
         check.ok(palettes[1].getBoundingClientRect().top >= palettes[0].getBoundingClientRect().bottom,
@@ -2590,7 +2621,12 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
         let last = -1;
         while (performance.now() < deadline && stable < 12) {
             await frame();
-            stable = !touchPalette.hasAttribute("data-scrolling") && Math.abs(touchPalette.scrollLeft - last) < .1 ? stable + 1 : 0;
+            const step = parseFloat(getComputedStyle(touchPalette).gridTemplateColumns);
+            const aligned = Math.abs(touchPalette.scrollLeft - Math.round(touchPalette.scrollLeft / step) * step) < 1 ||
+                Math.abs(touchPalette.scrollLeft - (touchPalette.scrollWidth - touchPalette.clientWidth)) < 1;
+            // 原生触屏惯性与吸附之间可能短暂停顿，只有已对齐的稳定位置才表示完成。
+            stable = aligned && !touchPalette.hasAttribute("data-scrolling") &&
+                Math.abs(touchPalette.scrollLeft - last) < .1 ? stable + 1 : 0;
             last = touchPalette.scrollLeft;
         }
         const step = parseFloat(getComputedStyle(touchPalette).gridTemplateColumns);
@@ -2945,8 +2981,11 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
     const setRelationTheme = (property: string, value: string) =>
         host.style.setProperty(`--b3-mindmap-relation-${property}`, value);
     const checkRelation = (color: string, width: number) => {
-        checkLine(color, width);
-        check.equal(lineContext.fillStyle, color, "relation arrows share the connector color");
+        view.draw();
+        const context = view.relationFrom ? host.querySelector<HTMLCanvasElement>(".mindmap-view__relation-canvas").getContext("2d") : lineContext;
+        check.equal(context.strokeStyle, color);
+        check.equal(context.lineWidth, width);
+        check.equal(context.fillStyle, color, "relation arrows share the connector color");
     };
     view.scale = 0.5;
     setLineTheme("color", "#abcdef");
@@ -3313,12 +3352,14 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
     view.update(model);
     await settle();
     check.equal(view.fallbackRoutes.has("drag-route"), true);
-    check.equal(host.querySelector<HTMLElement>(".mindmap-view__route-status").hidden, false);
+    check.equal(routeStatus.hidden, false);
+    check.equal(routeStatus.textContent, "listMindmapRouteFallback");
     check.equal(model.metadata.relations[0].route.points.length, 1, "unavailable routes retain their saved controls");
     model.metadata.relations[0].route = savedRoute;
     view.update(model);
     await settle();
     check.equal(view.fallbackRoutes.has("drag-route"), false);
+    check.equal(routeStatus.hidden, true);
     check.equal(JSON.stringify(view.relationRoutes.get("drag-route")), savedGeometry);
     relationChanges.length = 0;
     await dragHandle(-15);
@@ -3876,11 +3917,17 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
     model = api.readListMindmap(list);
     options.model = model;
 
-    const titleView = new api.ListMindmapView({...options, onRootTitleChange: (title: string) => {
-        model.metadata.rootTitle = title;
-        api.writeListMindmapMetadata(list, model.metadata);
-        titleView.update(model);
-    }});
+    const rootTitleAdditions: {id: string; kind: string; title: string}[] = [];
+    const titleView = new api.ListMindmapView({...options,
+        onRootTitleChange: (title: string) => {
+            model.metadata.rootTitle = title;
+            api.writeListMindmapMetadata(list, model.metadata);
+            titleView.update(model);
+        },
+        onAdd: (id: string, kind: string) => {
+            rootTitleAdditions.push({id, kind, title: api.readListMindmap(list).metadata.rootTitle});
+        },
+    });
     await settle();
     const renameRoot = async (title: string, key: string) => {
         const node = nodeElement(model.root.id);
@@ -3915,6 +3962,47 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
     check.equal(titleView.getContentHost(model.root.id).textContent, "");
     check.ok(nodeElement(model.root.id).classList.contains("mindmap-view__node--untitled"));
     check.equal(nodeElement(model.root.id).offsetWidth, nodeElement(model.root.id).offsetHeight);
+    const beginRootTitle = () => {
+        titleView.focusNode(model.root.id, false);
+        titleView.getContentHost(model.root.id).dispatchEvent(new MouseEvent("dblclick", {bubbles: true}));
+        const input = host.querySelector<HTMLTextAreaElement>(".mindmap-view__root-title");
+        check.equal(document.activeElement, input);
+        return input;
+    };
+    const titleKey = (input: HTMLElement, key: string, init: KeyboardEventInit = {}) => {
+        const event = new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true, ...init});
+        input.dispatchEvent(event);
+        return event.defaultPrevented;
+    };
+    const titleInputForTab = beginRootTitle();
+    titleInputForTab.value = "Tab title";
+    check.equal(titleKey(titleInputForTab, "Tab", {shiftKey: true}), false, "Shift+Tab keeps native navigation");
+    check.equal(titleKey(titleInputForTab, "Tab", {repeat: true}), true);
+    check.equal(document.activeElement, titleInputForTab, "a repeated Tab does not finish editing");
+    check.equal(rootTitleAdditions.length, 0);
+    check.equal(titleKey(titleInputForTab, "Tab"), true);
+    check.deepEqual(rootTitleAdditions, [{id: model.root.id, kind: "child", title: "Tab title"}]);
+
+    const composingTitleInput = beginRootTitle();
+    const nativeTitleKey = (key: string, code: number) =>
+        require("electron").ipcRenderer.invoke("mindmap-view-native-key", key, code);
+    const titleEnters: boolean[] = [];
+    composingTitleInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            titleEnters.push(event.isComposing);
+        }
+    });
+    await ime("zhong");
+    check.equal(titleKey(composingTitleInput, "Tab", {isComposing: true}), false, "IME owns Tab while composing");
+    await nativeTitleKey("Enter", 13);
+    check.deepEqual(titleEnters, [true]);
+    check.equal(document.activeElement, composingTitleInput, "IME Enter does not exit the root title editor");
+    await insertText("中文根节点");
+    check.equal(document.activeElement, composingTitleInput);
+    check.equal(rootTitleAdditions.length, 1);
+    await nativeTitleKey("Tab", 9);
+    check.deepEqual(rootTitleAdditions, [{id: model.root.id, kind: "child", title: "Tab title"},
+        {id: model.root.id, kind: "child", title: "中文根节点"}]);
     titleView.destroy();
 
     const singleList = reset("* Single\n");
@@ -4291,6 +4379,10 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
             }), "at least one actual node remains visible after panning the cropped map");
             check.equal(panView.offsetX, fixedX, "vertical movement does not shift the horizontal position");
         };
+        const status = panHost.querySelector<HTMLElement>(".mindmap-view__route-status");
+        check.equal(status.hidden, true);
+        const statusObserver = new MutationObserver(() => {});
+        statusObserver.observe(status, {attributes: true, childList: true, characterData: true, subtree: true});
         for (const deltaY of [100000, -100000]) {
             const event = new WheelEvent("wheel", {deltaY, bubbles: true, cancelable: true});
             viewport.dispatchEvent(event);
@@ -4300,6 +4392,9 @@ const browserCases = async (sourceCode: string, css: string, taskSource: string,
             viewport.dispatchEvent(next);
             check.equal(next.defaultPrevented, true, "active canvas keeps wheel input at the pan boundary");
         }
+        const statusMutations = statusObserver.takeRecords();
+        statusObserver.disconnect();
+        check.equal(statusMutations.length, 0, "wheel panning leaves the unchanged route status DOM alone");
         panView.offsetY = 120 - rootPosition.y;
         panView.draw();
         viewport.dispatchEvent(new PointerEvent("pointerdown", touch));
@@ -6020,7 +6115,7 @@ test("list mindmap mutations preserve block data in the real DOM and Lute", {
     const source = tabsSource + compile(path.join(__dirname, "../../wysiwyg/tabsList.ts")) +
         compile(path.join(__dirname, "../av/richTextValue.ts")) + compile(path.join(__dirname, "../../wysiwyg/listContext.ts")) +
         compile(path.join(__dirname, "summary.ts")) + compile(path.join(__dirname, "connectors.ts")) +
-        compile(path.join(__dirname, "appearance.ts")) + compile(path.join(__dirname, "model.ts")) +
+        compile(path.join(__dirname, "appearance.ts")) + compile(path.join(__dirname, "relationGeometry.ts")) + compile(path.join(__dirname, "model.ts")) +
         compile(path.join(__dirname, "preferences.ts")) + compile(path.join(__dirname, "fold.ts")) +
         compile(path.join(__dirname, "routing.ts")) + compile(path.join(__dirname, "pan.ts")) +
         compile(path.join(__dirname, "clipboard.ts")) + compile(path.join(__dirname, "view.ts")) +
@@ -6100,7 +6195,10 @@ test("list mindmap mutations preserve block data in the real DOM and Lute", {
 app.setPath("userData", ${JSON.stringify(path.join(temporary, "profile"))});
 app.commandLine.appendSwitch("disable-gpu");
 app.whenReady().then(async () => {
-    const win = new BrowserWindow({show: false, webPreferences: {nodeIntegration: true, contextIsolation: false, offscreen: true}});
+    // macOS 离屏合成器的原生触屏吸附可能停在中间位置，用真实窗口验证触摸滚动。
+    const nativeWindow = process.platform === "darwin";
+    const win = new BrowserWindow({show: nativeWindow,
+        webPreferences: {nodeIntegration: true, contextIsolation: false, offscreen: !nativeWindow}});
     win.webContents.debugger.attach("1.3");
     ipcMain.handle("mindmap-view-ime", async (_event, text) => {
         await win.webContents.debugger.sendCommand("Input.imeSetComposition", {
@@ -6109,6 +6207,11 @@ app.whenReady().then(async () => {
     });
     ipcMain.handle("mindmap-view-insert-text", async (_event, text) => {
         await win.webContents.debugger.sendCommand("Input.insertText", {text});
+    });
+    ipcMain.handle("mindmap-view-native-key", async (_event, key, windowsVirtualKeyCode) => {
+        const params = {key, code: key, windowsVirtualKeyCode};
+        await win.webContents.debugger.sendCommand("Input.dispatchKeyEvent", {type: "rawKeyDown", ...params});
+        await win.webContents.debugger.sendCommand("Input.dispatchKeyEvent", {type: "keyUp", ...params});
     });
     ipcMain.handle("mindmap-view-print-media", async (_event, media) => {
         await win.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", {media});

@@ -27,6 +27,15 @@ import (
 var outlineFontSizePattern = regexp.MustCompile("font-size:.*?;")
 
 func renderOutline(heading *ast.Node, luteEngine *lute.Lute) (ret string) {
+	return renderOutlineWithReader(heading, luteEngine, false)
+}
+
+// renderOutlineForReader 渲染读者可见的大纲内容，保留可见文字但不输出编辑器私有的行级备注。
+func renderOutlineForReader(heading *ast.Node, luteEngine *lute.Lute) (ret string) {
+	return renderOutlineWithReader(heading, luteEngine, true)
+}
+
+func renderOutlineWithReader(heading *ast.Node, luteEngine *lute.Lute, forReader bool) (ret string) {
 	if nil == heading {
 		return ""
 	}
@@ -74,7 +83,14 @@ func renderOutline(heading *ast.Node, luteEngine *lute.Lute) (ret string) {
 		case ast.NodeBackslashContent:
 			buf.Write(html.EscapeHTML(n.Tokens))
 		case ast.NodeTextMark:
-			dom := luteEngine.RenderNodeBlockDOM(n)
+			node := n
+			if forReader && n.IsTextMarkType("inline-memo") {
+				// 浅拷贝后清空备注内容，避免修改加载到的语法树
+				cloned := *n
+				cloned.TextMarkInlineMemoContent = ""
+				node = &cloned
+			}
+			dom := luteEngine.RenderNodeBlockDOM(node)
 			buf.WriteString(dom)
 			return ast.WalkSkipChildren
 		case ast.NodeEmoji:
@@ -238,12 +254,38 @@ func cleanRenderNodes(nodes []*ast.Node, visibleOnly bool) (ret []*ast.Node) {
 	return
 }
 
+func clearPublishDOMMemos(nodes ...*ast.Node) {
+	for _, node := range nodes {
+		if nil == node {
+			continue
+		}
+		ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if !entering {
+				return ast.WalkContinue
+			}
+			n.RemoveIALAttr("memo")
+			if n.IsTextMarkType("inline-memo") {
+				n.TextMarkInlineMemoContent = ""
+			}
+			return ast.WalkContinue
+		})
+	}
+}
+
 func cleanRenderNode(node *ast.Node, visibleOnly bool) *ast.Node {
 	nodes := cleanRenderNodes([]*ast.Node{node}, visibleOnly)
 	if 0 == len(nodes) {
 		return nil
 	}
 	return nodes[0]
+}
+
+func renderCleanBlockDOM(node *ast.Node, luteEngine *lute.Lute, visibleOnly, forPublish bool) string {
+	node = cleanRenderNode(node, visibleOnly)
+	if forPublish {
+		clearPublishDOMMemos(node)
+	}
+	return luteEngine.RenderNodeBlockDOM(node)
 }
 
 func renderVisibleBlockDOMByNodes(nodes []*ast.Node, luteEngine *lute.Lute) string {

@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -34,10 +36,11 @@ const (
 )
 
 type updateRelease struct {
-	Version    string
-	Channel    string
-	ReleaseURL string
-	Packages   map[string]*updatePackage
+	Version            string
+	Channel            string
+	ReleaseURL         string
+	MainlandReleaseURL string
+	Packages           map[string]*updatePackage
 }
 
 type updatePackage struct {
@@ -65,17 +68,79 @@ var (
 	githubReleasesLock      sync.RWMutex
 	githubReleasesFlight    singleflight.Group
 	githubManifestCache     sync.Map
+	updateReleaseURLs       sync.Map
 )
 
 func getUpdateRelease(force bool) (*updateRelease, error) {
 	channel := Conf.System.Load().UpdateChannel
+	var release *updateRelease
+	var err error
 	if conf.UpdateChannelStable == channel {
-		return getStableUpdateRelease(force)
+		release, err = getStableUpdateRelease(force)
+	} else {
+		if !isValidUpdateChannel(channel) {
+			return nil, errors.New("update channel is invalid")
+		}
+		release, err = getGitHubUpdateRelease(channel, force)
 	}
-	if !isValidUpdateChannel(channel) {
-		return nil, errors.New("update channel is invalid")
+	if err == nil {
+		rememberUpdateReleaseURL(release)
 	}
-	return getGitHubUpdateRelease(channel, force)
+	return release, err
+}
+
+func rememberUpdateReleaseURL(release *updateRelease) {
+	version := normalizeReleaseVersion(release.Version)
+	parsed, err := url.Parse(release.ReleaseURL)
+	if semver.IsValid(version) && err == nil && parsed.Host != "" && (parsed.Scheme == "https" || parsed.Scheme == "http") {
+		updateReleaseURLs.Store(version, release.ReleaseURL)
+	}
+}
+
+func GetInstallPackageReleaseURL(installPkgPath string) string {
+	version := installPackageVersion(filepath.Base(installPkgPath))
+	if version == "" {
+		return ""
+	}
+	fallback := githubReleaseURLPrefix + strings.TrimPrefix(version, "v")
+	if semver.Prerelease(version) != "" {
+		return fallback
+	}
+	preferMainland := Conf.Lang == "zh-CN" && util.CurrentCloudRegion == 0
+	if preferMainland {
+		if metadata, err := readInstallPackageMetadata(installPkgPath+".json", Conf.CookieKey); err == nil &&
+			metadata.FileName == filepath.Base(installPkgPath) && isMainlandReleaseURL(metadata.MainlandReleaseURL) {
+			return metadata.MainlandReleaseURL
+		}
+		if announcement := getMainlandReleaseURL(util.CachedRhyResult(), version); announcement != "" {
+			return announcement
+		}
+	}
+	if releaseURL, ok := updateReleaseURLs.Load(version); ok {
+		if announcement := releaseURL.(string); preferMainland || !isMainlandReleaseURL(announcement) {
+			return announcement
+		}
+	}
+	return fallback
+}
+
+func isMainlandReleaseURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	return err == nil && parsed.Scheme == "https" && parsed.Host == "ld246.com" && parsed.User == nil &&
+		strings.HasPrefix(parsed.Path, "/article/") && parsed.Path != "/article/"
+}
+
+func getMainlandReleaseURL(result map[string]any, version string) string {
+	releaseVersion, _ := result["ver"].(string)
+	if normalizeReleaseVersion(releaseVersion) != normalizeReleaseVersion(version) {
+		return ""
+	}
+	for _, key := range []string{"release_zh-CN", "release_zh_CN"} {
+		if announcement, ok := result[key].(string); ok && isMainlandReleaseURL(announcement) {
+			return announcement
+		}
+	}
+	return ""
 }
 
 func getStableUpdateRelease(force bool) (*updateRelease, error) {
@@ -95,6 +160,9 @@ func getStableUpdateRelease(force bool) (*updateRelease, error) {
 		Channel:    conf.UpdateChannelStable,
 		ReleaseURL: getStableReleaseURL(result, version),
 		Packages:   map[string]*updatePackage{},
+	}
+	if util.CurrentCloudRegion == 0 {
+		release.MainlandReleaseURL = getMainlandReleaseURL(result, version)
 	}
 	pkgName := currentInstallPackageName(release.Version)
 	if "" == pkgName {

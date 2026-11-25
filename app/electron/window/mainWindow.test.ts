@@ -5,10 +5,9 @@ import {EventEmitter} from "node:events";
 import {mockElectron, resetElectronStub} from "../fixtures/electronStub";
 import {getTitleBarOverlayOptions} from "./windowControlsOverlay";
 import {createResponseHeaderFilter} from "../remote/sessionHeaders";
-import {beginGracefulSystemShutdown, getSystemShutdownPorts} from "../startup/systemShutdown";
 import {state as runtimeState, resetRuntimeState, SYSTEM_SHUTDOWN_NONE, configureRuntime, paths as runtimePaths} from "../shared/runtime";
 import type * as electron from "electron";
-import type {App, BrowserWindow as ElectronBrowserWindow, Display, IpcMain, Screen, Session} from "electron";
+import type {App, BrowserWindow as ElectronBrowserWindow, BrowserWindowConstructorOptions, Display, IpcMain, Screen, Session} from "electron";
 import type {BootWindow, KernelTarget} from "../shared/types";
 import type * as nodeFs from "node:fs";
 const assert = require("node:assert/strict");
@@ -17,8 +16,8 @@ const path = require("node:path");
 // 被测模块在测试内 require：它从 electron 取值，首次加载时必须已经换成替身。
 const mainWindowModule = () => require("./mainWindow");
 
-const mainWindowSetup = (t: any, setProxy: (rules: string, contents: electron.WebContents,
-    mode: string) => unknown = () => Promise.resolve()) => {
+const mainWindowSetup = (t: any, {remote = false, setProxy = () => Promise.resolve()}: {remote?: boolean;
+    setProxy?: (rules: string, contents: electron.WebContents, mode: string) => unknown} = {}) => {
     const timers = new Map();
     const ipcMain = new EventEmitter();
     let windowId = 0;
@@ -39,7 +38,7 @@ const mainWindowSetup = (t: any, setProxy: (rules: string, contents: electron.We
             session: {webRequest: {onBeforeSendHeaders(): void; onHeadersReceived(): void}};
         };
 
-        constructor() {
+        constructor(readonly options: BrowserWindowConstructorOptions = {}) {
             super();
             this.webContents = Object.assign(new EventEmitter(), {id: ++windowId,
                 send: (...args) => { this.messages = [...(this.messages || []), args]; },
@@ -67,7 +66,7 @@ const mainWindowSetup = (t: any, setProxy: (rules: string, contents: electron.We
     const context = {
         app: appStub,
         getKernelTarget: (target: string | number | KernelTarget): KernelTarget => typeof target === "object" ? target :
-            {port: String(target), origin: `https://127.0.0.1:${target}`, mode: "local", ownsKernel: true},
+            {port: String(target), origin: `https://127.0.0.1:${target}`, mode: remote ? "remote" : "local", ownsKernel: !remote},
         localKernelStartups: new Map(), workspaces: [], bootWindow: undefined,
         kernelPort: "", initializedWindowIds: new Set(),
         getWorkspaceStartupKey: workspace => workspace,
@@ -75,7 +74,7 @@ const mainWindowSetup = (t: any, setProxy: (rules: string, contents: electron.We
         path, process: processStub,
         screen: screenStub,
         BrowserWindow: Window, remote: {enable() {}}, bindSpellcheckContextMenu() {}, bindTopBarContextMenu() {},
-        getTitleBarOverlayOptions: getTitleBarOverlayOptions,
+        getTitleBarOverlayOptions: () => getTitleBarOverlayOptions("win32"),
         rememberWindowKernelTarget() {}, installNavigationPolicy() {}, ipcMain,
         net: netStub,
         setStartupApplicationMenu() {}, isOpenAsHidden: () => false,
@@ -84,7 +83,7 @@ const mainWindowSetup = (t: any, setProxy: (rules: string, contents: electron.We
     // 夹具保持扁平字段，这些字段桥接回共享运行期状态，模块与用例读写同一份数据。
     resetRuntimeState();
     resetElectronStub();
-    mockElectron(t, {
+    const electronStub = mockElectron(t, {
         app: appStub as unknown as App,
         BrowserWindow: Window as unknown as typeof ElectronBrowserWindow,
         screen: screenStub as unknown as Record<string, unknown>,
@@ -131,7 +130,7 @@ const mainWindowSetup = (t: any, setProxy: (rules: string, contents: electron.We
         navigation: {
             setProxy,
             installNavigationPolicy: context.installNavigationPolicy,
-            getWindowPathname: () => "/stage/build/app/",
+            getWindowPathname: () => remote ? "/check-auth" : "/stage/build/app/",
         },
         workspace: {
             rememberWindowKernelTarget: context.rememberWindowKernelTarget,
@@ -140,7 +139,7 @@ const mainWindowSetup = (t: any, setProxy: (rules: string, contents: electron.We
             isOpenAsHidden: () => context.isOpenAsHidden(),
         },
     });
-    return {context: Object.assign(context, {initMainWindow}), ipcMain, timers, Window};
+    return {context: Object.assign(context, {initMainWindow}), ipcMain, timers, Window, electronStub};
 };
 
 const remoteTarget: KernelTarget = {
@@ -151,7 +150,7 @@ test("remote main windows apply the command-line proxy before loading their own 
     const requests: unknown[][] = [];
     let resolveProxy: () => void;
     const pending = new Promise<void>(resolve => { resolveProxy = resolve; });
-    const {context} = mainWindowSetup(t, (...args) => { requests.push(args); return pending; });
+    const {context} = mainWindowSetup(t, {setProxy: (...args) => { requests.push(args); return pending; }});
     context.process.argv.push("--proxy=http://127.0.0.1:7890");
     const fetch = t.mock.method(context.net, "fetch");
     context.initMainWindow(remoteTarget);
@@ -170,8 +169,8 @@ test("remote main windows apply the command-line proxy before loading their own 
 test("remote main windows continue loading after proxy rejection or timeout", async (t) => {
     for (const failure of ["rejection", "timeout"]) {
         await t.test(failure, async (t) => {
-            const {context, timers} = mainWindowSetup(t, () => failure === "rejection" ?
-                Promise.reject(new Error("proxy unavailable")) : new Promise<void>(() => {}));
+            const {context, timers} = mainWindowSetup(t, {setProxy: () => failure === "rejection" ?
+                Promise.reject(new Error("proxy unavailable")) : new Promise<void>(() => {})});
             context.process.argv.push("--proxy=socks5://127.0.0.1:1080");
             context.initMainWindow(remoteTarget);
             const window = context.workspaces[0].browserWindow;
@@ -187,7 +186,7 @@ test("remote main windows continue loading after proxy rejection or timeout", as
 
 test("remote authentication pages load without applying an absent or invalid proxy", (t) => {
     for (const proxy of [undefined, "invalid-proxy"]) {
-        const {context} = mainWindowSetup(t, () => assert.fail("unexpected proxy configuration"));
+        const {context} = mainWindowSetup(t, {setProxy: () => assert.fail("unexpected proxy configuration")});
         if (proxy) {
             context.process.argv.push("--proxy=" + proxy);
         }
@@ -203,7 +202,7 @@ test("remote authentication pages load without applying an absent or invalid pro
 
 test("local main windows use the kernel network configuration instead of the remote proxy option", async (t) => {
     const requests: unknown[][] = [];
-    const {context} = mainWindowSetup(t, (...args) => { requests.push(args); return Promise.resolve(); });
+    const {context} = mainWindowSetup(t, {setProxy: (...args) => { requests.push(args); return Promise.resolve(); }});
     context.process.argv.push("--proxy=http://127.0.0.1:7890");
     const fetch = t.mock.method(context.net, "fetch", async () => new Response(JSON.stringify({
         data: {proxy: {scheme: "socks5", host: "127.0.0.1", port: "1080"}},
@@ -226,6 +225,9 @@ test("main windows close their own boot windows in either frontend readiness ord
         });
         assert.equal(context.localKernelStartups.size, 0);
         assert.deepEqual(Array.from(context.workspaces, item => item.workspaceDir), ["workspace-0", "workspace-1"]);
+        for (const {browserWindow} of context.workspaces) {
+            assert.deepEqual(browserWindow.options.webPreferences.additionalArguments, ["--siyuan-window-controls-overlay"]);
+        }
         ipcMain.emit("siyuan-ready-to-show", {sender: {}});
         assert.equal(boots.some(window => window.destroyed), false);
         ipcMain.emit("siyuan-ready-to-show", {sender: context.workspaces[first].browserWindow.webContents});
@@ -238,6 +240,48 @@ test("main windows close their own boot windows in either frontend readiness ord
         assert.equal(boots.every(window => window.destroyed), true);
         assert.equal(ipcMain.listenerCount("siyuan-ready-to-show"), 0);
         assert.equal(timers.size, 0);
+    }
+});
+
+test("main window handoff destroys the boot surface before showing in all reveal paths", (t) => {
+    for (const entry of ["ready", "timeout", "auth"]) {
+        for (const bootState of ["live", "destroyed", "absent"]) {
+            const {context, ipcMain, timers, Window} = mainWindowSetup(t, {remote: entry === "auth"});
+            const boot = bootState === "absent" ? undefined : new Window();
+            if (bootState === "destroyed") boot.destroy();
+            if (entry === "auth") {
+                context.bootWindow = boot;
+            } else if (boot) {
+                context.localKernelStartups.set("workspace", {window: boot, workspace: "workspace", port: 6806});
+            }
+            context.initMainWindow(6806);
+            const window = context.workspaces[0].browserWindow;
+            const calls: string[] = [];
+            if (boot) {
+                const destroy = boot.destroy.bind(boot);
+                boot.destroy = () => { calls.push("destroy"); destroy(); };
+            }
+            window.show = () => { calls.push("show"); window.shown = true; };
+            const reveal = () => {
+                if (entry === "ready") {
+                    ipcMain.emit("siyuan-ready-to-show", {sender: window.webContents});
+                } else if (entry === "auth") {
+                    window.webContents.emit("did-finish-load");
+                } else {
+                    const [key, timeout] = timers.entries().next().value;
+                    timers.delete(key);
+                    timeout();
+                }
+            };
+            reveal();
+            assert.deepEqual(calls, bootState === "live" ? ["destroy", "show"] :
+                entry === "timeout" ? [] : ["show"], `${entry}/${bootState}`);
+            if (entry === "auth") {
+                reveal();
+                assert.equal(calls.filter(call => call === "destroy").length, bootState === "live" ? 1 : 0);
+                assert.equal(calls.at(-1), "show");
+            }
+        }
     }
 });
 
@@ -272,6 +316,113 @@ test("main close, tray quit and application quit share the recovery timer", (t: 
     assert.deepEqual(window.messages.at(-1), ["siyuan-save-close", true]);
     window.destroy();
     assert.equal(timers.size, 0);
+});
+
+test("closing to the tray or hiding allows another close immediately after relaunch", (t: any) => {
+    for (const action of ["tray", "hide", "fullscreen"] as const) {
+        const {context, ipcMain, timers, Window} = mainWindowSetup(t);
+        context.initMainWindow(6806);
+        const workspace = context.workspaces[0];
+        const window = workspace.browserWindow;
+        let minimized = false;
+        let fullscreen = action === "fullscreen";
+        Object.assign(Window, {getAllWindows: () => [window]});
+        Object.assign(window, {
+            hide: () => { window.shown = false; },
+            minimize: () => { minimized = true; window.shown = false; },
+            isMinimized: () => minimized,
+            restore: () => { minimized = false; },
+            isVisible: () => window.shown,
+            isAlwaysOnTop: () => false,
+            isFullScreen: () => fullscreen,
+            setFullScreen: (value: boolean) => { fullscreen = value; },
+        });
+        workspace.tray = {setContextMenu() {}};
+        mockElectron(t, {Menu: {buildFromTemplate: () => ({})}});
+        const {registerCommandIpc} = require("../ipc/commandChannel");
+        const {registerShellIntegrationIpc} = require("../ipc/shellIntegration");
+        const {queueSecondInstance, startSecondInstance} = require("../startup/secondInstance");
+        registerCommandIpc();
+        registerShellIntegrationIpc();
+        startSecondInstance({
+            initKernel: () => assert.fail("relaunch must reuse the existing kernel"),
+            initMainWindow: () => assert.fail("relaunch must reuse the existing window"),
+        });
+
+        const event = {sender: window.webContents};
+        ipcMain.emit("siyuan-ready-to-show", event);
+        assert.equal(window.shown, true);
+        const close = () => window.emit("close", {preventDefault() {}});
+        close();
+        assert.equal(timers.size, 1);
+        if (action === "tray") {
+            ipcMain.emit("siyuan-config-tray", event, {languages: {}});
+        } else {
+            ipcMain.emit("siyuan-cmd", event, "closeButtonBehavior");
+            if (action === "fullscreen") {
+                assert.equal(fullscreen, false);
+                assert.equal(window.shown, true);
+                assert.equal(timers.size, 1);
+                window.emit("leave-full-screen");
+            }
+        }
+        assert.equal(window.shown, false);
+        assert.equal(timers.size, 0, action);
+
+        queueSecondInstance({}, ["SiYuan.exe"]);
+        assert.equal(window.shown, true);
+        close();
+        assert.deepEqual(window.messages.filter(([channel]) => channel === "siyuan-save-close"),
+            [["siyuan-save-close", false], ["siyuan-save-close", false]]);
+        assert.equal(timers.size, 1);
+        window.destroy();
+        assert.equal(timers.size, 0);
+    }
+});
+
+test("only the requesting workspace receives new global shortcut failures", (t) => {
+    const {context, ipcMain, electronStub} = mainWindowSetup(t);
+    context.initMainWindow(6806);
+    context.initMainWindow(6807);
+    type TestWindow = InstanceType<ReturnType<typeof mainWindowSetup>["Window"]>;
+    const [first, second]: TestWindow[] = context.workspaces.map(workspace => workspace.browserWindow);
+    const occupied = new Set(["Shift+Alt+M", "Alt+P"]);
+    electronStub.globalShortcut = {
+        unregister: () => {},
+        register: (accelerator: string) => !occupied.has(accelerator),
+    };
+    const {registerShellIntegrationIpc} = require("../ipc/shellIntegration") as typeof import("../ipc/shellIntegration");
+    registerShellIntegrationIpc();
+    const sync = (window: typeof first, hotkeys: string[], suspended = false) => {
+        ipcMain.emit("siyuan-hotkey", {sender: window.webContents}, {hotkeys, suspended});
+    };
+    const notification = (newlyFailed: string[]) => ["siyuan-hotkey", {newlyFailed}];
+
+    sync(first, ["⌥⇧M"]);
+    assert.deepEqual(first.messages, [notification(["⌥⇧M"])]);
+    assert.equal(second.messages, undefined);
+
+    sync(first, ["⇧⌥M"]);
+    sync(second, ["⌥⇧M"]);
+    sync(second, ["⌥⇧M", "⌥P"]);
+    assert.deepEqual(first.messages, [notification(["⌥⇧M"]), notification([])]);
+    assert.deepEqual(second.messages, [notification([]), notification(["⌥P"])]);
+
+    sync(second, [], true);
+    sync(first, ["⇧⌥M"]);
+    assert.equal(first.messages.length, 2);
+    assert.equal(second.messages.length, 2);
+    sync(second, ["⌥⇧M", "⌥P"]);
+    assert.deepEqual(second.messages.at(-1), notification([]));
+
+    occupied.delete("Shift+Alt+M");
+    sync(first, ["⇧⌥M"]);
+    occupied.add("Shift+Alt+M");
+    sync(first, ["⇧⌥M"]);
+    assert.deepEqual(first.messages.slice(-2), [notification([]), notification(["⇧⌥M"])]);
+    sync(second, ["⌥⇧M"]);
+    sync(second, ["⌥⇧M", "⌥P"]);
+    assert.deepEqual(second.messages.slice(-2), [notification([]), notification(["⌥P"])]);
 });
 
 test("main window timeout and closure clean up their own boot windows and readiness listeners", (t) => {
@@ -344,6 +495,8 @@ test("system shutdown includes every booting workspace and closes only successfu
         runtimeState.workspaces = [];
         runtimeState.windows.bootWindows = new Set(boots) as unknown as Set<BootWindow>;
         runtimeState.startup = Object.freeze({...runtimeState.startup, remoteKernelTarget: undefined});
+        const {beginGracefulSystemShutdown, getSystemShutdownPorts} =
+            require("../startup/systemShutdown") as typeof import("../startup/systemShutdown");
         assert.deepEqual(getSystemShutdownPorts(), [6806, 6807]);
         beginGracefulSystemShutdown({
             exitApp: () => { appExits++; },

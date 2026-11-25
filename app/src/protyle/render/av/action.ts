@@ -1,3 +1,4 @@
+import {getAVCellShowIcon} from "./entryIcon";
 import {isTableLikeView} from "./viewType";
 import {prepareAVColumnWindow} from "./columnWindow";
 import {removeAVTableColumn} from "./columnPresentation";
@@ -9,7 +10,7 @@ import {addSubItemsMenu} from "./subItems";
 import {Menu} from "../../../plugin/Menu";
 import {toggleMenu} from "../../../menus/menuToggle";
 import {hasClosestByClassName} from "../../util/hasClosest";
-import {getAVHost as hasClosestBlock, getAVRelationHost} from "./host";
+import {getAVHost, getAVRelationHost} from "./host";
 import {transaction} from "../../wysiwyg/transaction";
 import {openEditorTab} from "../../../menus/util";
 import {openFileAttr} from "../../../menus/commonMenuItem";
@@ -340,7 +341,6 @@ const openAVEditFieldMenu = (protyle: IProtyle, blockElement: HTMLElement, ancho
     const menu = new Menu();
     getAVEditFieldMenuItems(protyle, blockElement).forEach(item => menu.addItem(item));
     if (isMobile()) {
-        menu.element.setAttribute("data-sheet-expandable", "true");
         menu.fullscreen();
     } else {
         const rect = anchorElement.getBoundingClientRect();
@@ -348,7 +348,6 @@ const openAVEditFieldMenu = (protyle: IProtyle, blockElement: HTMLElement, ancho
     }
 };
 
-let foldTimeout: number;
 export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLElement }) => {
     const templateInteractiveElement = getAVTemplateInteractiveElement(event.target);
     if (templateInteractiveElement) {
@@ -406,7 +405,7 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
     }
     // 富文本预览以 b3-typography 作为渲染边界，先回到单元格再查找数据库块。
     const cellElement = hasClosestByClassName(event.target, "av__cell");
-    const blockElement = hasClosestBlock(cellElement || event.target);
+    const blockElement = getAVHost(cellElement || event.target);
     if (!blockElement) {
         return false;
     }
@@ -490,8 +489,11 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
             event.preventDefault();
             event.stopPropagation();
             return true;
-        } else if (type === "av-switcher" && !protyle.disabled) {
-            openMenuPanel({protyle, blockElement, type: "switcher"});
+        } else if (type === "av-switcher" && (!protyle.disabled || target.classList.contains("av__mobile-view"))) {
+            const data = protyle.disabled ? getAVData(blockElement) : undefined;
+            if (!protyle.disabled || data) {
+                openMenuPanel({protyle, blockElement, type: "switcher", data});
+            }
             event.preventDefault();
             event.stopPropagation();
             return true;
@@ -711,7 +713,6 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                 });
                 initUnfoldedGroupTables(blockElement, protyle);
                 updateGroupFoldedStates(blockElement, doData);
-                clearTimeout(foldTimeout);
                 if (window.siyuan.isPublish || protyle.disabled) {
                     if (window.siyuan.isPublish) {
                         setPublishAVFolds(blockElement, viewID, doData);
@@ -740,7 +741,6 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                 setGroupFolded(target, isOpen);
                 initUnfoldedGroupTables(blockElement, protyle);
                 updateGroupFoldedStates(blockElement, {[target.dataset.id]: isOpen});
-                clearTimeout(foldTimeout);
                 if (window.siyuan.isPublish || protyle.disabled) {
                     if (window.siyuan.isPublish) {
                         setPublishAVFolds(blockElement, viewID, {[target.dataset.id]: isOpen});
@@ -751,26 +751,21 @@ export const avClick = (protyle: IProtyle, event: MouseEvent & { target: HTMLEle
                     event.stopPropagation();
                     return true;
                 }
-                foldTimeout = window.setTimeout(() => {
-                    if (protyle.disabled) {
-                        return;
-                    }
-                    transaction(protyle, [{
-                        action: "foldAttrViewGroup",
-                        avID: blockElement.dataset.avId,
-                        blockID: blockElement.dataset.nodeId,
-                        viewID,
-                        id: target.dataset.id,
-                        data: isOpen
-                    }], [{
-                        action: "foldAttrViewGroup",
-                        avID: blockElement.dataset.avId,
-                        blockID: blockElement.dataset.nodeId,
-                        viewID,
-                        id: target.dataset.id,
-                        data: !isOpen
-                    }]);
-                }, Constants.TIMEOUT_COUNT);
+                transaction(protyle, [{
+                    action: "foldAttrViewGroup",
+                    avID: blockElement.dataset.avId,
+                    blockID: blockElement.dataset.nodeId,
+                    viewID,
+                    id: target.dataset.id,
+                    data: isOpen,
+                }], [{
+                    action: "foldAttrViewGroup",
+                    avID: blockElement.dataset.avId,
+                    blockID: blockElement.dataset.nodeId,
+                    viewID,
+                    id: target.dataset.id,
+                    data: !isOpen,
+                }]);
             }
             event.preventDefault();
             event.stopPropagation();
@@ -923,7 +918,7 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undef
     if (rowElement?.classList.contains("av__row--header")) {
         return false;
     }
-    const blockElement = options?.blockElement || (rowElement ? hasClosestBlock(rowElement) : undefined);
+    const blockElement = options?.blockElement || (rowElement ? getAVHost(rowElement) : undefined);
     if (!blockElement) {
         return false;
     }
@@ -964,7 +959,6 @@ export const avContextmenu = (protyle: IProtyle, rowElement: HTMLElement | undef
     }
     const menu = new Menu();
     const rowElements = blockElement.querySelectorAll(".av__row--select:not(.av__row--header), .av__gallery-item--select");
-    menu.element.setAttribute("data-sheet-expandable", "true");
     const selectedItemInfos = getAVSelectedItemInfos(blockElement);
     const selectedItems = getAVSelectedItems(blockElement);
     const primaryRows = selectedItemInfos
@@ -1539,12 +1533,14 @@ export const updateAttrViewCellAnimation = (cellElement: HTMLElement, value: IAV
         updateHeaderCell(cellElement, headerValue);
     } else {
         const hasDragFill = cellElement.querySelector(".av__drag-fill");
-        const blockElement = hasClosestBlock(cellElement);
+        const blockElement = getAVHost(cellElement);
         if (!blockElement) {
             return;
         }
         const viewType = blockElement.getAttribute("data-av-type") as TAVView;
         const iconElement = cellElement.querySelector(".b3-menu__avemoji");
+        const view = getAVData(blockElement)?.view;
+        const showIcon = view ? getAVCellShowIcon(view, value.type) : !!iconElement && !iconElement.classList.contains("fn__none");
         const renderTemplate = cellElement.dataset.renderTemplate;
         if (renderTemplate?.trim() && typeof value.renderedContent !== "string" &&
             cellElement.querySelector(".av__celltext--template")) {
@@ -1566,13 +1562,13 @@ export const updateAttrViewCellAnimation = (cellElement: HTMLElement, value: IAV
                     content: cellElement.getAttribute("aria-label").split('<div class="ft__on-surface">')[0],
                 };
             }
-            cellElement.innerHTML = renderCell(value, 0, iconElement ? !iconElement.classList.contains("fn__none") : false,
+            cellElement.innerHTML = renderCell(value, 0, showIcon,
                 viewType, undefined, cellElement.dataset.dateFormat as TAVDateFormat, renderTemplate);
             cellElement.parentElement.setAttribute("data-empty",
                 cellValueIsEmpty(value, true, renderTemplate).toString());
         } else {
             const contentElement = cellElement.querySelector(".av__cellcontent") || cellElement;
-            contentElement.innerHTML = renderCell(value, 0, iconElement ? !iconElement.classList.contains("fn__none") : false,
+            contentElement.innerHTML = renderCell(value, 0, showIcon,
                 undefined, undefined, cellElement.dataset.dateFormat as TAVDateFormat, renderTemplate);
         }
         if (hasDragFill) {

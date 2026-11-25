@@ -14,7 +14,14 @@ const getFunctionKey = () => {
     return fData;
 };
 
+export const TAG_SORT_MANUAL = 6;
+export const TAG_SORT_CREATED_DESC = 16;
+
 export abstract class Constants {
+    public static readonly TABLE_CORNERS = "data-table-corners";
+    public static readonly TABLE_CELL_CORNER = "data-table-cell-corner";
+    public static readonly TABLE_PINNED_COLUMN_CELL = "data-table-pinned-column-cell";
+    public static readonly TABLE_PINNED_COLUMN_ACTIVE = "data-table-pinned-column-active";
     public static readonly SIYUAN_VERSION: string = _SIYUAN_VERSION;
     public static readonly NODE_ENV: string = _NODE_ENV;
     public static readonly SIYUAN_APPID: string = Math.random().toString(36).substring(8);
@@ -39,6 +46,7 @@ export abstract class Constants {
     public static readonly SIYUAN_CMD: string = "siyuan-cmd";
     public static readonly SIYUAN_GET: string = "siyuan-get";
     public static readonly SIYUAN_EVENT: string = "siyuan-event";
+    public static readonly SIYUAN_AGENT_NOTIFICATION = "siyuan-agent-notification";
     public static readonly SIYUAN_WINDOW_WORKSPACE_SAVED = "siyuan-window-workspace-saved";
 
     public static readonly SIYUAN_WINDOW_WORKSPACE_SET = "siyuan-window-workspace-set";
@@ -54,6 +62,7 @@ export abstract class Constants {
     public static readonly SIYUAN_HOTKEY: string = "siyuan-hotkey";
     public static readonly SIYUAN_SYNC_APP_MENU: string = "siyuan-sync-app-menu";
     public static readonly SIYUAN_SYNC_MARKDOWN_KEYMAP: string = "siyuan-sync-markdown-keymap";
+    public static readonly SIYUAN_SYNC_NOTICE_HEADER: string = "X-Siyuan-Sync-Notice";
     public static readonly SIYUAN_INIT: string = "siyuan-init";
     public static readonly SIYUAN_READY_TO_SHOW: string = "siyuan-ready-to-show";
     public static readonly SIYUAN_SEND_WINDOWS: string = "siyuan-send-windows"; // 主窗口和各新窗口之间的通信
@@ -87,10 +96,12 @@ export abstract class Constants {
     public static readonly CUSTOM_REMINDER_WECHAT: string = "custom-reminder-wechat";
     public static readonly CUSTOM_RIFF_DECKS: string = "custom-riff-decks";
     public static readonly CUSTOM_SY_READONLY: string = "custom-sy-readonly";
+    public static readonly CUSTOM_SY_AI_SOURCE: string = "custom-sy-ai-source";
     public static readonly CUSTOM_SY_EMBED_BREADCRUMB_PARENT_PATH: string = "custom-sy-embed-breadcrumb-parent-path";
     public static readonly CUSTOM_SY_SUBDOC_SORT_MODE: string = "custom-sy-subdoc-sort-mode";
     public static readonly CUSTOM_SY_FULLWIDTH: string = "custom-sy-fullwidth";
     public static readonly CUSTOM_SY_HEADING_NUMBER: string = "custom-sy-heading-number";
+    public static readonly CUSTOM_SY_RESTORE_DOC_POSITION: string = "custom-sy-restore-doc-position";
     public static readonly CUSTOM_SY_AV_VIEW: string = "custom-sy-av-view";
     public static readonly CUSTOM_SY_AV_VISIBLE_VIEWS: string = "custom-sy-av-visible-views";
     public static readonly CUSTOM_SY_LIST_MINDMAP: string = "custom-sy-list-mindmap";
@@ -100,6 +111,7 @@ export abstract class Constants {
     public static readonly CUSTOM_SY_TABLE_RICH: string = "custom-sy-table-rich";
     public static readonly CUSTOM_SY_TABLE_HEADER_ROW: string = "custom-sy-table-header-row";
     public static readonly CUSTOM_SY_TABLE_HEADER_COLUMN: string = "custom-sy-table-header-column";
+    public static readonly CUSTOM_SY_TABLE_PIN_COLUMN: string = "custom-sy-table-pin-column";
     public static readonly CUSTOM_SY_AV_STATIC_TEXT: string = "custom-sy-av-s-text-";
     public static readonly CUSTOM_SY_LIVE_PHOTO: string = "custom-sy-live-photo";
     public static readonly CUSTOM_SY_LIVE_PHOTO_VIDEO: string = "custom-sy-live-photo-video";
@@ -297,7 +309,7 @@ export abstract class Constants {
     public static readonly DIALOG_SAVEWORKSPACE = "dialog-saveworkspace"; // 保存工作空间
 
     // menu
-    public static readonly MENU_BAR_WORKSPACE = "barWorkspace"; // 顶栏主菜单
+    public static readonly MENU_BAR_MAIN_MENU = "barMainMenu"; // 顶栏主菜单
     public static readonly MENU_BAR_PLUGIN = "topBarPlugin"; // 顶栏插件菜单
     public static readonly MENU_BAR_ZOOM = "barZoom"; // 顶栏缩放菜单
     public static readonly MENU_BAR_MODE = "barmode"; // 顶栏外观菜单
@@ -336,7 +348,6 @@ export abstract class Constants {
     public static readonly MENU_AV_ADD_FILTER = "av-add-filter"; // 数据库添加筛选条件菜单
     public static readonly MENU_AV_ADD_SORT = "av-add-sort"; // 数据库添加排序条件菜单
     public static readonly MENU_AV_COL_OPTION = "av-col-option"; // 数据库单选多选字段的选项编辑菜单
-    public static readonly MENU_AV_COL_FORMAT_NUMBER = "av-col-format-number"; // 数据库数字字段格式化菜单
     public static readonly MENU_AV_COL_FORMAT_DATE = "av-col-format-date"; // 数据库日期字段格式化菜单
     public static readonly MENU_AV_GROUP_DATE = "avGroupDate"; // 数据库日期字段分组菜单的日期菜单
     public static readonly MENU_AV_GROUP_SORT = "avGroupSort"; // 数据库日期字段分组菜单的排序菜单
@@ -402,13 +413,14 @@ export abstract class Constants {
         ko: "20210808180117-6v0mkxr",
         pl: "20210808180117-6v0mkxr",
         "pt-BR": "20210808180117-6v0mkxr",
-        ru: "20210808180117-6v0mkxr",
+        ru: "20261122113000-kt3e4wz",
         th: "20210808180117-6v0mkxr",
         nl: "20210808180117-6v0mkxr",
         sk: "20210808180117-6v0mkxr",
         sr: "20210808180117-6v0mkxr",
         tr: "20210808180117-6v0mkxr",
         uk: "20210808180117-6v0mkxr",
+        vi: "20210808180117-6v0mkxr",
         "zh-TW": "20211226090932-5lcq56f",
         "zh-CN": "20210808180117-czj9bvb",
     };
@@ -917,6 +929,7 @@ export abstract class Constants {
 
     // assets
     public static readonly SIYUAN_ASSETS_IMAGE: string[] = [".apng", ".ico", ".cur", ".jpg", ".jpe", ".jpeg", ".jfif", ".pjp", ".pjpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".tiff", ".tif", ".heic", ".heif"];
+    public static readonly AGENT_IMAGE_MIME_TYPES: readonly string[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
     public static readonly SIYUAN_ASSETS_AUDIO: string[] = [".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"];
     public static readonly SIYUAN_ASSETS_VIDEO: string[] = [".mov", ".weba", ".mkv", ".mp4", ".webm"];
     public static readonly SIYUAN_ASSETS_EXTS: string[] = [".pdf"].concat(Constants.SIYUAN_ASSETS_IMAGE, Constants.SIYUAN_ASSETS_AUDIO, Constants.SIYUAN_ASSETS_VIDEO);

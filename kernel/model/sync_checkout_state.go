@@ -14,6 +14,7 @@ import (
 	"github.com/olahol/melody"
 	"github.com/siyuan-community/siyuan/kernel/apicontract"
 	"github.com/siyuan-community/siyuan/kernel/cache"
+	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/util"
 	"github.com/siyuan-note/dejavu"
 	"github.com/siyuan-note/dejavu/entity"
@@ -150,8 +151,12 @@ func IsSyncCheckoutApplying() bool {
 	return false
 }
 
-// prepareApply 先排空各窗口输入，再取得既有写接口和编辑事务的串行区。
 func (task *syncCheckoutTask) prepareApply() error {
+	return task.prepareWriteProtection(true)
+}
+
+// prepareWriteProtection 先排空各窗口输入，再取得既有写接口和编辑事务的串行区。
+func (task *syncCheckoutTask) prepareWriteProtection(deferForRecovery bool) error {
 	if err := task.ctx.Err(); err != nil {
 		return err
 	}
@@ -161,6 +166,9 @@ func (task *syncCheckoutTask) prepareApply() error {
 		return nil
 	}
 	task.Unlock()
+	if deferForRecovery && sql.IndexRecoveryPending() {
+		return errSyncCheckoutBusy
+	}
 	var sessions []*melody.Session
 	for {
 		if err := waitForSyncUI(task.ctx, false, false); err != nil {
@@ -243,11 +251,12 @@ func (task *syncCheckoutTask) completeApply() {
 	for _, file := range task.removes {
 		changes.Removes = append(changes.Removes, file)
 	}
+	previousNotebookConfs := task.previousNotebookConfs
 	task.Unlock()
 	if changes.DataChanged() {
 		task.beginIndexing()
 		calcPetalDiff(task.beforePetals, changes)
-		processSyncMergeResult(false, false, changes, &dejavu.TrafficStat{}, "c", 0, true)
+		processSyncMergeResult(false, false, changes, &dejavu.TrafficStat{}, "c", 0, true, previousNotebookConfs)
 	}
 	task.Lock()
 	if task.indexedPaths == nil {
@@ -270,6 +279,7 @@ func (task *syncCheckoutTask) completeApply() {
 		}
 	}
 	task.upserts, task.removes = map[string]*entity.File{}, map[string]*entity.File{}
+	clear(task.previousNotebookConfs)
 	if task.releaseWrites != nil {
 		task.releaseWrites()
 		task.releaseWrites = nil
@@ -321,6 +331,9 @@ func reconcileSyncCheckoutChanges(changes *dejavu.MergeResult) (bool, error) {
 	for _, file := range changes.Upserts {
 		task.upserts[file.Path] = file
 		delete(task.removes, file.Path)
+		if boxID := syncNotebookConfBoxID(file.Path); boxID != "" {
+			delete(task.previousNotebookConfs, boxID)
+		}
 	}
 	for _, file := range changes.Removes {
 		task.removes[file.Path] = file

@@ -6,7 +6,7 @@
 		"id": "20261101145217-411811d",
 		"title": "獨立 Markdown 編輯器",
 		"type": "doc",
-		"updated": "20261109092557"
+		"updated": "20261120092311"
 	},
 	"Children": [
 		{
@@ -291,12 +291,114 @@
 			]
 		},
 		{
+			"ID": "20261113111930-4ea3be3",
+			"Type": "NodeHeading",
+			"HeadingLevel": 2,
+			"Properties": {
+				"id": "20261113111930-4ea3be3",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "尋找與取代"
+				}
+			]
+		},
+		{
+			"ID": "20261113111930-865b128",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261113111930-865b128",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "透過 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "更多"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "搜索"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " 開啟尋找面板，也可以按 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Ctrl+F"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "，macOS 使用 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Cmd+F"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。點擊 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "替換"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " 展開取代輸入框。"
+				}
+			]
+		},
+		{
+			"ID": "20261113111930-1ccb944",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261113111930-1ccb944",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "即時渲染和所見即所得模式搜尋內文及程式碼區塊，原始碼模式搜尋完整 Markdown 原始碼，包括標記和連結目標。支援一般文字比對、區分大小寫以及上一個和下一個相符項目，內文比對可跨行內格式，範圍限定在同一段落或表格儲存格。"
+				}
+			]
+		},
+		{
+			"ID": "20261113111930-e9df6b9",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261113111930-e9df6b9",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "取代後的內容沿用自動儲存流程。可以取代目前相符項目或全部相符項目，全部取代可一步復原或重做。"
+				}
+			]
+		},
+		{
 			"ID": "20261101171827-62b5f30",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20261101171827-62b5f30",
-				"updated": "20261105091714"
+				"updated": "20261120092311"
 			},
 			"Children": [
 				{
@@ -356,7 +458,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20261101171827-261349c",
-				"updated": "20261101171827"
+				"updated": "20261120092311"
 			},
 			"Children": [
 				{
@@ -379,7 +481,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " 可重新選擇導覽根目錄而不改變內文。即使目前文件不在所選根目錄內，也會保留你的選擇。另存為仍在根目錄內時維持原根目錄，儲存至根目錄外後會跟隨新檔案的父目錄。"
+					"Data": " 可重新選擇導覽根目錄而不改變內文。即使目前文件不在所選根目錄內，也會保留你的選擇。另存為仍在根目錄內時維持原根目錄，儲存至根目錄外後會跟隨新檔案的父目錄。桌面端可以點擊 docs/next.md 之類的相對連結，在同一編輯器中開啟 Markdown 文件。連結以目前文件所在目錄為基準，目標必須位於檔案樹根目錄內。檔案不存在或超出根目錄時，狀態列會提示無法開啟連結。"
 				}
 			]
 		},
@@ -575,7 +677,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " 選擇相對路徑圖片所在的本機目錄，只顯示明確授權目錄內支援的圖片。圖片缺失或未獲授權時，保留原始 Markdown 引用並提示資源無法使用。臨時預覽位址不會寫入正文，目錄授權僅屬於目前編輯工作階段。Android 須選擇 Markdown 文件的直接父目錄，可顯示該目錄及其子目錄內支援的圖片；包含 .. 的父層目錄引用無法使用。"
+					"Data": " 檢視本機圖片引用實際所在的目錄。桌面端遇到未授權的本機圖片時，會在一個對話框中列出目錄完整路徑，預設全部勾選，可取消單項。清單較長時可以捲動，確認與取消按鈕保持可見。取消不產生授權，授權只在目前編輯工作階段中生效，不永久信任目錄。新增未授權圖片路徑時再次提示；可透過此選單重新確認略過的目錄。不會合併授權到更大的祖先目錄。缺失、不支援或超出限制的圖片不列入候選，原始引用保持不變。HTTP、HTTPS 圖片無需此授權，臨時預覽位址不會寫入正文。Android 須選擇 Markdown 文件的直接父目錄，可顯示該目錄及其子目錄內支援的圖片；包含 .. 的父層目錄引用無法使用。"
 				}
 			]
 		},
@@ -679,6 +781,63 @@
 				{
 					"Type": "NodeText",
 					"Data": "含有密集表格或程式碼的複雜文件，在渲染、切換模式或儲存時仍可能停頓；大小限制不保證所有文件都能流暢操作。"
+				}
+			]
+		},
+		{
+			"ID": "20261110151447-u3fuimz",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20261110151447-u3fuimz",
+				"updated": "20261110151447"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "macOS 快速預覽"
+				}
+			],
+			"HeadingLevel": 2
+		},
+		{
+			"ID": "20261110151447-uxy1k8v",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261110151447-uxy1k8v",
+				"updated": "20261110151447"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在 macOS 安裝思源後，系統啟用並選中思源 Markdown 快速預覽擴充功能時，可在 Finder 選中 .md 或 .markdown 檔案並按空白鍵，唯讀查看內容，無需啟動主介面或核心，不修改來源檔案或預設開啟應用程式。系統可能優先使用其他 Markdown 預覽擴充功能，實際以系統選擇為準。"
+				}
+			]
+		},
+		{
+			"ID": "20261110151447-rd2rcks",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261110151447-rd2rcks",
+				"updated": "20261110151447"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "預覽使用安裝套件內資源和系統深淺色外觀，不開啟遠端圖片或外部連結。相對路徑的本機 PNG、JPEG、GIF 和 WebP 圖片僅在系統實際授予存取權限時顯示；遺失、無權限或不支援的圖片顯示佔位提示。預覽支援 UTF-8 和帶 BOM 的 UTF-16，正文上限為 256 KiB、20000 個元素，算繪超過 15 秒會停止並提示。複雜程式碼或公式可能保留為文字。這些限制僅針對快速預覽，不影響獨立編輯器。"
+				}
+			]
+		},
+		{
+			"ID": "20261111120000-qlftw01",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261111120000-qlftw01",
+				"updated": "20261111120000"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "快速預覽跟隨獨立 Markdown 編輯器的字型來源選擇，以及全域、編輯器和程式碼字型與字重。已安裝字型按字型名稱使用，所選工作空間的 TTF/OTF 字型使用本機快照。預覽使用最近一次同步的選擇，思源關閉時不會存取工作空間。修改來源設定或字型檔案後，請開啟思源和 Markdown 編輯器以更新快照。字型無法使用或損壞時回退到預設字型，不載入遠端字型。"
 				}
 			]
 		}

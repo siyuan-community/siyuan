@@ -6,7 +6,7 @@
 		"id": "20261101145217-38d4623",
 		"title": "Standalone Markdown editor",
 		"type": "doc",
-		"updated": "20261109092557"
+		"updated": "20261120092311"
 	},
 	"Children": [
 		{
@@ -291,12 +291,114 @@
 			]
 		},
 		{
+			"ID": "20261113111930-09936a4",
+			"Type": "NodeHeading",
+			"HeadingLevel": 2,
+			"Properties": {
+				"id": "20261113111930-09936a4",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Find and replace"
+				}
+			]
+		},
+		{
+			"ID": "20261113111930-a57d6b4",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261113111930-a57d6b4",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Open "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "More"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Search"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " or press "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Ctrl+F"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " ("
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Cmd+F"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " on macOS) to find text. Select "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "Replace"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " to expand the replacement field."
+				}
+			]
+		},
+		{
+			"ID": "20261113111930-8f5258a",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261113111930-8f5258a",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Instant Rendering and WYSIWYG search document text and code blocks. Source mode searches the complete Markdown source, including markers and link destinations. Search supports literal text, case sensitivity, and previous and next matches. Rich-text matches may span inline formatting within one paragraph or table cell."
+				}
+			]
+		},
+		{
+			"ID": "20261113111930-8d8e9c9",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261113111930-8d8e9c9",
+				"updated": "20261113111930"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Replacements use the automatic save workflow. You can replace the current match or all matches. Replace all can be undone or redone in one step."
+				}
+			]
+		},
+		{
 			"ID": "20261101171827-eb329f4",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20261101171827-eb329f4",
-				"updated": "20261105091714"
+				"updated": "20261120092311"
 			},
 			"Children": [
 				{
@@ -356,7 +458,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20261101171827-d330cb9",
-				"updated": "20261101171827"
+				"updated": "20261120092311"
 			},
 			"Children": [
 				{
@@ -379,7 +481,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " to choose another navigation root without changing the document. Your chosen root stays selected even when the current document is outside it. Save As keeps the root when the new file is inside it and follows the new parent folder when it is outside."
+					"Data": " to choose another navigation root without changing the document. Your chosen root stays selected even when the current document is outside it. Save As keeps the root when the new file is inside it and follows the new parent folder when it is outside. On desktop, a relative link such as docs/next.md opens a Markdown file in the same editor. Links resolve from the current document’s folder, and the destination must be inside the file-tree root. If the file is missing or outside the root, the status bar shows that the link could not be opened."
 				}
 			]
 		},
@@ -575,7 +677,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": " to select the local folder containing images referenced by relative paths. Only supported images within explicitly authorized folders are displayed. A missing or unauthorized image keeps its original Markdown reference and shows an unavailable-resource notice. Temporary preview addresses are never written into the document. Folder authorization belongs to the current editor session. On Android, select the Markdown document’s direct parent folder. Supported images in that folder and its subfolders can be displayed; parent-directory references containing .. are unavailable."
+					"Data": " to review the real folders containing referenced local images. On desktop, unavailable local images trigger a batch confirmation listing full folder paths. All are selected by default; uncheck any folder you do not want to authorize. Long lists scroll while the confirmation and cancel buttons stay visible. Cancelling grants no access. Authorization lasts only for the current editing session, without permanent trust. New unauthorized image paths prompt again; use this menu to retry skipped folders. Folders are not combined into broader ancestor folders. Missing, unsupported, or oversized images are not included and keep their original references. HTTP and HTTPS images do not require this authorization. Temporary preview addresses are never written into the document. On Android, select the Markdown document’s direct parent folder. Supported images in that folder and its subfolders can be displayed; parent-directory references containing .. are unavailable."
 				}
 			]
 		},
@@ -679,6 +781,63 @@
 				{
 					"Type": "NodeText",
 					"Data": "Complex documents with dense tables or code can still pause while rendering, switching modes, or saving; the size limit does not guarantee smooth interaction."
+				}
+			]
+		},
+		{
+			"ID": "20261110151447-ps0vv48",
+			"Type": "NodeHeading",
+			"Properties": {
+				"id": "20261110151447-ps0vv48",
+				"updated": "20261110151447"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "macOS Quick Look"
+				}
+			],
+			"HeadingLevel": 2
+		},
+		{
+			"ID": "20261110151447-efrjijg",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261110151447-efrjijg",
+				"updated": "20261110151447"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "On macOS, the installed SiYuan Markdown Quick Look extension provides a read-only preview of .md and .markdown files selected in Finder with the Space key. It does not launch the main interface or kernel, edit the source, or change the default application. Availability depends on the system enabling and selecting this extension; other Markdown preview extensions may take precedence."
+				}
+			]
+		},
+		{
+			"ID": "20261110151447-6wjpg8e",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261110151447-6wjpg8e",
+				"updated": "20261110151447"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "The preview uses bundled resources and the system light/dark appearance. Remote images and links do not open. Relative local PNG, JPEG, GIF and WebP images are displayed only when the system grants actual access; missing, unauthorized or unsupported images show a placeholder. Preview supports UTF-8 and BOM-marked UTF-16, limits content to 256 KiB and 20000 elements, and stops rendering after 15 seconds. Complex code or formulas may remain as text. These limits apply to Quick Look rather than the independent editor."
+				}
+			]
+		},
+		{
+			"ID": "20261111120000-qlfen01",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261111120000-qlfen01",
+				"updated": "20261111120000"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "Quick Look follows the independent Markdown editor’s font source selection and its global, editor and code font families and weights. Installed fonts are used by family name; selected workspace TTF/OTF fonts use a local snapshot. The preview uses the last synchronized selection and does not access the workspace while SiYuan is closed. After changing the source settings or font files, open SiYuan and the Markdown editor to refresh the snapshot. Unavailable or corrupt fonts fall back to the default fonts; remote fonts are never loaded."
 				}
 			]
 		}

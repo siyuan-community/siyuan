@@ -6,8 +6,10 @@
 @use "component/chip";
 @use "component/select";
 @use "component/text-field";
+@use "component/switch";
 @use "component/tooltips";
 @use "business/block";
+@use "business/markdown-content";
 @use "util/scroll";
 @use "util/keyframes";
 
@@ -19,8 +21,9 @@ body {
   overflow: hidden;
   background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
-  font-family: var(--b3-font-family);
+  font-family: var(--markdown-global-font-family, var(--b3-font-family));
   font-size: var(--b3-font-size);
+  font-weight: var(--markdown-global-font-weight, 400);
 }
 
 button {
@@ -48,8 +51,10 @@ button {
   display: flex;
   flex-direction: column;
   --markdown-font-size: 16px;
-  font-family: var(--markdown-global-font-family, var(--b3-font-family));
-  font-weight: var(--markdown-global-font-weight, 400);
+}
+
+.tooltip {
+  font-weight: inherit;
 }
 
 .markdown-header {
@@ -351,7 +356,8 @@ button:focus-visible,
 
   > .b3-list {
     margin: 0;
-    padding: 0;
+    // 首末行各有 1px 外边距，与列表项两侧的 8px 留白对齐。
+    padding: 7px 0;
     display: flex;
     flex-direction: column;
 
@@ -406,6 +412,7 @@ button:focus-visible,
   min-width: 0;
   border: 0;
   border-radius: 0;
+  font-family: inherit;
   --border-color: var(--b3-border-color);
   --panel-background-color: var(--b3-theme-background);
   --toolbar-background-color: var(--b3-theme-surface);
@@ -417,6 +424,15 @@ button:focus-visible,
   --blockquote-border-color: var(--b3-border-color);
   --blockquote-text-color: var(--b3-theme-on-surface);
   --panel-shadow: var(--b3-dialog-shadow);
+  --find-background-color: var(--b3-theme-primary);
+  --find-text-color: var(--b3-theme-on-primary);
+}
+
+.markdown-editor .vditor-find__row > .b3-text-field {
+  flex: 1 1 160px;
+  min-width: 100px;
+  font-family: inherit;
+  font-weight: inherit;
 }
 
 .markdown-editor > .vditor-toolbar {
@@ -427,6 +443,11 @@ button:focus-visible,
   margin-top: 24px;
 }
 
+.markdown-editor .vditor-reset table :is(th, td) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .markdown-app[data-tooltips] .vditor-tooltipped::before,
 .markdown-app[data-tooltips] .vditor-tooltipped::after {
   content: none;
@@ -434,23 +455,7 @@ button:focus-visible,
 
 .markdown-editor .vditor-outline {
   max-width: 40%;
-}
-
-.markdown-editor .vditor-reset,
-.markdown-editor .vditor-sv {
-  font-size: var(--markdown-font-size);
-  font-family: var(--markdown-editor-font-family, var(--b3-font-family-protyle));
-  font-weight: var(--markdown-editor-font-weight, 400);
-}
-
-.markdown-editor .vditor-reset code,
-.markdown-editor .vditor-sv {
-  font-family: var(--markdown-code-font-family, var(--b3-font-family-code));
-  font-weight: var(--markdown-code-font-weight, 400);
-}
-
-.markdown-editor .vditor-reset table code:not(.hljs):not(.highlight-chroma) {
-  white-space: pre;
+  font-family: var(--markdown-global-font-family, var(--b3-font-family));
 }
 
 // 先按标题字号计算实际行高，让小字号的 H1-H6 标识继承同一行高。
@@ -484,7 +489,6 @@ button:focus-visible,
 }
 
 .markdown-status {
-  justify-content: space-between;
   min-height: 23px;
   line-height: 22px;
 }
@@ -603,6 +607,8 @@ button:focus-visible,
 }
 
 .markdown-font-picker__list {
+  display: flex;
+  flex-direction: column;
   padding: 0;
   max-height: 180px;
   overflow-y: auto;
@@ -641,4 +647,30 @@ button:focus-visible,
 
 .markdown-appearance-dialog__actions {
   gap: 8px;
+}
+
+.markdown-resource-directories {
+  min-height: 0;
+}
+
+.markdown-resource-directories__list {
+  max-height: min(360px, 45vh);
+  overflow-y: auto;
+}
+
+.markdown-resource-directories__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+
+  input {
+    flex-shrink: 0;
+  }
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
 }

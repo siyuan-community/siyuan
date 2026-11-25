@@ -7,9 +7,12 @@
 package model
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +25,74 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/sql"
 	"github.com/siyuan-community/siyuan/kernel/treenode"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
+
+func TestDocumentTitleTransactionLogsFailureCause(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		mixed    bool
+		replay   bool
+		tagDates bool
+		otherID  bool
+		cause    string
+	}{
+		{name: "mixed operations", mixed: true, cause: "document title requires a separate transaction"},
+		{name: "mixed replay operations", mixed: true, replay: true, cause: "document title requires a separate transaction"},
+		{name: "tag maintenance outside replay", tagDates: true, cause: "document title requires a separate transaction"},
+		{name: "tag maintenance for a different node", tagDates: true, replay: true, otherID: true, cause: "document title requires a separate transaction"},
+		{name: "invalid title data", cause: "invalid document title operation"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := setupStructureTransactionTest(t)
+			setupFoldTransactionDatabase(t, fixture)
+			originalLogPath := logging.LogPath
+			logPath := filepath.Join(t.TempDir(), "document-title.log")
+			logging.SetLogPath(logPath)
+			t.Cleanup(func() { logging.SetLogPath(originalLogPath) })
+			path := filepath.Join(util.DataDir, fixture.box.ID, fixture.sourcePath)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op := &Operation{Action: "setDocTitle", ID: fixture.sourceID, Data: map[string]any{}}
+			tx := &Transaction{DoOperations: []*Operation{op}}
+			if test.mixed {
+				tx.DoOperations = append(tx.DoOperations, &Operation{Action: "update", ID: fixture.childID})
+			}
+			if test.tagDates {
+				id := fixture.sourceID
+				if test.otherID {
+					id = fixture.childID
+				}
+				tx.DoOperations = append(tx.DoOperations, tagDatesOperation(id, nil))
+			}
+			if test.replay {
+				tx.MarkReplay()
+			}
+			err = PerformTxSync(tx)
+			var txErr *TxErr
+			if !errors.As(err, &txErr) || txErr.Code() != TxErrCodePushMsg ||
+				txErr.msg != Conf.Language(447) || txErr.id != fixture.sourceID ||
+				errors.Unwrap(txErr) == nil || errors.Unwrap(txErr).Error() != test.cause {
+				t.Fatalf("title failure lost its notification or cause: %#v", err)
+			}
+			data, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"set document title", fixture.sourceID, test.cause} {
+				if !strings.Contains(string(data), want) {
+					t.Fatalf("missing diagnostic %q: %s", want, data)
+				}
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("failed title transaction changed the document: %v", err)
+			}
+		})
+	}
+}
 
 func documentTitleTestProcess(t *testing.T) bool {
 	t.Helper()
@@ -141,6 +211,8 @@ func testDocumentTitleTransactionPersistence(t *testing.T, boxID string) {
 		paragraph.AppendChild(&ast.Node{Type: ast.NodeTextMark, TextMarkType: "block-ref", TextMarkBlockRefID: definition.ID,
 			TextMarkBlockRefSubtype: subtype, TextMarkTextContent: "Definition"})
 	}
+	const tagLabel = "TitleUndoTag"
+	paragraph.AppendChild(&ast.Node{Type: ast.NodeTextMark, TextMarkType: "tag", TextMarkTextContent: tagLabel})
 	source, err := render.NewDocumentTitle(paragraph)
 	if err != nil {
 		t.Fatal(err)
@@ -156,6 +228,14 @@ func testDocumentTitleTransactionPersistence(t *testing.T, boxID string) {
 	if current.Root.DocumentTitle == nil || current.Root.Spec != "7" || current.Root.FirstChild.ID != tree.Root.FirstChild.ID ||
 		op.RetData != treenode.DocumentTitleRevision(current.Root) {
 		t.Fatal("title transaction lost source, body or version")
+	}
+	tagCreated := readTagDates(current.Root.IALAttr(treenode.TagCreatedAttr))[tagLabel]
+	if tagCreated <= 0 {
+		t.Fatal("title transaction did not record the tag addition time")
+	}
+	entry := GlobalUndoLog.Peek(tree.ID)
+	if entry == nil {
+		t.Fatal("title transaction missing from undo history")
 	}
 	refs := sql.QueryRefsByDefIDInBox(definition.ID, false, boxID)
 	if len(refs) != 1 || refs[0].BlockID != tree.ID || refs[0].RootID != tree.ID {
@@ -187,7 +267,7 @@ func testDocumentTitleTransactionPersistence(t *testing.T, boxID string) {
 		}
 		sql.FlushQueue()
 	}
-	replay(tx.UndoOperations)
+	replay(entry.UndoOperationsForReplay())
 	current = read()
 	if current.Root.DocumentTitle != nil || current.Root.IALAttr("title") != "**literal**" || treenode.GetNodeInTree(current, body.ID) == nil {
 		t.Fatal("title undo changed later body content or failed to restore plain source")
@@ -195,10 +275,16 @@ func testDocumentTitleTransactionPersistence(t *testing.T, boxID string) {
 	if refs = sql.QueryRefsByDefIDInBox(definition.ID, false, boxID); len(refs) != 0 {
 		t.Fatal("undo left stale title refs")
 	}
-	replay(tx.DoOperations)
+	if current.Root.IALAttr(treenode.TagCreatedAttr) != "" {
+		t.Fatal("undo left the title tag addition time behind")
+	}
+	replay(entry.DoOperationsForReplay())
 	current = read()
 	if current.Root.DocumentTitle == nil || treenode.GetNodeInTree(current, body.ID) == nil {
 		t.Fatal("redo lost source or body")
+	}
+	if readTagDates(current.Root.IALAttr(treenode.TagCreatedAttr))[tagLabel] != tagCreated {
+		t.Fatal("redo did not restore the original title tag addition time")
 	}
 	if refs = sql.QueryRefsByDefIDInBox(definition.ID, false, boxID); len(refs) != 1 {
 		t.Fatal("redo did not restore title refs")

@@ -235,6 +235,7 @@ func settingEditingPayload(value *conf.Editing) *apicontract.SettingEditing {
 	}
 	result := &apicontract.SettingEditing{}
 	result.ModelID = value.ModelID
+	result.ReasoningEffort = value.ReasoningEffort
 	result.MaxHistoryMessages = value.MaxHistoryMessages
 	result.Temperature = value.Temperature
 	result.MaxCompletionTokens = value.MaxCompletionTokens
@@ -395,6 +396,8 @@ func settingEditorPayload(value *conf.Editor) *apicontract.SettingEditor {
 	result.DisplayNetImgMark = value.DisplayNetImgMark
 	result.DisplayImgName = value.DisplayImgName
 	result.DisplayImgAlt = value.DisplayImgAlt
+	result.DatabaseShowIcon = value.DatabaseShowIcon
+	result.DatabaseShowRelationIcon = value.DatabaseShowRelationIcon
 	result.DatabaseAttrShow = value.DatabaseAttrShow
 	result.DatabaseAttrClickMode = value.DatabaseAttrClickMode
 	result.DatabaseAttrViewMode = value.DatabaseAttrViewMode
@@ -416,6 +419,7 @@ func settingEditorPayload(value *conf.Editor) *apicontract.SettingEditor {
 	result.ReadOnly = value.ReadOnly
 	result.EmbedBlockBreadcrumb = value.EmbedBlockBreadcrumb
 	result.GlobalBreadcrumb = value.GlobalBreadcrumb
+	result.HideBreadcrumbIcons = value.HideBreadcrumbIcons
 	result.EmbedBlockBreadcrumbParentPath = value.EmbedBlockBreadcrumbParentPath
 	result.ListLogicalOutdent = value.ListLogicalOutdent
 	result.ListItemDotNumberClickFocus = value.ListItemDotNumberClickFocus
@@ -534,6 +538,7 @@ func settingFileTreePayload(value *conf.FileTree) *apicontract.SettingFileTree {
 	result.OpenFilesUseCurrentTab = value.OpenFilesUseCurrentTab
 	result.CloseTabOnDoubleClick = value.CloseTabOnDoubleClick
 	result.CloseWindowOnLastTabClosed = value.CloseWindowOnLastTabClosed
+	result.RestoreDocPosition = value.RestoreDocPosition
 	result.DocIconClickMode = value.DocIconClickMode
 	result.ParentDocTitleClickMode = value.ParentDocTitleClickMode
 	boxDocEnabled := value.BoxDocEnabled
@@ -568,6 +573,7 @@ func settingSearchPayload(value *conf.Search) *apicontract.SettingSearch {
 		return nil
 	}
 	result := &apicontract.SettingSearch{}
+	result.GroupFolded = value.GroupFolded
 	result.Mindmap = value.Mindmap
 	result.MindmapItem = value.MindmapItem
 	result.Document = value.Document

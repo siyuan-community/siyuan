@@ -42,9 +42,18 @@ const runCases = async appDirectory => {
         new Function("require", "exports", code)(name => load(name, path.posix.dirname(moduleKey)), exports);
         return exports;
     };
-    const {MobileDialog} = load("dialog/mobileDialog");
-    window.shortViewportDialogModule = {MobileDialog};
-    const dialog = new MobileDialog({title: "Text",
+    const {AdaptiveDialog} = load("dialog/adaptiveDialog");
+    const expandWithGrip = dialog => {
+        const grip = dialog.element.querySelector(".mobile-bottom-sheet > .b3-menu__title--root");
+        for (const [type, y] of [["touchstart", 100], ["touchmove", 40], ["touchend", 40]]) {
+            const point = {identifier: 1, clientX: 100, clientY: y};
+            const event = new Event(type, {bubbles: true, cancelable: true});
+            Object.assign(event, {touches: [point], changedTouches: [point]});
+            grip.dispatchEvent(event);
+        }
+    };
+    window.shortViewportDialogModule = {AdaptiveDialog};
+    const dialog = new AdaptiveDialog({title: "Text",
         content: '<div class="b3-dialog__content"><div style="height:1800px">Long content</div></div><div class="b3-dialog__action"><button class="b3-button" data-confirm>Confirm</button></div>'});
     await wait();
     assert.equal(dialog.element.querySelectorAll("[data-type=sheet-expand]").length, 0);
@@ -55,23 +64,86 @@ const runCases = async appDirectory => {
     const panel = dialog.element.querySelector("[role=dialog]");
     assert.equal(getComputedStyle(actions).display, "flex");
     const before = confirm.getBoundingClientRect();
-    assert.ok(before.bottom <= panel.getBoundingClientRect().bottom);
+    assert.ok(before.height >= 48, "business dialog actions use the shared touch target");
+    assert.equal(getComputedStyle(confirm).fontSize, "16px");
+    assert.ok(before.bottom <= panel.getBoundingClientRect().bottom + 1,
+        JSON.stringify({button: before.toJSON(), panel: panel.getBoundingClientRect().toJSON()}));
     const content = dialog.element.querySelector(".b3-dialog__content");
     content.scrollTop = 500;
     assert.equal(confirm.getBoundingClientRect().top, before.top);
-    dialog.setSheetMode("expanded");
+    expandWithGrip(dialog);
     await wait();
     assert.ok(Math.abs(actions.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom) < 1);
     dialog.destroy();
     await wait();
-    const sheet = new MobileDialog({title: "Panel", content: "Content"});
+    const selection = new AdaptiveDialog({title: "Notebook", content:
+        '<div><div class="b3-dialog__content"><select class="b3-select"><option>Notebook</option></select><button class="b3-button" data-inline>Inline</button></div>' +
+        '<div class="b3-dialog__action" data-options><label>Option<input type="checkbox"></label></div>' +
+        '<div class="b3-dialog__action" data-actions><button class="b3-button b3-button--cancel">Cancel</button><div class="fn__space"></div><button class="b3-button b3-button--text">Confirm</button></div></div>'});
+    await wait();
+    const selectionFooter = selection.element.querySelector("[data-actions]");
+    assert.equal(selection.element.querySelector("[data-options]").classList.contains("mobile-sheet-action-bar"), false,
+        "option rows retain their form layout");
+    const selectBox = selection.element.querySelector("select").getBoundingClientRect();
+    assert.ok(selectBox.height > 0 && selectBox.bottom <= selectionFooter.getBoundingClientRect().top,
+        "the input remains visible above the large actions");
+    const actionGroup = selectionFooter.querySelector(".mobile-sheet-action-group");
+    assert.ok(actionGroup, "business actions use the shared full-width group");
+    const groupBox = actionGroup.getBoundingClientRect();
+    const selectionButtons = [...actionGroup.querySelectorAll("button")];
+    const cancelBox = selectionButtons[0].getBoundingClientRect();
+    const confirmBox = selectionButtons[1].getBoundingClientRect();
+    assert.ok(Math.abs(cancelBox.width - confirmBox.width) < 1, "cancel and confirm use equal widths");
+    assert.ok(Math.abs(cancelBox.width * 2 + 12 - groupBox.width) < 1, "buttons fill both columns");
+    assert.equal(selectionButtons[0].classList.contains("b3-button--secondary"), true);
+    assert.equal(selectionButtons[1].classList.contains("b3-button--text"), true, "existing action hooks remain available");
+    assert.equal(selectionButtons[1].classList.contains("b3-button--primary"), true);
+    for (const button of selectionFooter.querySelectorAll("button")) {
+        assert.equal(button.getBoundingClientRect().height, before.height, "selection and business actions have equal height");
+        assert.equal(getComputedStyle(button).fontSize, "16px");
+        assert.equal(getComputedStyle(button).padding, "12px 16px");
+    }
+    assert.equal(selection.element.querySelector("[data-inline]").classList.contains("b3-button--touch"), false,
+        "content controls keep their own sizing");
+    const added = document.createElement("button");
+    added.className = "b3-button b3-button--remove";
+    added.textContent = "Delete";
+    selectionFooter.append(added);
+    await wait();
+    assert.equal(added.getBoundingClientRect().height, before.height, "late actions use the same touch target");
+    assert.equal(added.classList.contains("b3-button--remove"), true, "danger feedback is preserved");
+    assert.equal(actionGroup.children.length, 3, "late actions reuse one group without duplicating buttons");
+    assert.equal(actionGroup.classList.contains("mobile-sheet-action-group--stacked"), true);
+    const selectionPanel = selection.element.querySelector("[role=dialog]");
+    const cancel = selectionFooter.querySelector(".b3-button--cancel");
+    for (const mode of ["light", "dark"]) {
+        document.documentElement.dataset.themeMode = mode;
+        for (const width of [280, 390]) {
+            selectionPanel.style.width = width + "px";
+            added.textContent = "A long translated deletion label with averylongunbrokentoken";
+            for (const button of selectionFooter.querySelectorAll("button")) {
+                assert.ok(button.getBoundingClientRect().height >= 48);
+                assert.ok(button.scrollWidth <= button.clientWidth, "translated actions wrap without overflow");
+            }
+            cancel.focus({preventScroll: true});
+            assert.equal(document.activeElement, cancel);
+            added.disabled = true;
+            assert.ok(Number(getComputedStyle(added).opacity) < 1, "disabled actions keep shared feedback");
+            added.disabled = false;
+        }
+    }
+    delete document.documentElement.dataset.themeMode;
+    selection.destroy();
+    await wait();
+    const sheet = new AdaptiveDialog({title: "Panel", content: "Content"});
     await wait();
     assert.equal(sheet.element.querySelector(".mobile-sheet-actions"), null);
     assert.equal(sheet.element.querySelector("[data-type=sheet-expand]"), null);
     assert.equal(sheet.element.querySelector("[data-type=sheet-close]"), null);
     assert.equal(sheet.element.querySelector(".b3-dialog__close"), null);
     assert.equal(sheet.element.querySelector(".b3-dialog__action"), null);
-    sheet.setSheetMode("expanded");
+    assert.ok(Math.abs(sheet.element.querySelector("[role=dialog]").getBoundingClientRect().height - innerHeight / 2) < 1);
+    expandWithGrip(sheet);
     await wait();
     assert.ok(Math.abs(sheet.element.querySelector("[role=dialog]").getBoundingClientRect().height - innerHeight) < 1);
     sheet.destroy();
@@ -176,17 +248,18 @@ const runCases = async appDirectory => {
     for (const color of ["rgb(245, 245, 245)", "rgb(30, 30, 30)"]) {
         document.body.style.setProperty("--b3-theme-surface", color);
         for (const withActions of [true, false]) {
-            const nativeSheet = new MobileDialog({title: "Sync direction",
+            const nativeSheet = new AdaptiveDialog({title: "Sync direction",
                 content: `<div class="b3-dialog__content"><div style="height:${withActions ? 80 : 1800}px">Choices</div></div>` +
                     (withActions ? '<div class="b3-dialog__action"><button class="b3-button">Confirm</button></div>' : "")});
             await wait();
             const panel = nativeSheet.element.querySelector(".mobile-sheet-panel");
             const footer = panel.querySelector(".b3-dialog__action");
             for (const mode of ["standard", "expanded"]) {
+                if (mode === "expanded") expandWithGrip(nativeSheet);
                 for (const inset of [0, 24, 32, 15.75, 0]) {
                     document.documentElement.style.setProperty("--android-navigation-bar-height", `${inset}px`);
-                    nativeSheet.setSheetMode(mode);
                     const box = panel.getBoundingClientRect();
+                    assert.ok(Math.abs(box.height - innerHeight / (mode === "expanded" ? 1 : 2)) < 1);
                     assert.ok(Math.abs(box.bottom - innerHeight) < 1, "drawer background reaches the viewport bottom");
                     assert.equal(getComputedStyle(panel).backgroundColor, color);
                     if (withActions) {
@@ -228,16 +301,19 @@ const runCases = async appDirectory => {
     assert.equal(getComputedStyle(document.body, "::after").pointerEvents, "none");
     document.documentElement.style.removeProperty("--android-navigation-bar-height");
     document.body.style.removeProperty("--b3-theme-surface");
-    for (const [frontend, platform] of [["mobile", "ios"], ["browser-mobile", "android"]]) {
+    for (const [frontend, platform, overlayInset, panelInset] of [
+        ["mobile", "ios", 0, 24],
+        ["browser-mobile", "android", 24, 0],
+    ]) {
         document.documentElement.dataset.frontend = frontend;
         document.body.className = `body--${platform}`;
         document.body.style.setProperty("--mobile-bottom-bar-safe-area", "24px");
-        const sheet = new MobileDialog({title: "Other frontend", content: "Content"});
+        const sheet = new AdaptiveDialog({title: "Other frontend", content: "Content"});
         await wait();
         const panel = sheet.element.querySelector(".mobile-bottom-sheet");
-        assert.equal(getComputedStyle(sheet.element.querySelector(".b3-dialog")).paddingBottom, "24px");
-        assert.equal(getComputedStyle(panel).paddingBottom, "0px");
-        assert.ok(Math.abs(panel.getBoundingClientRect().bottom - (innerHeight - 24)) < 1);
+        assert.equal(getComputedStyle(sheet.element.querySelector(".b3-dialog")).paddingBottom, `${overlayInset}px`);
+        assert.equal(getComputedStyle(panel).paddingBottom, `${panelInset}px`);
+        assert.ok(Math.abs(panel.getBoundingClientRect().bottom - (innerHeight - overlayInset)) < 1);
         sheet.destroy();
         await wait();
     }
@@ -247,10 +323,10 @@ const runCases = async appDirectory => {
 const runShortViewportCase = async () => {
     const check = require("node:assert/strict");
     const wait = () => new Promise(resolve => setTimeout(resolve, 250));
-    const {MobileDialog} = window.shortViewportDialogModule;
+    const {AdaptiveDialog} = window.shortViewportDialogModule;
     window.siyuan.mobile.size.landscape.height1 = 350;
     window.siyuan.mobile.size.isLandscape = true;
-    const dialog = new MobileDialog({title: "Color", content:
+    const dialog = new AdaptiveDialog({title: "Color", content:
         '<div class="b3-dialog__content"><label class="b3-label b3-label--inner">Name<input class="b3-text-field fn__block"></label><div style="height:600px"></div></div>' +
         '<div class="b3-dialog__action"><button class="b3-button">Confirm</button></div>'});
     await new Promise(resolve => setTimeout(resolve, 1250));

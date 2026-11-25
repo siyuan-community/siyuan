@@ -8,6 +8,7 @@ import {promisify} from "node:util";
 import {runInNewContext} from "node:vm";
 import {compile} from "sass";
 import {ModuleKind, ScriptTarget, transpileModule} from "typescript";
+import type {ProtyleRuntimeCapabilities} from "../runtimeCapabilities";
 
 const deferred = () => {
     let resolve: () => void;
@@ -24,6 +25,8 @@ class ElementMock {
     listeners = new Map<string, () => void>();
     children: ElementMock[] = [];
     className = "";
+    contains() { return false; }
+    getAttribute(): string | null { return null; }
     querySelector() { return this.children[0]; }
     appendChild(element: ElementMock) { this.children.push(element); }
     addEventListener(type: string, callback: () => void) { this.listeners.set(type, callback); }
@@ -35,7 +38,8 @@ const setup = (mobile: boolean, deferDestroy = false) => {
     const window = {innerHeight: 800, screen: {orientation: {type: "portrait-primary"}}, siyuan: {
         dialogs: [] as any[], mobile: {size: {isLandscape: false, portrait: {height1: 800}, landscape: {height1: 390}}},
         layout: {}, blockPanels: [] as any[], ws: {app: {}},
-        config: {readonly: false}, isPublish: false,
+        menus: {menu: {remove() {}}},
+        config: {readonly: false, editor: {readOnly: false}}, isPublish: false,
         languages: {rename: "Rename", confirm: "Confirm", cancel: "Cancel", settingsPendingSaveError: "Save failed"},
     }};
     let canDrag: () => boolean;
@@ -75,7 +79,8 @@ const setup = (mobile: boolean, deferDestroy = false) => {
         destroyed = 0;
         titleFlushes = 0;
         protyle: any;
-        constructor(_app: unknown, element: ElementMock, options: {blockId: string, notebookId?: string, after: (value: ProtyleMock) => void}) {
+        constructor(_app: unknown, element: ElementMock, options: {blockId: string, notebookId?: string, after: (value: ProtyleMock) => void},
+                    capabilities: ProtyleRuntimeCapabilities) {
             const input = {isConnected: true, editable: true, ownerDocument: document, focusCount: 0,
                 getAttribute: () => input.editable ? "true" : "false",
                 focus: () => { input.focusCount++; document.activeElement = input; }};
@@ -83,6 +88,7 @@ const setup = (mobile: boolean, deferDestroy = false) => {
                 title: {editElement: input, flushPendingInput: () => { this.titleFlushes++; return flushTitle(this); },
                     openEditor: (isValid?: () => boolean) => openTitle(isValid),
                     mountEditorOnly: (field: ElementMock) => { this.protyle.field = field; }}};
+            runtime.registerProtyleRuntimeCapabilities(this.protyle, capabilities);
             instances.push(this);
             afters.push(() => options.after(this));
         }
@@ -137,7 +143,7 @@ const setup = (mobile: boolean, deferDestroy = false) => {
         isMobileLandscape: () => window.screen.orientation.type.startsWith("landscape"),
         callMobileAppShowKeyboard: () => { keyboardShows++; },
         bindBottomSheetDialog: (dialog: DialogMock, close: () => Promise<void>, resize: () => void, open: () => void,
-                               options: {mode: string, canStart: () => boolean}) => {
+                               options: {canStart: () => boolean}) => {
             canDrag = options.canStart;
             const layout = (dependencies.bindMobileSheetLayout as any)(dialog.viewport, dialog.sheet, options);
             sheetClose = close;
@@ -149,13 +155,14 @@ const setup = (mobile: boolean, deferDestroy = false) => {
             return dispose;
         },
     };
-    const load = (file: string) => {
+    const load = (file: string, overrides: Record<string, unknown> = {}) => {
         const source = require("ifdef-loader/preprocessor").parse(
             readFileSync(resolve(__dirname, file), "utf8"), {MOBILE: mobile, BROWSER: false});
         const exports: any = {};
+        const imports = Object.assign(Object.create(dependencies), overrides);
         runInNewContext(transpileModule(source, {
             compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2021},
-        }).outputText, {exports, require: () => dependencies, window,
+        }).outputText, {exports, require: () => imports, window,
             document,
             getComputedStyle: () => ({paddingTop: "0px", paddingBottom: "0px"}),
             MutationObserver: MutationObserverMock, console: {error: () => {}}});
@@ -163,6 +170,7 @@ const setup = (mobile: boolean, deferDestroy = false) => {
     };
     const secondary = load("../../mobile/util/secondaryEditors.ts");
     Object.assign(dependencies, secondary);
+    const runtime = load("../runtimeCapabilities.ts") as typeof import("../runtimeCapabilities");
     const registry = load("documentTitleDialogs.ts");
     Object.assign(dependencies, registry);
     const allEditors = load("../../layout/getAll.ts");
@@ -172,15 +180,15 @@ const setup = (mobile: boolean, deferDestroy = false) => {
     Object.assign(dependencies, load("../../mobile/util/mobileSheetGesture.ts"));
     Object.assign(dependencies, load("../../mobile/util/mobileSheetLayout.ts"));
     const titleDialog = load("documentTitleDialog.ts");
-    return {window, messages, guards, instances, ready, afters, secondary, registry, allEditors, system,
+    return {window, messages, guards, instances, ready, afters, secondary, registry, allEditors, system, runtime, load,
         viewport, resizeListeners, closeSheet: () => sheetClose(), resizeSheet: () => sheetResize(),
         canDrag: () => canDrag(), openSheet: () => sheetOpen(), keyboardShows: () => keyboardShows,
         setOpenTitle: (callback: typeof openTitle) => { openTitle = callback; },
         sheetDisposals: () => sheetDisposals,
         finishDestroy: () => destroyCallbacks.splice(0).forEach(callback => callback()),
         keyboardToolbar, resizeToolbar: () => toolbarObserver(), toolbarObserved: () => toolbarObserved,
-        open: (id = "doc", notebook: string | undefined = "encrypted") =>
-            titleDialog.openDocumentTitleDialog({id, notebook}) as DialogMock,
+        open: (id = "doc", notebook: string | undefined = "encrypted", ignoreEditLock = false) =>
+            titleDialog.openDocumentTitleDialog({id, notebook, ignoreEditLock}) as DialogMock,
         setFlush: (callback: typeof flush) => { flush = callback; },
         setGuard: (callback: typeof flushGuard) => { flushGuard = callback; },
         setTitle: (callback: typeof flushTitle) => { flushTitle = callback; }};
@@ -379,9 +387,9 @@ test("mobile title drawer follows keyboard viewport changes and keeps failed dra
     const dialog = state.open();
     assert.equal(dialog.options.width, "100vw");
     assert.equal(dialog.options.height, "auto");
-    assert.equal(dialog.sheet.style.height, "auto");
-    assert.ok(Math.abs(parseFloat(dialog.sheet.style.maxHeight) - 448) < .001);
-    assert.equal(dialog.sheet.getBoundingClientRect().height, 180, "short titles use their natural height");
+    assert.equal(dialog.sheet.style.height, "400px");
+    assert.ok(Math.abs(parseFloat(dialog.sheet.style.maxHeight) - 400) < .001);
+    assert.equal(dialog.sheet.getBoundingClientRect().height, 400, "title drawers open at half height");
     assert.equal(dialog.options.containerClassName, "mobile-document-title-sheet");
     assert.equal(dialog.options.hideCloseIcon, true);
     assert.ok(dialog.classes.has("mobile-document-title-dialog"));
@@ -394,7 +402,7 @@ test("mobile title drawer follows keyboard viewport changes and keeps failed dra
     assert.equal(dialog.viewport.style.top, "50px");
     assert.equal(dialog.viewport.style.height, "300px");
     assert.equal(parseFloat(dialog.sheet.style.maxHeight), 300,
-        "the keyboard clips the upper limit without expanding a short title");
+        "the keyboard clips the half-height drawer");
     assert.equal(state.toolbarObserved(), true);
     state.keyboardToolbar.hidden = false;
     state.keyboardToolbar.top = 302;
@@ -430,7 +438,7 @@ test("mobile title height cap uses the current screen direction before the keybo
     state.viewport.bottom = 390;
     state.resizeSheet();
     assert.equal(state.window.siyuan.mobile.size.isLandscape, false);
-    assert.ok(Math.abs(parseFloat(dialog.sheet.style.maxHeight) - 218.4) < .001);
+    assert.ok(Math.abs(parseFloat(dialog.sheet.style.maxHeight) - 195) < .001);
     state.window.innerHeight = 180;
     state.viewport.bottom = 180;
     state.resizeSheet();
@@ -439,7 +447,7 @@ test("mobile title height cap uses the current screen direction before the keybo
     state.window.innerHeight = 800;
     state.viewport.bottom = 800;
     state.resizeSheet();
-    assert.ok(Math.abs(parseFloat(dialog.sheet.style.maxHeight) - 448) < .001);
+    assert.ok(Math.abs(parseFloat(dialog.sheet.style.maxHeight) - 400) < .001);
 });
 
 test("mobile title height remains fixed while its closing keyboard viewport recovers", async () => {
@@ -479,6 +487,66 @@ test("desktop title editing retains the centered dialog without mobile viewport 
     assert.equal(dialog.classes.size, 0);
     assert.equal(state.resizeListeners.size, 0);
 });
+
+for (const mobile of [false, true]) {
+    test(`${mobile ? "mobile" : "desktop"} document-tree rename ignores edit locks only for its own draft`, () => {
+        const state = setup(mobile);
+        const config = state.window.siyuan.config;
+        const attr = "custom-sy-readonly";
+        const {setReadonlyByConfig} = state.load("../util/onGet.ts", {
+            Constants: {CUSTOM_SY_READONLY: attr},
+            ignoresProtyleEditLock: state.runtime.ignoresProtyleEditLock,
+            hideElements() {}, syncRelatedAVEditor() {}, disabledWYSIWYG() {}, refreshCalendarReadonly() {},
+            hideTooltip() {}, updateMobileTitleReadonly() {}, isIPhone: () => false, isAndroid: () => false,
+            isMobile: () => mobile,
+        }) as typeof import("../util/onGet");
+        state.open("tree-rename", "encrypted", true);
+        state.open("inline-rename");
+        const [draft, ordinary] = state.instances.map(instance => instance.protyle);
+        let docLocked = true;
+        for (const protyle of [draft, ordinary]) {
+            protyle.disabled = false;
+            protyle.contentElement = {removeAttribute() {}};
+            protyle.wysiwyg.element = {getAttribute: (key: string) => key === attr && docLocked ? "true" : null,
+                querySelectorAll: (): Element[] => [], setAttribute() {}, style: {}};
+        }
+        for (const source of ["document lock", "global edit lock", "workspace read-only"]) {
+            docLocked = source === "document lock";
+            config.editor.readOnly = source === "global edit lock";
+            config.readonly = source === "workspace read-only";
+            setReadonlyByConfig(draft, true);
+            setReadonlyByConfig(ordinary, true);
+            assert.equal(draft.disabled, config.readonly, source);
+            assert.equal(ordinary.disabled, true, source);
+        }
+        config.readonly = false;
+        config.editor.readOnly = true;
+        draft.disabled = false;
+        setReadonlyByConfig(draft, false);
+        assert.equal(draft.disabled, false, "refresh preserves rename under the global edit lock");
+        draft.disabled = true;
+        setReadonlyByConfig(draft, false);
+        assert.equal(draft.disabled, true, "refresh preserves an explicitly disabled draft");
+
+        const {onTransaction} = state.load("../wysiwyg/transaction.ts", {
+            Constants: {CUSTOM_SY_READONLY: attr}, ignoresProtyleEditLock: state.runtime.ignoresProtyleEditLock,
+            disabledProtyle: (protyle: IProtyle) => { protyle.disabled = true; },
+            shouldReloadForEmbedConversion: () => false, handleViewFoldSourceOperation: () => false,
+            invalidateTrackedRangesByOperations() {}, invalidateViewFoldRequests() {}, escapeHtmlTextAndAttr: (value: string) => value,
+            getBlockSelectionStatusIDs: (): string[] => [], isUndoViewportPreserved: () => false, applyViewFoldStates() {},
+            queueHeadingNumberRefresh() {}, refreshHeadingFoldIndicators() {}, shouldReloadForHeadingBatch: () => false,
+        }) as typeof import("../wysiwyg/transaction");
+        for (const protyle of [draft, ordinary]) {
+            protyle.disabled = false;
+            protyle.title.element = {querySelector: () => ({innerHTML: ""}), removeAttribute() {}};
+            protyle.wysiwyg.renderCustom = () => {};
+            onTransaction(protyle, [{action: "updateAttrs", id: protyle.block.rootID,
+                data: {old: {}, new: {[attr]: "true"}}}], false);
+        }
+        assert.equal(draft.disabled, false, "a document lock pushed while renaming keeps the draft editable");
+        assert.equal(ordinary.disabled, true, "the document editor applies the pushed lock");
+    });
+}
 
 test("rename readiness mounts one standalone field on both platforms and rejects late readiness after dismissal", () => {
     const mobile = setup(true);
@@ -589,7 +657,7 @@ const checkDrawerLayout = async (css: string, toolbarSource: string, paddingSour
     document.body.style.cssText = "--b3-font-size:16px;--b3-font-size-editor:16px;--mobile-top-safe-area:0px";
     document.body.innerHTML = `<div class="mobile-document-title-dialog mobile-bottom-sheet-dialog b3-dialog--open">
 <div class="b3-dialog"><div class="b3-dialog__scrim"></div>
-<div class="b3-dialog__container mobile-bottom-sheet mobile-sheet-panel mobile-document-title-sheet" style="width:100vw;height:auto;max-height:448px;transition:none">
+<div class="b3-dialog__container mobile-bottom-sheet mobile-sheet-panel mobile-document-title-sheet" style="width:100vw;height:auto;max-height:400px;transition:none">
 <div class="b3-menu__title b3-menu__title--root"></div><div class="b3-dialog__header">Rename</div>
 <div class="b3-dialog__body"><div class="document-title-dialog protyle">
 <div class="protyle-content"><div class="protyle-top"><div class="protyle-title">
@@ -597,7 +665,7 @@ const checkDrawerLayout = async (css: string, toolbarSource: string, paddingSour
 <div class="protyle-title__rich protyle"><div class="protyle-content"><div class="protyle-wysiwyg">
 <div data-node-id="title-paragraph" data-type="NodeParagraph" class="p"><div class="protyle-title__input" contenteditable="true"></div><div class="protyle-attr">Paragraph badge</div></div>
 </div></div></div></div></div><div class="protyle-wysiwyg">Hidden document body</div></div></div>
-<div class="b3-dialog__action mobile-sheet-action-bar"><div class="mobile-sheet-action-group mobile-sheet-action-group--compact">
+<div class="b3-dialog__action mobile-sheet-action-bar"><div class="mobile-sheet-action-group">
 <button class="b3-button b3-button--touch b3-button--wrap b3-button--cancel b3-button--secondary">Cancel</button>
 <button class="b3-button b3-button--touch b3-button--wrap">Confirm</button></div></div></div></div></div></div>`;
     const container = document.querySelector<HTMLElement>(".b3-dialog");
@@ -635,12 +703,12 @@ const checkDrawerLayout = async (css: string, toolbarSource: string, paddingSour
             for (const long of [false, true]) {
                 editable.innerHTML = long ? "<strong>Rich title </strong><em>with styles </em>".repeat(50) : "Untitled document";
                 check.equal(getComputedStyle(editable).fontSize, "16px", "the mobile rename field uses the UI font size");
-                sheet.style.maxHeight = `${Math.min(448, height)}px`;
+                sheet.style.maxHeight = `${Math.min(400, height)}px`;
                 const rect = sheet.getBoundingClientRect();
                 const button = action.getBoundingClientRect();
                 const editor = host.getBoundingClientRect();
                 const context = JSON.stringify({height, large, long, sheet: rect.toJSON(), button: button.toJSON()});
-                check.ok(rect.height > 0 && rect.height <= Math.min(448, height) + 1, context);
+                check.ok(rect.height > 0 && rect.height <= Math.min(400, height) + 1, context);
                 check.ok(rect.height < 250, "single-line titles keep a compact natural height: " + context);
                 check.ok(Math.abs(rect.bottom - (30 + height)) < 1, context);
                 check.ok(button.top >= rect.top && button.bottom <= rect.bottom + 1 && button.height >= 30, context);
@@ -662,9 +730,9 @@ const checkDrawerLayout = async (css: string, toolbarSource: string, paddingSour
     container.style.paddingBottom = "30px";
     for (const height of [800, 350, 220]) {
         container.style.height = `${height}px`;
-        sheet.style.maxHeight = `${Math.min(448, height - 50)}px`;
+        sheet.style.maxHeight = `${Math.min(400, height - 50)}px`;
         const rect = sheet.getBoundingClientRect();
-        check.ok(rect.height <= Math.min(448, height - 50) + 1,
+        check.ok(rect.height <= Math.min(400, height - 50) + 1,
             "safe areas clip the upper limit once through the container content box");
         check.ok(Math.abs(rect.bottom - (30 + height - 30)) < 1,
             "the sheet ends at the usable bottom boundary");
@@ -829,7 +897,8 @@ test("desktop and mobile rename use standalone fields and preserve mobile keyboa
     const titleSource = transpileModule(readFileSync(resolve(__dirname, "Title.ts"), "utf8"), {
         compilerOptions: {target: ScriptTarget.ES2021, module: ModuleKind.CommonJS},
     }).outputText;
-    const lifecycleSources = ["../../dialog/index.ts", "../../menus/sheetOpen.ts",
+    const lifecycleSources = ["../../menus/overlayOwnership.ts", "../../dialog/index.ts", "../../menus/sheetOpen.ts",
+        "../util/browserCompatibility.ts", "../wysiwyg/nativeTextMenu.ts",
         "../../mobile/util/keyboardSheetState.ts", "../../mobile/util/mobileSheetGesture.ts", "../../mobile/util/mobileSheetLayout.ts", "../../mobile/util/bindBottomSheetDrag.ts", "../../mobile/util/bindBottomSheetDialog.ts",
         "documentTitleDialogs.ts", "documentTitleDialog.ts"].map(file => transpileModule(
         require("ifdef-loader/preprocessor").parse(readFileSync(resolve(__dirname, file), "utf8"), {MOBILE: true, BROWSER: false}),

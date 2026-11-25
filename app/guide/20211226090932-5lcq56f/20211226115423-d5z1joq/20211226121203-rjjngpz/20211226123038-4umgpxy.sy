@@ -6,7 +6,7 @@
 		"id": "20211226123038-4umgpxy",
 		"title": "資料文件",
 		"type": "doc",
-		"updated": "20261106023628"
+		"updated": "20261122235513"
 	},
 	"Children": [
 		{
@@ -493,6 +493,20 @@
 			]
 		},
 		{
+			"ID": "20261120223328-e7a2761",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261120223328-e7a2761",
+				"updated": "20261120223328"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在行動裝置上預覽圖片時，雙指捏合或張開可縮放圖片。點兩下圖片可放大至初始顯示大小的兩倍，再點兩下可恢復初始檢視。底部工具列可旋轉圖片或重置檢視。有多張圖片時，可使用底部工具列的上一張和下一張按鈕切換。"
+				}
+			]
+		},
+		{
 			"ID": "20261105133656-802e0oo",
 			"Type": "NodeParagraph",
 			"Properties": {
@@ -690,12 +704,118 @@
 			]
 		},
 		{
+			"ID": "20261122120803-gw2su8t",
+			"Type": "NodeHeading",
+			"HeadingLevel": 2,
+			"Properties": {
+				"id": "20261122120803-gw2su8t",
+				"updated": "20261122235513"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在行動裝置上分享和儲存資料文件"
+				}
+			]
+		},
+		{
+			"ID": "20261122120803-26re8p5",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261122120803-26re8p5",
+				"updated": "20261122120803"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在 Android 和 HarmonyOS 上，開啟圖片、附件連結或資料庫附件的選單，選擇 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "分享"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。若要分享音訊、影片或嵌入的本機 HTML 檔案，請開啟其區塊選單並選擇 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "資料"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "分享"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。系統分享面板會以原始格式傳送附件。在 iOS 上，可在提供匯出的資源選單中選擇 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "匯出"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " 開啟系統分享面板。"
+				}
+			]
+		},
+		{
+			"ID": "20261122235513-72669f0",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261122235513-72669f0",
+				"updated": "20261122235513"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "在 Android 上，長按本機圖片，選擇 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "儲存到相簿"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。若要儲存本機影片，請開啟區塊選單並選擇 "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "資料"
+				},
+				{
+					"Type": "NodeText",
+					"Data": " - "
+				},
+				{
+					"Type": "NodeTextMark",
+					"TextMarkType": "kbd",
+					"TextMarkTextContent": "儲存到相簿"
+				},
+				{
+					"Type": "NodeText",
+					"Data": "。思源會將原始檔案儲存到系統相簿。"
+				}
+			]
+		},
+		{
 			"ID": "20211226123051-5250xg7",
 			"Type": "NodeHeading",
 			"HeadingLevel": 2,
 			"Properties": {
 				"id": "20211226123051-5250xg7",
-				"updated": "20241027164144"
+				"updated": "20261112034624"
 			},
 			"Children": [
 				{
@@ -884,6 +1004,90 @@
 				{
 					"Type": "NodeText",
 					"Data": "。"
+				}
+			]
+		},
+		{
+			"ID": "20261112034624-eac08aa",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261112034624-eac08aa",
+				"updated": "20261112034624"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "對於外掛或其他工具使用、但沒有文件引用的資源，可以在工作空間中建立或編輯 data/.siyuan/assets-cleanup-ignore，使用 UTF-8 純文字儲存。每行一條規則，採用與 syncignore 相同的 go-gitignore 比對語法。空行和以 # 開頭的註解行會被忽略。比對路徑是相對於 data 目錄的實際檔案路徑，而不是文件中的連結或 URL。例如："
+				}
+			]
+		},
+		{
+			"ID": "20261112034624-4bda7a9",
+			"Type": "NodeCodeBlock",
+			"Properties": {
+				"id": "20261112034624-4bda7a9",
+				"updated": "20261112034624"
+			},
+			"IsFencedCodeBlock": true,
+			"Children": [
+				{
+					"Type": "NodeCodeBlockFenceOpenMarker",
+					"Data": "```",
+					"CodeBlockFenceLen": 3
+				},
+				{
+					"Type": "NodeCodeBlockFenceInfoMarker"
+				},
+				{
+					"Type": "NodeCodeBlockCode",
+					"Data": "# assets\n/assets/example.png\n/assets/plugin/**\n!/assets/plugin/tmp/**\n"
+				},
+				{
+					"Type": "NodeCodeBlockFenceCloseMarker",
+					"Data": "```",
+					"CodeBlockFenceLen": 3
+				}
+			]
+		},
+		{
+			"ID": "20261112034624-7413f3b",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261112034624-7413f3b",
+				"updated": "20261112034624"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "上述規則保護 assets/example.png 和 assets/plugin/ 下的檔案，但不保護 assets/plugin/tmp/ 下的檔案。後面的相符規則覆蓋前面的規則。開頭的 ! 僅取消規則提供的保護，不會讓仍被文件引用的檔案變成未引用資源。"
+				}
+			]
+		},
+		{
+			"ID": "20261112034624-99b952d",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261112034624-99b952d",
+				"updated": "20261112034624"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "受保護檔案不會出現在未引用資源清單中，也不會被批次或單個未引用資源清理刪除；包含受保護檔案的父目錄同樣會保留。解除安裝外掛不會刪除工作空間中的這些規則，不再需要的規則須自行移除。這種保護不阻止手動刪除檔案。"
+				}
+			]
+		},
+		{
+			"ID": "20261112034624-4b2a2b9",
+			"Type": "NodeParagraph",
+			"Properties": {
+				"id": "20261112034624-4b2a2b9",
+				"updated": "20261112034624"
+			},
+			"Children": [
+				{
+					"Type": "NodeText",
+					"Data": "規則檔案預設參與資料同步，但仍受 syncignore 排除規則影響。在其他裝置清理前，請同步規則並確認該用戶端支援此保護：舊核心不識別這些規則。如果規則檔案讀取失敗或規則解析失敗，清理會報錯停止，請修正規則檔案後重試。"
 				}
 			]
 		},
@@ -2050,7 +2254,7 @@
 			"Type": "NodeHeading",
 			"Properties": {
 				"id": "20261030095654-2g0gt2r",
-				"updated": "20261030095654"
+				"updated": "20261111142646"
 			},
 			"Children": [
 				{
@@ -2065,7 +2269,7 @@
 			"Type": "NodeParagraph",
 			"Properties": {
 				"id": "20261030095654-08lmkb1",
-				"updated": "20261030095654"
+				"updated": "20261111142646"
 			},
 			"Children": [
 				{
@@ -2079,7 +2283,7 @@
 				},
 				{
 					"Type": "NodeText",
-					"Data": "，先選擇上傳、連結、資料或內置，再選擇圖片或確認連結後儲存題頭圖。關閉選單或取消選擇不會修改文件，也不會匯入圖片。要重複使用現有圖片而不再次上傳，請選擇「資料」。"
+					"Data": "，先選擇上傳、連結、資料、內置或隨機，再選擇圖片、確認連結或點擊隨機後儲存題頭圖。關閉選單或取消選擇不會修改文件，也不會匯入圖片。要重複使用現有圖片而不再次上傳，請選擇「資料」。隨機會從內置圖片中隨機選擇並匯入一張圖片，也可在題頭圖操作列中點擊隨機來更換現有題頭圖，圖片可能重複。內置圖片清單無法使用時，隨機使用 CSS 圖案。"
 				}
 			]
 		}

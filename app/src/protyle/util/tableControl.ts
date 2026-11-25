@@ -1,3 +1,4 @@
+import {Constants} from "../../constants";
 import {toggleMenu} from "../../menus/menuToggle";
 import {MenuItem} from "../../menus/Menu";
 import {getTableGridRect, TableGridCache} from "./tableGridCache";
@@ -358,7 +359,8 @@ export class TableControl {
     private bypassClipboardEvent = false;
     private observer: MutationObserver;
     private pinnedTableResizeObserver: ResizeObserver;
-    private pinnedTableActions = new Map<HTMLTableElement, HTMLElement>();
+    private pinnedTableActions = new Set<HTMLElement>();
+    private pinnedTableResizeTargets = new Set<HTMLElement>();
     private abortController = new AbortController();
     private touch: TableTouchControl;
     private dragCleanup?: () => void;
@@ -367,6 +369,7 @@ export class TableControl {
     private rowResizeHandle: HTMLButtonElement;
     private rowBoundary?: {cell: HTMLTableCellElement, row: HTMLTableRowElement};
     private dimensionBoundary?: ITableDimensionBoundary;
+    private dimensionPointer?: {x: number, y: number};
     private dimensionHoverTimer?: number;
     private dimensionDragging = false;
     private dimensionGuide: HTMLElement;
@@ -491,12 +494,17 @@ export class TableControl {
                 this.hoverCell?.closest("table"),
                 this.caretCell?.closest("table"),
                 this.selection?.table,
+                this.dimensionBoundary?.table,
+                this.rowBoundary?.cell.closest("table"),
             ].filter((table): table is HTMLTableElement => !!table?.isConnected);
             if (mutations.some(mutation => controlTables.some(table => table.contains(mutation.target)))) {
                 render = true;
             }
             const pinnedTableSelector = '[data-type="NodeTable"][custom-pinthead="true"]';
-            if (mutations.some(mutation => mutation.type === "attributes" ||
+            if (mutations.some(mutation => mutation.type === "attributes" ?
+                mutation.attributeName === Constants.TABLE_PINNED_COLUMN_ACTIVE ||
+                mutation.attributeName === "custom-pinthead" || mutation.attributeName === "style" &&
+                mutation.target instanceof Element && mutation.target.contains(this.protyle.element) :
                 (mutation.target instanceof Element && !!mutation.target.closest(pinnedTableSelector)) ||
                 [...mutation.addedNodes, ...mutation.removedNodes].some(node => node instanceof Element &&
                     (node.matches(pinnedTableSelector) || !!node.querySelector(pinnedTableSelector))))) {
@@ -507,7 +515,7 @@ export class TableControl {
             }
         });
         this.observer.observe(this.wysiwygElement, {
-            attributeFilter: ["custom-pinthead"],
+            attributeFilter: ["custom-pinthead", "style", Constants.TABLE_PINNED_COLUMN_ACTIVE],
             attributes: true,
             childList: true,
             characterData: true,
@@ -523,7 +531,7 @@ export class TableControl {
             });
             document.addEventListener("scroll", event => {
                 if (event.target instanceof Node && event.target.contains(protyle.element)) {
-                    this.scheduleRender();
+                    this.onScroll();
                 }
             }, {capture: true, signal: this.abortController.signal});
         }
@@ -543,6 +551,7 @@ export class TableControl {
         this.pinnedTableResizeObserver.disconnect();
         this.pinnedTableActions.forEach(action => this.clearPinnedTableFrame(action));
         this.pinnedTableActions.clear();
+        this.pinnedTableResizeTargets.clear();
         cancelAnimationFrame(this.frame);
         this.element.remove();
     }
@@ -970,7 +979,7 @@ export class TableControl {
             range.collapse(true);
             focusByRange(range);
         }, {capture: true, signal});
-        this.protyle.element.addEventListener("scroll", () => this.scheduleRender(), {capture: true, signal});
+        this.protyle.element.addEventListener("scroll", () => this.onScroll(), {capture: true, signal});
         window.addEventListener("resize", () => this.scheduleRender(), {signal});
         this.element.addEventListener("wheel", event => {
             if (event.ctrlKey) {
@@ -1114,6 +1123,7 @@ export class TableControl {
             }
         }
         this.hoverDimensionBoundary(boundary);
+        this.dimensionPointer = boundary ? {x: event.clientX, y: event.clientY} : undefined;
         if (!this.rowResizeCleanup && !fromControl) {
             const row = targetCell && !this.protyle.disabled && getTableNode(targetCell) ?
                 getTableRowBoundary(targetCell, event.clientX, event.clientY, 4) : undefined;
@@ -1490,6 +1500,17 @@ export class TableControl {
         element.style.top = `${Math.round(top)}px`;
     }
 
+    private onScroll() {
+        if (!this.dimensionDragging) {
+            this.clearDimensionFeedback();
+            this.rowBoundary = undefined;
+            this.wysiwygElement.querySelectorAll<HTMLElement>(".table__resize").forEach(element => {
+                element.style.display = "none";
+            });
+        }
+        this.scheduleRender();
+    }
+
     private hoverDimensionBoundary(boundary?: ITableDimensionBoundary) {
         if (this.dimensionDragging || boundary?.table === this.dimensionBoundary?.table &&
             boundary?.row === this.dimensionBoundary?.row && boundary?.column === this.dimensionBoundary?.column) {
@@ -1509,6 +1530,7 @@ export class TableControl {
         clearTimeout(this.dimensionHoverTimer);
         this.dimensionHoverTimer = undefined;
         this.dimensionBoundary = undefined;
+        this.dimensionPointer = undefined;
         this.dimensionDragging = false;
         this.dimensionGuide.classList.add("fn__none");
         this.resizeLabel.classList.add("fn__none");
@@ -1527,6 +1549,14 @@ export class TableControl {
         if (viewport.right <= viewport.left || viewport.bottom <= viewport.top ||
             row && (row.bottom < viewport.top || row.bottom > viewport.bottom + 1) ||
             column && (column.right < viewport.left || column.right > viewport.right + 1) || !row && !column) {
+            return;
+        }
+        const pointer = this.dimensionPointer;
+        // 输入和删除可使边界离开静止的指针，悬停反馈只在当前命中范围内显示。
+        if (!this.dimensionDragging && pointer && (row ?
+            Math.abs(pointer.y - row.bottom) > 4 || pointer.x < viewport.left || pointer.x > viewport.right :
+            Math.abs(pointer.x - column.right) > 4 || pointer.y < viewport.top || pointer.y > viewport.bottom)) {
+            this.clearDimensionFeedback();
             return;
         }
         this.dimensionGuide.className = row ? "protyle-table-control__height-guide" : "protyle-table-control__width-guide";
@@ -1575,6 +1605,12 @@ export class TableControl {
     }
 
     private getColumnRect(table: HTMLTableElement, grid: ITableGrid, index: number) {
+        if (index === 0 && table.hasAttribute(Constants.TABLE_PINNED_COLUMN_ACTIVE)) {
+            const pinned = grid.cellInfos.find(({cell}) => cell.isConnected && cell.hasAttribute(Constants.TABLE_PINNED_COLUMN_CELL));
+            if (pinned) {
+                return pinned.cell.getBoundingClientRect();
+            }
+        }
         const column = table.querySelectorAll<HTMLTableColElement>(":scope > colgroup > col")[index];
         const columnRect = column?.getBoundingClientRect();
         const tableRect = table.getBoundingClientRect();
@@ -1775,13 +1811,14 @@ export class TableControl {
 
     private clearPinnedTableFrame(action: HTMLElement) {
         ["--b3-table-frame-left", "--b3-table-frame-top", "--b3-table-frame-width",
-            "--b3-table-frame-height"].forEach(name => action.style.removeProperty(name));
+            "--b3-table-frame-height", "--b3-table-frame-clip"].forEach(name => action.style.removeProperty(name));
     }
 
     private renderPinnedTableFrames() {
-        const actions = new Map<HTMLTableElement, HTMLElement>();
+        const actions = new Set<HTMLElement>();
+        const resizeTargets = new Set<HTMLElement>();
         this.wysiwygElement.querySelectorAll<HTMLTableElement>(
-            '[data-type="NodeTable"][custom-pinthead="true"] table').forEach(table => {
+            '[data-type="NodeTable"][custom-pinthead="true"] > div:first-child > table').forEach(table => {
             if (table.closest(".protyle-custom, .mindmap-view__preview-block")) {
                 return;
             }
@@ -1789,33 +1826,47 @@ export class TableControl {
             if (!action?.classList.contains("protyle-action__table")) {
                 return;
             }
-            const previousAction = this.pinnedTableActions.get(table);
-            if (previousAction !== action) {
-                if (previousAction) {
-                    this.clearPinnedTableFrame(previousAction);
-                } else {
-                    this.pinnedTableResizeObserver.observe(table);
-                }
-            }
-            actions.set(table, action);
+            const viewport = table.parentElement;
+            actions.add(action);
+            resizeTargets.add(table);
+            resizeTargets.add(viewport);
             const tableRect = table.getBoundingClientRect();
             const actionRect = action.getBoundingClientRect();
-            action.style.setProperty("--b3-table-frame-left",
-                `${tableRect.left + table.clientLeft - actionRect.left}px`);
-            action.style.setProperty("--b3-table-frame-top",
-                `${tableRect.top + table.clientTop - actionRect.top}px`);
-            action.style.setProperty("--b3-table-frame-width", `${table.clientWidth}px`);
-            action.style.setProperty("--b3-table-frame-height", `${table.clientHeight}px`);
+            const viewportRect = viewport.getBoundingClientRect();
+            const scaleX = tableRect.width / (table.offsetWidth || tableRect.width) || 1;
+            const scaleY = tableRect.height / (table.offsetHeight || tableRect.height) || 1;
+            const left = (tableRect.left - actionRect.left) / scaleX + table.clientLeft;
+            const top = (tableRect.top - actionRect.top) / scaleY + table.clientTop;
+            const width = table.clientWidth;
+            const height = table.clientHeight;
+            // 按绘制比例将滚动视口内沿换算为相对遮罩的坐标。
+            const viewportLeft = (viewportRect.left - tableRect.left) / scaleX + viewport.clientLeft - table.clientLeft;
+            const viewportTop = (viewportRect.top - tableRect.top) / scaleY + viewport.clientTop - table.clientTop;
+            const clip = [viewportTop, width - viewportLeft - viewport.clientWidth,
+                height - viewportTop - viewport.clientHeight, viewportLeft];
+            action.style.setProperty("--b3-table-frame-left", `${left}px`);
+            action.style.setProperty("--b3-table-frame-top", `${top}px`);
+            action.style.setProperty("--b3-table-frame-width", `${width}px`);
+            action.style.setProperty("--b3-table-frame-height", `${height}px`);
+            action.style.setProperty("--b3-table-frame-clip", `inset(${clip.map(inset => `${Math.max(0, inset)}px`).join(" ")})`);
         });
-        this.pinnedTableActions.forEach((action, table) => {
-            if (actions.get(table) !== action) {
+        this.pinnedTableActions.forEach(action => {
+            if (!actions.has(action)) {
                 this.clearPinnedTableFrame(action);
-                if (!actions.has(table)) {
-                    this.pinnedTableResizeObserver.unobserve(table);
-                }
+            }
+        });
+        this.pinnedTableResizeTargets.forEach(target => {
+            if (!resizeTargets.has(target)) {
+                this.pinnedTableResizeObserver.unobserve(target);
+            }
+        });
+        resizeTargets.forEach(target => {
+            if (!this.pinnedTableResizeTargets.has(target)) {
+                this.pinnedTableResizeObserver.observe(target);
             }
         });
         this.pinnedTableActions = actions;
+        this.pinnedTableResizeTargets = resizeTargets;
     }
 
     private renderRowBoundary() {
@@ -1837,8 +1888,10 @@ export class TableControl {
 
     private render() {
         this.renderPinnedTableFrames();
-        if (this.dimensionDragging) {
+        if (this.dimensionDragging || this.dimensionHoverTimer === undefined) {
             this.renderDimensionGuide();
+        }
+        if (this.dimensionDragging) {
             return;
         }
         this.renderRowBoundary();
@@ -1975,12 +2028,14 @@ export class TableControl {
                 const startRect = this.getColumnRect(this.selection.table, grid, group.start);
                 const endRect = this.getColumnRect(this.selection.table, grid, group.end);
                 if (startRect && endRect) {
+                    const left = Math.min(startRect.left, endRect.left);
+                    const right = Math.max(startRect.right, endRect.right);
                     this.appendSelectionRect({
-                        left: startRect.left,
+                        left,
                         top: selectionGridRect.top,
-                        right: endRect.right,
+                        right,
                         bottom: selectionGridRect.bottom,
-                        width: endRect.right - startRect.left,
+                        width: right - left,
                         height: selectionGridRect.height,
                     }, selectionViewportRect, selectionGridRect);
                 }

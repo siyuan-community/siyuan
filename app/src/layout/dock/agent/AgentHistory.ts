@@ -1,3 +1,4 @@
+import type {AIReference} from "../../../types/api";
 export type AgentHistoryEntry = {
     id?: string;
     type: string;
@@ -49,6 +50,8 @@ export type AgentThinkingStatsLabels = {
     agentThinkingDoneTime?: string;
     agentThinkingStats?: string;
     agentThinkingLiveStats?: string;
+    /** 允许直接传入语言包对象，未列出的键不影响取值 */
+    [key: string]: string | undefined;
 };
 
 // 生成思考卡标题：有工具调用时追加调用次数，无工具调用时沿用原有文案。
@@ -73,19 +76,17 @@ export const formatAgentThinkingStats = (seconds: number | undefined, toolCount:
     return labels.agentThinkingDoneTime ? labels.agentThinkingDoneTime.replace("%s", secondsText) : fallback;
 };
 
-export type AgentHistoryReference = { id: string; title: string };
-
 export type AgentHistoryUserEntry = {
     content: string;
     timestamp?: number;
     blockHTML?: string;
-    references?: AgentHistoryReference[];
+    references?: AIReference[];
 };
 
 export type AgentHistoryEditData = {
     text: string;
     blockHTML: string;
-    references: AgentHistoryReference[];
+    references: AIReference[];
 };
 
 export const applyAgentUserEdit = (entry: AgentHistoryUserEntry, data: AgentHistoryEditData) => {

@@ -1,4 +1,4 @@
-import {mobileConfirmDialog} from "../../dialog/mobileConfirmDialog";
+import {confirmDialog} from "../../dialog/confirmDialog";
 import {fetchPost} from "../../util/fetch";
 import {registerBuiltinSlashHint} from "./builtinSlash";
 import {canPickIOSPhotos} from "../upload/iosPhotos";
@@ -31,6 +31,7 @@ import {zoomOut} from "../../menus/protyle";
 import {hideElements} from "../ui/hideElements";
 import {genAssetHTML} from "../../asset/renderAssets";
 import {unicode2Emoji} from "../../emoji";
+import {getAVBindingCandidateSubtype} from "../render/av/cellValue";
 import {addWidgetCacheVersion} from "../util/widgetCache";
 import {
     getEntryCatalogNode,
@@ -242,12 +243,12 @@ export const getBuiltinSlashMenuItems = (protyle: IProtyle): IHintData[] => {
         filter: [window.siyuan.languages.horizontalSuperBlock, window.siyuan.languages.superBlock, "horizontal super block", "columns", "layout", "横向超级块", "hengxiangchaojikuai", "hx", "超级块", "chaojikuai", "cjk", "分栏", "fenlan", "fl"],
         id: "horizontalSuperBlock",
         value: getSuperBlockCommand("col"),
-        icon: "iconSuper",
+        icon: "iconSplitLR",
     }, {
         filter: [window.siyuan.languages.verticalSuperBlock, window.siyuan.languages.superBlock, "vertical super block", "columns", "layout", "纵向超级块", "zongxiangchaojikuai", "zx", "超级块", "chaojikuai", "cjk", "分栏", "fenlan", "fl"],
         id: "verticalSuperBlock",
         value: getSuperBlockCommand("row"),
-        icon: "iconSuper",
+        icon: "iconSplitTB",
     }, {
         filter: [window.siyuan.languages.tabs, "tabs", "页签", "yeqian", "yq"],
         id: "tabs",
@@ -785,17 +786,16 @@ export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IH
                     createItemCount++;
                 }
             }
+            const avStaticTextKey = "av" === source && nodeElement ?
+                Constants.CUSTOM_SY_AV_STATIC_TEXT + (nodeElement.getAttribute("data-av-id") || "") : "";
             response.blocks.forEach((item: IBlock) => {
                 const name = item.name ? stripSearchMark(escapeSearchHighlight(item.name)) : item.refText.replaceAll(Constants.ZWSP, "");
                 let value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="d">${name}</span>`;
                 if (source === "search") {
                     value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${key}${Constants.ZWSP}${name}</span>`;
                 } else if (source === "av") {
-                    let refText = name;
-                    if (nodeElement) {
-                        refText = escapeHtml(item.ial[Constants.CUSTOM_SY_AV_STATIC_TEXT + nodeElement.getAttribute("data-av-id")] || "") || refText;
-                    }
-                    value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="s">${refText}</span>`;
+                    const staticText = avStaticTextKey ? item.ial?.[avStaticTextKey] : "";
+                    value = `<span data-type="block-ref" data-id="${item.id}" data-subtype="${getAVBindingCandidateSubtype(item.ial, avStaticTextKey)}">${staticText ? escapeHtml(staticText) : name}</span>`;
                 }
                 dataList.push({
                     value,
@@ -823,7 +823,7 @@ export const hintRef = (key: string, protyle: IProtyle, source: THintSource): IH
             } else if (createItemCount > 0 && dataList.length > createItemCount) {
                 dataList[createItemCount].focus = true;
             }
-            protyle.hint.genHTML(dataList, protyle, true, source);
+            protyle.hint.genHTML(dataList, protyle, true, source, source === "av" ? key : undefined);
         });
     }).catch(() => {
         if (createTarget.isCurrent()) {
@@ -925,12 +925,17 @@ export const hintRenderTemplate = (value: string, protyle: IProtyle, nodeElement
         const docTreePlan = response.data.docTreePlan;
         if (docTreePlan?.id) {
             hideElements(["util"], protyle);
-            mobileConfirmDialog(window.siyuan.languages.template, genTemplateDocTreePlanHTML(docTreePlan, window.siyuan.languages.newSubDoc), () => {
-                insertTemplate(docTreePlan.id);
-            }, () => {
-                if (isCurrent()) {
-                    focusByRange(range);
-                }
+            confirmDialog({
+                title: window.siyuan.languages.template,
+                text: genTemplateDocTreePlanHTML(docTreePlan, window.siyuan.languages.newSubDoc),
+                confirm: () => {
+                    insertTemplate(docTreePlan.id);
+                },
+                cancel: () => {
+                    if (isCurrent()) {
+                        focusByRange(range);
+                    }
+                },
             });
         } else {
             insertTemplate();

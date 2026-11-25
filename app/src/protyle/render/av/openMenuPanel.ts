@@ -21,9 +21,11 @@ import {getPageSize} from "./groups";
 import {applyAVColorPalette, getAVCustomColors} from "./color";
 import {setAVCellPanelTarget} from "./panelTarget";
 import {setSelectMenuPosition} from "./selectPosition";
+import {setAVCellPanelPosition} from "./cellPanelPosition";
 import {getAVHostIdentity, getAVRelationHost} from "./host";
 import {showMessage} from "../../../dialog/message";
 import {isAVRenderData} from "./renderData";
+import {getAVCurrentViewID} from "./viewVisibility";
 import {captureAVCellInput, type IAVCellInputElements} from "./cell";
 
 export const openMenuPanel = (options: IOpenAVPanelOptions) => {
@@ -62,8 +64,8 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
     getAnchorRect();
     const avID = options.data?.id || options.blockElement.getAttribute("data-av-id");
     const avPageSize = getPageSize(options.blockElement);
-    // 字段编辑仅加载配置，日期和选项编辑从单元格读取当前值，避免计算整库模板与汇总。
-    const ignoreRows = ["config", "properties", "sorts", "filters", "contextFilter", "switcher", "select", "date", "edit"].includes(options.type);
+    // 字段编辑仅加载配置，资源、日期和选项面板从单元格读取当前值，避免计算整库模板与汇总。
+    const ignoreRows = ["config", "properties", "sorts", "filters", "contextFilter", "switcher", "select", "date", "asset", "edit"].includes(options.type);
     const fetchPayload = {
         id: avID,
         query: options.blockElement.querySelector('[data-type="av-search"]')?.textContent.trim() || "",
@@ -96,7 +98,7 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
             }
             const operation = (filters: IAVFilter[]): IOperation => ({
                 action: options.filterOperation?.action || "setAttrViewFilters",
-                avID,
+                avID: options.filterOperation?.avID || avID,
                 keyID: options.filterOperation?.keyID,
                 data: filters,
                 blockID,
@@ -171,6 +173,7 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
             bindMobileAVPanel(avPanelElement as HTMLElement, menuElement);
         }
         const rerenderSwitcher = () => {
+            data.viewID = getAVCurrentViewID(options.blockElement) || data.viewID;
             const keyword = (menuElement.querySelector(".b3-text-field") as HTMLInputElement)?.value || "";
             menuElement.innerHTML = getSwitcherHTML(data.views, data.viewID, options.blockElement);
             bindSwitcherEvent({
@@ -244,7 +247,7 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
                 if (options.type === "select") {
                     setSelectMenuPosition(menuElement, lastElement || options.cellElements[options.cellElements.length - 1]);
                 } else {
-                    setPosition(menuElement, cellRect.left, cellRect.bottom, cellRect.height, 0, true);
+                    setAVCellPanelPosition(menuElement, cellRect);
                 }
             }
         } else {
@@ -257,6 +260,7 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
         bindAVPanelDrag(context);
         bindAVPanelInputs(context);
         let suppressSelectClick = false;
+        const switcherReadonly = options.type === "switcher" && options.protyle.disabled;
 
         avPanelElement.addEventListener("click", async (event: MouseEvent) => {
             let type: string;
@@ -307,7 +311,10 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
                         closeCB?.();
                         avPanelElement.remove();
                         setTimeout(() => {
-                            if (!options.anchorElement) {
+                            // 提交可能已打开下一格，延迟恢复仅在没有新的编辑目标时执行。
+                            if (!options.anchorElement && options.blockElement.isConnected &&
+                                options.blockElement.getClientRects().length > 0 && document.activeElement === document.body &&
+                                !document.querySelector(".av__mask, .av__panel, [data-av-location-editor]")) {
                                 focusBlock(options.blockElement);
                             }
                         }, Constants.TIMEOUT_TRANSITION);  // 单选使用 enter 修改选项后会滚动
@@ -318,6 +325,15 @@ export const openMenuPanel = (options: IOpenAVPanelOptions) => {
                     event.preventDefault();
                     event.stopPropagation();
                     break;
+                }
+                if (type && options.type === "switcher") {
+                    if (options.protyle.disabled !== switcherReadonly) {
+                        avPanelElement.remove();
+                        break;
+                    }
+                    if (switcherReadonly && type !== "av-view-switch") {
+                        break;
+                    }
                 }
                 const actionResult = dispatchAVPanelAction(context, {type, target, event});
                 const result = typeof actionResult === "string" ? actionResult : await actionResult;

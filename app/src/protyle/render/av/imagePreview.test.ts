@@ -7,6 +7,7 @@ import {ModuleKind, ScriptTarget, transpileModule} from "typescript";
 import {DOMFixture, DOMElement} from "./testDOM";
 import type {IAVPanelAction, IAVPanelContext} from "./panels/types";
 import * as host from "./host";
+import {escapeHtmlTextAndAttr} from "../../../util/escape";
 
 const compile = (file: string) => transpileModule(readFileSync(join(__dirname, file), "utf8"), {
     compilerOptions: {module: ModuleKind.CommonJS, target: ScriptTarget.ES2022},
@@ -43,6 +44,7 @@ for (const {mobile, related} of [false, true].flatMap(mobile =>
         const previews: unknown[][] = [];
         const scopedPreviews: unknown[][] = [];
         const popupPreviews: Array<() => void> = [];
+        const assetMenuPaths: string[] = [];
         const items = new Map<string, {click: () => void}>();
         class Menu {
             readonly element = document.createElement("div");
@@ -75,6 +77,10 @@ for (const {mobile, related} of [false, true].flatMap(mobile =>
             }),
             isBrowserRenderableImagePath: () => true,
             openMenu: (): unknown[] => [],
+            getAssetExportItems: (source: string): IMenu[] => {
+                assetMenuPaths.push(source);
+                return [];
+            },
             previewAttrViewImages: (...args: unknown[]) => previews.push(args),
             previewImages: (images: string[], current: string) => scopedPreviews.push([Array.from(images), current]),
         }, {get: (target, key) => key in target ? Reflect.get(target, key) : (): undefined => undefined});
@@ -95,6 +101,7 @@ for (const {mobile, related} of [false, true].flatMap(mobile =>
             asset.editAssetItem({protyle, blockElement: block as unknown as Element,
                 cellElements: [cell as unknown as HTMLElement], content: image.getAttribute("src"),
                 type: "image", name: "", index: 0, rect: cell.getBoundingClientRect() as DOMRect});
+            assert.equal(assetMenuPaths.at(-1), image.getAttribute("src"));
             const menuPreview = items.get("cardPreview").click;
             menuPreview();
             const target = document.createElement("span");
@@ -156,6 +163,8 @@ test("database image preview forwards optional groups and preserves response ord
     runInNewContext(compile("../../preview/image.ts"), {exports, document, Viewer,
         window: {siyuan: {}},
         require: () => ({Constants: {}, addScript: () => Promise.resolve(),
+            escapeHtmlTextAndAttr,
+            isMobile: () => false,
             isBrowserRenderableImagePath: (src: string) => src.endsWith(".png"),
             fetchPost: (path: string, body: Record<string, string>, callback: (response: unknown) => void) => {
                 requests.push({path, body});

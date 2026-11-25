@@ -91,6 +91,53 @@ func TestAPIContractSystemCompleteConfiguration(t *testing.T) {
 	compareSettingPayload(t, "", systemCustomFontPayload)
 }
 
+func TestAPIContractSystemGetConfSyncConfigured(t *testing.T) {
+	previousConf := model.Conf
+	model.Conf = model.NewAppConf()
+	model.Conf.System.Store(&conf.System{})
+	t.Cleanup(func() { model.Conf = previousConf })
+
+	for _, tc := range []struct {
+		name       string
+		role       model.Role
+		configured bool
+		want       bool
+	}{
+		{"local administrator", model.RoleAdministrator, false, false},
+		{"paused administrator", model.RoleAdministrator, true, true},
+		{"paused reader", model.RoleReader, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sync := conf.NewSync()
+			sync.Configured = tc.configured
+			model.Conf.Sync.Store(sync)
+			handler := func(c *gin.Context) {
+				c.Set(model.RoleContextKey, tc.role)
+				getConf(c)
+			}
+			recorder := systemContractRequest(t, "POST", "getConf", handler, strings.NewReader(`{}`))
+			var response struct {
+				Code int `json:"code"`
+				Data struct {
+					Conf struct {
+						Sync struct {
+							Configured *bool `json:"configured"`
+							Enabled    bool  `json:"enabled"`
+						} `json:"sync"`
+					} `json:"conf"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			projected := response.Data.Conf.Sync
+			if response.Code != 0 || projected.Configured == nil || *projected.Configured != tc.want || projected.Enabled {
+				t.Fatalf("getConf returned the wrong sync association for %s: %s", tc.name, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestAPIContractSystemDownloadUpdate(t *testing.T) {
 	previousConf := model.Conf
 	model.Conf = model.NewAppConf()
@@ -183,6 +230,33 @@ func TestAPIContractSystemExitCompatibility(t *testing.T) {
 			if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || !called || result.Code != code || result.Data.InstallPkgPath != "installer" || result.Data.CloseTimeout != 0 {
 				t.Fatalf("exit response changed: %s (%v)", recorder.Body.String(), err)
 			}
+		}
+	}
+}
+
+func TestAPIContractSystemExitPackageAnnouncement(t *testing.T) {
+	previousClose, previousFinish, previousConf := closeSystem, finishSystemExit, model.Conf
+	model.Conf = model.NewAppConf()
+	t.Cleanup(func() { closeSystem, finishSystemExit, model.Conf = previousClose, previousFinish, previousConf })
+	finishSystemExit = func() {}
+	for _, code := range []int{0, 1, 2, 3} {
+		closeSystem = func(context.Context, bool, bool, int) (int, string) {
+			return code, "siyuan-99.0.0-beta.3-win.exe"
+		}
+		recorder := systemContractRequest(t, "POST", "exit", exit, strings.NewReader(`{}`))
+		var result struct {
+			Code int                        `json:"code"`
+			Data apicontract.SystemExitData `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || result.Code != code {
+			t.Fatalf("invalid exit response: %s (%v)", recorder.Body.String(), err)
+		}
+		if code == 2 {
+			if result.Data.ReleaseURL != "https://github.com/siyuan-note/siyuan/releases/tag/v99.0.0-beta.3" {
+				t.Fatalf("announcement does not match the pending installer: %s", recorder.Body.String())
+			}
+		} else if strings.Contains(recorder.Body.String(), `"releaseURL"`) {
+			t.Fatalf("unexpected announcement outside the install prompt: %s", recorder.Body.String())
 		}
 	}
 }
@@ -433,8 +507,26 @@ func TestAPIContractUIProcessQueryParameters(t *testing.T) {
 	const pid = "2147483001"
 	util.UIProcessIDs.Delete(pid)
 	t.Cleanup(func() { util.UIProcessIDs.Delete(pid) })
+	role := model.RoleAdministrator
 	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		c.Set(model.RoleContextKey, role)
+		c.Next()
+	})
 	engine.POST("/api/system/uiproc", addUIProcess)
+
+	role = model.RoleReader
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest("POST", "/api/system/uiproc?pid="+pid, nil))
+	requireAPIContract(t, "POST", "/api/system/uiproc", recorder)
+	if recorder.Code != http.StatusOK || recorder.Body.Len() != 0 {
+		t.Fatalf("reader UI registration response changed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, registered := util.UIProcessIDs.Load(pid); registered {
+		t.Fatal("reader must not consume a UI process registry slot")
+	}
+
+	role = model.RoleAdministrator
 	for _, query := range []string{"", "?pid=" + pid} {
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, httptest.NewRequest("POST", "/api/system/uiproc"+query, strings.NewReader(`{"pid":"`+pid+`"}`)))

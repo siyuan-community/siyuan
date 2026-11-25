@@ -1,0 +1,361 @@
+import * as assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
+import test from "node:test";
+import {compile} from "sass";
+import {browserSources, canRunBrowser, runBrowserCase} from "../../../datePicker/test/browser";
+
+test("date panels embed a shared calendar without changing range, batch, clear or host submission", {
+    timeout: 45000, skip: !canRunBrowser,
+}, async () => {
+    const sources = browserSources({model: join(__dirname, "../../../datePicker/model.ts"),
+        yearInput: join(__dirname, "../../../datePicker/yearInput.ts"), field: join(__dirname, "../../../datePicker/field.ts"),
+        inline: join(__dirname, "../../../datePicker/inline.ts"), dateSubmit: join(__dirname, "dateSubmit.ts"),
+        date: join(__dirname, "date.ts"), datePanel: join(__dirname, "panels/date.ts")});
+    sources.dayjs = readFileSync(require.resolve("dayjs"), "utf8");
+    sources.icons = readFileSync("appearance/icons/litheness/icon.js", "utf8");
+    sources.languages = readFileSync("appearance/langs/en.json", "utf8");
+    const result = await runBrowserCase(async (source, css) => {
+        const equal = (actual: unknown, expected: unknown, message: string) => {
+            if (actual !== expected) { throw new Error(`${message}: ${actual} !== ${expected}`); }
+        };
+        const updates: any[] = [];
+        const initial = {content: new Date(2026, 1, 10, 12, 30).getTime(), content2: new Date(2026, 1, 20, 14, 45).getTime(),
+            isNotEmpty: true, isNotEmpty2: true, hasEndDate: true, isNotTime: true};
+        const dayjsModule = {exports: {}};
+        new Function("module", "exports", source.dayjs)(dayjsModule, dayjsModule.exports);
+        new Function(source.icons)();
+        Object.assign(window, {siyuan: {languages: JSON.parse(source.languages)}});
+        const modules: Record<string, any> = {dayjs: dayjsModule.exports,
+            "./cell": {genCellValueByElement: () => ({date: initial}),
+                updateCellsValue: (_protyle: unknown, _block: unknown, value: unknown) => updates.push(value)},
+            "./view": {getFieldsByData: (): unknown[] => []}, "./lunarDate": {}, "../col": {getColId: () => "date"}};
+        modules["../cell"] = modules["./cell"];
+        for (const name of ["model", "yearInput", "field", "inline", "dateSubmit", "date", "datePanel"]) {
+            const exports = modules["./" + name] = {};
+            new Function("exports", "require", source[name])(exports, (path: string) => modules[path]);
+            if (name === "model") { modules["../../../datePicker/model"] = exports; }
+            if (name === "inline") { modules["../../../datePicker/inline"] = exports; }
+            if (name === "date") { modules["../date"] = exports; }
+        }
+        const style = document.createElement("style");
+        style.textContent = css + "body{margin:0}.av__panel>.b3-menu{left:8px;top:8px;min-width:200px;max-width:calc(100vw - 16px)}";
+        document.head.append(style);
+        document.documentElement.dataset.frontend = "browser-mobile";
+        const panel = document.createElement("div");
+        panel.className = "av__panel";
+        document.body.append(panel);
+        const cell = document.createElement("div");
+        let close: () => void;
+        const mount = (explicit = false) => {
+            panel.innerHTML = '<div class="b3-menu">' + modules["./date"].getDateHTML([cell]) + "</div>";
+            close = modules["./date"].bindDateEvent({menuElement: panel.querySelector(".b3-menu"), cellElements: [cell],
+                data: {}, requireExplicitChange: explicit});
+            return panel.querySelectorAll<HTMLInputElement>("input:not([data-date-picker-part])");
+        };
+        let inputs = mount(true);
+        equal(panel.querySelectorAll(".date-picker__calendar").length, 1, "Range shares one calendar");
+        equal(panel.querySelectorAll(".b3-dialog__container, .date-picker__fields, .date-picker__shortcuts").length, 0, "No extra surface, fields or clear");
+        inputs[1].focus();
+        equal(updates.length, 0, "Focusing endpoint does not save batch prefill");
+        close();
+        equal(updates.length, 0, "Batch close without edits does not save");
+        inputs = mount(true);
+        inputs[1].focus();
+        panel.querySelector<HTMLButtonElement>('button[data-date="2026-02-21"]').click();
+        equal(updates.length, 0, "Calendar selection updates draft, not database transaction");
+        close();
+        equal(updates.length, 1, "Host close saves once");
+        equal(updates[0].content, new Date(2026, 1, 10).getTime(), "Start is unchanged");
+        equal(updates[0].content2, new Date(2026, 1, 21).getTime(), "Selected end is saved");
+        close();
+        equal(updates.length, 1, "Repeated close is idempotent");
+        inputs = mount();
+        inputs[3].click();
+        equal(inputs[0].dataset.datePickerType, "datetime-local", "Include-time updates semantic type");
+        equal(inputs[0].type, "text", "Include-time never restores a system picker");
+        equal(modules["./inline"].getInlineDateValue(inputs[0]), "2026-02-10T12:30", "Time toggle restores cached time");
+        const timeInputs = panel.querySelectorAll<HTMLInputElement>('[data-date-picker-part="time"]');
+        equal(timeInputs[0].getAttribute("aria-label").includes(window.siyuan.languages.startDate), true, "Start time inherits the real endpoint label");
+        equal(timeInputs[1].getAttribute("aria-label").includes(window.siyuan.languages.endDate), true, "End time inherits the real endpoint label");
+        inputs[3].click();
+        equal(inputs[0].value, "2026-02-10", "All-day toggle restores date only");
+        inputs[2].click();
+        equal(inputs[1].classList.contains("fn__none"), true, "End switch hides only its endpoint");
+        inputs[2].click();
+        equal(inputs[1].value, "2026-02-20", "Hidden endpoint value is preserved");
+        inputs[0].value = "2026-02-31";
+        inputs[0].dispatchEvent(new Event("input", {bubbles: true}));
+        close();
+        equal(updates.length, 1, "Invalid text cannot be saved on close");
+        equal(inputs[0].value, "2026-02-31", "Closing does not turn invalid draft into empty");
+        inputs = mount();
+        const menu = panel.querySelector<HTMLElement>(".b3-menu");
+        const clear = panel.querySelector<HTMLElement>('[data-type="clearDate"]');
+        modules["./datePanel"].datePanel.actions.clearDate({options: {cellElements: [cell]},
+            menuElement: menu, avPanelElement: panel, data: {}, fields: [{id: "date", date: {fillSpecificTime: true}}]},
+        {target: clear, event: new Event("click")});
+        equal(updates.length, 2, "Existing business clear writes once");
+        equal(updates[1].isNotEmpty, false, "Business clear clears start");
+        equal(updates[1].isNotEmpty2, false, "Business clear clears end");
+        equal(updates[1].hasEndDate, false, "Business clear disables end");
+        equal(updates[1].isNotTime, false, "Business clear retains column time default");
+        document.body.append(panel);
+        for (const fireChange of [false, true]) {
+            for (const endpoint of [0, 1]) {
+                inputs = mount();
+                const before = updates.length;
+                inputs[endpoint].value = "2026-02-30";
+                inputs[endpoint].dispatchEvent(new Event("input", {bubbles: true}));
+                if (fireChange) { inputs[endpoint].dispatchEvent(new Event("change", {bubbles: true})); }
+                if (endpoint === 1) { inputs[2].click(); }
+                inputs[3].click();
+                equal(inputs[3].checked, false, "Invalid start or hidden end draft blocks include-time toggle");
+                equal(inputs[endpoint].value, "2026-02-30", "Time toggle never sanitizes invalid text into empty");
+                inputs[3].click();
+                equal(inputs[endpoint].value, "2026-02-30", "Repeated time toggles preserve invalid text");
+                close();
+                equal(updates.length, before, "Invalid drafts cannot clear or normalize either stored endpoint on close");
+            }
+        }
+        inputs = mount();
+        inputs[3].click();
+        const beforeSeconds = updates.length;
+        inputs[0].value = "2026-02-10T12:30:99";
+        inputs[0].dispatchEvent(new Event("input", {bubbles: true}));
+        inputs[0].dispatchEvent(new Event("change", {bubbles: true}));
+        inputs[3].click();
+        equal(inputs[3].checked, true, "Invalid seconds cannot be truncated into a valid all-day date");
+        equal(inputs[0].value, "2026-02-10T12:30:99", "Invalid seconds survive the rejected toggle");
+        close();
+        equal(updates.length, beforeSeconds, "Invalid seconds never change stored dates");
+        inputs = mount();
+        inputs[0].value = "2026-02-14";
+        inputs[0].dispatchEvent(new Event("input", {bubbles: true}));
+        inputs[3].click();
+        equal(modules["./inline"].getInlineDateValue(inputs[0]), "2026-02-14T00:00", "Time toggle retains a valid draft before its change or blur event");
+        inputs[3].click();
+        equal(inputs[0].value, "2026-02-14", "A valid input-only draft survives a time round trip");
+        close();
+        equal(updates.at(-1).content, new Date(2026, 1, 14).getTime(), "Valid unblurred draft saves the edited date");
+        initial.isNotTime = false;
+        initial.content = new Date(2026, 1, 10, 12, 34, 56, 123).getTime();
+        initial.content2 = new Date(2026, 1, 20, 14, 45, 28, 456).getTime();
+        inputs = mount();
+        close();
+        equal(updates.at(-1).content, initial.content, "Ordinary unedited close preserves stored start seconds and milliseconds");
+        equal(updates.at(-1).content2, initial.content2, "Ordinary unedited close preserves stored end precision independently");
+        inputs = mount();
+        panel.querySelector<HTMLButtonElement>('button[data-date="2026-02-11"]').click();
+        close();
+        equal(updates.at(-1).content, new Date(2026, 1, 11, 12, 34, 56, 123).getTime(), "Calendar date-only edit preserves invisible time precision");
+        equal(updates.at(-1).content2, initial.content2, "Editing start does not change end precision");
+        inputs = mount();
+        const editedTime = inputs[0].closest(".date-picker__split").querySelector<HTMLInputElement>('[data-date-picker-part="time"]');
+        editedTime.value = "12:35"; editedTime.dispatchEvent(new Event("input", {bubbles: true}));
+        editedTime.value = "12:34"; editedTime.dispatchEvent(new Event("input", {bubbles: true}));
+        close();
+        equal(updates.at(-1).content, new Date(2026, 1, 10, 12, 34).getTime(), "Explicit time edit retains minute precision even when reverted to the same minute");
+        inputs = mount();
+        const numericTime = inputs[1].closest(".date-picker__split").querySelector<HTMLInputElement>('[data-date-picker-part="time"]');
+        numericTime.value = "1445";
+        numericTime.dispatchEvent(new Event("input", {bubbles: true}));
+        close();
+        equal(updates.at(-1).content2, new Date(2026, 1, 20, 14, 45).getTime(), "Numeric end time saves without blur and intentionally clears old seconds");
+        equal(updates.at(-1).content, initial.content, "Numeric end time leaves start precision intact");
+        inputs = mount();
+        modules["./inline"].setInlineDateValue(inputs[0], "");
+        inputs[0].dispatchEvent(new Event("input", {bubbles: true}));
+        close();
+        equal(updates.at(-1).isNotEmpty, false, "Clearing both parts never resurrects original precision");
+        equal(updates.at(-1).content2, initial.content2, "Clearing start does not affect end precision");
+        inputs = mount();
+        const beforePartial = updates.length;
+        inputs[0].closest(".date-picker__split").querySelector<HTMLInputElement>('[data-date-picker-part="time"]').value = "";
+        close();
+        equal(updates.length, beforePartial, "Half-filled time cannot restore the original timestamp or save empty");
+        inputs = mount();
+        inputs[1].focus();
+        equal(panel.querySelector(".b3-menu").getBoundingClientRect().right <= innerWidth, true, "Date panel fits narrow viewport");
+        equal(Array.from(panel.querySelectorAll("button[data-date]")).every(button => button.getBoundingClientRect().right <= innerWidth), true,
+            "Calendar cells fit narrow viewport");
+        for (const button of Array.from(panel.querySelectorAll<HTMLButtonElement>(".date-picker__navigation .block__icon"))) {
+            equal(button.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}), true, "Date panel navigation is visible");
+            const rect = button.querySelector("use").getBBox();
+            equal(rect.width > 0 && rect.height > 0, true, "Date panel navigation paints real icons");
+        }
+        const fillDate = (input: HTMLInputElement, value: string, inputType = "insertText") => {
+            input.value = value;
+            input.dispatchEvent(new InputEvent("input", {bubbles: true, inputType}));
+        };
+        const selectedDate = () => panel.querySelector<HTMLButtonElement>('[aria-selected="true"] button[data-date]')?.dataset.date;
+
+        initial.isNotTime = true;
+        document.documentElement.dataset.frontend = "browser-desktop";
+        inputs = mount(true);
+        inputs[0].focus();
+        fillDate(inputs[0], "2027/1/2");
+        equal(selectedDate(), "2027-01-02", "Unpadded slash date immediately positions the calendar");
+        equal(inputs[0].value, "2027/1/2", "Preview leaves the draft editable");
+        fillDate(inputs[0], "2027/1/25");
+        equal(selectedDate(), "2027-01-25", "Typing another day digit updates the selected date");
+        inputs[1].focus();
+        fillDate(inputs[1], "20271122", "insertFromPaste");
+        equal(selectedDate(), "2027-11-22", "Compact end date immediately positions the shared calendar");
+        close();
+        equal(updates.at(-1).content, new Date(2027, 0, 25).getTime(), "Slash start date is saved");
+        equal(updates.at(-1).content2, new Date(2027, 10, 22).getTime(), "Compact end date is saved without blur");
+
+        inputs = mount(true);
+        inputs[0].focus();
+        for (const draft of ["2028-2-9", "2028.2.9"]) {
+            fillDate(inputs[0], draft);
+            equal(selectedDate(), "2028-02-09", "Unpadded Gregorian input positions the calendar");
+        }
+        fillDate(inputs[0], "2028-02-29");
+        const press = (key: string) => inputs[0].dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true}));
+        inputs[0].setSelectionRange(1, 1);
+        press("ArrowUp");
+        equal(inputs[0].value, "2029-02-28", "Year steppers clamp the day to February");
+        equal(inputs[0].selectionEnd, 4, "The stepped year is selected");
+        for (const digit of "1998") { press(digit); }
+        equal(inputs[0].selectionStart, 5, "Four year digits advance to the month");
+        press("1");
+        equal(inputs[0].selectionStart, 6, "The first month digit waits for the second digit");
+        press("2");
+        equal(inputs[0].selectionStart, 8, "Two month digits advance to the day");
+        press("ArrowLeft");
+        press("7");
+        equal(inputs[0].selectionStart, 8, "An unambiguous month advances after one digit");
+        press("0");
+        press("9");
+        equal(selectedDate(), "1998-07-09", "Segment edits update the shared calendar");
+        close();
+        equal(updates.at(-1).content, new Date(1998, 6, 9).getTime(), "Segment edits commit a historic date");
+
+        inputs = mount(true);
+        inputs[0].focus();
+        inputs[0].dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+        fillDate(inputs[0], "2028年2月29日", "insertCompositionText");
+        equal(selectedDate(), "2026-02-10", "Calendar waits for composition to finish");
+        inputs[0].dispatchEvent(new CompositionEvent("compositionend", {bubbles: true}));
+        equal(selectedDate(), "2028-02-29", "Chinese leap date positions the calendar after composition");
+        inputs[0].dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        equal(updates.at(-1).content, new Date(2028, 1, 29).getTime(), "Enter saves Chinese date input");
+
+        inputs = mount(true);
+        inputs[0].focus();
+        const beforeInvalidDate = updates.length;
+        for (const value of ["2027.2.29", "2027-2-29", "2027-2.28", "2027/02/29", "2027年13月1日", "2027112", "202711220"]) {
+            fillDate(inputs[0], value);
+            equal(inputs[0].getAttribute("aria-invalid"), "true", "Invalid date remains invalid");
+            equal(selectedDate(), undefined, "Invalid date does not select a day");
+        }
+        close();
+        equal(updates.length, beforeInvalidDate, "Invalid draft cannot replace existing dates");
+        equal(inputs[0].value, "202711220", "Invalid draft is preserved");
+
+        initial.isNotTime = false;
+        inputs = mount(true);
+        inputs[0].focus();
+        fillDate(inputs[0], "2028/02/29", "insertFromPaste");
+        equal(selectedDate(), "2028-02-29", "Pasted padded date positions the calendar in time mode");
+        close();
+        equal(updates.at(-1).content, new Date(2028, 1, 29, 12, 34, 56, 123).getTime(), "Replacing only the date preserves time precision");
+        equal(updates.at(-1).content2, initial.content2, "Changing the start date preserves the end timestamp");
+
+        inputs = mount(true);
+        inputs[1].focus();
+        fillDate(inputs[1], "20271122 14:45", "insertFromPaste");
+        equal(inputs[1].value, "2027-11-22", "Pasting a date and time splits the date into its own field");
+        equal(selectedDate(), "2027-11-22", "Pasted date and time positions the end calendar");
+        close();
+        equal(updates.at(-1).content2, new Date(2027, 10, 22, 14, 45).getTime(), "Explicitly pasted time replaces stored precision");
+
+        for (const isNotTime of [true, false]) {
+            Object.assign(initial, {isNotTime, hasEndDate: false, isNotEmpty2: true, content2: 0});
+            inputs = mount(true);
+            equal(inputs[1].value, "", "An incorrectly marked empty endpoint stays empty");
+            fillDate(inputs[0], "2025.8.6");
+            inputs[2].click();
+            equal(inputs[1].value, "2025-08-06", "A new end follows the live start draft");
+            close();
+            const range = updates.at(-1);
+            equal(range.content, range.content2, "Default range preserves the start timestamp including time precision");
+        }
+        Object.assign(initial, {isNotTime: true, hasEndDate: true});
+        inputs = mount(true);
+        equal(inputs[1].value, inputs[0].value, "An enabled legacy range with an empty end inherits the start");
+        close();
+        Object.assign(initial, {isNotTime: false, hasEndDate: true, isNotEmpty2: true, content2: new Date(2026, 1, 20, 14, 45).getTime()});
+        document.documentElement.dataset.frontend = "browser-mobile";
+
+        Object.assign(window, {nativeDatePanel: {panel, updates, mount, close: () => close()}});
+        return "date panel inline cases passed";
+    }, sources, readFileSync("appearance/themes/daylight/theme.css", "utf8") + compile("src/assets/scss/base.scss").css, {width: 320, height: 740,
+        interact: async win => {
+            const run = (code: string) => win.webContents.executeJavaScript(`${code}; void 0`);
+            const check = async (code: string, message: string) => {
+                if (!await win.webContents.executeJavaScript(code)) { throw new Error(message); }
+            };
+            await run("window.nativeDate = nativeDatePanel.mount()[0]; nativeDate.focus(); nativeDate.setSelectionRange(0, 4)");
+            for (const text of "1984") {
+                await win.webContents.debugger.sendCommand("Input.dispatchKeyEvent", {type: "keyDown", key: text, text});
+                await win.webContents.debugger.sendCommand("Input.dispatchKeyEvent", {type: "keyUp", key: text});
+            }
+            await check('nativeDate.value === "1984-02-10" && nativeDate.selectionStart === 5 && nativeDate.selectionEnd === 7',
+                "Trusted number keys replace the year exactly once and advance to the month");
+            await run("nativeDatePanel.close()");
+            const typeDigit = async (key: string, includeKeyEvents: boolean) => {
+                // Arm the listener before sending input, then await the renderer's actual input event.
+                await run(`window.nativeInput = new Promise(resolve => {
+                    const onInput = event => {
+                        if (!event.isTrusted || event.target !== nativeTime) return;
+                        clearTimeout(timer);
+                        document.removeEventListener("input", onInput, true);
+                        resolve(true);
+                    };
+                    const timer = setTimeout(() => {
+                        document.removeEventListener("input", onInput, true);
+                        resolve(false);
+                    }, 2000);
+                    document.addEventListener("input", onInput, true);
+                })`);
+                if (includeKeyEvents) win.webContents.sendInputEvent({type: "keyDown", keyCode: key});
+                win.webContents.sendInputEvent({type: "char", keyCode: key});
+                if (includeKeyEvents) win.webContents.sendInputEvent({type: "keyUp", keyCode: key});
+                await check("nativeInput", `No trusted input event for digit ${key}`);
+            };
+            for (const endpoint of [0, 1]) {
+                for (const digits of ["1234", "2360"]) {
+                    await run(`nativeDatePanel.mount(); window.nativeTime = nativeDatePanel.panel.querySelectorAll('[data-date-picker-part="time"]')[${endpoint}]; nativeTime.focus(); nativeTime.select();`);
+                    let draft = "";
+                    for (const key of digits) {
+                        await typeDigit(key, true);
+                        draft += key;
+                        await check(`nativeTime.value === ${JSON.stringify(draft)}`, "Real range host preserves every numeric draft on either endpoint");
+                    }
+                    await run("window.nativeBefore = nativeDatePanel.updates.length");
+                    if (digits === "2360") {
+                        await run("nativeDatePanel.panel.querySelector('button[data-date=\"2026-02-12\"]').click()");
+                        await check('nativeTime.value === "2360"', "Calendar preserves invalid time draft");
+                        await run("nativeDatePanel.close()");
+                        await check("nativeDatePanel.updates.length === nativeBefore", "Invalid time and date selection do not save");
+                    } else {
+                        await run("nativeTime.setSelectionRange(1, 2)");
+                        await typeDigit("0", false);
+                        await check('nativeTime.value === "1034" && nativeTime.selectionStart === 2', "Middle digit replacement preserves cursor and raw draft");
+                        await run("nativeDatePanel.close()");
+                        await check("nativeDatePanel.updates.length === nativeBefore + 1", "Valid native digits save once without blur");
+                    }
+                }
+            }
+            await run("nativeDatePanel.mount()");
+            await win.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+            const image = await win.webContents.capturePage();
+            // 交互回调在临时目录的 Electron 脚本中执行。
+            require("node:fs").writeFileSync(require("node:path").join(__dirname, "date-panel-inline-320.png"), image.toPNG());
+            return "date panel inline cases passed";
+        }});
+    assert.match(result, /date panel inline cases passed/);
+});

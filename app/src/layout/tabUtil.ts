@@ -86,14 +86,16 @@ export const setTabPosition = (onlyPadding = false, onlyClear = false) => {
                     }
                 }
             } else {
-                if (headerRect.right < toolbarDragRect.right && headerRect.right === centerRect.right) {
-                    toolbarDragElement.style.setProperty("--b3-toolbar-drag-right", toolbarDragRect.right - headerRect.right + "px");
-                } else if (headerRect.right > toolbarDragRect.right) {
+                const rightGap = toolbarDragRect.right - headerRect.right;
+                if (rightGap > 0 && headerRect.right === centerRect.right) {
+                    toolbarDragElement.style.setProperty("--b3-toolbar-drag-right", rightGap + "px");
+                }
+                if (rightGap < 0) {
                     // 不能取 clientWidth，因为设置了 min-width(64) 导致 clientWidth 大于实际宽度
-                    if (headerRect.right - toolbarDragRect.right + 64 > headerRect.width) {
+                    if (64 - rightGap > headerRect.width) {
                         headerElement.style.visibility = "hidden";
                     } else {
-                        (headerElement.lastElementChild as HTMLElement).style.marginRight = (headerRect.right - toolbarDragRect.right) + "px";
+                        (headerElement.lastElementChild as HTMLElement).style.marginRight = -rightGap + "px";
                     }
                 }
             }

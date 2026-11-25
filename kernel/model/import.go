@@ -1776,6 +1776,7 @@ func importFromLocalPath(boxID, localPath string, toPath string, skipRoot bool) 
 				}
 				return ast.WalkContinue
 			})
+			rewriteMarkdownHTMLImageAssets(tree, currentDir, boxID, assetDirPath, assetsDone)
 
 			reassignIDUpdated(tree, id, updated)
 			if err := stageTree(tree, externalPath); err != nil {
@@ -1913,6 +1914,7 @@ func importFromLocalPath(boxID, localPath string, toPath string, skipRoot bool) 
 			}
 			return ast.WalkContinue
 		})
+		rewriteMarkdownHTMLImageAssets(tree, localPathParentDir, boxID, assetDirPath, assetsDone)
 
 		reassignIDUpdated(tree, id, updated)
 		// 兜底校验：禁止跨加密边界块引（导入的 Markdown 可能含跨边界引用）
@@ -1998,6 +2000,7 @@ func importFromLocalPath(boxID, localPath string, toPath string, skipRoot bool) 
 }
 
 func parseStdMd(markdown []byte, footnotes bool) (ret *parse.Tree, yfmRootID, yfmTitle, yfmUpdated string) {
+	markdown = bytes.TrimPrefix(markdown, []byte("\xef\xbb\xbf"))
 	luteEngine := util.NewStdLute()
 	setImportMathDelimiters(luteEngine)
 	luteEngine.SetFootnotes(footnotes)

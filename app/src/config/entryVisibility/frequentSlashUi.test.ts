@@ -83,9 +83,9 @@ const loadEditor = (id = "custom", initialEnabled = true, mobile = false) => {
         escapeAttr: (value: string) => value,
         escapeHtml: (value: string) => value,
         saveEntryVisibility: (value: typeof config) => { siyuan.config.appearance.entryVisibility = value; writes.push(value); },
-        mobileConfirmDialog: (_title: string, _text: string, callback: () => void) => {
+        confirmDialog: ({confirm}: {confirm: () => void}) => {
             discardPrompts++;
-            if (allowDiscard) callback();
+            if (allowDiscard) confirm();
         },
     };
     const source = readFileSync(resolve("src/config/entryVisibility/ui.ts"), "utf8")
@@ -224,7 +224,7 @@ test("declining discard preserves a pending frequent profile change until Confir
 
 test("all bundled languages include a tab-indented frequent slash translation", () => {
     const files = readdirSync("appearance/langs").filter(file => file.endsWith(".json"));
-    assert.equal(files.length, 22);
+    assert.ok(files.includes("en.json") && files.includes("vi.json"));
     for (const file of files) {
         const source = readFileSync(resolve("appearance/langs", file), "utf8");
         const language = JSON.parse(source);

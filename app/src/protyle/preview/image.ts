@@ -8,6 +8,10 @@ import {createLivePhotoPlayer} from "./livePhoto";
 import {writeClipboardData} from "../util/compatibility";
 import {showMessage} from "../../dialog/message";
 import {getZIndex} from "../../util/zIndex";
+import {escapeHtmlTextAndAttr} from "../../util/escape";
+import {isMobile} from "../../util/functions";
+
+type ImageSource = {src: string, video?: string, notebook?: string};
 
 const getCopyFileMenu = (src: string) => {
     try {
@@ -26,24 +30,12 @@ const getCopyFileMenu = (src: string) => {
     }
 };
 
-export const previewImages = (srcList: Array<string | {src: string, video?: string, notebook?: string}>, currentSrc?: string, onHidden?: () => void, currentVideo?: string) => {
+const showImageGallery = (sources: Array<ImageSource & {url: string}>, initialViewIndex: number, onHidden?: () => void) => {
     addScript(`${Constants.PROTYLE_CDN}/js/viewerjs/viewer.js?v=1.14.0`, "protyleViewerScript").then(() => {
+        const mobile = isMobile();
+        const mobileNavigation = mobile && sources.length > 1;
         const imagesElement = document.createElement("ul");
-        let html = "";
-        const imageSources: string[] = [];
-        let initialViewIndex = -1;
-        srcList.forEach((source, index: number) => {
-            const item = typeof source === "string" ? source : source.src;
-            if (item) {
-                imageSources.push(item);
-                html += `<li><img src="${encodeURI(item)}"></li>`;
-                if (currentSrc && initialViewIndex === -1 && (currentSrc.endsWith(encodeURI(item)) || currentSrc.endsWith(item)) &&
-                    (currentVideo === undefined || (typeof source === "string" ? "" : source.video || "") === currentVideo)) {
-                    initialViewIndex = index;
-                }
-            }
-        });
-        imagesElement.innerHTML = html;
+        imagesElement.innerHTML = sources.map(({url}) => `<li><img src="${escapeHtmlTextAndAttr(url)}"></li>`).join("");
         let cleanedUp = false;
         let stopLivePhoto: () => void;
         let liveButton: HTMLElement;
@@ -63,7 +55,7 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
             }
         };
         const viewer = new Viewer(imagesElement, {
-            initialViewIndex: currentSrc ? initialViewIndex : 0,
+            initialViewIndex,
             title: [1, (image: HTMLImageElement, imageData: IObject) => {
                 let name = image.alt;
                 if (!name) {
@@ -73,8 +65,11 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
                 return `${currentIndex + 1}/${imagesElement.childElementCount} ${name} [${imageData.naturalWidth} × ${imageData.naturalHeight}]`;
             }],
             button: false,
+            className: mobile ? "viewer-container--mobile" : "",
             magnifier: false,
-            navigation: true,
+            navigation: !mobile,
+            rotateOnTouch: !mobile,
+            rotateOnGesture: !mobile,
             transition: false,
             ready: () => {
                 window.siyuan.zIndex = Math.max(window.siyuan.zIndex + 1, getZIndex(viewer.viewer));
@@ -90,7 +85,7 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
                     if (!viewer.viewed || !viewer.image) {
                         return;
                     }
-                    const result = await writeClipboardData({textPlain: imageSources[currentIndex]})
+                    const result = await writeClipboardData({textPlain: sources[currentIndex].src})
                         .catch(() => ({status: "failed"}));
                     if (result.status === "failed") {
                         showMessage(window.siyuan.languages.copyImageURLFailed, 7000, "error");
@@ -110,7 +105,7 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
                     }
                 });
                 viewer.toolbar.querySelector("ul").append(copyURLElement);
-                if (srcList.some(source => typeof source !== "string" && source.video)) {
+                if (sources.some(source => source.video)) {
                     liveButton = document.createElement("li");
                     liveButton.className = "viewer-live-photo ariaLabel fn__none";
                     liveButton.tabIndex = 0;
@@ -123,8 +118,8 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
                             stopLive();
                             return;
                         }
-                        const source = srcList[currentIndex];
-                        if (source && typeof source !== "string" && source.video) {
+                        const source = sources[currentIndex];
+                        if (source?.video) {
                             stopLivePhoto = createLivePhotoPlayer(viewer.viewer, source.video, viewer.image.src, source.notebook);
                         }
                     };
@@ -149,12 +144,16 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
                 copyFileElement.classList.add("fn__none");
                 const languages = window.siyuan.languages;
                 ["prev", "next"].forEach((action) => {
-                    const button = viewer.viewer.querySelector(`.viewer-navigation > .viewer-${action}`);
+                    const button = mobile ? viewer.toolbar.querySelector(`.viewer-${action}`) :
+                        viewer.viewer.querySelector(`.viewer-navigation > .viewer-${action}`);
+                    if (!button) {
+                        return;
+                    }
                     button.innerHTML = action === "prev" ? '<svg><use xlink:href="#iconLeft"></use></svg>' :
                         '<svg><use xlink:href="#iconRight"></use></svg>';
                     button.classList.add("ariaLabel");
                     button.setAttribute("aria-label", action === "prev" ? languages.previous : languages.next);
-                    button.setAttribute("data-position", action === "prev" ? "east" : "west");
+                    button.setAttribute("data-position", mobile ? "north" : action === "prev" ? "east" : "west");
                 });
                 const labels: Record<string, string> = {
                     "zoom-in": languages.zoomIn,
@@ -180,20 +179,45 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
             view: event => {
                 stopLive();
                 currentIndex = event?.detail?.index ?? currentIndex;
-                const source = srcList[currentIndex];
-                liveButton?.classList.toggle("fn__none", typeof source === "string" || !source?.video);
-                viewer.toolbar.querySelector(".viewer-copy-file").classList.add("fn__none");
+                liveButton?.classList.toggle("fn__none", !sources[currentIndex]?.video);
+                const image = event?.detail?.image;
+                viewer.toolbar.querySelector(".viewer-copy-file").classList.toggle("fn__none", !mobile || !image || !getCopyFileMenu(image.src));
             },
             viewed: () => {
                 viewer.toolbar.querySelector(".viewer-copy-file").classList.toggle("fn__none", !getCopyFileMenu(viewer.image.src));
             },
+            zoom: mobile ? event => {
+                const originalEvent = event.detail.originalEvent;
+                // 预览器用第二次触摸抬起事件合成双击。
+                if (!originalEvent || !["dblclick", "pointerup", "touchend", "pointercancel", "touchcancel"].includes(originalEvent.type)) {
+                    return;
+                }
+                event.preventDefault();
+                if (originalEvent.type.endsWith("cancel")) {
+                    return;
+                }
+                const point = "changedTouches" in originalEvent ? originalEvent.changedTouches[0] : originalEvent;
+                if (!point) {
+                    return;
+                }
+                const initialRatio = viewer.initialImageData.ratio;
+                if (event.detail.oldRatio > initialRatio) {
+                    viewer.reset();
+                    return;
+                }
+                const bounds = viewer.viewer.getBoundingClientRect();
+                viewer.zoomTo(initialRatio * 2, false, {
+                    x: point.clientX - bounds.left,
+                    y: point.clientY - bounds.top,
+                });
+            } : undefined,
             toolbar: {
+                prev: mobileNavigation,
+                next: mobileNavigation,
                 zoomIn: true,
                 zoomOut: true,
                 oneToOne: true,
-                prev: false,
                 play: true,
-                next: false,
                 rotateLeft: true,
                 rotateRight: true,
                 flipHorizontal: true,
@@ -223,8 +247,31 @@ export const previewImages = (srcList: Array<string | {src: string, video?: stri
     });
 };
 
-export const previewDocImage = (currentSrc: string, id: string, currentVideo?: string) => {
-    fetchPost("/api/asset/getDocPreviewImages", {id}, (response) => {
+export const previewImages = (srcList: Array<string | ImageSource>, currentSrc?: string, onHidden?: () => void, currentVideo?: string) => {
+    const sources = srcList.flatMap(source => {
+        const item = typeof source === "string" ? {src: source} : source;
+        return item.src ? [{...item, url: encodeURI(item.src)}] : [];
+    });
+    const initialViewIndex = currentSrc ? sources.findIndex(({src, url, video}) =>
+        (currentSrc.endsWith(url) || currentSrc.endsWith(src)) &&
+        (currentVideo === undefined || (video || "") === currentVideo)) : 0;
+    showImageGallery(sources, initialViewIndex, onHidden);
+};
+
+export const previewDocImage = (currentSrc: string, id: string, currentVideo?: string, image?: HTMLElement) => {
+    const field = image?.closest(".av__richtext-host, .av__celltext--rich");
+    if (field) {
+        const images = Array.from(field.querySelectorAll("img[src]:not(.emoji)"), element =>
+            ({element, src: element.getAttribute("src")})).filter(({src}) => src);
+        const index = images.findIndex(({element}) => element === image);
+        if (index >= 0) {
+            showImageGallery(images.map(({src}) => ({src, url: src})), index);
+        }
+        return;
+    }
+    const embed = image?.closest(".protyle-wysiwyg__embed");
+    const sourceID = embed?.getAttribute("data-root-id") || embed?.getAttribute("data-id") || id;
+    fetchPost("/api/asset/getDocPreviewImages", {id: sourceID}, (response) => {
         previewImages(response.data, currentSrc, undefined, currentVideo);
     });
 };

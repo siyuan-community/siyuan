@@ -1,4 +1,4 @@
-import {mobileConfirmDialog} from "../../../dialog/mobileConfirmDialog";
+import {confirmDialog} from "../../../dialog/confirmDialog";
 import type {SettingTabBuilder} from "../../setting/builder";
 import {showMessage} from "../../../dialog/message";
 import {fetchPost} from "../../../util/fetch";
@@ -37,6 +37,7 @@ import {genDecisionCardsHtml, mountDecisionCards} from "./aiDecisionUi";
 import {genMcpOAuthHtml, mountMcpOAuth} from "./mcpOAuthUi";
 import {registerAiWebGroup} from "./aiWeb";
 import {registerAiMemoryGroup} from "./aiMemory";
+import {getReasoningEffortOptions} from "../../../ai/reasoningEffort";
 
 const registerAiProvidersGroup = (tab: SettingTabBuilder) => {
     const group = tab.group("providers", window.siyuan.languages.apiProvider);
@@ -51,7 +52,7 @@ const registerAiProvidersGroup = (tab: SettingTabBuilder) => {
 
 const registerAiEditingGroup = (tab: SettingTabBuilder) => {
     const groupId = "editing";
-    const group = tab.group(groupId, window.siyuan.languages.editor);
+    const group = tab.group(groupId, window.siyuan.languages.aiEdit);
 
     group.slot({
         key: "editingModelPicker",
@@ -60,6 +61,10 @@ const registerAiEditingGroup = (tab: SettingTabBuilder) => {
         afterMount: (root) => {
             mountGroupedModelPicker(root, groupId);
         },
+    });
+    group.select("ai.editing.reasoningEffort", {
+        title: window.siyuan.languages.reasoningEffortTooltip,
+        options: getReasoningEffortOptions(window.siyuan.languages),
     });
     group.number("ai.editing.maxCompletionTokens", {
         title: window.siyuan.languages.apiMaxTokens,
@@ -313,11 +318,14 @@ const registerAiEmbeddingGroup = (tab: SettingTabBuilder) => {
         icon: "iconRefresh",
         afterMount: (root) => {
             root.querySelector("#rebuildEmbeddingIndex")?.addEventListener("click", () => {
-                mobileConfirmDialog(window.siyuan.languages.rebuildEmbeddingIndex,
-                    window.siyuan.languages.rebuildEmbeddingIndexConfirmTip, () => {
-                    fetchPost("/api/ai/reindexEmbedding", {}, () => {
-                        showMessage(window.siyuan.languages.rebuildEmbeddingIndexStarted);
-                    });
+                confirmDialog({
+                    title: window.siyuan.languages.rebuildEmbeddingIndex,
+                    text: window.siyuan.languages.rebuildEmbeddingIndexConfirmTip,
+                    confirm: () => {
+                        fetchPost("/api/ai/reindexEmbedding", {}, () => {
+                            showMessage(window.siyuan.languages.rebuildEmbeddingIndexStarted);
+                        });
+                    },
                 });
             });
         },

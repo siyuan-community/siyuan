@@ -1,13 +1,35 @@
 @use "../util/mixin";
 @use "../util/function";
 
+.tag-tree {
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+}
+
+.tag-tree__list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tag-tree__drag-source {
+  position: absolute;
+  inset-block-start: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .file-tree__row {
-  --file-tree-indent: 24px;
+  --file-tree-indent: 16px;
   --file-tree-toggle-size: 22px;
   --file-tree-toggle-padding: 4px;
   --file-tree-toggle-left: calc(var(--file-tree-depth) * var(--file-tree-indent) + var(--file-tree-toggle-padding));
   --file-toggle-width: calc(var(--file-tree-depth) * var(--file-tree-indent) + var(--file-tree-toggle-size));
   --file-action-offset: var(--file-toggle-width);
+
+  > .b3-list-item__icon {
+    font-family: var(--b3-font-family-emoji-file-tree, "Emojis File Tree", var(--b3-font-family-emoji));
+  }
 }
 
 // 源版本高于当前客户端支持的文档只能占位显示，避免被当作可编辑文档。

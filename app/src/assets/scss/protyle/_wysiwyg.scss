@@ -28,6 +28,11 @@ $block-rtl-selector: ".protyle-block--rtl" !default;
   }
 }
 
+// macOS 原生拖选需要跨过换行行首的公式，复制和光标归一化由编辑器保持公式整体语义。
+.body--mac .protyle-wysiwyg[data-readonly="false"] span[data-type~="inline-math"] {
+  user-select: text;
+}
+
 .protyle-cross-block-preview {
   pointer-events: none;
 
@@ -634,6 +639,7 @@ $block-rtl-selector: ".protyle-block--rtl" !default;
       }
 
       table {
+        border-top: 0;
         border-radius: var(--b3-table-border-radius-top-left) var(--b3-table-border-radius-top-right) var(--b3-table-border-radius-bottom-right) var(--b3-table-border-radius-bottom-left);
         box-shadow: inset 0 -1px 0 var(--b3-theme-surface-lighter);
       }
@@ -645,8 +651,49 @@ $block-rtl-selector: ".protyle-block--rtl" !default;
         box-shadow: 0 -1px 0 var(--b3-border-color) inset;
         background-color: var(--b3-parent-background);
 
+        &::after {
+          content: "";
+          position: absolute;
+          inset: 0 0 auto -1px;
+          z-index: 2;
+          height: var(--b3-border-radius-s);
+          border-top: 1px solid var(--b3-theme-surface-lighter);
+          border-radius: var(--b3-table-border-radius-top-left) var(--b3-table-border-radius-top-right) 0 0;
+          pointer-events: none;
+        }
+
         th {
           border-top: 0;
+        }
+      }
+    }
+
+    &.table[custom-sy-table-pin-column="true"] {
+      --b3-table-pinned-column-background: transparent;
+      --b3-table-pinned-column-header-background: var(--b3-table-even-background);
+
+      &[custom-sy-table-header-row="false"] {
+        --b3-table-pinned-column-header-background: transparent;
+      }
+
+      &[custom-sy-table-header-column="true"] {
+        --b3-table-pinned-column-background: var(--b3-table-even-background);
+        --b3-table-pinned-column-header-background: var(--b3-table-even-background);
+      }
+
+      > div:first-child > table[data-table-pinned-column-active] {
+        > thead {
+          --b3-table-pinned-column-background: var(--b3-table-pinned-column-header-background);
+        }
+
+        > thead > tr > [data-table-pinned-column-cell],
+        > tbody > tr > [data-table-pinned-column-cell],
+        > tfoot > tr > [data-table-pinned-column-cell] {
+          position: sticky;
+          inset-inline-start: 0;
+          z-index: 1;
+          background-color: var(--b3-parent-background);
+          background-image: linear-gradient(var(--b3-table-pinned-column-background), var(--b3-table-pinned-column-background));
         }
       }
     }
@@ -694,14 +741,10 @@ $block-rtl-selector: ".protyle-block--rtl" !default;
         }
 
         .protyle-block-resize[data-resize-axis="both"]::after {
-          width: 5px;
-          height: 5px;
-          // 鼠标与触屏手柄都向图片内部延伸 8px，将圆点中心固定在图片角上。
-          left: 8px;
-          top: 8px;
-          right: auto;
-          bottom: auto;
-          transform: translate(-50%, -50%);
+          width: min(5px, 100%);
+          height: min(5px, 100%);
+          right: 0;
+          bottom: 0;
           border: 0;
           border-radius: 50%;
           background-color: currentColor;
@@ -1013,6 +1056,59 @@ body[data-format-painter] .protyle-wysiwyg[data-readonly="false"] {
   cursor: text;
 }
 
+@media screen {
+  :where(.protyle-wysiwyg[data-readonly="false"] [data-type="NodeVideo"]:not(.mindmap-view__preview-block)) > .protyle-video-resize {
+    --protyle-video-resize-gutter: 12px;
+
+    // 给满宽视频的外置把手留出操作空间。
+    padding-right: var(--protyle-video-resize-gutter);
+    box-sizing: border-box;
+  }
+
+  :where(.protyle-wysiwyg [data-type="NodeVideo"]) > .iframe-content > .protyle-block-resize[data-resize-axis="height"] {
+    // 由高度把手撑开视频下方的操作区，避免盖住播放器控件。
+    display: block;
+    position: relative;
+    left: auto;
+    margin-inline: auto;
+    transform: none;
+  }
+
+  .protyle-wysiwyg [data-type="NodeVideo"] > .iframe-content > .protyle-block-resize {
+    &[data-resize-axis="height"]::after,
+    &[data-resize-axis="both"]::after {
+      top: auto;
+      bottom: calc(100% - 5px);
+    }
+
+    &[data-resize-axis="width"] {
+      --protyle-resize-side-height: min(var(--protyle-resize-side-length), (100% - var(--protyle-resize-bottom-height)) / 2);
+
+      top: calc((100% - var(--protyle-resize-bottom-height)) / 2);
+
+      &::after {
+        left: 2px;
+        right: auto;
+      }
+    }
+
+    &[data-resize-axis="both"] {
+      right: var(--protyle-video-resize-gutter, 0px);
+      height: var(--protyle-resize-bottom-height);
+
+      &::after {
+        right: -5px;
+      }
+    }
+  }
+}
+
+@media (any-pointer: coarse) {
+  :where(.protyle-wysiwyg[data-readonly="false"] [data-type="NodeVideo"]:not(.mindmap-view__preview-block)) > .protyle-video-resize {
+    --protyle-video-resize-gutter: 20px;
+  }
+}
+
 .protyle-wysiwyg[data-readonly="true"] .iframe .protyle-block-resize,
 .protyle-wysiwyg[data-readonly="true"] [data-subtype="mermaid"] > .protyle-block-resize,
 .protyle-wysiwyg .sb > [data-subtype="mermaid"] > .protyle-block-resize {
@@ -1021,6 +1117,12 @@ body[data-format-painter] .protyle-wysiwyg[data-readonly="false"] {
 
 .protyle-wysiwyg [data-subtype="mermaid"]:hover > .protyle-block-resize {
   opacity: 1;
+}
+
+.protyle-wysiwyg [data-subtype="mermaid"] > .protyle-block-resize {
+  --protyle-resize-side-height: min(var(--protyle-resize-side-length), 50%);
+
+  top: 50%;
 }
 
 .protyle-wysiwyg[data-readonly="true"] .protyle-image-resize,
@@ -1095,8 +1197,8 @@ body[data-format-painter] .protyle-wysiwyg[data-readonly="false"] {
   }
 
 
-  .img:hover .protyle-action__drag,
-  .iframe:hover .protyle-action__drag {
+  .img:hover .protyle-action__drag:not(.protyle-block-resize),
+  .iframe:hover .protyle-action__drag:not(.protyle-block-resize) {
     display: inline-block;
   }
 
@@ -1161,7 +1263,7 @@ body[data-format-painter] .protyle-wysiwyg[data-readonly="false"] {
     .av__row--util svg[data-type="set-page-size"],
     .av__row--header > .block__icons,
     .av__views .fn__space,
-    .av__views .block__icon:not([data-type="av-search-icon"]):not(.av__readonly-sort),
+    .av__views .block__icon:not([data-type="av-search-icon"]):not(.av__readonly-sort):not(.av__mobile-view),
     .av__widthdrag,
     .av__gallery-actions,
     .av__gallery-add,

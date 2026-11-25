@@ -202,6 +202,35 @@ const runElectron = async options => {
         assert.equal(createdWindows, 1);
         assert.equal(window.isDestroyed(), false);
         assert.equal(await fs.readFile(options.secondDocument, "utf8"), "# B pending before switching\n");
+        const linkedContent = "# A with links\n\n[Missing](missing.md)\n\n[Next](B.md)\n";
+        const linked = await window.webContents.executeJavaScript(`(async () => {
+            const input = document.querySelector('textarea.vditor-sv');
+            input.value = ${JSON.stringify(linkedContent)};
+            input.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText'}));
+            const waitFor = async (condition, message) => {
+                const deadline = Date.now() + 10000;
+                while (!condition()) {
+                    if (Date.now() > deadline) throw new Error(message + ': ' + document.body.innerText);
+                    await new Promise(resolve => setTimeout(resolve, 25));
+                }
+            };
+            const links = () => document.querySelectorAll('.vditor-preview a');
+            await waitFor(() => links().length === 2, 'File links did not render');
+            links()[0].click();
+            const {languages, sessionId} = await window.siyuanMarkdown.bootstrap();
+            await waitFor(() => document.querySelector('#markdownStatus').textContent === languages.markdownLinkUnavailable,
+                'Missing link did not show its status');
+            if ((await window.siyuanMarkdown.bootstrap()).sessionId !== sessionId) throw new Error('Missing link changed the document');
+            links()[1].click();
+            await waitFor(() => document.querySelector('#markdownName').textContent === 'B.md' &&
+                document.querySelector('textarea.vditor-sv')?.value === '# B pending before switching\\n' &&
+                document.getElementById('markdownApp').getAttribute('aria-busy') !== 'true', 'Clicking B.md did not switch documents');
+            return {sessionId: (await window.siyuanMarkdown.bootstrap()).sessionId, origin: location.href};
+        })()`);
+        assert.notEqual(linked.sessionId, returned.sessionId);
+        assert.equal(linked.origin, security.origin);
+        assert.equal(createdWindows, 1);
+        assert.equal(await fs.readFile(options.document, "utf8"), linkedContent);
         const imageRequests = [];
         imageServer = require("node:http").createServer((request, response) => {
             imageRequests.push({path: request.url, referrer: request.headers.referer});
@@ -228,6 +257,50 @@ const runElectron = async options => {
         assert.equal(await fs.readFile(networkDocument, "utf8"), networkContent);
         assert.ok(imageRequests.length > 0);
         assert.ok(imageRequests.every(request => request.path === "/badge.svg" && request.referrer === undefined));
+        const path = require("node:path");
+        const resourceDocument = path.join(path.dirname(options.document), "resources.md");
+        const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+        for (const directory of ["first", "second", "third"]) {
+            await fs.mkdir(path.join(path.dirname(resourceDocument), directory));
+            await fs.writeFile(path.join(path.dirname(resourceDocument), directory, "image.png"), image);
+        }
+        const resourceContent = "# Local images\n\n![first](first/image.png)\n\n![second](second/image.png)\n";
+        await fs.writeFile(resourceDocument, resourceContent);
+        window = await manager.open(resourceDocument);
+        const waitForResources = () => window.webContents.executeJavaScript(`new Promise((resolve,reject) => {
+            const deadline=Date.now()+10000;
+            const check=()=>{
+                if(document.querySelector('#markdownResourcesPanel[open] input')) return resolve();
+                if(Date.now()>deadline) return reject(new Error('Batch resource confirmation did not open'));
+                setTimeout(check,25);
+            };check();
+        })`);
+        await waitForResources();
+        const listed = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#markdownResourcesPanel label')).map(label =>
+            ({path:label.querySelector('span').textContent,checked:label.querySelector('input').checked}))`);
+        assert.deepEqual(listed, await Promise.all(["first", "second"].map(async directory =>
+            ({path: await fs.realpath(path.join(path.dirname(resourceDocument), directory)), checked: true}))));
+        await window.webContents.executeJavaScript("document.querySelector('#markdownResourcesPanel button[type=button]').click(); void 0;");
+        assert.equal(await window.webContents.executeJavaScript("document.querySelectorAll('#markdownEditor img[src]').length"), 0);
+        await window.webContents.executeJavaScript("document.getElementById('markdownResources').click(); void 0;");
+        await waitForResources();
+        await window.webContents.executeJavaScript(`document.querySelectorAll('#markdownResourcesPanel input')[1].click();
+            document.querySelector('#markdownResourcesPanel form').requestSubmit(); void 0;`);
+        await window.webContents.executeJavaScript(`new Promise((resolve,reject) => {
+            const deadline=Date.now()+10000;
+            const check=()=>{
+                if(document.querySelector('#markdownEditor img[src]')?.naturalWidth>0) return resolve();
+                if(Date.now()>deadline) return reject(new Error('Authorized local image did not display'));
+                setTimeout(check,25);
+            };check();
+        })`);
+        assert.equal(await window.webContents.executeJavaScript("document.querySelectorAll('#markdownEditor img[src]').length"), 1);
+        assert.equal(await fs.readFile(resourceDocument, "utf8"), resourceContent, "authorization never rewrites Markdown");
+        await fs.writeFile(resourceDocument, resourceContent + "\n![third](third/image.png)\n");
+        await waitForResources();
+        const updated = await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('#markdownResourcesPanel label span')).map(span=>span.textContent)");
+        assert.deepEqual(updated, await Promise.all(["second", "third"].map(directory => fs.realpath(path.join(path.dirname(resourceDocument), directory)))));
+        await window.webContents.executeJavaScript("document.querySelector('#markdownResourcesPanel button[type=button]').click(); void 0;");
         assert.equal(await manager.prepareQuit(), true);
         assert.equal(await manager.closeAll(), true);
         assert.equal(manager.hasWindows(), false);

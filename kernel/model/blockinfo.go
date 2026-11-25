@@ -17,6 +17,7 @@ import (
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/editor"
 	"github.com/88250/lute/parse"
+	"github.com/gin-gonic/gin"
 	"github.com/siyuan-community/siyuan/kernel/av"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"
@@ -67,7 +68,7 @@ func getDocInfoByTree(blockID string, tree *parse.Tree) (ret *BlockInfo) {
 	boxID := tree.Box
 	title := treenode.ReadDocumentTitle(tree.Root).Text
 	ret = &BlockInfo{ID: blockID, RootID: tree.Root.ID, Name: title}
-	ret.IAL = parse.IAL2Map(tree.Root.KramdownIAL)
+	ret.IAL = filterHandlerIALAttrs(parse.IAL2Map(tree.Root.KramdownIAL))
 	scrollData := ret.IAL["scroll"]
 	if 0 < len(scrollData) {
 		// scroll 属性值在持久化时会被 html.EscapeAttrVal() 进行 HTML 转义（如 " 变为 &quot;），
@@ -79,23 +80,8 @@ func getDocInfoByTree(blockID string, tree *parse.Tree) (ret *BlockInfo) {
 		if parseErr := gulu.JSON.UnmarshalJSON([]byte(scrollData), &scroll); nil != parseErr {
 			logging.LogWarnf("parse scroll data [%s] failed: %s", scrollData, parseErr)
 			delete(ret.IAL, "scroll")
-		} else {
-			if zoomInId := scroll["zoomInId"]; nil != zoomInId {
-				if !treenode.ExistBlockTreeInBox(zoomInId.(string), boxID) {
-					delete(ret.IAL, "scroll")
-				}
-			} else {
-				if startId := scroll["startId"]; nil != startId {
-					if !treenode.ExistBlockTreeInBox(startId.(string), boxID) {
-						delete(ret.IAL, "scroll")
-					}
-				}
-				if endId := scroll["endId"]; nil != endId {
-					if !treenode.ExistBlockTreeInBox(endId.(string), boxID) {
-						delete(ret.IAL, "scroll")
-					}
-				}
-			}
+		} else if !scrollTargetsExist(scroll, func(id string) bool { return treenode.ExistBlockTreeInBox(id, boxID) }) {
+			delete(ret.IAL, "scroll")
 		}
 	}
 
@@ -105,7 +91,7 @@ func getDocInfoByTree(blockID string, tree *parse.Tree) (ret *BlockInfo) {
 		refBoxID = bt.BoxID
 	}
 	refDefs := queryBlockRefDefsInBox(bt, refBoxID)
-	refDefs, _ = buildBacklinkListItemRefsInBox(refDefs, refBoxID)
+	refDefs, _ = buildBacklinkListItemRefsInBox(refDefs, refBoxID, nil)
 	var refIDs []string
 	for _, refDef := range refDefs {
 		refIDs = append(refIDs, refDef.RefID)
@@ -163,6 +149,26 @@ func getDocInfoByTree(blockID string, tree *parse.Tree) (ret *BlockInfo) {
 	return
 }
 
+// scrollTargetsExist 校验文档 scroll 属性中记录的目标块仍然存在。
+// JSON 解码得到的非字符串值视为无效记录，避免直接断言类型导致 panic。
+func scrollTargetsExist(scroll map[string]any, exist func(string) bool) bool {
+	if zoomInID, ok := scroll["zoomInId"]; ok && nil != zoomInID {
+		id, isStr := zoomInID.(string)
+		return isStr && exist(id)
+	}
+	for _, key := range []string{"startId", "endId"} {
+		value, ok := scroll[key]
+		if !ok || nil == value {
+			continue
+		}
+		id, isStr := value.(string)
+		if !isStr || !exist(id) {
+			return false
+		}
+	}
+	return true
+}
+
 func GetDocsInfo(blockIDs []string, queryRefCount bool, queryAv bool) (rets []*BlockInfo) {
 	FlushTxQueue()
 
@@ -185,7 +191,7 @@ func GetDocsInfo(blockIDs []string, queryRefCount bool, queryAv bool) (rets []*B
 		}
 		title := treenode.ReadDocumentTitle(tree.Root).Text
 		ret := &BlockInfo{ID: blockID, RootID: tree.Root.ID, Name: title}
-		ret.IAL = parse.IAL2Map(tree.Root.KramdownIAL)
+		ret.IAL = filterHandlerIALAttrs(parse.IAL2Map(tree.Root.KramdownIAL))
 		scrollData := ret.IAL["scroll"]
 		if 0 < len(scrollData) {
 			// scroll 属性值在持久化时会被 html.EscapeAttrVal() 进行 HTML 转义（如 " 变为 &quot;），
@@ -197,23 +203,8 @@ func GetDocsInfo(blockIDs []string, queryRefCount bool, queryAv bool) (rets []*B
 			if parseErr := gulu.JSON.UnmarshalJSON([]byte(scrollData), &scroll); nil != parseErr {
 				logging.LogWarnf("parse scroll data [%s] failed: %s", scrollData, parseErr)
 				delete(ret.IAL, "scroll")
-			} else {
-				if zoomInId := scroll["zoomInId"]; nil != zoomInId {
-					if !treenode.ExistBlockTree(zoomInId.(string)) {
-						delete(ret.IAL, "scroll")
-					}
-				} else {
-					if startId := scroll["startId"]; nil != startId {
-						if !treenode.ExistBlockTree(startId.(string)) {
-							delete(ret.IAL, "scroll")
-						}
-					}
-					if endId := scroll["endId"]; nil != endId {
-						if !treenode.ExistBlockTree(endId.(string)) {
-							delete(ret.IAL, "scroll")
-						}
-					}
-				}
+			} else if !scrollTargetsExist(scroll, treenode.ExistBlockTree) {
+				delete(ret.IAL, "scroll")
 			}
 		}
 		if queryRefCount {
@@ -305,12 +296,18 @@ func GetDOMText(dom string) (ret string) {
 	return
 }
 
-// GetDOMTextWithoutOCRAssets 供发布读者使用，不返回资源的 OCR 文本，避免读取未发布资源的 OCR 缓存。
-func GetDOMTextWithoutOCRAssets(dom string) (ret string) {
+func GetDOMTextForPublish(c *gin.Context, dom string) string {
 	luteEngine := NewLute()
 	tree := luteEngine.BlockDOM2Tree(dom)
-	ret = renderBlockTextWithoutOCRAssets(tree.Root.FirstChild, nil, true)
-	return
+	node := tree.Root.FirstChild
+	if node != nil && node.Type == ast.NodeAttributeView {
+		if !CheckAttributeViewAccessableByPublishAccess(c, GetPublishAccess(), node.AttributeViewID) {
+			return ""
+		}
+		name, _ := av.GetAttributeViewNameInBox(node.AttributeViewID, "")
+		return strings.TrimSpace(util.EscapeHTML(strings.ReplaceAll(name, "\n", "")))
+	}
+	return renderBlockTextWithoutOCRAssets(node, nil, true)
 }
 
 func getBlockRefText(id string, tree *parse.Tree) (ret string) {
@@ -378,6 +375,34 @@ func getNodeAvBlockRefSubtype(node *ast.Node, avID string) av.BlockRefSubtype {
 	return av.BlockRefSubtypeDynamic
 }
 
+// stripInlineMemoContent 返回去掉行级备注文本的节点副本，没有备注时返回原节点。
+func stripInlineMemoContent(node *ast.Node) *ast.Node {
+	if nil == node {
+		return nil
+	}
+
+	hasMemo := false
+	ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
+		if entering && n.IsTextMarkType("inline-memo") && "" != n.TextMarkInlineMemoContent {
+			hasMemo = true
+			return ast.WalkStop
+		}
+		return ast.WalkContinue
+	})
+	if !hasMemo {
+		return node
+	}
+
+	clone := cloneRenderNode(node)
+	ast.Walk(clone, func(n *ast.Node, entering bool) ast.WalkStatus {
+		if entering && n.IsTextMarkType("inline-memo") {
+			n.TextMarkInlineMemoContent = ""
+		}
+		return ast.WalkContinue
+	})
+	return clone
+}
+
 func getNodeRefText0(node *ast.Node, maxLen int, removeLineBreak bool) string {
 	switch node.Type {
 	case ast.NodeBlockQueryEmbed:
@@ -406,24 +431,8 @@ func getNodeRefText0(node *ast.Node, maxLen int, removeLineBreak bool) string {
 		node = treenode.FirstLeafBlock(node)
 	}
 	if nil != node && ast.NodeDocument != node.Type {
-		hasMemo := false
-		ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
-			if entering && n.IsTextMarkType("inline-memo") && "" != n.TextMarkInlineMemoContent {
-				hasMemo = true
-				return ast.WalkStop
-			}
-			return ast.WalkContinue
-		})
-		if hasMemo {
-			// 锚文本只保留可见文字，在副本上过滤备注以保留源块内容。
-			node = cloneRenderNode(node)
-			ast.Walk(node, func(n *ast.Node, entering bool) ast.WalkStatus {
-				if entering && n.IsTextMarkType("inline-memo") {
-					n.TextMarkInlineMemoContent = ""
-				}
-				return ast.WalkContinue
-			})
-		}
+		// 锚文本只保留可见文字，在副本上过滤备注以保留源块内容。
+		node = stripInlineMemoContent(node)
 	}
 	ret := renderBlockText(node, nil, removeLineBreak)
 	if maxLen < utf8.RuneCountInString(ret) {
@@ -448,7 +457,7 @@ func GetBlockRefsInBox(defID, boxID string) (refDefs []*RefDefs, originalRefBloc
 
 	// 加密笔记本的 refs 在加密 db，用 bt.BoxID 路由
 	refDefs = queryBlockRefDefsInBox(bt, bt.BoxID)
-	refDefs, originalRefBlockIDs = buildBacklinkListItemRefsInBox(refDefs, bt.BoxID)
+	refDefs, originalRefBlockIDs = buildBacklinkListItemRefsInBox(refDefs, bt.BoxID, nil)
 	return
 }
 
@@ -489,12 +498,8 @@ func GetBlockRefIDsByFileAnnotationIDInBox(id, boxID string) []string {
 	return sql.QueryRefIDsByAnnotationIDInBox(id, boxID)
 }
 
-func GetBlockDefIDsByRefTextInBox(refText, boxID string) (ret []string) {
-	if boxID == "" {
-		ret = sql.QueryBlockDefIDsByRefText(refText)
-	} else {
-		ret = sql.QueryBlockDefIDsByRefTextInBox(refText, boxID)
-	}
+func GetBlockDefIDsByRefTextInBox(refText, boxID string, accessible func(string, string) bool) (ret []string) {
+	ret = sql.QueryBlockDefIDsByRefTextInBox(refText, boxID, accessible)
 	sort.Sort(sort.Reverse(sort.StringSlice(ret)))
 	if 1 > len(ret) {
 		ret = []string{}
@@ -749,7 +754,7 @@ func hasBlockBreadcrumbChildren(node *ast.Node) (ret bool) {
 
 func buildBlockBreadcrumbChild(node *ast.Node, excludeTypes []string) (ret *BlockPath) {
 	maxNameLen := 1024
-	fc := treenode.FirstLeafBlock(node)
+	fc := stripInlineMemoContent(treenode.FirstLeafBlock(node))
 	name := node.IALAttr("name")
 	if ast.NodeAttributeView == node.Type {
 		name, _ = av.GetAttributeViewName(node.AttributeViewID)
@@ -760,7 +765,7 @@ func buildBlockBreadcrumbChild(node *ast.Node, excludeTypes []string) (ret *Bloc
 			ast.NodeBlockquote == node.Type || ast.NodeCallout == node.Type {
 			name = gulu.Str.SubStr(renderBlockText(fc, excludeTypes, true), maxNameLen)
 		} else {
-			name = gulu.Str.SubStr(renderBlockText(node, excludeTypes, true), maxNameLen)
+			name = gulu.Str.SubStr(renderBlockText(stripInlineMemoContent(node), excludeTypes, true), maxNameLen)
 		}
 	}
 	if ast.NodeListItem == node.Type && "" == name {
@@ -806,7 +811,7 @@ func buildBlockBreadcrumb(node *ast.Node, excludeTypes []string, isEmbedBlock bo
 			continue
 		}
 		id := parent.ID
-		fc := treenode.FirstLeafBlock(parent)
+		fc := stripInlineMemoContent(treenode.FirstLeafBlock(parent))
 
 		name := parent.IALAttr("name")
 		if ast.NodeDocument == parent.Type {
@@ -824,7 +829,7 @@ func buildBlockBreadcrumb(node *ast.Node, excludeTypes []string, isEmbedBlock bo
 				if ast.NodeListItem == parent.Type || ast.NodeList == parent.Type || ast.NodeMindmapItem == parent.Type || ast.NodeMindmap == parent.Type || ast.NodeSuperBlock == parent.Type || ast.NodeBlockquote == parent.Type || ast.NodeCallout == parent.Type {
 					name = gulu.Str.SubStr(renderBlockText(fc, excludeTypes, true), maxNameLen)
 				} else {
-					name = gulu.Str.SubStr(renderBlockText(parent, excludeTypes, true), maxNameLen)
+					name = gulu.Str.SubStr(renderBlockText(stripInlineMemoContent(parent), excludeTypes, true), maxNameLen)
 				}
 			}
 			if ast.NodeHeading == parent.Type {
@@ -906,7 +911,7 @@ func buildBlockBreadcrumb(node *ast.Node, excludeTypes []string, isEmbedBlock bo
 					continue
 				}
 
-				name = gulu.Str.SubStr(renderBlockText(b, excludeTypes, true), maxNameLen)
+				name = gulu.Str.SubStr(renderBlockText(stripInlineMemoContent(b), excludeTypes, true), maxNameLen)
 				name = util.UnescapeHTML(name)
 				name = util.EscapeHTML(name)
 				ret = append([]*BlockPath{{
@@ -923,10 +928,10 @@ func buildBlockBreadcrumb(node *ast.Node, excludeTypes []string, isEmbedBlock bo
 }
 
 func buildBacklinkListItemRefs(refDefs []*RefDefs) (retRefDefs []*RefDefs, originalRefBlockIDs map[string]string) {
-	return buildBacklinkListItemRefsInBox(refDefs, "")
+	return buildBacklinkListItemRefsInBox(refDefs, "", nil)
 }
 
-func buildBacklinkListItemRefsInBox(refDefs []*RefDefs, boxID string) (retRefDefs []*RefDefs, originalRefBlockIDs map[string]string) {
+func buildBacklinkListItemRefsInBox(refDefs []*RefDefs, boxID string, allowParent func(string) bool) (retRefDefs []*RefDefs, originalRefBlockIDs map[string]string) {
 	originalRefBlockIDs = map[string]string{}
 
 	var refIDs []string
@@ -935,7 +940,7 @@ func buildBacklinkListItemRefsInBox(refDefs []*RefDefs, boxID string) (retRefDef
 	}
 	sqlRefBlocks := sql.GetBlocksInBox(refIDs, boxID)
 	refBlocks := fromSQLBlocks(&sqlRefBlocks, "", 12)
-	for _, mapping := range buildBacklinkParentMappings(refBlocks, boxID) {
+	for _, mapping := range buildBacklinkParentMappingsWithAccess(refBlocks, boxID, true, allowParent) {
 		for _, refDef := range refDefs {
 			if mapping.coveredRefIDs[refDef.RefID] {
 				refDef.RefID = mapping.parent.ID

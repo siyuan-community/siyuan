@@ -1,6 +1,7 @@
 import type {MarkdownEditorSnapshot} from "./contracts";
+import {createMarkdownCapabilityToken} from "./identity";
 import {MARKDOWN_DOCUMENT_BYTES, MARKDOWN_RENDER_BYTES, MARKDOWN_RECOVERY_BYTES, markdownByteLength} from "./limits";
-import {markdownLinkDestination} from "./link";
+import {externalMarkdownLink, markdownLinkDestination} from "./link";
 import {createMarkdownPanelAnimation} from "./panelAnimation";
 import {createMarkdownResourcePolicy, isRelativeMarkdownResource, MarkdownResourceResolver} from "./resourcePolicy";
 
@@ -47,11 +48,13 @@ interface VditorInstance {
         undo: {addToUndoStack(vditor: unknown): void};
         hint?: {timeId?: number};
         preview?: {render(vditor: unknown): void};
+        find?: {element: HTMLElement};
     };
     getValue(): string;
     getCurrentMode(): MarkdownEditorMode;
     setValue(value: string, clearStack?: boolean): void;
     insertMD(markdown: string): void;
+    openFind(): void;
     setTheme(theme: "classic" | "dark", contentTheme?: string, codeTheme?: string): void;
     setPreviewMode(mode: "both" | "editor"): void;
     focus(): void;
@@ -77,8 +80,9 @@ export interface MarkdownEditorOptions {
     onHistoryChange?(state: {canUndo: boolean; canRedo: boolean}): void;
     onOutlineChange?(state: MarkdownOutlineState): void;
     onLink?(url: string): void;
+    onDocumentLink?(reference: string): void;
     resolveResource?: MarkdownResourceResolver;
-    onResourceUnavailable?(): void;
+    onResourceUnavailable?(reference?: string): void;
 }
 
 export interface MarkdownOutlineState {
@@ -96,7 +100,9 @@ export interface MarkdownEditor {
     undo(): void;
     redo(): void;
     refreshResources(): void;
+    resourceReferences(): string[];
     insertImage(reference: string): boolean;
+    openFind(): void;
     focus(): void;
     destroy(): void;
 }
@@ -121,6 +127,24 @@ const renderedMethods = new Set(["Md2VditorDOM", "Md2VditorIRDOM", "SpinVditorDO
     "HTML2VditorDOM", "HTML2VditorIRDOM", "Md2HTML", "VditorDOM2HTML", "VditorIRDOM2HTML"]);
 const htmlInputMethods = new Set(["SpinVditorDOM", "SpinVditorIRDOM", "HTML2VditorDOM", "HTML2VditorIRDOM",
     "VditorDOM2Md", "VditorIRDOM2Md", "HTML2Md", "VditorDOM2HTML", "VditorIRDOM2HTML"]);
+
+const serializeWysiwygMarkdown = (document: Document, html: string, serialize: (html: string) => string): string => {
+    if (!/>(?:\s|\u200b|&nbsp;|<br>|<wbr>)*<\/h[1-6]>/i.test(html)) return serialize(html);
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const headings = Array.from(template.content.querySelectorAll("h1, h2, h3, h4, h5, h6")).filter(heading =>
+        heading.hasAttribute("data-block") && Array.from(heading.childNodes).every(node =>
+            node.nodeName === "BR" || node.nodeName === "WBR" ||
+            (node.nodeType === Node.TEXT_NODE && /^[\s\u200b]*$/.test(node.textContent))
+        )
+    );
+    if (headings.length === 0) return serialize(html);
+
+    // Lute 只序列化带正文的所见即所得标题，临时正文让空标题也能参与保存和撤销。
+    const marker = createMarkdownCapabilityToken();
+    headings.forEach(heading => heading.textContent = marker);
+    return serialize(template.innerHTML).replaceAll(marker, "");
+};
 
 export const createMarkdownEditor = async (options: MarkdownEditorOptions,
     factory: MarkdownVditorFactory = createVditor,
@@ -343,7 +367,9 @@ export const createMarkdownEditor = async (options: MarkdownEditorOptions,
 
     const followLink = (link: Element) => {
         const destination = markdownLinkDestination(link, policy.originalAttribute);
-        if (destination) options.onLink?.(destination);
+        if (!destination) return;
+        if (externalMarkdownLink(destination)) options.onLink?.(destination);
+        else options.onDocumentLink?.(destination);
     };
 
     // 输入监听只登记意图，合并序列化开销；关闭与另存为可同步 flush 最新已提交内容。
@@ -401,6 +427,7 @@ export const createMarkdownEditor = async (options: MarkdownEditorOptions,
     listen("keydown", event => {
         if (!inEditor(event)) return;
         const keyboard = event as KeyboardEvent;
+        if ((keyboard.ctrlKey || keyboard.metaKey) && !keyboard.altKey && !keyboard.shiftKey && keyboard.key.toLowerCase() === "f") return;
         const modeKey = /^Digit[789]$/.test(keyboard.code) ? keyboard.code.slice(-1) : keyboard.key;
         if (keyboard.altKey && (keyboard.ctrlKey || keyboard.metaKey) && /^[789]$/.test(modeKey)) {
             if (isComposing()) {
@@ -546,6 +573,19 @@ export const createMarkdownEditor = async (options: MarkdownEditorOptions,
                         }
                     }},
                 link: {isOpen: false, click: followLink}, image: {isPreview: false},
+                beforeReplace: (value: string) => {
+                    if (destroyed || !ready || programmatic || isComposing() || element.closest("[inert]")) return false;
+                    const bytes = markdownByteLength(value);
+                    if (bytes > MARKDOWN_DOCUMENT_BYTES) {
+                        options.onContentTooLarge?.();
+                        return false;
+                    }
+                    notify();
+                    clearInternalTimers();
+                    if (bytes > MARKDOWN_RENDER_BYTES && instance.getCurrentMode() !== "sv") activateSource();
+                    markUserInput();
+                    return true;
+                },
                 input: (value: string) => {
                     if (!userPending || programmatic || isComposing()) return;
                     cachedInput = {version: inputVersion, value};
@@ -554,7 +594,7 @@ export const createMarkdownEditor = async (options: MarkdownEditorOptions,
                 after: () => queueMicrotask(() => {
                     try {
                         if (destroyed) return;
-                        if (instance.version !== "4.0.2-alpha.8") throw new Error("Unsupported Markdown editor version");
+                        if (instance.version !== "4.0.2-alpha.11") throw new Error("Unsupported Markdown editor version");
                         if (element.id) instance.vditor.outline.element.id = `${element.id}-outline`;
                         outlineAnimation = createMarkdownPanelAnimation({
                             element: instance.vditor.outline.element,
@@ -583,6 +623,18 @@ export const createMarkdownEditor = async (options: MarkdownEditorOptions,
                         });
                         // 内部控件提供模式与快捷键入口，历史操作由标题行调用同一套撤销记录。
                         instance.vditor.toolbar.element.hidden = true;
+                        const findPanel = instance.vditor.find?.element;
+                        const touch = options.mobile || document.defaultView.matchMedia?.("(pointer: coarse)").matches;
+                        findPanel?.querySelectorAll(".vditor-input").forEach(input => {
+                            input.classList.replace("vditor-input", "b3-text-field");
+                            input.classList.toggle("b3-text-field--touch", touch);
+                        });
+                        findPanel?.querySelectorAll(".vditor-button").forEach(button => {
+                            button.classList.replace("vditor-button", "b3-button");
+                            button.classList.add("b3-button--text");
+                            button.classList.toggle("b3-button--touch", touch);
+                        });
+                        findPanel?.querySelector('input[type="checkbox"]').classList.add("b3-switch");
                         if (popoverObserver && instance.vditor.wysiwyg.popover) {
                             popoverObserver.observe(instance.vditor.wysiwyg.popover, {childList: true, subtree: true,
                                 attributes: true, attributeFilter: ["aria-label", "placeholder"]});
@@ -598,6 +650,9 @@ export const createMarkdownEditor = async (options: MarkdownEditorOptions,
                             if (typeof original !== "function") return;
                             lute[name] = (...args: string[]) => {
                                 if (htmlInputMethods.has(name)) args[0] = policy.restore(args[0]);
+                                if (name === "VditorDOM2Md") {
+                                    return serializeWysiwygMarkdown(document, args[0], html => original.call(lute, html));
+                                }
                                 const result = original.apply(lute, args);
                                 return renderedMethods.has(name) ? policy.sanitize(result) : result;
                             };
@@ -658,12 +713,23 @@ export const createMarkdownEditor = async (options: MarkdownEditorOptions,
         undo() {runHistory("undo");},
         redo() {runHistory("redo");},
         refreshResources() { if (!destroyed) policy.refresh(element); },
+        resourceReferences() {
+            // 大文档的源码模式关闭预览，目录授权也不能触发整篇富文本解析。
+            if (destroyed || !ready || isComposing() || recoverySourceOnly) return [];
+            const template = document.createElement("template");
+            template.innerHTML = policy.restore(instance.vditor.lute.Md2HTML(flush().content));
+            return [...new Set(Array.from(template.content.querySelectorAll("img[src]"))
+                .map(image => image.getAttribute("src")).filter(isRelativeMarkdownResource))];
+        },
         insertImage(reference) {
             if (destroyed || isComposing() || !isRelativeMarkdownResource(reference) || /[<>]/.test(reference)) return false;
             markUserInput();
             instance.insertMD(`![](<${reference}>)`);
             policy.hydrate(element);
             return true;
+        },
+        openFind() {
+            if (!destroyed && ready && !isComposing()) instance.openFind();
         },
         focus() { if (!destroyed) instance.focus(); },
         destroy,

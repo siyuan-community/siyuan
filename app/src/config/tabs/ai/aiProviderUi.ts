@@ -1,4 +1,4 @@
-import {mobileConfirmDialog} from "../../../dialog/mobileConfirmDialog";
+import {confirmDialog} from "../../../dialog/confirmDialog";
 import {toggleMenu} from "../../../menus/menuToggle";
 import {markMenuInnerScroll} from "../../../menus/Menu";
 import {escapeHtmlTextAndAttr} from "../../../util/escape";
@@ -193,13 +193,12 @@ const saveProviders = (root: HTMLElement, providers: Config.IProvider[], onAppli
 };
 
 const showDeleteProviderConfirm = (root: HTMLElement, provider: Config.IProvider) => {
-    mobileConfirmDialog(
-        window.siyuan.languages.deleteOpConfirm,
-        window.siyuan.languages.confirmDeleteTip.replace("${x}", escapeHTML(getProviderTitle(provider))),
-        () => saveProviders(root, window.siyuan.config.ai.providers.filter((item) => item.id !== provider.id)),
-        undefined,
-        true,
-    );
+    confirmDialog({
+        title: window.siyuan.languages.deleteOpConfirm,
+        text: window.siyuan.languages.confirmDeleteTip.replace("${x}", escapeHTML(getProviderTitle(provider))),
+        confirm: () => saveProviders(root, window.siyuan.config.ai.providers.filter((item) => item.id !== provider.id)),
+        isDelete: true,
+    });
 };
 
 const openProviderCatalog = (root: HTMLElement) => {
@@ -418,6 +417,7 @@ const openProviderDetail = (root: HTMLElement, providerId?: string, preset?: IPr
     const initialHeadersText = Object.keys(draft.headers || {}).length ? JSON.stringify(draft.headers, null, 2) : "";
     const initialJSON = JSON.stringify(draft);
     const openedFromCatalog = !existing && !!preset;
+    const baseURLReadOnly = (existing ? findPreset(existing) : preset)?.category === "official";
     const view = createProviderView(
         root,
         openedFromCatalog ? window.siyuan.languages.addAiProvider : window.siyuan.languages.apiProvider,
@@ -437,7 +437,7 @@ const openProviderDetail = (root: HTMLElement, providerId?: string, preset?: IPr
             <label class="fn__flex b3-label config-item">
                 ${genConfigItemMainHtml(window.siyuan.languages.apiBaseURL)}
                 <span class="fn__space"></span>
-                <input class="b3-text-field fn__flex-center fn__size200" data-provider-field="baseURL" type="text" spellcheck="false" value="${escapeHTML(draft.baseURL)}">
+                <input class="b3-text-field fn__flex-center fn__size200" data-provider-field="baseURL" type="text" spellcheck="false" value="${escapeHTML(draft.baseURL)}"${baseURLReadOnly ? " readonly" : ""}>
             </label>
             <label class="fn__flex b3-label config-item" data-type="openAIApiType">
                 ${genConfigItemMainHtml(window.siyuan.languages.apiType,
@@ -803,11 +803,11 @@ const openProviderDetail = (root: HTMLElement, providerId?: string, preset?: IPr
 
     const closeDetail = () => {
         if (JSON.stringify(draft) !== initialJSON || headersInput.value !== initialHeadersText) {
-            mobileConfirmDialog(
-                window.siyuan.languages.confirm,
-                window.siyuan.languages.discardUnsavedChanges,
-                leaveDetail,
-            );
+            confirmDialog({
+                title: window.siyuan.languages.confirm,
+                text: window.siyuan.languages.discardUnsavedChanges,
+                confirm: leaveDetail,
+            });
             return;
         }
         leaveDetail();
@@ -818,6 +818,9 @@ const openProviderDetail = (root: HTMLElement, providerId?: string, preset?: IPr
         const providerField = target.dataset.providerField as
             "displayName" | "baseURL" | "apiKey" | "protocol" | "requestTimeout";
         if (providerField) {
+            if (providerField === "baseURL" && baseURLReadOnly) {
+                return;
+            }
             if (providerField === "requestTimeout") {
                 draft.requestTimeout = Number.isFinite(target.valueAsNumber) ? target.valueAsNumber : 120;
             } else {

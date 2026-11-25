@@ -9,7 +9,7 @@ const {MarkdownDesktopHost} = require("./host");
 const {windowControls} = require("../fixtures/windowControlsStub.cjs");
 const {isDevToolsShortcut, toggleDevTools} = require("../window/devToolsDock");
 
-const fixture = async (t, options: {platform?: NodeJS.Platform; failLoad?: boolean; theme?: string; dark?: boolean} = {}) => {
+const fixture = async (t, options: {platform?: NodeJS.Platform; failLoad?: boolean; theme?: string; dark?: boolean; onAppearance?: () => void} = {}) => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "siyuan-markdown-windows-"));
     const appDirectory = path.join(directory, "app");
     const build = path.join(appDirectory, "stage", "build", "markdown");
@@ -80,7 +80,7 @@ const fixture = async (t, options: {platform?: NodeJS.Platform; failLoad?: boole
         nativeTheme: Object.assign(new EventEmitter(), {shouldUseDarkColors: options.dark ?? false}),
         ipcMain: {handle: (_channel, callback) => { receive = callback; }}, dialog,
         shell: {openExternal: async url => opens.push(url), showItemInFolder: file => reveals.push(file)}, rootDirectory: appDirectory,
-        configDirectory: path.join(directory, "config"), platform: options.platform, host, onEmpty: () => emptied++,
+        configDirectory: path.join(directory, "config"), platform: options.platform, host, onEmpty: () => emptied++, onAppearance: options.onAppearance,
         // 标题栏按钮区由主进程注入，Markdown 模块不直接依赖 window 目录。
         windowControls,
         devTools: {isShortcut: isDevToolsShortcut, toggle: toggleDevTools},
@@ -484,6 +484,31 @@ test("relative images require a separate directory grant and remain scoped to th
     assert.equal((await other.request({url: resource, method: "GET"})).status, 403);
 });
 
+test("batch resource IPC binds listed directories to this document and never grants on cancel or after a generation change", async t => {
+    const {directory, manager, call, host} = await fixture(t);
+    const file = path.join(directory, "note.md");
+    await fs.writeFile(file, "![image](image.png)");
+    await fs.writeFile(path.join(directory, "image.png"), "image");
+    const window = await manager.open(file);
+    const {sessionId} = await call(window, "bootstrap");
+    let proposals = await call(window, "resource-directories", ["image.png", "https://example.com/a.png"]);
+    assert.deepEqual(proposals.map(item => item.path), [await fs.realpath(directory)]);
+    assert.equal(await call(window, "resource", "image.png"), undefined);
+    assert.equal(await call(window, "confirm-resource-directories", []), false);
+    assert.equal(await call(window, "resource", "image.png"), undefined);
+    proposals = await call(window, "resource-directories", ["image.png"]);
+    host.sessions.get(sessionId).generation++;
+    assert.equal(await call(window, "confirm-resource-directories", proposals.map(item => item.id)), false);
+    assert.equal(await call(window, "resource", "image.png"), undefined);
+    proposals = await call(window, "resource-directories", ["image.png"]);
+    assert.equal(await call(window, "confirm-resource-directories", proposals.map(item => item.id)), true);
+    const resource = await call(window, "resource", "image.png");
+    assert.equal((await window.request({url: resource, method: "GET"})).status, 200);
+    assert.deepEqual(await call(window, "resource-directories", ["image.png"]), []);
+    const other = await manager.open();
+    assert.equal((await other.request({url: resource, method: "GET"})).status, 403);
+});
+
 test("image insertion saves to the chosen new location and grants only that resource", async t => {
     const {directory, manager, call, dialog} = await fixture(t);
     const document = path.join(directory, "note.md");
@@ -559,6 +584,49 @@ test("explicit links permit only web and email schemes", async t => {
         await assert.rejects(call(window, "link", url));
     }
     assert.deepEqual(opens, ["https://example.com/path", "mailto:test@example.com"]);
+});
+
+test("relative document links switch within the file-tree root and reuse an occupied window", async t => {
+    const {directory, manager, host, windows, call, dialog, opens} = await fixture(t);
+    const docs = path.join(directory, "docs");
+    const nested = path.join(docs, "nested");
+    await fs.mkdir(nested, {recursive: true});
+    const first = path.join(nested, "first.md");
+    const second = path.join(nested, "next page.MARKDOWN");
+    const parent = path.join(docs, "parent.md");
+    const outside = path.join(directory, "outside.md");
+    await Promise.all([fs.writeFile(first, "first"), fs.writeFile(second, "next"),
+        fs.writeFile(parent, "parent"), fs.writeFile(outside, "outside")]);
+    const window = await manager.open(first);
+    const initial = await call(window, "bootstrap");
+    assert.deepEqual(await call(window, "prepare-document-link", "./first.md"), {kind: "current"});
+    assert.equal((await call(window, "prepare-document-link", "../parent.md")).error.code, "permission");
+    dialog.showOpenDialog = async () => ({canceled: false, filePaths: [docs]});
+    assert.equal(await call(window, "authorize-resources"), true);
+    assert.equal((await call(window, "prepare-document-link", "../parent.md")).error.code, "permission");
+    const root = await call(window, "tree-choose-root");
+    assert.equal(root.kind, "ready");
+    for (const reference of [null, parent, "//host/file.md", "file:///outside.md", "siyuan://blocks/example",
+        "../../outside.md", "%2Foutside.md", "..%5Cparent.md", "../photo.png", "bad%ZZ.md"]) {
+        assert.equal((await call(window, "prepare-document-link", reference)).kind, "blocked", reference);
+    }
+    assert.equal((await call(window, "prepare-document-link", "missing.md")).error.code, "deleted");
+    assert.equal((await call(window, "bootstrap")).sessionId, initial.sessionId);
+    assert.equal(host.sessions.size, 1);
+    const occupied = await manager.open(parent);
+    assert.deepEqual(await call(window, "prepare-document-link", "../parent.md"), {kind: "occupied"});
+    assert.equal(occupied.focused, true);
+
+    const candidate = await call(window, "prepare-document-link", "./next%20page.MARKDOWN#heading");
+    assert.equal(candidate.kind, "ready");
+    await assert.rejects(call(window, "tree-commit-open", candidate.ticket));
+    await call(window, "host:releaseSession", {sessionId: initial.sessionId, targetGeneration: 0});
+    const next = await call(window, "tree-commit-open", candidate.ticket);
+    assert.equal(next.sessionId, candidate.sessionId);
+    assert.equal(next.content, "next");
+    assert.equal((await call(window, "tree-state")).rootId, root.rootId);
+    assert.equal(windows.length, 2);
+    assert.deepEqual(opens, []);
 });
 
 test("quit during an authorized file read drains the open and never creates a late window", async t => {
@@ -975,6 +1043,21 @@ test("independent appearance can be configured with no registered workspace", as
     assert.equal(restored.appearance.fontSize, 27);
     await assert.rejects(call(window, "appearance", {independent: {fontSize: 1000}}));
     assert.equal((await call(window, "bootstrap")).appearance.fontSize, 27);
+});
+
+test("font synchronization is notified only after appearance is resolved and saved", async t => {
+    let changes = 0;
+    const {manager, call, directory} = await fixture(t, {onAppearance: () => changes++});
+    const window = await manager.open();
+    assert.equal(changes, 1);
+    await call(window, "appearance", {independent: {fonts: {global: [{family: "Arial", weight: 500}], editor: [], code: []}}});
+    assert.equal(changes, 2);
+    const saved = JSON.parse(await fs.readFile(path.join(directory, "config", "preferences.json"), "utf8"));
+    assert.equal(saved.independent.fonts.global[0].family, "Arial");
+    await call(window, "appearance");
+    assert.equal(changes, 3);
+    await assert.rejects(call(window, "appearance", {sources: {fonts: "not-a-workspace"}}));
+    assert.equal(changes, 3);
 });
 
 test("missing workspace sources switch to independent persistently without altering other settings", async t => {

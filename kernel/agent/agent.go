@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -78,8 +79,9 @@ const systemPrompt = `You are a SiYuan AI assistant. You help users manage their
 - If source content cannot be read with the available capabilities, explain the limitation and request the needed content; do not infer it from titles or previews.
 
 ## SiYuan User Guide
-SiYuan has a built-in user guide notebook documenting all features. IDs by language: 简体中文 "20210808180117-czj9bvb", 繁體中文 "20211226090932-5lcq56f", 日本語 "20240530133126-axarxgx", others "20210808180117-6v0mkxr".
-When asked whether/how SiYuan supports a feature: notebook.list to check it's open (notebook.open to open it if not), then search.fulltext the guide for docs and cite if found. Missing guide search results alone do not prove a feature is unsupported; also check the native tool descriptions and supported block types above. Do NOT invent features or UI workflows.
+SiYuan has a built-in user guide notebook documenting all features. IDs by language: 简体中文 "20210808180117-czj9bvb", 繁體中文 "20211226090932-5lcq56f", 日本語 "20240530133126-axarxgx", Русский "20261122113000-kt3e4wz", others "20210808180117-6v0mkxr".
+For questions about SiYuan features or shortcuts, consult the built-in guide before answering. Use notebook.list to check its status. If the guide is absent from the list or closed, call notebook.open with its built-in ID above, then wait for the result. The bundled guide can be opened even if it has never appeared in the notebook list. Once open, use search.fulltext with the guide ID in the notebook argument and cite the relevant docs.
+Missing guide search results alone do not prove a feature is unsupported; also check the native tool descriptions and supported block types above. Do NOT invent features or UI workflows.
 
 ## Todo Tracking
 For multi-step tasks (3+ distinct steps), use todo_write to track progress. Each call replaces the whole list; statuses are pending / in_progress / completed / cancelled. Set in_progress before starting a step, completed when done, and update on every status change. Skip todo_write for single-step requests.
@@ -109,104 +111,7 @@ type confirmWaiter struct {
 	ch        chan confirmResult
 }
 
-type doomLoopTracker struct {
-	prevSig  string
-	prevName string
-	count    int
-}
-
-const (
-	// doomLoopWarnThreshold 是相同签名连续命中时向 LLM 发出警告的阈值。
-	doomLoopWarnThreshold = 3
-	// doomLoopStopThreshold 是相同签名连续命中时终止 agent 的阈值。
-	doomLoopStopThreshold = 5
-	// fallbackQuestionTimeout 是确认超时时间非法（负数）时 question 工具的兜底等待时长。
-	fallbackQuestionTimeout = 5 * time.Minute
-)
-
-// toolSignatureKeys 列出各工具里真正"区分一次调用"的关键参数。
-// 这些参数会并入死循环签名，避免 agent 对不同 url/query/id 的合法连续调用被误判；
-// 同时对同一参数反复调用（真死循环）仍能正确触发终止。
-//
-// 选键原则：只纳入稳定的"目标标识符"类参数（id/ids/path/label/name/keyword/notebook/url 等），
-// 不纳入易变的"内容值"类参数（data/markdown/content/value/memo/title 等）。
-// 此外，object/array 类参数（如 attr 的 attrs、block 的 items）经 fmt.Sprint 字符串化后
-// 顺序不稳定（map 迭代无序），会削弱签名稳定性，故一律排除。
-var toolSignatureKeys = map[string][]string{
-	"web_fetch":    {"url", "format"},
-	"web_search":   {"query"},
-	"http_request": {"action", "url"},
-	"sql":          {"sql", "stmt"},
-	"search":       {"query", "keyword"},
-	"outline":      {"id", "doc_id"},
-
-	"attr":      {"id", "ids"},
-	"block":     {"id", "ids", "parentID", "nextID", "previousID"},
-	"document":  {"id", "parentID", "path", "notebook", "keyword"},
-	"database":  {"id", "notebook", "parentID", "previousID", "nextID", "keyID", "itemID", "itemIDs", "keyword"},
-	"ref":       {"id", "keyword"},
-	"notebook":  {"id", "name"},
-	"inbox":     {"id", "ids", "page"},
-	"tag":       {"label", "old", "new", "keyword"},
-	"bookmark":  {"label", "old", "new"},
-	"dailynote": {"notebook"},
-	"template":  {"id", "path", "name", "keyword"},
-	"history":   {"path", "notebook", "query"},
-	"repo":      {"id", "left", "right", "name", "keyword"},
-	"asset":     {"id", "path", "name", "parentID", "nextID", "previousID"},
-	"image":     {"documentID", "assetPath", "action"},
-	"import":    {"notebook", "path"},
-	"export":    {"id"},
-	"skill":     {"name", "url"},
-	"bazaar":    {"pkgType", "packageName", "keyword", "frontend", "path", "packages", "offset", "limit", "enabled"},
-
-	"system":     {"action"},
-	"workspace":  {"action"},
-	"sync":       {"action"},
-	"todo_write": {"todos"},
-}
-
-// buildDoomSignature 用 toolName + action + 关键参数构造死循环签名。
-func buildDoomSignature(name, action string, args map[string]any) string {
-	var sig strings.Builder
-	sig.WriteString(name)
-	sig.WriteString("::action=")
-	sig.WriteString(action)
-	for _, k := range toolSignatureKeys[name] {
-		if v, ok := args[k]; ok {
-			s := fmt.Sprint(v)
-			if len(s) > 64 {
-				s = util.TruncateUTF8Bytes(s, 64) + "..."
-			}
-			sig.WriteString("::")
-			sig.WriteString(k)
-			sig.WriteString("=")
-			sig.WriteString(s)
-		}
-	}
-	return sig.String()
-}
-
-func (tracker *doomLoopTracker) record(name, action string, args map[string]any, failed bool) {
-	if name == "frontend" {
-		return
-	}
-	if !failed {
-		tracker.prevSig = ""
-		tracker.prevName = ""
-		tracker.count = 0
-		return
-	}
-
-	sig := buildDoomSignature(name, action, args)
-	if sig == tracker.prevSig && tracker.prevSig != "" {
-		tracker.count++
-		return
-	}
-	tracker.prevSig = sig
-	tracker.prevName = name
-	tracker.count = 1
-}
+const fallbackQuestionTimeout = 5 * time.Minute
 
 var confirmChannelsMu sync.Mutex
 var confirmChannels = make(map[string]*confirmWaiter)
@@ -311,6 +216,7 @@ type AgentEvent struct {
 	QuestionID       string
 	CallID           string
 	Error            string
+	SnapshotFailed   bool
 	PromptTokens     int
 	CompletionTokens int
 	LastPromptTokens int
@@ -374,8 +280,9 @@ type AgentAttachment struct {
 }
 
 type Reference struct {
-	ID    string `json:"id"`
-	Title string `json:"title"` // 引用锚文本，仅作预览，不代表目标块正文。
+	ID        string `json:"id"`
+	Title     string `json:"title"`               // 块引用的锚文本或来源消息的完整快照。
+	MessageID string `json:"messageID,omitempty"` // 整条消息引用携带原始消息快照，供上下文压缩后使用。
 }
 
 // EditorContext 是发送消息时前端编辑器的只读状态快照。
@@ -520,7 +427,9 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 		}
 
 		for _, reference := range references {
-			memoryIDs = append(memoryIDs, reference.ID)
+			if reference.MessageID == "" {
+				memoryIDs = append(memoryIDs, reference.ID)
+			}
 		}
 		ctx = kernelModel.ContextWithAIMemoryScope(ctx, memoryIDs)
 		if confAIReadSnapshot.MCP != nil {
@@ -1196,14 +1105,18 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 					nativeContent = nil
 					responseOutput = nil
 					responseOutputTokens = 0
-				} else {
-					if reasoningBuilder.Len() > 0 {
-						sendEvent(ctx, ch, AgentEvent{Type: "reasoning", Token: reasoningBuilder.String()})
-					}
-					if contentBuilder.Len() > 0 {
-						sendEvent(ctx, ch, AgentEvent{Type: "content", Token: contentBuilder.String()})
-					}
 				}
+				if strings.TrimSpace(contentBuilder.String()) == "" {
+					contentBuilder.Reset()
+					contentBuilder.WriteString(kernelModel.Conf.Language(470))
+					nativeContent = nil
+					responseOutput = nil
+					responseOutputTokens = 0
+				}
+				if reasoningBuilder.Len() > 0 {
+					sendEvent(ctx, ch, AgentEvent{Type: "reasoning", Token: reasoningBuilder.String()})
+				}
+				sendEvent(ctx, ch, AgentEvent{Type: "content", Token: contentBuilder.String()})
 			}
 
 			if outputLimitReached {
@@ -1287,8 +1200,12 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 				}
 				checkpointMsgs = append(checkpointMsgs, checkpointMsg)
 				assistantIdx := len(checkpointMsgs) - 1
+				var loopWarning, loopStopped bool
 				skipRemainingTools := func(start int, result string) {
 					for j := start; j < len(aggregatedToolCalls); j++ {
+						messages = append(messages, openai.ChatCompletionMessage{
+							Role: openai.ChatMessageRoleTool, Content: result, ToolCallID: aggregatedToolCalls[j].ID,
+						})
 						checkpointMsgs[assistantIdx].ToolCalls[j].Result = result
 						checkpointMsgs[assistantIdx].ToolCalls[j].State = "skipped"
 						sendEvent(ctx, ch, AgentEvent{
@@ -1526,8 +1443,9 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 								})
 							}
 							sendEvent(ctx, ch, AgentEvent{
-								Type:  "error",
-								Error: "auto snapshot failed, operation aborted: " + err.Error(),
+								Type:           "error",
+								Error:          "auto snapshot failed, operation aborted: " + err.Error(),
+								SnapshotFailed: true,
 							})
 							return
 						}
@@ -1627,10 +1545,13 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 						return
 					}
 
-					// 死循环检测：只有 frontend 之外的工具参与，且仅当本次调用失败或无返回
-					// （即“卡住反复重试”的真死循环特征）时才累加计数。
-					// 成功的工具调用一定产生了有用的副作用，不应计入。
-					doomLoop.record(tc.Function.Name, action, args, isErr || strings.TrimSpace(rawResult) == "")
+					warn, stop := doomLoop.record(registration, tc.Function.Name, action, args, rawResult, isErr)
+					loopWarning = loopWarning || warn
+					if stop {
+						loopStopped = true
+						skipRemainingTools(i+1, "Not executed: repetitive tool calls detected; the turn was interrupted.")
+						break
+					}
 				}
 				if len(roundAttachments) > 0 {
 					// 历史图片的文字分析仍保留在上下文中，只携带最近一轮图片，避免请求体随会话无限增长。
@@ -1640,20 +1561,24 @@ func AgentChat(ctx context.Context, client *util.AIClient, protocol, model, imag
 					messages = append(messages, attachmentMessage)
 				}
 
-				if doomLoop.count == doomLoopWarnThreshold {
-					warning := "You have called '" + doomLoop.prevName + "' " + fmt.Sprintf("%d", doomLoop.count) +
-						" times with the same action. Please try a different approach."
+				if loopWarning && !loopStopped {
+					warning := "Repeated tool calls returned the same result. Please try a different approach instead of repeating unchanged requests."
 					messages = append(messages, openai.ChatCompletionMessage{
 						Role:    openai.ChatMessageRoleSystem,
 						Content: warning,
 					})
 					checkpointMsgs = append(checkpointMsgs, AgentMessage{Role: "system", Content: warning})
 				}
-				if doomLoop.count >= doomLoopStopThreshold {
-					errMsg := "Repetitive tool calls detected: '" + doomLoop.prevName + "' called " + fmt.Sprintf("%d", doomLoop.count) + " times with the same action. Operation terminated."
+				if loopStopped {
+					errMsg := kernelModel.Conf.Language(471)
+					checkpointMsgs = append(checkpointMsgs, AgentMessage{Role: "assistant", Content: errMsg, RoundID: roundID + "_stop"})
+					turn.TokenBreakdown = computeBreakdownIfNeeded(model, requestMessages, requestTools, lastPromptTokens)
 					if !saveTurn("interrupted") {
 						return
 					}
+					sendEvent(ctx, ch, AgentEvent{Type: "thinking", Reasoning: "processing", RoundID: roundID + "_stop"})
+					sendEvent(ctx, ch, AgentEvent{Type: "content", Token: errMsg})
+					sendEvent(ctx, ch, AgentEvent{Type: "usage", PromptTokens: totalPrompt, CompletionTokens: totalCompletion, LastPromptTokens: lastPromptTokens, TokenBreakdown: turn.TokenBreakdown, CachedTokens: lastCachedTokens, ContextLimit: contextLimit})
 					sendEvent(ctx, ch, AgentEvent{Type: "error", Error: errMsg})
 					return
 				}
@@ -2280,7 +2205,38 @@ func buildSystemPrompt(language string, capabilities *capabilitySet, instruction
 }
 
 func buildUserMessageContent(userMessage string, references []Reference, editorCtx *EditorContext,
-	capabilities *capabilitySet) string {
+	capabilities *capabilitySet, history ...AgentMessage) string {
+	var blocks []Reference
+	var replacements []string
+	for _, ref := range references {
+		if ref.MessageID == "" {
+			blocks = append(blocks, ref)
+			continue
+		}
+		snapshot := ref.Title
+		for i := len(history) - 1; i >= 0; i-- {
+			message := &history[i]
+			if message.EntryID == ref.MessageID && message.Content == snapshot {
+				distance := 0
+				for _, later := range history[i:] {
+					if later.Role == message.Role {
+						distance++
+					}
+				}
+				preview := []rune(snapshot)
+				snapshot = fmt.Sprintf("the earlier %s message (%d back among %s messages)", message.Role, distance, message.Role)
+				if len(preview) > 60 {
+					snapshot += fmt.Sprintf(" beginning %q", string(preview[:60]))
+				}
+				break
+			}
+		}
+		replacements = append(replacements, "⟦"+ref.ID+"⟧", strconv.Quote(snapshot))
+	}
+	if len(replacements) > 0 {
+		userMessage = strings.NewReplacer(replacements...).Replace(userMessage)
+	}
+	references = blocks
 	if len(references) == 0 && editorCtx == nil {
 		return userMessage
 	}
@@ -2506,7 +2462,7 @@ func checkpointMessagesToOpenAIWithSummary(checkpointMsgs []AgentMessage, langua
 				Role: openai.ChatMessageRoleSystem, Content: cm.Content,
 			})
 		case "user":
-			content := buildUserMessageContent(cm.Content, cm.References, cm.EditorContext, capabilities)
+			content := buildUserMessageContent(cm.Content, cm.References, cm.EditorContext, capabilities, checkpointMsgs[:cmi]...)
 			if content == "" {
 				content = " "
 			}
@@ -2610,7 +2566,7 @@ func checkpointMessagesToOpenAIResponseInput(checkpointMsgs []AgentMessage, _ st
 				Type: "message", Role: openai.ChatMessageRoleSystem, Content: message.Content,
 			})
 		case "user":
-			content := buildUserMessageContent(message.Content, message.References, message.EditorContext, capabilities)
+			content := buildUserMessageContent(message.Content, message.References, message.EditorContext, capabilities, checkpointMsgs[:messageIndex]...)
 			if content == "" {
 				content = " "
 			}

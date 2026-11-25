@@ -2,6 +2,7 @@ import {saveUILayout} from "../config/util/resourceConfig";
 import {Constants} from "../constants";
 import {setStorageVal} from "../protyle/util/compatibility";
 import {getAllLayout, suspendLayoutSaving} from "../layout/util";
+import {refreshLayoutDocumentIcons} from "../layout/documentIcons";
 import {showMessage} from "../dialog/message";
 import {openInputDialog} from "../dialog/inputDialog";
 import {confirmDialog} from "../dialog/confirmDialog";
@@ -48,12 +49,16 @@ const editLayout = (layoutName?: string) => {
             }
             const hadName = window.siyuan.storage[Constants.LOCAL_LAYOUTS].find((item: SavedLayout) => {
                 if (item.name === value) {
-                    confirmDialog(window.siyuan.languages.save, window.siyuan.languages.exportTplTip, async () => {
-                        item.windowGeometry = await captureWindowGeometry() ?? item.windowGeometry;
-                        item.layout = getAllLayout();
-                        item.time = Date.now();
-                        item.filesPaths = window.siyuan.storage[Constants.LOCAL_FILESPATHS];
-                        setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+                    confirmDialog({
+                        title: window.siyuan.languages.save,
+                        text: window.siyuan.languages.exportTplTip,
+                        confirm: async () => {
+                            item.windowGeometry = await captureWindowGeometry() ?? item.windowGeometry;
+                            item.layout = getAllLayout();
+                            item.time = Date.now();
+                            item.filesPaths = window.siyuan.storage[Constants.LOCAL_FILESPATHS];
+                            setStorageVal(Constants.LOCAL_LAYOUTS, window.siyuan.storage[Constants.LOCAL_LAYOUTS]);
+                        },
                     });
                     return true;
                 }
@@ -85,6 +90,8 @@ const openLayout = async (name: string) => {
     const resumeLayoutSaving = await suspendLayoutSaving();
     let reloading = false;
     try {
+        const layout = structuredClone(item.layout);
+        await refreshLayoutDocumentIcons(layout.layout);
         await restoreWindowGeometry(item.windowGeometry).catch(console.error);
         if (item.filesPaths) {
             const previous = window.siyuan.storage[Constants.LOCAL_FILESPATHS];
@@ -96,7 +103,7 @@ const openLayout = async (name: string) => {
                 return;
             }
         }
-        await saveUILayout(item.layout, undefined, () => {
+        await saveUILayout(layout, undefined, () => {
             reloading = true;
             window.location.reload();
         });

@@ -13,13 +13,13 @@ const classList = () => {
         remove: (...names: string[]) => names.forEach(name => values.delete(name)), contains: (name: string) => values.has(name)};
 };
 
-test("opening flashcards preserves the expanded mobile layout and close guard", async () => {
-    type DialogOptions = ConstructorParameters<typeof import("../dialog/mobileDialog").MobileDialog>[0];
+test("flashcard review opens the mobile drawer at full height with a close guard", async () => {
+    type DialogOptions = ConstructorParameters<typeof import("../dialog/adaptiveDialog").AdaptiveDialog>[0];
     let options: DialogOptions;
     const stopped = new Error("Captured dialog options");
     const guard = () => false;
     const dependencies = new Proxy({
-        MobileDialog: class {constructor(value: DialogOptions) {options = value; throw stopped;}},
+        AdaptiveDialog: class {constructor(value: DialogOptions) {options = value; throw stopped;}},
         createMobileSecondaryEditorCloseGuard: () => guard,
         isMobile: () => true,
         Constants: {DIALOG_OPENCARD: "card"},
@@ -31,7 +31,7 @@ test("opening flashcards preserves the expanded mobile layout and close guard", 
     });
     await assert.rejects(openCardByData({plugins: []} as unknown as Parameters<typeof openCardByData>[0],
         {cards: []} as unknown as ICardData, "all"), error => error === stopped);
-    assert.equal(options.mobileSheet.mode, "expanded");
+    assert.equal(options.mobileSheet.initiallyExpanded, true);
     assert.equal(options.mobileSheet.beforeClose, guard);
 });
 
@@ -63,7 +63,7 @@ const createReview = async () => {
             name === "../util/functions" ? {isMobile: () => false} : {}}),
         Menu: class {addItem(item: IMenu) {menuItems.set(item.id, item);} addSeparator() {} fullscreen() {} open() {}},
         hasClosestByAttribute: (target: {type: string}, _name: string, value: string) => target.type === value ? target : null,
-        mobileInputDialog: (options: {onConfirm: typeof confirmDue}) => { confirmDue = options.onConfirm; },
+        openInputDialog: (options: {onConfirm: typeof confirmDue}) => { confirmDue = options.onConfirm; },
         onGet: (options: typeof renders[number]) => renders.push(options), hasFlashcardAnswer: () => true,
         forEachPluginSubscriber: () => {},
     }, {get: (target, key) => key in target ? Reflect.get(target, key) : () => {}});

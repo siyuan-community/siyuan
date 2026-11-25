@@ -10,6 +10,7 @@ import (
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/model"
 	"github.com/siyuan-community/siyuan/kernel/util"
+	"github.com/siyuan-note/logging"
 )
 
 func tagContracts(tags model.Tags) []*apicontract.TagData {
@@ -31,10 +32,11 @@ var getTag = contractHandler(apicontract.GetTag, func(c *gin.Context, request ap
 	if model.IsAdminRoleContext(c) && !model.IsReadOnlyRoleContext(c) {
 		model.UpdateTagConf(func(s *conf.Tag) { s.Sort = int(request.Sort) })
 	}
-	tags := model.BuildTags(request.IgnoreMaxListHint, request.App, int(request.Sort))
+	var visible func(string, string) bool
 	if model.IsReadOnlyRoleContext(c) {
-		tags = model.FilterTagsByPublishAccess(c, model.GetPublishAccess(), tags)
+		visible = model.TagPublishVisibility(c, model.GetPublishAccess())
 	}
+	tags := model.BuildTags(request.IgnoreMaxListHint, request.App, int(request.Sort), visible)
 	if tags == nil {
 		return apicontract.Success[[]*apicontract.TagData](nil)
 	}
@@ -42,8 +44,20 @@ var getTag = contractHandler(apicontract.GetTag, func(c *gin.Context, request ap
 })
 
 var renameTag = contractHandler(apicontract.RenameTag, func(c *gin.Context, request apicontract.RenameTagRequest) apicontract.Response[apicontract.Null] {
-	if err := model.RenameTag(request.OldLabel, request.NewLabel); err != nil {
+	tx, err := model.RenameTagWithTransaction(request.OldLabel, request.NewLabel)
+	if err != nil {
 		return apicontract.FailureWithTimeout[apicontract.Null](-1, err.Error(), 5000)
+	}
+	if len(tx.DoOperations) > 0 {
+		pushTransactions("", "", []*model.Transaction{tx})
+	}
+	return apicontract.Success(apicontract.Null{})
+})
+
+var reorderTag = contractHandler(apicontract.ReorderTag, func(_ *gin.Context, request apicontract.ReorderTagRequest) apicontract.Response[apicontract.Null] {
+	if err := model.ReorderTag(request.Label, request.Target, request.Position); err != nil {
+		logging.LogWarnf("reorder tag failed: %s", err)
+		return apicontract.FailureWithTimeout[apicontract.Null](-1, model.Conf.Language(258), 5000)
 	}
 	return apicontract.Success(apicontract.Null{})
 })

@@ -46,6 +46,8 @@ type syncCheckoutTask struct {
 	sentProgress         dejavu.CheckoutProgress
 	upserts, removes     map[string]*entity.File
 	beforePetals         []*Petal
+
+	previousNotebookConfs map[string][]byte
 }
 
 var activeSyncCheckout struct {
@@ -55,6 +57,13 @@ var activeSyncCheckout struct {
 
 var checkoutDiskUsage = util.GetDiskUsage
 
+func (task *syncCheckoutTask) indexContext(fallback context.Context) context.Context {
+	if task != nil {
+		return task.ctx
+	}
+	return fallback
+}
+
 // startSyncCheckout 将取消和字节进度绑定到这一轮同步，不影响其他仓库操作。
 func startSyncCheckout(repo *dejavu.Repo) *syncCheckoutTask {
 	activeSyncCheckout.Lock()
@@ -63,11 +72,25 @@ func startSyncCheckout(repo *dejavu.Repo) *syncCheckoutTask {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	task := &syncCheckoutTask{id: util.RandString(16), ctx: ctx, phase: "background", revision: syncCheckoutRevision.Add(1), cancel: cancel, done: make(chan struct{}), upserts: map[string]*entity.File{}, removes: map[string]*entity.File{}, beforePetals: getPetals()}
+	task := &syncCheckoutTask{
+		id: util.RandString(16), ctx: ctx, phase: "background", revision: syncCheckoutRevision.Add(1),
+		cancel: cancel, done: make(chan struct{}),
+		upserts: map[string]*entity.File{}, removes: map[string]*entity.File{},
+		beforePetals: getPetals(), previousNotebookConfs: map[string][]byte{},
+	}
 	activeSyncCheckout.task = task
 	activeSyncCheckout.Unlock()
 	repo.SetCheckoutHooks(dejavu.CheckoutHooks{
-		Context: ctx, Apply: task.prepareApply, Applied: task.completeApply, Before: checkCheckoutSpace, Cleaned: notifyCheckoutCleanup,
+		Context: ctx, Apply: task.prepareApply, Applied: task.completeApply, Cleaned: notifyCheckoutCleanup,
+		Before: func(files []*entity.File) error {
+			if err := checkCheckoutSpace(files); err != nil {
+				return err
+			}
+			task.Lock()
+			snapshotSyncNotebookConfs(files, task.previousNotebookConfs)
+			task.Unlock()
+			return nil
+		},
 		Preflight: syncDocumentPreflight(repo),
 		Progress: func(progress dejavu.CheckoutProgress) {
 			task.Lock()
@@ -166,7 +189,7 @@ func (task *syncCheckoutTask) push() {
 	}
 	msg := fmt.Sprintf(Conf.Language(432), path.Base(p.Path), p.Count, p.Total, checkoutBytes(p.Written), checkoutBytes(p.Size), checkoutBytes(int64(rate)), remaining)
 	task.message = msg
-	util.SetBootDetails(msg)
+	util.UpdateBootProgress(0, util.BootStageSyncing, p.Written, p.Size)
 	pushSyncStatusBar(msg)
 	task.broadcastLocked(0)
 	if time.Since(task.lastLog) >= 5*time.Second || task.lastLogPath != p.Path || (p.Written == p.Size && task.lastLogBytes != p.Written) {
@@ -233,13 +256,16 @@ func (task *syncCheckoutTask) finish(repo *dejavu.Repo, syncErr *error) {
 			changes.Removes = append(changes.Removes, file)
 		}
 		calcPetalDiff(task.beforePetals, changes)
-		processSyncMergeResult(false, true, changes, &dejavu.TrafficStat{}, "c", 0, true)
+		processSyncMergeResult(false, true, changes, &dejavu.TrafficStat{}, "c", 0, true, task.previousNotebookConfs)
 	}
 	if errors.Is(*syncErr, context.Canceled) {
 		msg := Conf.Language(433)
 		UpdateSyncConf(func(s *conf.Sync) { s.Stat = msg })
 		pushSyncStatusBar(msg)
-		util.PushMsg(msg, 10000)
+		notice := pushSyncNotice(msg, 0, 10000)
+		if msg != "" && allSyncErrorCauses(*syncErr, func(cause error) bool { return cause == context.Canceled }) {
+			*syncErr = notifiedSyncError{*syncErr, notice}
+		}
 	}
 	close(task.done)
 	task.worker.Wait()
